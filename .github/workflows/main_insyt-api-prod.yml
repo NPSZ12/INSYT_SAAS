@@ -13,17 +13,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate backend
-        working-directory: backend
+      - name: Validate backend files
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          test -f main.py
-          test -f app/main.py
+          ls -la backend
+          test -f backend/main.py
+          test -f backend/app/main.py
+          test -f backend/app/__init__.py
+          test -f backend/requirements.txt
 
-      - name: Deploy to Azure Web App
+      - name: Create ZIP from backend root
+        run: |
+          cd backend
+          zip -r ../release.zip . \
+            -x "*.pyc" \
+            -x "*/__pycache__/*" \
+            -x ".env" \
+            -x "*.db"
+
+      - name: Confirm ZIP contents
+        run: |
+          unzip -l release.zip | head -100
+          unzip -l release.zip | grep "main.py"
+          unzip -l release.zip | grep "app/main.py"
+          unzip -l release.zip | grep "requirements.txt"
+
+      - name: Deploy ZIP to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: insyt-api-prod
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: backend
+          package: release.zip
