@@ -21,18 +21,9 @@ jobs:
           test -f main.py
           test -f app/main.py
 
-      - name: Create deployment zip
-        working-directory: backend
-        run: |
-          zip -r ../release.zip . \
-            -x "*.pyc" \
-            -x "*/__pycache__/*" \
-            -x ".env" \
-            -x "*.db"
-
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: insyt-api-prod
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: release.zip
+          package: backend
