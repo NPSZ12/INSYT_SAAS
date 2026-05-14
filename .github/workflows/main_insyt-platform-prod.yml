@@ -50,17 +50,10 @@ jobs:
           name: python-app
           path: backend
 
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_866B77A1FFD1450E846932D32440C10A }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_19E5665D4A674CCE8FE869A354751521 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_4B09AB26155D430990222363A25193EB }}
-
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'insyt-api-prod'
-          slot-name: 'Production'
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: backend
           
