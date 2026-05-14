@@ -1,0 +1,38 @@
+[
+  {
+    "folder_id": "SSN1_00001",
+    "project_id": "Project_Timber",
+    "folder_name": "SSN1",
+    "search_type": "text",
+    "search_terms": [
+      "Social Security Number"
+    ],
+    "created_by": "admin",
+    "hit_count": 614,
+    "document_count": 614
+  },
+  {
+    "folder_id": "Boolean1_00002",
+    "project_id": "Project_Timber",
+    "folder_name": "Boolean1",
+    "search_type": "boolean",
+    "search_terms": [
+      "\"social security number\""
+    ],
+    "created_by": "admin",
+    "hit_count": 614,
+    "document_count": 614
+  },
+  {
+    "folder_id": "Cyber w/3 Discovery_00003",
+    "project_id": "Project_Timber",
+    "folder_name": "Cyber w/3 Discovery",
+    "search_type": "boolean",
+    "search_terms": [
+      "Cyber w/3 Discovery"
+    ],
+    "created_by": "reviewer1",
+    "hit_count": 0,
+    "document_count": 0
+  }
+]
