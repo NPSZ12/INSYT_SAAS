@@ -17,9 +17,23 @@ app = FastAPI(title="INSYT SaaS API")
 
 init_db()
 
+from fastapi.middleware.cors import CORSMiddleware
+
+allow_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+
+    "https://insyt360.com",
+    "https://www.insyt360.com",
+
+    "https://app.insyt360.com",
+    "https://portal.insyt360.com",
+    "https://media.insyt360.com",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
