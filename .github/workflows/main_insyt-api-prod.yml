@@ -13,15 +13,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate backend files
-        run: |
-          ls -la backend
-          test -f backend/main.py
-          test -f backend/app/main.py
-          test -f backend/app/__init__.py
-          test -f backend/requirements.txt
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Create ZIP from backend root
+      - name: Build backend package with dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          mkdir -p .python_packages/lib/site-packages
+          pip install --target .python_packages/lib/site-packages -r requirements.txt
+          test -f main.py
+          test -f app/main.py
+          test -f app/__init__.py
+
+      - name: Create deployment zip
         run: |
           cd backend
           zip -r ../release.zip . \
@@ -29,13 +36,6 @@ jobs:
             -x "*/__pycache__/*" \
             -x ".env" \
             -x "*.db"
-
-      - name: Confirm ZIP contents
-        run: |
-          unzip -l release.zip | head -100
-          unzip -l release.zip | grep "main.py"
-          unzip -l release.zip | grep "app/main.py"
-          unzip -l release.zip | grep "requirements.txt"
 
       - name: Deploy ZIP to Azure Web App
         uses: azure/webapps-deploy@v3
