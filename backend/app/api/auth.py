@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.models.user import User
-from app.services.security import verify_password
+from app.services.security import verify_password, create_access_token, get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
@@ -16,58 +16,51 @@ class LoginRequest(BaseModel):
     password: str
 
 
-@router.post("/login")
-def login(
-    payload: LoginRequest,
-    db: Session = Depends(get_db),
-):
-    user = (
-        db.query(User)
-        .filter(User.username == payload.username)
-        .first()
-    )
-    
-    print("LOGIN ATTEMPT:", payload.username)
-    print("USER FOUND:", bool(user))
+def serialize_user(user: User):
+    return {
+        "username": user.username,
+        "display_name": user.display_name,
+        "email": user.email,
+        "role": user.role,
+        "status": user.status,
+        "project_access": json.loads(user.project_access or "[]"),
+        "launches": json.loads(user.launches or "[]"),
+        "permissions": json.loads(user.permissions or "[]"),
+    }
 
-    if user:
-        print("USER STATUS:", user.status)
-        print("HASH START:", user.password_hash[:20])
+
+@router.post("/login")
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == payload.username).first()
 
     if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password",
-        )
+        raise HTTPException(status_code=401, detail="Invalid username or password")
 
     if user.status != "Active":
-        raise HTTPException(
-            status_code=403,
-            detail="User account is not active",
-        )
+        raise HTTPException(status_code=403, detail="User account is not active")
 
-    print("PASSWORD LENGTH:", len(payload.password))
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    if not verify_password(
-        payload.password,
-        user.password_hash,
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password",
-        )
+    token = create_access_token(
+        {
+            "sub": user.username,
+            "role": user.role,
+            "email": user.email,
+        }
+    )
 
     return {
         "status": "success",
-        "user": {
-            "username": user.username,
-            "display_name": user.display_name,
-            "email": user.email,
-            "role": user.role,
-            "status": user.status,
-            "project_access": json.loads(user.project_access or "[]"),
-            "launches": json.loads(user.launches or "[]"),
-            "permissions": json.loads(user.permissions or "[]"),
-        },
-        "token": "temporary-dev-token",
+        "user": serialize_user(user),
+        "access_token": token,
+        "token_type": "bearer",
+    }
+
+
+@router.get("/me")
+def me(current_user: User = Depends(get_current_user)):
+    return {
+        "status": "success",
+        "user": serialize_user(current_user),
     }
