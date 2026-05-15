@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 echo "Starting INSYT API..."
 cd /home/site/wwwroot
@@ -10,9 +9,10 @@ pwd
 echo "Files:"
 ls -la
 
-echo "Installing dependencies..."
-python -m pip install --upgrade pip
+export PYTHONPATH="/home/site/wwwroot"
+
+echo "Installing runtime dependencies if needed..."
 python -m pip install -r requirements.txt
 
-echo "Starting uvicorn..."
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+echo "Starting FastAPI..."
+exec python -m uvicorn main:app --host 0.0.0.0 --port 8000
