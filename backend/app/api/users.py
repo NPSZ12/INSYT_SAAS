@@ -1,6 +1,13 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
-from app.services.azure_user_store import load_users, save_users, find_user
+import json
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.database.connection import get_db
+from app.models.user import User
+from app.services.security import hash_password, require_admin
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
@@ -11,22 +18,26 @@ class UserCreateRequest(BaseModel):
     email: str = ""
     role: str
     password: str
-    project_access: list[str] = []
-    launches: list[str] = []
-    permissions: list[str] = []
-    
+    project_access: List[str] = Field(default_factory=list)
+    launches: List[str] = Field(default_factory=list)
+    permissions: List[str] = Field(default_factory=list)
+
+
 class UserUpdateRequest(BaseModel):
     username: str
     display_name: str
     email: str = ""
     role: str
+    status: str = "Active"
     password: str = ""
-    project_access: list[str] = []
-    launches: list[str] = []
-    permissions: list[str] = []
+    project_access: List[str] = Field(default_factory=list)
+    launches: List[str] = Field(default_factory=list)
+    permissions: List[str] = Field(default_factory=list)
+
 
 class UserDeleteRequest(BaseModel):
     username: str
+
 
 class PasswordResetRequest(BaseModel):
     username: str
@@ -39,16 +50,38 @@ class ProjectAccessRequest(BaseModel):
     allowed: bool
 
 
+def serialize_user(user: User):
+    return {
+        "username": user.username,
+        "display_name": user.display_name,
+        "email": user.email,
+        "role": user.role,
+        "status": user.status,
+        "project_access": json.loads(user.project_access or "[]"),
+        "launches": json.loads(user.launches or "[]"),
+        "permissions": json.loads(user.permissions or "[]"),
+    }
+
+
 @router.get("")
-def list_users():
-    return load_users()
+def list_users(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    users = db.query(User).order_by(User.username.asc()).all()
+    return {
+        "status": "success",
+        "users": [serialize_user(user) for user in users],
+    }
 
 
 @router.post("/create")
-def create_user(payload: UserCreateRequest):
-    users = load_users()
-
-    existing = find_user(payload.username)
+def create_user(
+    payload: UserCreateRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    existing = db.query(User).filter(User.username == payload.username).first()
 
     if existing:
         return {
@@ -56,74 +89,93 @@ def create_user(payload: UserCreateRequest):
             "message": "A user with this username already exists.",
         }
 
-    users.append({
-        "username": payload.username,
-        "display_name": payload.display_name,
-        "email": payload.email,
-        "role": payload.role,
-        "status": "Active",
-        "password": payload.password,
-        "project_access": payload.project_access,
-        "launches": payload.launches,
-        "permissions": payload.permissions,
-    })
+    user = User(
+        username=payload.username,
+        display_name=payload.display_name,
+        email=payload.email,
+        role=payload.role,
+        status="Active",
+        password_hash=hash_password(payload.password),
+        project_access=json.dumps(payload.project_access),
+        launches=json.dumps(payload.launches),
+        permissions=json.dumps(payload.permissions),
+    )
 
-    save_users(users)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
-    return {"status": "created", "user": payload.username}
+    return {
+        "status": "created",
+        "user": serialize_user(user),
+    }
+
 
 @router.post("/update")
-def update_user(payload: UserUpdateRequest):
-    users = load_users()
+def update_user(
+    payload: UserUpdateRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.username == payload.username).first()
 
-    for user in users:
-        if user["username"] == payload.username:
-            user["display_name"] = payload.display_name
-            user["email"] = payload.email
-            user["role"] = payload.role
-            user["project_access"] = payload.project_access
-            user["launches"] = payload.launches
-            user["permissions"] = payload.permissions
-
-            if payload.password:
-                user["password"] = payload.password
-
-            save_users(users)
-
-            return {
-                "status": "updated",
-                "user": payload.username,
-            }
-
-    return {"status": "not_found"}
-
-@router.post("/delete")
-def delete_user(payload: UserDeleteRequest):
-    users = load_users()
-
-    updated_users = [
-        user for user in users
-        if user["username"] != payload.username
-    ]
-
-    if len(updated_users) == len(users):
+    if not user:
         return {"status": "not_found"}
 
-    save_users(updated_users)
+    user.display_name = payload.display_name
+    user.email = payload.email
+    user.role = payload.role
+    user.status = payload.status
+    user.project_access = json.dumps(payload.project_access)
+    user.launches = json.dumps(payload.launches)
+    user.permissions = json.dumps(payload.permissions)
+
+    if payload.password:
+        user.password_hash = hash_password(payload.password)
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "status": "updated",
+        "user": serialize_user(user),
+    }
+
+
+@router.post("/delete")
+def delete_user(
+    payload: UserDeleteRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.username == payload.username).first()
+
+    if not user:
+        return {"status": "not_found"}
+
+    db.delete(user)
+    db.commit()
 
     return {
         "status": "deleted",
         "user": payload.username,
     }
 
+
 @router.post("/reset-password")
-def reset_password(payload: PasswordResetRequest):
-    user = find_user(payload.username)
+def reset_password(
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.username == payload.username).first()
 
     if not user:
         return {"status": "user_not_found"}
 
-    user["password"] = payload.new_password
+    user.password_hash = hash_password(payload.new_password)
+
+    db.commit()
 
     return {
         "status": "password_reset",
@@ -132,21 +184,31 @@ def reset_password(payload: PasswordResetRequest):
 
 
 @router.post("/project-access")
-def update_project_access(payload: ProjectAccessRequest):
-    for user in USERS:
-        if user["username"] == payload.username:
-            access = user["project_access"]
+def update_project_access(
+    payload: ProjectAccessRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.username == payload.username).first()
 
-            if payload.allowed and payload.project_id not in access:
-                access.append(payload.project_id)
+    if not user:
+        return {"status": "user_not_found"}
 
-            if not payload.allowed and payload.project_id in access:
-                access.remove(payload.project_id)
+    access = json.loads(user.project_access or "[]")
 
-            return {
-                "status": "updated",
-                "username": payload.username,
-                "project_access": access,
-            }
+    if payload.allowed and payload.project_id not in access:
+        access.append(payload.project_id)
 
-    return {"status": "user_not_found"}
+    if not payload.allowed and payload.project_id in access:
+        access.remove(payload.project_id)
+
+    user.project_access = json.dumps(access)
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "status": "updated",
+        "username": payload.username,
+        "project_access": access,
+    }
