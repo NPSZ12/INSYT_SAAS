@@ -21,6 +21,7 @@ if config.config_file_name is not None:
 from app.database.connection import Base
 from app.models.user import User
 from app.models.project import Project
+from app.models.job import Job
 
 target_metadata = Base.metadata
 
