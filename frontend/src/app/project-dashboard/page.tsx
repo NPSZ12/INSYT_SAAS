@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -7,7 +8,7 @@ import PageContainer from "../../components/PageContainer";
 import PageHeader from "../../components/PageHeader";
 import ContentCard from "../../components/ContentCard";
 
-export default function ProjectDashboardPage() {
+function ProjectDashboardPageContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project");
 
@@ -51,5 +52,13 @@ export default function ProjectDashboardPage() {
         </div>
       </PageContainer>
     </AppShell>
+  );
+}
+
+export default function ProjectDashboardPage() {
+  return (
+    <Suspense fallback={<div>Loading project dashboard...</div>}>
+      <ProjectDashboardPageContent />
+    </Suspense>
   );
 }
