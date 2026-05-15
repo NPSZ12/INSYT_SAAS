@@ -14,6 +14,7 @@ from app.api.search_folders import router as search_folders_router
 from app.api.files import router as files_router
 from app.database.init_db import init_db
 from app.services.security import get_current_user
+from app.api.jobs import router as jobs_router
 
 app = FastAPI(title="INSYT SaaS API")
 
@@ -53,6 +54,7 @@ app.include_router(timesheet_router, dependencies=protected_dependencies)
 app.include_router(messages_router, dependencies=protected_dependencies)
 app.include_router(search_folders_router, dependencies=protected_dependencies)
 app.include_router(files_router, dependencies=protected_dependencies)
+app.include_router(jobs_router, dependencies=protected_dependencies)
 
 
 @app.get("/")
