@@ -23,7 +23,7 @@ function LoginPageContent() {
       .then((response) => {
         localStorage.setItem("insyt_access_token", response.access_token);
         localStorage.setItem("insyt_user", JSON.stringify(response.user));
-        router.push(nextPath);
+        window.location.href = nextPath;
       })
       .catch(() => {
         setErrorMessage("Invalid username or password.");
