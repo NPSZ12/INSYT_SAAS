@@ -29,7 +29,7 @@ export default function Topbar() {
   }, []);
 
   function handleLogout() {
-    localStorage.removeItem("insyt_token");
+    localStorage.removeItem("insyt_access_token");
     localStorage.removeItem("insyt_user");
     router.push("/launcher");
   }

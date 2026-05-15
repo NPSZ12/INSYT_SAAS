@@ -14,7 +14,7 @@ export default function AuthGuard({
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("insyt_token");
+    const token = localStorage.getItem("insyt_access_token");
 
     if (!token) {
       router.push("/login");
