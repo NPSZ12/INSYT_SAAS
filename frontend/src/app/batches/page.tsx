@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -44,7 +44,7 @@ type StoredUser = {
   role: string;
 };
 
-export default function BatchesPage() {
+function BatchesPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -525,5 +525,13 @@ function ReviewerBatches({
         </div>
       </PageContainer>
     </AppShell>
+  );
+}
+
+export default function BatchesPage() {
+  return (
+    <Suspense fallback={<div>Loading batches...</div>}>
+      <BatchesPageContent />
+    </Suspense>
   );
 }
