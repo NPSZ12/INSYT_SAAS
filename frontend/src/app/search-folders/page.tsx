@@ -232,9 +232,9 @@ export default function SearchFoldersPage() {
                   <p className="text-white mb-2">Examples:</p>
                   <p>SSN1: <code>\\b\\d{3}-\\d{2}-\\d{4}\\b</code></p>
                   <p>SSN2: <code>{"[0-9]{3}-[0-9]{2}-[0-9]{4}"}</code></p>
-                  <p>DOB1: <code>\\b\\d{1,2}/\\d{1,2}/\\d{2,4}\\b</code></p>
+                  <p>DOB1: <code>{"\\b\\d{1,2}/\\d{1,2}/\\d{2,4}\\b"}</code></p>
                   <p>DOB2: <code>{"[0-9]{1,2}-[0-9]{1,2}-[0-9]{4}"}</code></p>
-                  <p>ZIP: <code>\\b\\d{5}(?:-\\d{4})?\\b</code></p>
+                  <p>ZIP: <code>{"\\b\\d{5}(?:-\\d{4})?\\b"}</code></p>
                 </div>
 
                 <p>
