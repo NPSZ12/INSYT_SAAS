@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -11,7 +12,7 @@ import Input from "../../components/Input";
 import TextArea from "../../components/TextArea";
 import FormLabel from "../../components/FormLabel";
 
-export default function MessagingPage() {
+function MessagingPageContent() {
   const searchParams = useSearchParams();
 
   const projectId = searchParams.get("project");
@@ -94,5 +95,13 @@ export default function MessagingPage() {
         </div>
       </PageContainer>
     </AppShell>
+  );
+}
+
+export default function MessagingPage() {
+  return (
+    <Suspense fallback={<div>Loading messages...</div>}>
+      <MessagingPageContent />
+    </Suspense>
   );
 }

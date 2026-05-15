@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "../../../components/AppShell";
@@ -15,7 +15,7 @@ import { apiGet } from "../../../lib/api";
 
 import type { ReviewDocument } from "../../../types";
 
-export default function ReviewPage() {
+function ReviewPageContent() {
   const searchParams = useSearchParams();
 
   const projectId = searchParams.get("project");
@@ -112,5 +112,13 @@ export default function ReviewPage() {
 
       </div>
     </AppShell>
+  );
+}
+
+export default function ReviewPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ReviewPageContent />
+    </Suspense>
   );
 }

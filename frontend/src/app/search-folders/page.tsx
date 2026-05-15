@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -36,7 +36,7 @@ type SearchHit = {
   tag: string;
 };
 
-export default function SearchFoldersPage() {
+function SearchFoldersPageContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project");
 
@@ -405,5 +405,13 @@ export default function SearchFoldersPage() {
 
       </PageContainer>
     </AppShell>
+  );
+}
+
+export default function SearchFoldersPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <SearchFoldersPageContent />
+    </Suspense>
   );
 }

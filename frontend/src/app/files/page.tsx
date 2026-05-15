@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -20,7 +20,7 @@ type ProjectFile = {
   last_modified: string;
 };
 
-export default function FilesPage() {
+function FilesPageContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project");
 
@@ -193,5 +193,13 @@ export default function FilesPage() {
         </div>
       </PageContainer>
     </AppShell>
+  );
+}
+
+export default function FilesPage() {
+  return (
+    <Suspense fallback={<div>Loading files...</div>}>
+      <FilesPageContent />
+    </Suspense>
   );
 }
