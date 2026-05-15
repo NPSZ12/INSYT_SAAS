@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -14,7 +14,7 @@ type CapturedEntitiesResponse = {
   rows: Record<string, string>[];
 };
 
-export default function CapturedEntitiesPage() {
+function CapturedEntitiesPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -131,5 +131,13 @@ export default function CapturedEntitiesPage() {
         </ContentCard>
       </PageContainer>
     </AppShell>
+  );
+}
+
+export default function CapturedEntitiesPage() {
+  return (
+    <Suspense fallback={<div>Loading captured entities...</div>}>
+      <CapturedEntitiesPageContent />
+    </Suspense>
   );
 }
