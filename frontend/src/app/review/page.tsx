@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -17,7 +17,7 @@ type BatchFile = {
   status: string;
 };
 
-export default function ReviewBatchLandingPage() {
+function ReviewBatchLandingPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -86,5 +86,12 @@ export default function ReviewBatchLandingPage() {
         </ContentCard>
       </PageContainer>
     </AppShell>
+  );
+}
+export default function ReviewBatchLandingPage() {
+  return (
+    <Suspense fallback={<div>Loading login...</div>}>
+      <ReviewBatchLandingPageContent />
+    </Suspense>
   );
 }

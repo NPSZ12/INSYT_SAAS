@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -9,7 +10,7 @@ import ContentCard from "../../components/ContentCard";
 import DataTable from "../../components/DataTable";
 import Button from "../../components/Button";
 
-export default function TimesheetPage() {
+function TimesheetPageContent() {
   const searchParams = useSearchParams();
 
   const projectId = searchParams.get("project");
@@ -82,3 +83,11 @@ export default function TimesheetPage() {
     </AppShell>
   );
 }
+export default function TimesheetPage() {
+  return (
+    <Suspense fallback={<div>Loading login...</div>}>
+      <TimesheetPageContent />
+    </Suspense>
+  );
+}
+
