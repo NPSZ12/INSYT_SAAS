@@ -1,28 +1,25 @@
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://api.insyt360.com";
 
-function getStoredUsername() {
+function getStoredToken() {
   if (typeof window === "undefined") {
     return "";
   }
 
-  const storedUser = localStorage.getItem("insyt_user");
-
-  if (!storedUser) {
-    return "";
-  }
-
-  try {
-    const user = JSON.parse(storedUser);
-    return user.username || "";
-  } catch {
-    return "";
-  }
+  return localStorage.getItem("insyt_access_token") || "";
 }
 
 export async function apiGet(path: string) {
+  const token = getStoredToken();
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
-      "X-Username": getStoredUsername(),
+      ...(token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : {}),
     },
   });
 
@@ -34,11 +31,17 @@ export async function apiGet(path: string) {
 }
 
 export async function apiPost(path: string, data: unknown) {
+  const token = getStoredToken();
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Username": getStoredUsername(),
+      ...(token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : {}),
     },
     body: JSON.stringify(data),
   });
