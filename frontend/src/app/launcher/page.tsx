@@ -11,25 +11,25 @@ export default function LauncherPage() {
       name: "INSYT Capture",
       description:
         "Protocol-driven breach and entity capture workflows.",
-      path: "/capture",
+      path: "/login?next=/capture",
     },
     {
       name: "INSYT Discovery",
       description:
         "eDiscovery processing, review, and production workflows.",
-      path: "/discovery",
+      path: "/login?next=/discovery",
     },
     {
       name: "INSYT Summaries",
       description:
         "Medical, deposition, and litigation summary workflows.",
-      path: "/summaries",
+      path: "/login?next=/summaries",
     },
     {
       name: "Developer",
       description:
         "Internal tools, configuration, and system utilities.",
-      path: "/developer",
+      path: "/login?next=/developer",
     },
   ];
 

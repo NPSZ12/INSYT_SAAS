@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import Button from "../../components/Button";
 import Input from "../../components/Input";
 import { apiPost } from "../../lib/api";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = searchParams.get("next") || "/launcher";
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -17,15 +19,11 @@ export default function LoginPage() {
   function handleLogin() {
     setErrorMessage("");
 
-    apiPost("/api/auth/login", {
-      username,
-      password,
-    })
+    apiPost("/api/auth/login", { username, password })
       .then((response) => {
         localStorage.setItem("insyt_access_token", response.access_token);
         localStorage.setItem("insyt_user", JSON.stringify(response.user));
-
-        router.push("/launcher");
+        router.push(nextPath);
       })
       .catch(() => {
         setErrorMessage("Invalid username or password.");
@@ -42,20 +40,11 @@ export default function LoginPage() {
         </p>
 
         <div className="mb-4">
-          <Input
-            placeholder="Username"
-            value={username}
-            onChange={setUsername}
-          />
+          <Input placeholder="Username" value={username} onChange={setUsername} />
         </div>
 
         <div className="mb-6">
-          <Input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={setPassword}
-          />
+          <Input type="password" placeholder="Password" value={password} onChange={setPassword} />
         </div>
 
         <Button fullWidth onClick={handleLogin}>
@@ -69,5 +58,13 @@ export default function LoginPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div>Loading login...</div>}>
+      <LoginPageContent />
+    </Suspense>
   );
 }
