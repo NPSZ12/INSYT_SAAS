@@ -8,6 +8,7 @@ from app.database.connection import get_db
 from app.models.job import Job
 from app.models.user import User
 from app.services.security import get_current_user
+from app.services.queue_service import enqueue_job
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
@@ -37,6 +38,11 @@ def create_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+    enqueue_job(
+        job_id=job.id,
+        job_type=job.job_type,
+        project_id=job.project_id,
+    )
 
     return {"status": "success", "job_id": job.id, "job": serialize_job(job)}
 
