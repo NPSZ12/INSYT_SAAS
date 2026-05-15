@@ -1,3 +1,5 @@
+"use client";
+
 import AppShell from "../../components/AppShell";
 import PageHeader from "../../components/PageHeader";
 import ContentCard from "../../components/ContentCard";
