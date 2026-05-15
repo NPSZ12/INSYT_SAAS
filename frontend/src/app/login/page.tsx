@@ -7,12 +7,8 @@ import Button from "../../components/Button";
 import Input from "../../components/Input";
 import { apiPost } from "../../lib/api";
 
-import { useSearchParams } from "next/navigation";
-
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const nextPath = searchParams.get("next") || "/launcher";
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -26,10 +22,10 @@ export default function LoginPage() {
       password,
     })
       .then((response) => {
-        localStorage.setItem("insyt_token", response.token);
+        localStorage.setItem("insyt_access_token", response.access_token);
         localStorage.setItem("insyt_user", JSON.stringify(response.user));
 
-        router.push(nextPath);
+        router.push("/launcher");
       })
       .catch(() => {
         setErrorMessage("Invalid username or password.");
@@ -39,9 +35,7 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
       <div className="w-full max-w-md bg-slate-900 p-8 rounded-2xl shadow-xl border border-slate-800">
-        <h1 className="text-3xl font-bold mb-2 text-center">
-          INSYT
-        </h1>
+        <h1 className="text-3xl font-bold mb-2 text-center">INSYT</h1>
 
         <p className="text-slate-400 text-center mb-8">
           Enterprise Review & Intelligence Platform
