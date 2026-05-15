@@ -1,0 +1,36 @@
+name: Deploy INSYT Frontend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build Next.js app
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE_URL: https://api.insyt360.com
+        run: npm run build
+
+      - name: Deploy Frontend to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: insyt-app-prod
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_INSYT_APP }}
+          package: frontend
