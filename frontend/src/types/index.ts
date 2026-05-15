@@ -9,9 +9,12 @@ export type Project = {
 export type User = {
   username: string;
   display_name: string;
+  email: string;
   role: string;
   status: string;
   project_access: string[];
+  launches: string[];
+  permissions: string[];
 };
 
 export type ReviewDocument = {
