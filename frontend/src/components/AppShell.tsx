@@ -1,6 +1,7 @@
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import AuthGuard from "./AuthGuard";
+import SessionTimeout from "./SessionTimeout";
 
 export default function AppShell({
   children,
@@ -9,6 +10,8 @@ export default function AppShell({
 }) {
   return (
     <AuthGuard>
+      <SessionTimeout />
+
       <main className="min-h-screen bg-slate-950 text-white flex">
         <Sidebar />
 

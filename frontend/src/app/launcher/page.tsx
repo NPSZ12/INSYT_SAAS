@@ -26,7 +26,7 @@ export default function LauncherPage() {
       path: "/login?next=/summaries",
     },
     {
-      name: "Developer",
+      name: "INSYT Developer",
       description:
         "Internal tools, configuration, and system utilities.",
       path: "/login?next=/developer",
@@ -37,10 +37,14 @@ export default function LauncherPage() {
     <main className="min-h-screen bg-slate-950 text-white p-10">
       <div className="mb-10">
         <h1 className="text-5xl font-bold">
-          INSYT Platform
+          INSYT360
         </h1>
 
-        <p className="text-slate-400 mt-3 text-lg">
+        <p className="text-slate-500 text-sm mt-2">
+          Powered by Cyber Discovery Solutions
+        </p>
+
+        <p className="text-slate-400 mt-4 text-lg">
           Select a workspace to continue.
         </p>
       </div>

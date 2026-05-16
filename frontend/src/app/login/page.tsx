@@ -33,7 +33,7 @@ function LoginPageContent() {
   return (
     <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
       <div className="w-full max-w-md bg-slate-900 p-8 rounded-2xl shadow-xl border border-slate-800">
-        <h1 className="text-3xl font-bold mb-2 text-center">INSYT</h1>
+        <h1 className="text-3xl font-bold mb-2 text-center">INSYT360</h1>
 
         <p className="text-slate-400 text-center mb-8">
           Enterprise Review & Intelligence Platform
