@@ -253,7 +253,7 @@ function SearchFoldersPageContent() {
 
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
                   <p className="text-white mb-2">Examples:</p>
-                  <p><code>Cyber w/3 Discovery</code></p>
+                  <p><code>Cyber w/3 Incident</code></p>
                   <p><code>passport AND visa</code></p>
                   <p><code>employee NOT contractor</code></p>
                   <p><code>"social security number"</code></p>

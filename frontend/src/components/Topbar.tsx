@@ -38,14 +38,14 @@ export default function Topbar() {
     <header className="relative h-16 bg-slate-950 border-b border-slate-800 px-8 flex items-center justify-between">
       <div className="flex items-center gap-4">
         <img
-          src="/logo.png"
+          src="/insyt_logo.png"
           alt="INSYT Logo"
           className="h-10 w-auto"
         />
 
         <div>
           <p className="text-sm text-slate-400">
-            Cyber Discovery Solutions
+            INSYT360™
           </p>
 
           <h2 className="text-lg font-semibold text-white">

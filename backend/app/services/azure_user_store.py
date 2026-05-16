@@ -7,8 +7,8 @@ USERS_BLOB_NAME = "_system/users.json"
 DEFAULT_USERS = [
     {
         "username": "admin",
-        "display_name": "CDS Admin",
-        "email": "admin@cyber-discovery.com",
+        "display_name": "INSYT Admin",
+        "email": "admin@insyt360.com",
         "role": "Admin",
         "status": "Active",
         "password": "password",

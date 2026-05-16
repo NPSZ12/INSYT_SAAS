@@ -22,7 +22,7 @@ def init_db():
             admin = User(
                 username="admin",
                 display_name="INSYT Admin",
-                email="admin@cyber-discovery.com",
+                email="admin@insyt360.com",
                 role="Admin",
                 status="Active",
                 password_hash=hash_password("password"),

@@ -19,7 +19,7 @@ def get_azure_projects(x_username: str = Header(default="")):
     if not user:
         return []
 
-    if user["role"] in ["CDS Admin", "RM", "TL", "QC"]:
+    if user["role"] in ["INSYT Admin", "RM", "TL", "QC"]:
         return all_projects
 
     allowed_projects = user.get("project_access", [])

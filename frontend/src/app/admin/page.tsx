@@ -123,7 +123,7 @@ export default function AdminPage() {
                   setNewUser({ ...newUser, role: value })
                 }
               >
-                <option>CDS Admin</option>
+                <option>INSYT Admin</option>
                 <option>RM</option>
                 <option>TL</option>
                 <option>QC</option>

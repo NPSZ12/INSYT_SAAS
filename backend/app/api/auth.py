@@ -54,7 +54,7 @@ def bootstrap_admin(
     if existing:
         existing.display_name = payload.display_name
         existing.email = payload.email
-        existing.role = "CDS Admin"
+        existing.role = "INSYT Admin"
         existing.status = "Active"
         existing.password_hash = hash_password(payload.password)
 
@@ -70,7 +70,7 @@ def bootstrap_admin(
         username=payload.username,
         display_name=payload.display_name,
         email=payload.email,
-        role="CDS Admin",
+        role="INSYT Admin",
         status="Active",
         password_hash=hash_password(payload.password),
         project_access="[]",

@@ -73,7 +73,7 @@ function BatchesPageContent() {
   }, []);
 
   const isAdmin =
-    user?.role === "CDS Admin" ||
+    user?.role === "INSYT Admin" ||
     user?.role === "RM" ||
     user?.role === "TL" ||
     user?.role === "QC";

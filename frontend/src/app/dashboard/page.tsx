@@ -32,7 +32,7 @@ export default function DashboardPage() {
           />
 
           <div className="bg-slate-900 px-5 py-3 rounded-xl border border-slate-800">
-            CDS Admin
+            INSYT Admin
           </div>
         </div>
 

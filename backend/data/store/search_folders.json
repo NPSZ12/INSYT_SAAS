@@ -24,12 +24,12 @@
     "document_count": 614
   },
   {
-    "folder_id": "Cyber w/3 Discovery_00003",
+    "folder_id": "Cyber w/3 Incident_00003",
     "project_id": "Project_Timber",
-    "folder_name": "Cyber w/3 Discovery",
+    "folder_name": "Cyber w/3 Incident",
     "search_type": "boolean",
     "search_terms": [
-      "Cyber w/3 Discovery"
+      "Cyber w/3 Incident"
     ],
     "created_by": "reviewer1",
     "hit_count": 0,

@@ -19,7 +19,7 @@ function MessagingPageContent() {
 
   const messages = [
     {
-      sender: "CDS Admin",
+      sender: "INSYT Admin",
       time: "Today at 9:15 AM",
       message: "Please prioritize Batch 001 and flag any illegible handwriting.",
     },

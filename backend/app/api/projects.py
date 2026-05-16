@@ -22,7 +22,7 @@ def list_projects():
         },
         {
             "name": "Medical Summary Demo",
-            "client": "CDS Internal",
+            "client": "INSYT Internal",
             "status": "Ready",
             "docs": "58",
             "qc": "100%",

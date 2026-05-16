@@ -17,7 +17,7 @@ export const projects: Project[] = [
   },
   {
     name: "Medical Summary Demo",
-    client: "CDS Internal",
+    client: "INSYT Internal",
     status: "Ready",
     docs: "58",
     qc: "100%",
@@ -29,7 +29,7 @@ export const users: User[] = [
     username: "Nathaniel",
     display_name: "Nathaniel Swearingen",
     email: "nathaniel@insyt360.com",
-    role: "CDS Admin",
+    role: "INSYT Admin",
     status: "Active",
     project_access: [],
     launches: [],
