@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -201,9 +202,13 @@ export default function Sidebar() {
 
   return (
     <aside className="w-72 bg-slate-900 border-r border-slate-800 p-6 min-h-screen">
-      <h1 className="text-3xl font-bold tracking-tight mb-10 text-white">
-        INSYT
-      </h1>
+      <Image
+        src="/insyt_logo.png"
+        alt="INSYT360"
+        width={220}
+        height={60}
+        priority
+      />
 
       <nav className="space-y-3">
         {navItems.map((item) => {

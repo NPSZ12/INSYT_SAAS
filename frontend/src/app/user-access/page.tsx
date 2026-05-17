@@ -57,7 +57,7 @@ export default function UserAccessPage() {
     password: "",
     role: "1L",
     project_access: [] as string[],
-    launches: ["INSYT™ Capture"] as string[],
+    launches: ["INSYT Capture"] as string[],
     permissions: [] as string[],
   });
 
@@ -67,8 +67,23 @@ export default function UserAccessPage() {
       .catch(console.error);
 
     apiGet("/api/azure-projects")
-      .then(setProjects)
-      .catch(console.error);
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setProjects(data);
+          return;
+        }
+
+        if (Array.isArray(data.projects)) {
+          setProjects(data.projects);
+          return;
+        }
+
+        setProjects([]);
+      })
+      .catch((error) => {
+        console.error("Failed to load Azure projects", error);
+        setProjects([]);
+      });
   }
 
   useEffect(() => {

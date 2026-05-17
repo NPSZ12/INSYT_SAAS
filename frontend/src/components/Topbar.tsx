@@ -36,23 +36,16 @@ export default function Topbar() {
 
   return (
     <header className="relative h-16 bg-slate-950 border-b border-slate-800 px-8 flex items-center justify-between">
-      <div className="flex items-center gap-4">
-        <img
-          src="/insyt_logo.png"
-          alt="INSYT Logo"
-          className="h-10 w-auto"
-        />
+      <div className="flex flex-col items-start leading-tight">
+        <p className="text-sm text-slate-400">
+          INSYT360™
+        </p>
 
-        <div>
-          <p className="text-sm text-slate-400">
-            INSYT360™
-          </p>
-
-          <h2 className="text-lg font-semibold text-white">
-            INSYT™ Capture
-          </h2>
-        </div>
+        <h2 className="text-xl font-bold text-white">
+          INSYT™ Capture
+        </h2>
       </div>
+
       {selectedProject && (
         <div className="absolute left-[42%] -translate-x-1/2 text-left">
           <p className="text-xs text-slate-500">
@@ -64,11 +57,24 @@ export default function Topbar() {
           </p>
         </div>
       )}
+
       <div className="flex items-center gap-4">
         <span className="text-sm text-slate-400">Environment: Local Dev</span>
 
         <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-sm text-white">
-          {user ? `${user.display_name} · ${user.role}` : "Loading..."}
+          {user ? (
+            <div className="leading-tight">
+              <p className="font-medium">
+                {user.display_name}
+              </p>
+
+              <p className="text-xs text-slate-400">
+                INSYT360
+              </p>
+            </div>
+          ) : (
+            "Loading..."
+          )}
         </div>
 
         <Button variant="secondary" onClick={handleLogout}>
