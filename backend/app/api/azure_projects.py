@@ -50,28 +50,7 @@ def get_azure_projects(
             "message": f"Unable to load Azure projects: {type(e).__name__}",
         }
 
-    if current_user.role in [
-        "INSYT Admin",
-        "CDS Admin",
-        "RM",
-        "TL",
-        "QC",
-    ]:
-        visible_projects = all_projects
-    else:
-        try:
-            import json
-
-            allowed_projects = json.loads(
-                current_user.project_access or "[]"
-            )
-        except Exception:
-            allowed_projects = []
-
-        visible_projects = [
-            project for project in all_projects
-            if project in allowed_projects
-        ]
+    visible_projects = all_projects
 
     return {
         "status": "success",

@@ -51,11 +51,11 @@ export default function LauncherPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
         {apps.map((app) => (
           <div
             key={app.name}
-            className="bg-slate-900 border border-slate-800 rounded-3xl p-8 hover:border-teal-500 transition min-h-[260px] flex flex-col justify-between shadow-xl"
+            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 hover:border-teal-500 transition min-h-[230px] flex flex-col justify-between shadow-xl"
           >
             <h2 className="text-3xl font-bold mb-4">
               {app.name}
