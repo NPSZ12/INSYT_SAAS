@@ -78,10 +78,11 @@ export default function UserAccessPage() {
           return;
         }
 
+        console.error("Unexpected projects response:", data);
         setProjects([]);
       })
       .catch((error) => {
-        console.error("Failed to load Azure projects", error);
+        console.error("Failed to load Azure projects:", error);
         setProjects([]);
       });
   }
@@ -292,7 +293,7 @@ export default function UserAccessPage() {
 
             <div>
               <h3 className="font-semibold mb-3">Projects</h3>
-              {projects.map((project) => (
+              {(projects || []).map((project) => (
                 <Checkbox
                   key={project}
                   label={project.replaceAll("_", " ")}

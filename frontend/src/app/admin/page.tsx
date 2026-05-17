@@ -201,7 +201,7 @@ export default function AdminPage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-4">
-                  {projects.map((project) => (
+                  {(projects || []).map((project) => (
                     <Checkbox
                       key={project.id}
                       label={project.name}

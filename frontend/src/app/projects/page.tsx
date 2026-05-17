@@ -19,7 +19,7 @@ export default function ProjectsPage() {
     apiGet("/api/azure-projects")
       .then((azureProjects: string[]) => {
         setProjects(
-          azureProjects.map((projectId) => ({
+          (azureProjects || []).map((projectId) => ({
             name: projectId.replaceAll("_", " "),
             client: "Azure Blob Project",
             status: "Active",
@@ -41,7 +41,7 @@ export default function ProjectsPage() {
         />
 
         <SectionGrid cols={3}>
-          {projects.map((project) => (
+          {(projects || []).map((project) => (
             <ProjectCard
               key={project.name}
               name={project.name}
