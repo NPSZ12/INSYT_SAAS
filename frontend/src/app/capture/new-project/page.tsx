@@ -232,12 +232,14 @@ export default function NewProjectPage() {
             localStorage.getItem("insyt_user") || "{}"
           );
 
-          const role = user?.role || "";
+          const role =
+            user?.role ||
+            user?.user_role ||
+            user?.access_level ||
+            "";
 
           const isAdmin =
-            role === "INSYT Admin" ||
-            role === "CDS Admin" ||
-            role === "Admin";
+            String(role).toLowerCase().includes("admin");
 
           if (!isAdmin) {
             setMessage(
@@ -364,7 +366,7 @@ export default function NewProjectPage() {
                 <input
                   type="file"
                   multiple
-                  className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-lime-50 file:px-4 file:py-2 file:text-slate-700 hover:file:bg-sky-500"
+                  className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-lime-50 file:px-4 file:py-2 file:text-slate-700 hover:file:bg-sky-500"
                   onChange={(event) => {
                     const files = event.target.files;
 
