@@ -130,7 +130,18 @@ export default function NewProjectPage() {
 
   function selectTemplate(templateName: string) {
     setSelectedTemplate(templateName);
-    setFieldSelections({});
+
+    const defaults: Record<string, "Text Capture" | "Tag" | ""> = {};
+
+    (protocolTemplates[templateName] || []).forEach((field) => {
+      const key = `${templateName}::${field.data_element}`;
+
+      defaults[key] = normalizeDefaultFormat(
+        field.default_format || ""
+      ) as "Text Capture" | "Tag" | "";
+    });
+
+    setFieldSelections(defaults);
   }
 
   function updateFieldSelection(
@@ -173,19 +184,27 @@ export default function NewProjectPage() {
     return selectedFields
       .filter((field) => {
         const key = `${selectedTemplate}::${field.data_element}`;
-        return fieldSelections[key];
+        const currentValue =
+          fieldSelections[key] ||
+          normalizeDefaultFormat(field.default_format || "");
+
+        return currentValue;
       })
       .map((field) => {
         const key = `${selectedTemplate}::${field.data_element}`;
+        const currentValue =
+          fieldSelections[key] ||
+          normalizeDefaultFormat(field.default_format || "");
 
         return {
           section: field.section || selectedTemplate,
           data_element: field.data_element,
-          format: fieldSelections[key] || field.default_format || "Text Capture",
+          format: currentValue || "Text Capture",
           notes: field.notes || "",
         };
       });
   }
+
   function saveProtocol() {
     if (!selectedProject) {
       setMessage("Select a project before saving a protocol.");
@@ -410,7 +429,12 @@ export default function NewProjectPage() {
                       {selectedFields.map((field) => {
                         const key = `${selectedTemplate}::${field.data_element}`;
 
+                        const currentValue =
+                          fieldSelections[key] ||
+                          normalizeDefaultFormat(field.default_format || "");
+
                         return (
+
                           <tr
                             key={key}
                             className="border-t border-slate-800 align-top"
@@ -438,7 +462,7 @@ export default function NewProjectPage() {
                                     )
                                   }
                                   className={
-                                    fieldSelections[key] === "Text Capture"
+                                    currentValue === "Text Capture"
                                       ? normalizeDefaultFormat(field.default_format || "") === "Text Capture"
                                         ? "bg-sky-100 text-sky-800 border border-sky-400 font-semibold px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
                                         : "bg-teal-500 text-slate-950 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
@@ -463,7 +487,7 @@ export default function NewProjectPage() {
                                     )
                                   }
                                   className={
-                                    fieldSelections[key] === "Tag"
+                                    currentValue === "Tag"
                                       ? normalizeDefaultFormat(field.default_format || "") === "Tag"
                                         ? "bg-violet-100 text-violet-800 border border-violet-400 font-semibold px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
                                         : "bg-teal-500 text-slate-950 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
@@ -485,7 +509,7 @@ export default function NewProjectPage() {
                                     updateFieldSelection(key, "")
                                   }
                                   className={
-                                    fieldSelections[key] === ""
+                                    currentValue === ""
                                       ? "bg-slate-600 text-white px-3 py-2 rounded-lg whitespace-nowrap"
                                       : "bg-slate-800 text-slate-300 px-3 py-2 rounded-lg hover:bg-slate-700 whitespace-nowrap"
                                   }

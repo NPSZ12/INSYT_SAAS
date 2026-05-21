@@ -40,6 +40,7 @@ function ClientsPageContent() {
       })
       .catch((error) => {
         console.error(error);
+        setClients([]);
         setMessage("Failed to load clients.");
       });
   }
