@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from app.services.protocol_service import load_protocol_fields
 from app.services.azure_blob_service import (
@@ -16,60 +16,67 @@ def get_current_review_document(
     project: str = "Project_Timber",
     batch: str = "Batch_001",
 ):
-    project_id = project
+    try:
+        project_id = project
 
-    protocol_fields = load_protocol_fields(project_id)
+        protocol_fields = load_protocol_fields(project_id)
 
-    files = list_project_files(project_id)
+        files = list_project_files(project_id)
 
-    text_files = [
-        file for file in files
-        if file["name"].lower().endswith(".txt")
-    ]
+        text_files = [
+            file for file in files
+            if file["name"].lower().endswith(".txt")
+        ]
 
-    if not text_files:
+        if not text_files:
+            return {
+                "project": project_id.replace("_", " "),
+                "project_id": project_id,
+                "batch": batch,
+                "doc_id": "No Text File",
+                "text": "No .txt files found in this Azure project.",
+                "fields": protocol_fields,
+            }
+
+        first_text_file = text_files[0]["name"]
+        text = read_blob_text(first_text_file)
+
+        doc_id = first_text_file.split("/")[-1].replace(".txt", "")
+
+        base_name = doc_id.lower()
+
+        pdf_files = [
+            file for file in files
+            if file["name"].lower().endswith(".pdf")
+        ]
+
+        matched_pdf = None
+
+        for file in pdf_files:
+            pdf_name = file["name"].split("/")[-1].lower().replace(".pdf", "")
+            if pdf_name == base_name:
+                matched_pdf = file["name"]
+                break
+
+        native_url = create_blob_read_url(matched_pdf) if matched_pdf else ""
+
         return {
             "project": project_id.replace("_", " "),
             "project_id": project_id,
             "batch": batch,
-            "doc_id": "No Text File",
-            "text": "No .txt files found in this Azure project.",
+            "doc_id": doc_id,
+            "blob_name": first_text_file,
+            "text": text,
             "fields": protocol_fields,
+            "native_url": native_url,
+            "native_blob": matched_pdf,
         }
 
-    first_text_file = text_files[0]["name"]
-    text = read_blob_text(first_text_file)
-
-    doc_id = first_text_file.split("/")[-1].replace(".txt", "")
-    
-    base_name = doc_id.lower()
-
-    pdf_files = [
-        file for file in files
-        if file["name"].lower().endswith(".pdf")
-    ]
-
-    matched_pdf = None
-
-    for file in pdf_files:
-        pdf_name = file["name"].split("/")[-1].lower().replace(".pdf", "")
-        if pdf_name == base_name:
-            matched_pdf = file["name"]
-            break
-
-    native_url = create_blob_read_url(matched_pdf) if matched_pdf else ""
-
-    return {
-        "project": project_id.replace("_", " "),
-        "project_id": project_id,
-        "batch": batch,
-        "doc_id": doc_id,
-        "blob_name": first_text_file,
-        "text": text,
-        "fields": protocol_fields,
-        "native_url": native_url,
-        "native_blob": matched_pdf,
-    }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Review load failed: {type(e).__name__}: {e}",
+        )
 
 class CaptureSaveRequest(BaseModel):
     project_id: str
