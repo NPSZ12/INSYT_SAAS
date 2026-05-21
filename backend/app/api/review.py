@@ -37,8 +37,9 @@ def get_current_review_document(
                 "fields": protocol_fields,
             }
 
-        first_text_file = text_files[0]["name"]
+        first_text_file = text_files[0]["path"]
         text = read_blob_text(first_text_file)
+
         doc_id = first_text_file.split("/")[-1].replace(".txt", "")
 
         base_name = doc_id.lower()
@@ -53,7 +54,7 @@ def get_current_review_document(
         for file in pdf_files:
             pdf_name = file["name"].split("/")[-1].lower().replace(".pdf", "")
             if pdf_name == base_name:
-                matched_pdf = file["name"]
+                matched_pdf = file["path"]
                 break
 
         native_url = create_blob_read_url(matched_pdf) if matched_pdf else ""
