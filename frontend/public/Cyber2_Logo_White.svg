@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432.77 310.07">
+  <defs>
+    <style>
+      .cls-1, .cls-2, .cls-3, .cls-4 {
+        stroke: #fff;
+        stroke-miterlimit: 10;
+      }
+
+      .cls-1, .cls-3 {
+        stroke-width: 3px;
+      }
+
+      .cls-1, .cls-4 {
+        fill: #fff;
+      }
+
+      .cls-2, .cls-3 {
+        fill: none;
+      }
+
+      .cls-4 {
+        font-family: NasalizationRg-Regular, Nasalization;
+        font-size: 99px;
+      }
+    </style>
+  </defs>
+  <rect class="cls-2" x="56.75" y="56.75" width="196.9" height="196.9" transform="translate(-64.29 155.2) rotate(-45)"/>
+  <g>
+    <rect class="cls-3" x="47.97" y="47.97" width="214.12" height="214.12" transform="translate(-64.22 155.04) rotate(-45)"/>
+    <path class="cls-1" d="M128.75,109.72v-.05h18.68v-27.63h-18.68c-40.31,0-73,32.68-73,73s32.68,73,73,73h18.68v-27.63h-18.68v-.05c-25.03,0-45.32-20.29-45.32-45.32s20.29-45.32,45.32-45.32Z"/>
+    <rect class="cls-3" x="46.91" y="46.91" width="216.25" height="216.25" transform="translate(-64.22 155.04) rotate(-45)"/>
+    <text class="cls-4" transform="translate(147.44 139.04)"><tspan x="0" y="0">2</tspan></text>
+  </g>
+</svg>

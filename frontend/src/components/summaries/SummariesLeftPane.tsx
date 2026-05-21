@@ -43,7 +43,7 @@ export default function SummariesLeftPane({
             onClick={() => onSelectDocument(doc)}
             className={
               selectedDocument.id === doc.id
-                ? "bg-teal-500 rounded p-2 cursor-pointer"
+                ? "bg-lime-50 rounded p-2 cursor-pointer"
                 : "bg-slate-800 rounded p-2 hover:bg-slate-700 cursor-pointer"
             }
           >

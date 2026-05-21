@@ -55,7 +55,7 @@ export default function SummariesRightPane({
           <button
             type="button"
             onClick={onSave}
-            className="bg-slate-700 hover:bg-teal-500 text-white rounded px-4 py-2 font-semibold"
+            className="bg-slate-700 hover:bg-lime-50 text-white rounded px-4 py-2 font-semibold"
           >
             Save
           </button>
@@ -63,7 +63,7 @@ export default function SummariesRightPane({
           <button
             type="button"
             onClick={onSaveAndNext}
-            className="bg-teal-500 hover:bg-teal-500 text-white rounded px-4 py-2 font-semibold"
+            className="bg-lime-50 hover:bg-lime-50 text-white rounded px-4 py-2 font-semibold"
           >
             Save & Next
           </button>

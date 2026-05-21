@@ -36,7 +36,7 @@ export default function SummariesCenterPane({
           <button
             className={`px-4 py-2 rounded ${
               !extractedMode
-                ? "bg-teal-500"
+                ? "bg-lime-50"
                 : "bg-slate-800"
             }`}
             onClick={() => setExtractedMode(false)}
@@ -47,7 +47,7 @@ export default function SummariesCenterPane({
           <button
             className={`px-4 py-2 rounded ${
               extractedMode
-                ? "bg-teal-500"
+                ? "bg-lime-50"
                 : "bg-slate-800"
             }`}
             onClick={() => setExtractedMode(true)}

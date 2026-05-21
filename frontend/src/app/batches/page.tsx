@@ -313,7 +313,7 @@ function BatchesPageContent() {
             onClick={() => setMode("review")}
             className={
               mode === "review"
-                ? "bg-teal-500 text-slate-700 rounded-2xl p-5 text-left"
+                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
                 : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
             }
           >
@@ -328,7 +328,7 @@ function BatchesPageContent() {
             onClick={() => setMode("qc")}
             className={
               mode === "qc"
-                ? "bg-teal-500 text-slate-700 rounded-2xl p-5 text-left"
+                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
                 : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
             }
           >
@@ -343,7 +343,7 @@ function BatchesPageContent() {
             onClick={() => setMode("alt")}
             className={
               mode === "alt"
-                ? "bg-teal-500 text-slate-700 rounded-2xl p-5 text-left"
+                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
                 : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
             }
           >

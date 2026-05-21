@@ -63,7 +63,7 @@ function ReviewPageContent() {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-md text-center">
 
             <img
-              src="/logo.png"
+              src="/insyt360.png"
               alt="INSYT Logo"
               className="mx-auto mb-6 h-20 w-auto"
             />

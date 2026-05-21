@@ -327,7 +327,7 @@ export default function NewProjectPage() {
                 <input
                   type="file"
                   multiple
-                  className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-teal-500 file:px-4 file:py-2 file:text-slate hover:file:bg-sky-500"
+                  className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-lime-50 file:px-4 file:py-2 file:text-slate hover:file:bg-sky-500"
                   onChange={(event) => {
                     const files = event.target.files;
 
@@ -465,7 +465,7 @@ export default function NewProjectPage() {
                                     currentValue === "Text Capture"
                                       ? normalizeDefaultFormat(field.default_format || "") === "Text Capture"
                                         ? "bg-sky-100 text-sky-800 border border-sky-400 font-semibold px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
-                                        : "bg-teal-500 text-slate-950 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
+                                        : "bg-lime-50 text-slate-950 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
                                       : "bg-slate-800 text-slate-300 px-3 py-2 rounded-lg hover:bg-slate-700 whitespace-nowrap flex items-center"
                                   }
                                 >
@@ -490,7 +490,7 @@ export default function NewProjectPage() {
                                     currentValue === "Tag"
                                       ? normalizeDefaultFormat(field.default_format || "") === "Tag"
                                         ? "bg-violet-100 text-violet-800 border border-violet-400 font-semibold px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
-                                        : "bg-teal-500 text-slate-950 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
+                                        : "bg-lime-50 text-slate-950 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
                                       : "bg-slate-800 text-slate-300 px-3 py-2 rounded-lg hover:bg-slate-700 whitespace-nowrap flex items-center"
                                   }
                                 >

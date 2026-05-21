@@ -74,7 +74,7 @@ export default function SummariesQcReviewPage() {
           <button
             type="button"
             onClick={exportQcSession}
-            className="bg-teal-500 hover:bg-teal-500 text-white rounded px-4 py-2 font-semibold"
+            className="bg-lime-50 hover:bg-lime-50 text-white rounded px-4 py-2 font-semibold"
           >
             Export QC Session
           </button>

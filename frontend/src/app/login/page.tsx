@@ -33,13 +33,24 @@ function LoginPageContent() {
   return (
     <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
       <div className="w-full max-w-md bg-slate-900 p-8 rounded-2xl shadow-xl border border-slate-800">
-        <h1 className="text-3xl font-bold mb-2 text-center flex items-end justify-center gap-0.5">
-          <span>INSYT</span>
+        
+        <div className="flex items-end justify-center gap-0.5 mb-2">
+          <span className="insyt-brand text-5xl font-bold text-white">
+            I
+          </span>
 
-          <span className="text-[0.72em] leading-none mb-[0.22em]">
+          <span className="insyt-brand text-5xl font-bold text-sky-700">
+            N
+          </span>
+
+          <span className="insyt-brand text-5xl font-bold text-white">
+            SYT
+          </span>
+
+          <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-700 font-bold">
             360
           </span>
-        </h1>
+        </div>
 
         <p className="text-slate-400 text-center mb-8">
           Enterprise Review & Intelligence Platform

@@ -195,7 +195,7 @@ function AdminPageContent() {
                     </p>
                   </div>
 
-                  <span className="text-xs bg-teal-500 px-3 py-1 rounded-full h-fit">
+                  <span className="text-xs bg-lime-50 px-3 py-1 rounded-full h-fit">
                     {user.status}
                   </span>
                 </div>

@@ -180,7 +180,7 @@ function DiscoveryBatchesPageContent() {
                 <button
                   type="button"
                   onClick={createBatch}
-                  className="bg-teal-500 hover:bg-teal-500 text-white rounded-xl px-4 py-3 font-semibold"
+                  className="bg-lime-50 hover:bg-lime-50 text-white rounded-xl px-4 py-3 font-semibold"
                 >
                   Create Batch
                 </button>
