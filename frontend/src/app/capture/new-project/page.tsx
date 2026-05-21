@@ -439,13 +439,16 @@ export default function NewProjectPage() {
                                   }
                                   className={
                                     fieldSelections[key] === "Text Capture"
-                                      ? "bg-teal-500 text-slate-700 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
+                                      ? normalizeDefaultFormat(field.default_format || "") === "Text Capture"
+                                        ? "bg-sky-100 text-sky-800 border border-sky-400 font-semibold px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
+                                        : "bg-teal-500 text-slate-950 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
                                       : "bg-slate-800 text-slate-300 px-3 py-2 rounded-lg hover:bg-slate-700 whitespace-nowrap flex items-center"
                                   }
                                 >
                                   Text Capture
+
                                   {normalizeDefaultFormat(field.default_format || "") === "Text Capture" && (
-                                    <span className="ml-2 text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">
+                                    <span className="ml-2 text-[10px] bg-sky-700 text-white px-2 py-0.5 rounded-full">
                                       Standard
                                     </span>
                                   )}
@@ -454,17 +457,23 @@ export default function NewProjectPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    updateFieldSelection(key, "Tag")
+                                    updateFieldSelection(
+                                      key,
+                                      "Tag"
+                                    )
                                   }
                                   className={
                                     fieldSelections[key] === "Tag"
-                                      ? "bg-purple-600 text-white px-3 py-2 rounded-lg"
-                                      : "bg-slate-800 text-slate-300 px-3 py-2 rounded-lg hover:bg-slate-700"
+                                      ? normalizeDefaultFormat(field.default_format || "") === "Tag"
+                                        ? "bg-violet-100 text-violet-800 border border-violet-400 font-semibold px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
+                                        : "bg-teal-500 text-slate-950 px-3 py-2 rounded-lg whitespace-nowrap flex items-center"
+                                      : "bg-slate-800 text-slate-300 px-3 py-2 rounded-lg hover:bg-slate-700 whitespace-nowrap flex items-center"
                                   }
                                 >
                                   Tag
+
                                   {normalizeDefaultFormat(field.default_format || "") === "Tag" && (
-                                    <span className="ml-2 text-[10px] bg-violet-950 text-violet-300 px-2 py-0.5 rounded-full">
+                                    <span className="ml-2 text-[10px] bg-violet-700 text-white px-2 py-0.5 rounded-full">
                                       Standard
                                     </span>
                                   )}
