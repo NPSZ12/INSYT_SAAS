@@ -1,10 +1,13 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.database.init_db import init_db
+from app.services.security import get_current_user
+
+from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.users import router as users_router
 from app.api.review import router as review_router
-from app.api.auth import router as auth_router
 from app.api.azure_projects import router as azure_projects_router
 from app.api.batches import router as batches_router
 from app.api.entities import router as entities_router
@@ -12,10 +15,24 @@ from app.api.timesheet import router as timesheet_router
 from app.api.messages import router as messages_router
 from app.api.search_folders import router as search_folders_router
 from app.api.files import router as files_router
-from app.database.init_db import init_db
-from app.services.security import get_current_user
 from app.api.jobs import router as jobs_router
 from app.api.capture_projects import router as capture_projects_router
+from app.api.protocol_templates import router as protocol_templates_router
+
+from app.api.summaries import router as summaries_router
+from app.api.summaries_batches import router as summaries_batches_router
+from app.api.capture_batches import router as capture_batches_router
+from app.api.capture_review_batches import router as capture_review_batches_router
+from app.api.summaries_review_batches import router as summaries_review_batches_router
+from app.api.workspace_projects import router as workspace_projects_router
+from app.api.discovery_batches import router as discovery_batches_router
+from app.api.cyber_utility import router as cyber_utility_router
+from app.api.capture_clients import router as capture_clients_router
+from app.api.workspace_protocols import router as workspace_protocols_router
+
+from app.routes import merge_dedupe
+from app.routes import tools_merge_dedupe
+
 
 app = FastAPI(title="INSYT SaaS API")
 
@@ -39,10 +56,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Public auth routes
 app.include_router(auth_router)
 
-# Protected app routes
 protected_dependencies = [Depends(get_current_user)]
 
 app.include_router(projects_router, dependencies=protected_dependencies)
@@ -57,6 +72,22 @@ app.include_router(search_folders_router, dependencies=protected_dependencies)
 app.include_router(files_router, dependencies=protected_dependencies)
 app.include_router(jobs_router, dependencies=protected_dependencies)
 app.include_router(capture_projects_router, dependencies=protected_dependencies)
+
+app.include_router(protocol_templates_router)
+app.include_router(summaries_router)
+app.include_router(summaries_batches_router)
+app.include_router(capture_batches_router)
+app.include_router(capture_review_batches_router)
+app.include_router(summaries_review_batches_router)
+app.include_router(workspace_projects_router)
+app.include_router(discovery_batches_router)
+app.include_router(cyber_utility_router)
+app.include_router(capture_clients_router)
+app.include_router(workspace_protocols_router)
+
+app.include_router(merge_dedupe.router)
+app.include_router(tools_merge_dedupe.router)
+
 
 @app.get("/")
 def root():

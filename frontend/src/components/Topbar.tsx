@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import {
+  useRouter,
+  usePathname,
+  useSearchParams,
+} from "next/navigation";
+
 import Button from "./Button";
 
 type StoredUser = {
@@ -10,77 +15,135 @@ type StoredUser = {
   role: string;
 };
 
+function getWorkspaceName(pathname: string) {
+  if (pathname.startsWith("/summaries")) {
+    return "INSYT Summaries";
+  }
+
+  if (pathname.startsWith("/discovery")) {
+    return "INSYT Discovery";
+  }
+
+  return "INSYT Capture";
+}
+
 export default function Topbar() {
   const router = useRouter();
-  const [user, setUser] = useState<StoredUser | null>(null);
-  const [selectedProject, setSelectedProject] = useState("");
+
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const [user, setUser] =
+    useState<StoredUser | null>(null);
+
+  /**
+   * IMPORTANT:
+   * Only use actual URL project selection.
+   * Do NOT use localStorage fallback here.
+   */
+  const selectedProject =
+    searchParams.get("project");
+
+  const workspaceName =
+    getWorkspaceName(pathname);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("insyt_user");
+    const storedUser =
+      localStorage.getItem("insyt_user");
 
     if (storedUser) {
       setUser(JSON.parse(storedUser));
-    }
-    const storedProject = localStorage.getItem("insyt_selected_project");
-
-    if (storedProject) {
-      setSelectedProject(storedProject);
     }
   }, []);
 
   function handleLogout() {
     localStorage.removeItem("insyt_access_token");
     localStorage.removeItem("insyt_user");
-    router.push("/launcher");
+    localStorage.removeItem("insyt_selected_project");
+
+    sessionStorage.clear();
+
+    router.push("/login");
   }
 
   return (
     <header className="relative h-16 bg-slate-950 border-b border-slate-800 px-8 flex items-center justify-between">
-      <div className="flex flex-col items-start leading-tight">
-        <p className="text-sm text-slate-400">
-          INSYT360™
-        </p>
 
-        <h2 className="text-xl font-bold text-white">
-          INSYT™ Capture
-        </h2>
+      {/* LEFT */}
+      <div className="flex flex-col items-start leading-tight">
+
+        <div className="text-xs uppercase tracking-[0.18em] text-slate-500 mb-1">
+          Workspace
+        </div>
+
+        <h1 className="insyt-workspace text-2xl font-bold">
+          <span className="text-white">I</span>
+          <span className="text-sky-700">N</span>
+          <span className="text-white">SYT</span>
+          <span className="text-sky-700">
+            {workspaceName.replace("INSYT", "")}
+          </span>
+        </h1>
+
       </div>
 
+      {/* CENTER */}
       {selectedProject && (
-        <div className="absolute left-[42%] -translate-x-1/2 text-left">
+        <div className="absolute left-1/2 -translate-x-1/2 text-center">
+
           <p className="text-xs text-slate-500">
             Selected Project
           </p>
 
-          <p className="text-2xl font-bold text-teal-400 tracking-wide">
+          <p className="insyt-project text-2xl font-bold text-sky-700 tracking-wide">
             {selectedProject.replaceAll("_", " ")}
           </p>
+
         </div>
       )}
 
+      {/* RIGHT */}
       <div className="flex items-center gap-4">
-        <span className="text-sm text-slate-400">Environment: Local Dev</span>
+
+        <span className="text-sm text-slate-400">
+          Environment: Local Dev
+        </span>
 
         <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-sm text-white">
           {user ? (
             <div className="leading-tight">
+
               <p className="font-medium">
                 {user.display_name}
               </p>
 
               <p className="text-xs text-slate-400">
-                INSYT360
+                {user.role}
               </p>
+
             </div>
           ) : (
             "Loading..."
           )}
         </div>
 
-        <Button variant="secondary" onClick={handleLogout}>
+        <Button
+          variant="secondary"
+          onClick={handleLogout}
+        >
           Logout
         </Button>
+
       </div>
+
     </header>
   );
 }
+
+
+
+
+
+
+
+

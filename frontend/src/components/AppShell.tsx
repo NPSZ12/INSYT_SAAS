@@ -1,25 +1,39 @@
+"use client";
+
+import { Suspense } from "react";
+
 import Sidebar from "./Sidebar";
+import ProjectSidebar from "./ProjectSidebar";
 import Topbar from "./Topbar";
-import AuthGuard from "./AuthGuard";
-import SessionTimeout from "./SessionTimeout";
 
-export default function AppShell({
-  children,
-}: {
+type AppShellProps = {
   children: React.ReactNode;
-}) {
+};
+
+function AppShellContent({ children }: AppShellProps) {
   return (
-    <AuthGuard>
-      <SessionTimeout />
+    <div className="min-h-screen bg-slate-950 text-white flex">
+      <Sidebar />
 
-      <main className="min-h-screen bg-slate-950 text-white flex">
-        <Sidebar />
+      <ProjectSidebar />
 
-        <section className="flex-1 min-h-screen">
-          <Topbar />
+      <div className="flex-1 min-w-0">
+        <Topbar />
+
+        <main>
           {children}
-        </section>
-      </main>
-    </AuthGuard>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+export default function AppShell({ children }: AppShellProps) {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AppShellContent>
+        {children}
+      </AppShellContent>
+    </Suspense>
   );
 }

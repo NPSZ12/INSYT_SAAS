@@ -66,7 +66,7 @@ export default function UserAccessPage() {
       .then(setUsers)
       .catch(console.error);
 
-    apiGet("/api/azure-projects")
+    apiGet("/api/azure-projects/")
       .then((data) => {
         if (Array.isArray(data)) {
           setProjects(data);
@@ -376,7 +376,7 @@ export default function UserAccessPage() {
                               [user.username]: event.target.checked,
                             })
                           }
-                          className="accent-teal-600"
+                          className="accent-sky-600"
                         />
                       </td>
 
@@ -420,3 +420,11 @@ export default function UserAccessPage() {
     </AppShell>
   );
 }
+
+
+
+
+
+
+
+

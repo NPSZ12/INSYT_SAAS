@@ -78,3 +78,14 @@ export default function CapturePage() {
     </AppShell>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

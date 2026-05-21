@@ -17,7 +17,7 @@ class EntityUnlinkRequest(BaseModel):
 class EntityDeleteRequest(BaseModel):
     entity_id: int
 
-@router.get("")
+@router.get("/")
 def list_entities(
     project: str,
     batch: str = "",

@@ -21,7 +21,7 @@ class SearchFolderRequest(BaseModel):
     search_terms: list[str]
 
 
-@router.get("")
+@router.get("/")
 def list_search_folders(project: str):
     return [
         folder for folder in SEARCH_FOLDERS

@@ -6,7 +6,7 @@ type PageHeaderProps = {
 export default function PageHeader({ title, subtitle }: PageHeaderProps) {
   return (
     <div className="mb-10">
-      <h1 className="text-4xl font-bold text-white">
+      <h1 className="insyt-workspace text-4xl font-bold text-white">
         {title}
       </h1>
 
@@ -16,3 +16,11 @@ export default function PageHeader({ title, subtitle }: PageHeaderProps) {
     </div>
   );
 }
+
+
+
+
+
+
+
+

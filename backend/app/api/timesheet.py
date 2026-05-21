@@ -10,7 +10,7 @@ class TimeRequest(BaseModel):
     project_id: str
 
 
-@router.get("")
+@router.get("/")
 def list_time(project: str, x_username: str = Header(default="")):
     return [
         entry for entry in TIME_ENTRIES

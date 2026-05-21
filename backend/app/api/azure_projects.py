@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.models.user import User
@@ -7,6 +9,7 @@ from app.services.azure_blob_service import (
     list_project_folders,
     list_project_files,
     read_blob_text,
+    get_container_client,
 )
 
 router = APIRouter(
@@ -37,7 +40,7 @@ def user_allowed_project(user: User, project_id: str) -> bool:
     return project_id in allowed_projects
 
 
-@router.get("")
+@router.get("/")
 def get_azure_projects(
     current_user: User = Depends(get_current_user),
 ):
@@ -57,6 +60,35 @@ def get_azure_projects(
         "projects": visible_projects,
     }
 
+@router.get("/debug")
+def debug_azure_projects():
+    container_name = os.getenv("AZURE_CAPTURE_CONTAINER")
+    conn = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+
+    try:
+        container = get_container_client()
+        blobs = []
+
+        for blob in container.list_blobs():
+            blobs.append(blob.name)
+            if len(blobs) >= 25:
+                break
+
+        return {
+            "container": container_name,
+            "has_connection_string": bool(conn),
+            "connection_string_account_hint": conn.split("AccountName=")[1].split(";")[0] if "AccountName=" in conn else None,
+            "blob_count_sample": len(blobs),
+            "sample_blobs": blobs,
+        }
+
+    except Exception as e:
+        return {
+            "container": container_name,
+            "has_connection_string": bool(conn),
+            "error_type": type(e).__name__,
+            "error": str(e),
+        }
 
 @router.get("/{project_id}/files")
 def get_project_files(
@@ -135,3 +167,23 @@ def get_project_sample_text(
             "text": "",
             "message": f"Unable to load sample text: {type(e).__name__}",
         }
+        
+@router.get("/clients")
+def get_capture_clients_compat(
+    current_user: User = Depends(get_current_user),
+):
+    projects = list_project_folders()
+
+    clients = sorted({
+        project.split("_")[0]
+        for project in projects
+        if project
+        and not project.startswith("_")
+        and project.lower() != "system"
+    })
+
+    return {
+        "status": "success",
+        "clients": clients,
+        "projects": projects,
+    }

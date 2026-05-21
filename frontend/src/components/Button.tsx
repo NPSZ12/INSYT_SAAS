@@ -15,7 +15,7 @@ export default function Button({
 }: ButtonProps) {
   const styles =
     variant === "primary"
-      ? "bg-teal-600 hover:bg-teal-500 text-white"
+      ? "bg-teal-500 hover:bg-sky-500 text-slate-700"
       : variant === "danger"
       ? "bg-red-600 hover:bg-red-500 text-white"
       : "border border-slate-700 hover:bg-slate-800 text-slate-200";
@@ -30,3 +30,11 @@ export default function Button({
     </button>
   );
 }
+
+
+
+
+
+
+
+

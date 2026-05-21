@@ -68,7 +68,7 @@ function ReviewPageContent() {
               className="mx-auto mb-6 h-20 w-auto"
             />
 
-            <div className="mx-auto mb-6 h-12 w-12 rounded-full border-4 border-slate-700 border-t-teal-500 animate-spin" />
+            <div className="mx-auto mb-6 h-12 w-12 rounded-full border-4 border-slate-700 border-t-sky-500 animate-spin" />
 
             <h1 className="text-2xl font-bold mb-2">
               Loading Review Workspace
@@ -122,3 +122,11 @@ export default function ReviewPage() {
     </Suspense>
   );
 }
+
+
+
+
+
+
+
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { apiGet } from "../../lib/api";
 
 import AppShell from "../../components/AppShell";
@@ -10,12 +10,12 @@ import ContentCard from "../../components/ContentCard";
 import PageContainer from "../../components/PageContainer";
 import SectionGrid from "../../components/SectionGrid";
 
-export default function DashboardPage() {
+function DashboardPageContent() {
 
   const [projectCount, setProjectCount] = useState("0");
 
   useEffect(() => {
-    apiGet("/api/azure-projects")
+    apiGet("/api/azure-projects/")
       .then((projects: string[]) => setProjectCount(String(projects.length)))
       .catch(console.error);
   }, []);
@@ -86,3 +86,18 @@ export default function DashboardPage() {
     </AppShell>
   );
 }
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div>Loading dashboard...</div>}>
+      <DashboardPageContent />
+    </Suspense>
+  );
+}
+
+
+
+
+
+
+

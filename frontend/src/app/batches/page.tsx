@@ -17,11 +17,22 @@ import { apiGet, apiPost } from "../../lib/api";
 
 type Batch = {
   project_id: string;
+
   batch_id: string;
+  batch_name?: string;
+
   name: string;
   status: string;
+
   documents: string;
-  checked_out_by: string;
+  document_count?: number;
+  doc_ids?: string[];
+
+  checked_out_by: string | null;
+
+  level?: string;
+  workflow_type?: string;
+  batch_size?: number;
 };
 
 type ProjectFile = {
@@ -59,6 +70,8 @@ function BatchesPageContent() {
 
   const [batchName, setBatchName] = useState("");
   const [docsPerBatch, setDocsPerBatch] = useState("20");
+  const [customDocsPerBatch, setCustomDocsPerBatch] = useState("");
+  const [level, setLevel] = useState("1L");
   const [selectedFolderId, setSelectedFolderId] = useState("");
   const [message, setMessage] = useState("");
 
@@ -81,8 +94,24 @@ function BatchesPageContent() {
   function loadBatches() {
     if (!projectId) return;
 
-    apiGet(`/api/batches?project=${projectId}`)
-      .then(setBatches)
+    apiGet(`/api/capture/projects/${projectId}/batches`)
+      .then((response) => {
+        const normalizedBatches = (response.batches || []).map((batch: any) => ({
+          project_id: batch.project_id,
+          batch_id: batch.batch_name || batch.batch_id,
+          name: batch.batch_name || batch.name,
+          status: batch.status,
+          documents: String(batch.document_count || batch.documents || 0),
+          document_count: batch.document_count,
+          checked_out_by: batch.checked_out_by || "",
+          level: batch.level || "1L",
+          workflow_type: batch.workflow_type || "standard",
+          batch_size: batch.batch_size,
+          doc_ids: batch.doc_ids || [],
+        }));
+
+        setBatches(normalizedBatches);
+      })
       .catch(console.error);
   }
 
@@ -97,7 +126,7 @@ function BatchesPageContent() {
   function loadSearchFolders() {
     if (!projectId) return;
 
-    apiGet(`/api/search-folders?project=${projectId}`)
+    apiGet(`/api/search-folders/?project=${projectId}`)
       .then(setSearchFolders)
       .catch(console.error);
   }
@@ -109,29 +138,41 @@ function BatchesPageContent() {
   }, [projectId]);
 
   function checkoutBatch(batchId: string) {
-    if (!projectId) return;
+    if (!projectId || !user) return;
 
-    apiPost("/api/batches/checkout", {
-      project_id: projectId,
-      batch_id: batchId,
+    apiPost(`/api/capture/projects/${projectId}/batches/checkout`, {
+      batch_name: batchId,
+      username: user.username,
     })
       .then((response) => {
-        setMessage(response.message || "Batch updated.");
+        setMessage(response.message || "Batch checked out.");
         loadBatches();
       })
-      .catch(() => setMessage("Batch checkout failed."));
+      .catch((error) => {
+        console.error(error);
+        setMessage("Batch checkout failed.");
+      });
   }
 
   function createReviewBatches() {
     if (!projectId) return;
 
-    apiPost("/api/batches/create-review", {
-      project_id: projectId,
-      batch_name: batchName,
-      docs_per_batch: Number(docsPerBatch),
+    apiPost(`/api/capture/projects/${projectId}/batches/create`, {
+      batch_size:
+        docsPerBatch === "Custom"
+          ? Number(customDocsPerBatch)
+          : Number(docsPerBatch),
+
+      level: "1L",
+
+      workflow_type: "standard",
+
+      created_by: user?.username || "admin",
+
+      search_folder_doc_ids: null,
     })
       .then((response) => {
-        setMessage(response.message || "Review batches created.");
+        setMessage(response.message || "Review batch created.");
         setBatchName("");
         loadBatches();
         loadFiles();
@@ -142,13 +183,22 @@ function BatchesPageContent() {
   function createQCBatches() {
     if (!projectId) return;
 
-    apiPost("/api/batches/create-qc", {
-      project_id: projectId,
-      batch_name: batchName,
-      docs_per_batch: Number(docsPerBatch),
+    apiPost(`/api/capture/projects/${projectId}/batches/create`, {
+      batch_size:
+        docsPerBatch === "Custom"
+          ? Number(customDocsPerBatch)
+          : Number(docsPerBatch),
+
+      level: "QC",
+
+      workflow_type: "standard",
+
+      created_by: user?.username || "admin",
+
+      search_folder_doc_ids: null,
     })
       .then((response) => {
-        setMessage(response.message || "QC batches created.");
+        setMessage(response.message || "QC batch created.");
         setBatchName("");
         loadBatches();
       })
@@ -158,11 +208,21 @@ function BatchesPageContent() {
   function createAltBatch() {
     if (!projectId || !selectedFolderId) return;
 
-    apiPost("/api/batches/create-alt", {
-      project_id: projectId,
-      folder_id: selectedFolderId,
-      batch_name: batchName,
-      docs_per_batch: Number(docsPerBatch),
+    apiPost(`/api/capture/projects/${projectId}/batches/create`, {
+      batch_size:
+        docsPerBatch === "Custom"
+          ? Number(customDocsPerBatch)
+          : Number(docsPerBatch),
+
+      level: "ALT Workflow",
+
+      workflow_type: "alt_workflow",
+
+      created_by: user?.username || "admin",
+
+      search_folder_doc_ids: [
+        `folder:${selectedFolderId}`,
+      ],
     })
       .then((response) => {
         setMessage(response.message || "Alt batch created.");
@@ -253,7 +313,7 @@ function BatchesPageContent() {
             onClick={() => setMode("review")}
             className={
               mode === "review"
-                ? "bg-teal-600 text-white rounded-2xl p-5 text-left"
+                ? "bg-teal-500 text-slate-700 rounded-2xl p-5 text-left"
                 : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
             }
           >
@@ -268,7 +328,7 @@ function BatchesPageContent() {
             onClick={() => setMode("qc")}
             className={
               mode === "qc"
-                ? "bg-teal-600 text-white rounded-2xl p-5 text-left"
+                ? "bg-teal-500 text-slate-700 rounded-2xl p-5 text-left"
                 : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
             }
           >
@@ -283,7 +343,7 @@ function BatchesPageContent() {
             onClick={() => setMode("alt")}
             className={
               mode === "alt"
-                ? "bg-teal-600 text-white rounded-2xl p-5 text-left"
+                ? "bg-teal-500 text-slate-700 rounded-2xl p-5 text-left"
                 : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
             }
           >
@@ -295,7 +355,7 @@ function BatchesPageContent() {
         </div>
 
         {message && (
-          <p className="text-sm text-teal-400 mb-6">
+          <p className="text-sm text-sky-700 mb-6">
             {message}
           </p>
         )}
@@ -306,6 +366,10 @@ function BatchesPageContent() {
               batchName={batchName}
               setBatchName={setBatchName}
               docsPerBatch={docsPerBatch}
+              customDocsPerBatch={customDocsPerBatch}
+              setCustomDocsPerBatch={setCustomDocsPerBatch}
+              level={level}
+              setLevel={setLevel}
               setDocsPerBatch={setDocsPerBatch}
               onCreate={createReviewBatches}
               buttonLabel="Create Review Batches"
@@ -342,6 +406,10 @@ function BatchesPageContent() {
               setBatchName={setBatchName}
               docsPerBatch={docsPerBatch}
               setDocsPerBatch={setDocsPerBatch}
+              customDocsPerBatch={customDocsPerBatch}
+              setCustomDocsPerBatch={setCustomDocsPerBatch}
+              level={level}
+              setLevel={setLevel}
               onCreate={createQCBatches}
               buttonLabel="Create QC Batches"
             />
@@ -377,6 +445,10 @@ function BatchesPageContent() {
               setBatchName={setBatchName}
               docsPerBatch={docsPerBatch}
               setDocsPerBatch={setDocsPerBatch}
+              customDocsPerBatch={customDocsPerBatch}
+              setCustomDocsPerBatch={setCustomDocsPerBatch}
+              level={level}
+              setLevel={setLevel}
               onCreate={createAltBatch}
               buttonLabel="Create Alt Batch"
             />
@@ -399,20 +471,34 @@ function BatchCreateControls({
   setBatchName,
   docsPerBatch,
   setDocsPerBatch,
+  customDocsPerBatch,
+  setCustomDocsPerBatch,
+  level,
+  setLevel,
   onCreate,
   buttonLabel,
 }: {
   batchName: string;
   setBatchName: (value: string) => void;
+
   docsPerBatch: string;
   setDocsPerBatch: (value: string) => void;
+
+  customDocsPerBatch: string;
+  setCustomDocsPerBatch: (value: string) => void;
+
+  level: string;
+  setLevel: (value: string) => void;
+
   onCreate: () => void;
   buttonLabel: string;
 }) {
   return (
-    <div className="grid grid-cols-3 gap-4 items-end">
+    <div className="grid grid-cols-4 gap-4 items-end">
+
       <div>
         <FormLabel>Batch Name Prefix</FormLabel>
+
         <Input
           value={batchName}
           onChange={setBatchName}
@@ -421,7 +507,8 @@ function BatchCreateControls({
       </div>
 
       <div>
-        <FormLabel>Docs Per Batch</FormLabel>
+        <FormLabel>Docs / Batch</FormLabel>
+
         <Select
           value={docsPerBatch}
           onChange={setDocsPerBatch}
@@ -431,12 +518,41 @@ function BatchCreateControls({
           <option value="10">10</option>
           <option value="20">20</option>
           <option value="50">50</option>
+          <option value="Custom">Custom</option>
+        </Select>
+      </div>
+
+      {docsPerBatch === "Custom" && (
+        <div>
+          <FormLabel>Custom Count</FormLabel>
+
+          <Input
+            value={customDocsPerBatch}
+            onChange={setCustomDocsPerBatch}
+            placeholder="Enter custom count"
+          />
+        </div>
+      )}
+
+      <div>
+        <FormLabel>Level</FormLabel>
+
+        <Select
+          value={level}
+          onChange={setLevel}
+        >
+          <option value="1L">1L</option>
+          <option value="QC">QC</option>
+          <option value="ALT Workflow">
+            ALT Workflow
+          </option>
         </Select>
       </div>
 
       <Button fullWidth onClick={onCreate}>
         {buttonLabel}
       </Button>
+
     </div>
   );
 }
@@ -463,7 +579,7 @@ function ReviewerBatches({
         />
 
         {message && (
-          <p className="text-sm text-teal-400 mb-6">
+          <p className="text-sm text-sky-700 mb-6">
             {message}
           </p>
         )}
@@ -475,13 +591,33 @@ function ReviewerBatches({
             const isCompleted = batch.status === "Completed";
 
             return (
-              <ContentCard key={batch.batch_id} title={batch.name}>
+              <ContentCard
+                key={batch.batch_id}
+                title={`${batch.name} (${batch.level || "1L"})`}
+              >
                 <div className="mb-4">
                   <StatusBadge>{batch.status}</StatusBadge>
                 </div>
 
                 <div className="space-y-2 text-slate-300 mb-6">
-                  <p>Documents: {batch.documents}</p>
+                  <p>
+                    Documents:{" "}
+                    {batch.document_count || batch.documents}
+                  </p>
+
+                  <p>
+                    Workflow:{" "}
+                    <span className="text-white">
+                      {batch.workflow_type || "standard"}
+                    </span>
+                  </p>
+
+                  <p>
+                    Level:{" "}
+                    <span className="text-white">
+                      {batch.level || "1L"}
+                    </span>
+                  </p>
 
                   <p>
                     Checked out by:{" "}
@@ -506,7 +642,7 @@ function ReviewerBatches({
                     variant="secondary"
                     onClick={() =>
                       router.push(
-                        `/review?project=${projectId}&batch=${batch.batch_id}`
+                        `/capture/review?project=${projectId}&batch=${batch.batch_id}`
                       )
                     }
                   >
@@ -535,3 +671,11 @@ export default function BatchesPage() {
     </Suspense>
   );
 }
+
+
+
+
+
+
+
+

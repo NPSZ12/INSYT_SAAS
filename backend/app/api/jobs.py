@@ -20,7 +20,7 @@ class JobCreateRequest(BaseModel):
     message: Optional[str] = None
 
 
-@router.post("")
+@router.post("/")
 def create_job(
     payload: JobCreateRequest,
     db: Session = Depends(get_db),
@@ -47,7 +47,7 @@ def create_job(
     return {"status": "success", "job_id": job.id, "job": serialize_job(job)}
 
 
-@router.get("")
+@router.get("/")
 def list_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

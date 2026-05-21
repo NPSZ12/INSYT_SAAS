@@ -2,6 +2,10 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 
+
+
+from app.services.azure_blob_service import list_project_folders
+
 from app.models.user import User
 from app.services.security import get_current_user
 from app.services.cds_storage_service import (
@@ -10,7 +14,7 @@ from app.services.cds_storage_service import (
     read_project_text_file,
 )
 
-router = APIRouter(prefix="/api/capture/projects", tags=["Capture Projects"])
+router = APIRouter(prefix="/api/capture", tags=["Capture"])
 
 
 def user_allowed_project(user: User, project_id: str) -> bool:
@@ -25,7 +29,7 @@ def user_allowed_project(user: User, project_id: str) -> bool:
     return project_id in allowed_projects
 
 
-@router.get("")
+@router.get("/")
 def get_capture_projects(
     current_user: User = Depends(get_current_user),
 ):
@@ -107,4 +111,21 @@ def get_capture_project_text(
         "project_id": project_id,
         "blob_name": blob_name,
         "text": text,
+    }
+    
+@router.get("/clients")
+def get_capture_clients(
+    current_user: User = Depends(get_current_user),
+):
+    projects = list_project_folders()
+
+    clients = sorted({
+        project.split("_")[0]
+        for project in projects
+        if project and not project.startswith("_") and project.lower() != "system"
+    })
+
+    return {
+        "status": "success",
+        "clients": clients,
     }

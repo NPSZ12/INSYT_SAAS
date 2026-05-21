@@ -33,7 +33,13 @@ function LoginPageContent() {
   return (
     <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
       <div className="w-full max-w-md bg-slate-900 p-8 rounded-2xl shadow-xl border border-slate-800">
-        <h1 className="text-3xl font-bold mb-2 text-center">INSYT360</h1>
+        <h1 className="text-3xl font-bold mb-2 text-center flex items-end justify-center gap-0.5">
+          <span>INSYT</span>
+
+          <span className="text-[0.72em] leading-none mb-[0.22em]">
+            360
+          </span>
+        </h1>
 
         <p className="text-slate-400 text-center mb-8">
           Enterprise Review & Intelligence Platform
@@ -44,7 +50,18 @@ function LoginPageContent() {
         </div>
 
         <div className="mb-6">
-          <Input type="password" placeholder="Password" value={password} onChange={setPassword} />
+          <Input
+            type="password"
+            placeholder="Password"
+            value={password} 
+            onChange={setPassword}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                handleLogin();
+              }
+            }}
+          />
+          
         </div>
 
         <Button fullWidth onClick={handleLogin}>
@@ -68,3 +85,11 @@ export default function LoginPage() {
     </Suspense>
   );
 }
+
+
+
+
+
+
+
+

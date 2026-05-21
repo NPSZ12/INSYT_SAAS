@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 338 72">
+  <!-- Generator: Adobe Illustrator 30.4.0, SVG Export Plug-In . SVG Version: 2.1.4 Build 226)  -->
+  <defs>
+    <style>
+      .st0, .st1 {
+        fill: #fff;
+      }
+
+      .st0, .st2 {
+        font-size: 72px;
+      }
+
+      .st1 {
+        font-size: 48px;
+      }
+
+      .st3 {
+        font-family: NasalizationRg-Regular, Nasalization;
+      }
+
+      .st2 {
+        fill: #64a2d3;
+        stroke: #64a2d3;
+        stroke-miterlimit: 10;
+      }
+    </style>
+  </defs>
+  <text class="st3" transform="translate(10.54 58.79)"><tspan class="st0" x="0" y="0">INS</tspan><tspan class="st2" x="134.13" y="0">Y</tspan><tspan class="st0" x="183.74" y="0">T</tspan><tspan class="st1" x="224.85" y="0">360</tspan></text>
+</svg>

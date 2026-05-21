@@ -272,7 +272,7 @@ function deleteEntity(entityId: number) {
                 name="documentCoding"
                 checked={documentCoding === option}
                 onChange={() => setDocumentCoding(option)}
-                className="accent-teal-600"
+                className="accent-sky-600"
               />
 
               <span>{option}</span>
@@ -308,7 +308,7 @@ function deleteEntity(entityId: number) {
               <button
                 type="button"
                 onClick={() => toggleSection(section)}
-                className="sticky top-0 z-20 w-full flex items-center justify-between px-4 py-3 text-left bg-teal-700 hover:bg-teal-600 transition border-b border-slate-800"
+                className="sticky top-0 z-20 w-full flex items-center justify-between px-4 py-3 text-left bg-teal-500 hover:bg-teal-500 border border-sky-700 transition border-b border-slate-800"
               >
               
                 <span className="font-semibold text-white">
@@ -505,3 +505,11 @@ function deleteEntity(entityId: number) {
     </aside>
   );
 }
+
+
+
+
+
+
+
+

@@ -20,7 +20,7 @@ export default function ProjectCard({
   onOpen,
 }: ProjectCardProps) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-teal-500 transition">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-sky-500 transition">
       <div className="flex justify-between items-start mb-6">
         <div>
           <h2 className="text-2xl font-semibold">{name}</h2>
@@ -50,3 +50,11 @@ export default function ProjectCard({
     </div>
   );
 }
+
+
+
+
+
+
+
+

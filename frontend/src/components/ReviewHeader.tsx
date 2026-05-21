@@ -40,7 +40,7 @@ export default function ReviewHeader({
         </p>
 
         {message && (
-          <p className="text-xs text-teal-400 mt-1">
+          <p className="text-xs text-sky-700 mt-1">
             {message}
           </p>
         )}
@@ -68,3 +68,11 @@ export default function ReviewHeader({
     </header>
   );
 }
+
+
+
+
+
+
+
+

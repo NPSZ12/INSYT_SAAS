@@ -18,9 +18,17 @@ export default function Checkbox({
         defaultChecked={checked === undefined ? defaultChecked : undefined}
         checked={checked}
         onChange={(event) => onChange?.(event.target.checked)}
-        className="accent-teal-600"
+        className="accent-sky-600"
       />
       <span>{label}</span>
     </label>
   );
 }
+
+
+
+
+
+
+
+

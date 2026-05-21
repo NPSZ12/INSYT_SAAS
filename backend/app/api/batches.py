@@ -24,7 +24,7 @@ class AltBatchCreateRequest(BaseModel):
     batch_name: str
     docs_per_batch: int
 
-@router.get("")
+@router.get("/")
 def list_batches(project: str, x_username: str = Header(default="")):
     return [b for b in BATCHES if b["project_id"] == project]
 

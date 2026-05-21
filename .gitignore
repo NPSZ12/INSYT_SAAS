@@ -1,40 +1,31 @@
 # Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-
-# Environment
-.env
-.env.*
-
-# Databases
-*.db
-*.sqlite3
-
-# Logs
-*.log
-
-# VSCode
-.vscode/
-
-# Python virtual envs
 venv/
-.venv/
+__pycache__/
+*.pyc
 
 # Node
 node_modules/
+.next/
 
-# OS
-.DS_Store
-Thumbs.db
+# Deploy artifacts
+*.zip
+deploy_frontend/
+deploy_standalone/
 
-# Azure
-.azure/
+# Azure/Kudu temp
+output.tar.zst
 
-# Build artifacts
-dist/
-build/
+# Local data
+backend/data/store/*.json
 
-# PyInstaller
-*.spec
+# Secrets
+backend/.env
+
+# Local DB
+*.db
+
+# Routes legacy
+backend/app/routes/
+
+# Temp commands
+STARTUP_COMMANDS.txt

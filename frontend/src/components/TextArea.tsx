@@ -17,7 +17,15 @@ export default function TextArea({
       value={value}
       onChange={(event) => onChange?.(event.target.value)}
       placeholder={placeholder}
-      className="w-full p-3 rounded-lg bg-slate-950 border border-slate-700 text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-500 resize-none overflow-y-auto"
+      className="w-full p-3 rounded-lg bg-slate-950 border border-slate-700 text-white placeholder:text-slate-500 focus:outline-none focus:border-sky-500 resize-none overflow-y-auto"
     />
   );
 }
+
+
+
+
+
+
+
+

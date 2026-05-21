@@ -16,19 +16,26 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
 
   useEffect(() => {
-    apiGet("/api/azure-projects")
-      .then((azureProjects: string[]) => {
+    apiGet("/api/azure-projects/")
+      .then((response) => {
+        console.log("AZURE PROJECTS RESPONSE:", response);
+
+        const azureProjects = response.projects ?? [];
+
         setProjects(
-          (azureProjects || []).map((projectId) => ({
+          azureProjects.map((projectId: string) => ({
             name: projectId.replaceAll("_", " "),
             client: "Azure Blob Project",
             status: "Active",
-            docs: "—",
-            qc: "—",
+            progress: 0,
+            openHref: `/capture/project-dashboard?project=${projectId}`,
           }))
         );
       })
-      .catch(console.error);
+      .catch((error) => {
+        console.error("Failed to load Azure projects:", error);
+        setProjects([]);
+      });
   }, []);
 
   return (
@@ -64,3 +71,11 @@ export default function ProjectsPage() {
     </AppShell>
   );
 }
+
+
+
+
+
+
+
+

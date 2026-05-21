@@ -30,9 +30,14 @@ def list_project_folders():
     project_names = set()
 
     for blob in container.list_blobs():
-        parts = blob.name.split("/")
+        name = blob.name.strip("/")
 
-        if len(parts) > 1:
+        if not name:
+            continue
+
+        parts = name.split("/")
+
+        if parts and parts[0]:
             project_names.add(parts[0])
 
     return sorted(project_names)
@@ -41,13 +46,26 @@ def list_project_folders():
 def list_project_files(project_id: str):
     container = get_container_client()
 
+    prefix = project_id.strip("/")
+
+    if prefix:
+        prefix = f"{prefix}/"
+
     files = []
 
-    for blob in container.list_blobs(name_starts_with=f"{project_id}/"):
+    for blob in container.list_blobs(name_starts_with=prefix):
+        name = blob.name
+
+        if name.endswith("/"):
+            continue
+
         files.append({
-            "name": blob.name,
-            "size": blob.size,
+            "name": name.split("/")[-1],
+            "path": name,
+            "project_id": project_id,
             "last_modified": blob.last_modified.isoformat() if blob.last_modified else None,
+            "size": blob.size,
+            "content_type": blob.content_settings.content_type if blob.content_settings else None,
         })
 
     return files

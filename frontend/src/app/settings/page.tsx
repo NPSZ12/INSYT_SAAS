@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense, useEffect, useState } from "react";
 import AppShell from "../../components/AppShell";
 import PageHeader from "../../components/PageHeader";
 import ContentCard from "../../components/ContentCard";
@@ -10,7 +11,7 @@ import Checkbox from "../../components/Checkbox";
 import PageContainer from "../../components/PageContainer";
 import SectionGrid from "../../components/SectionGrid";
 
-export default function SettingsPage() {
+function SettingsPageContent() {
   return (
     <AppShell>
       <PageContainer>
@@ -63,5 +64,21 @@ export default function SettingsPage() {
         </SectionGrid>
       </PageContainer>
     </AppShell>
+  );
+}
+
+
+
+
+
+
+
+
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }

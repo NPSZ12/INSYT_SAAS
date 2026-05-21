@@ -5,7 +5,7 @@ from app.services.azure_blob_service import list_project_files
 router = APIRouter(prefix="/api/files", tags=["Files"])
 
 
-@router.get("")
+@router.get("/")
 def list_files(project: str):
     files = list_project_files(project)
 

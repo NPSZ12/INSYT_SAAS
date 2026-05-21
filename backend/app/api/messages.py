@@ -11,7 +11,7 @@ class MessageCreateRequest(BaseModel):
     message: str
 
 
-@router.get("")
+@router.get("/")
 def list_messages(project: str):
     return [
         message for message in MESSAGES

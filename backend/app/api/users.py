@@ -63,7 +63,7 @@ def serialize_user(user: User):
     }
 
 
-@router.get("")
+@router.get("/")
 def list_users(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),

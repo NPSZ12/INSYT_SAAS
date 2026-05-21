@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import AppShell from "../../components/AppShell";
 import PageHeader from "../../components/PageHeader";
@@ -14,7 +14,7 @@ import Checkbox from "../../components/Checkbox";
 import { apiGet, apiPost } from "../../lib/api";
 import type { User } from "../../types";
 
-export default function AdminPage() {
+function AdminPageContent() {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUsername, setSelectedUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -195,7 +195,7 @@ export default function AdminPage() {
                     </p>
                   </div>
 
-                  <span className="text-xs bg-teal-600 px-3 py-1 rounded-full h-fit">
+                  <span className="text-xs bg-teal-500 px-3 py-1 rounded-full h-fit">
                     {user.status}
                   </span>
                 </div>
@@ -224,3 +224,17 @@ export default function AdminPage() {
     </AppShell>
   );
 }
+
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={<div>Loading admin...</div>}>
+      <AdminPageContent />
+    </Suspense>
+  );
+}
+
+
+
+
+

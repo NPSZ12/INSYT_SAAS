@@ -104,7 +104,7 @@ function CapturedEntitiesPageContent() {
                               className="p-3 sticky left-0 bg-slate-950 z-10 whitespace-nowrap"
                             >
                               <button
-                                className="text-teal-400 hover:text-teal-300 underline"
+                                className="text-sky-700 hover:text-sky-700 underline"
                                 onClick={() => openDocument(value)}
                               >
                                 {value || "Open Doc"}
@@ -141,3 +141,11 @@ export default function CapturedEntitiesPage() {
     </Suspense>
   );
 }
+
+
+
+
+
+
+
+

@@ -4,8 +4,16 @@ type StatusBadgeProps = {
 
 export default function StatusBadge({ children }: StatusBadgeProps) {
   return (
-    <span className="text-xs bg-teal-600 text-white px-3 py-1 rounded-full">
+    <span className="text-xs bg-teal-500 text-slate-700 px-3 py-1 rounded-full">
       {children}
     </span>
   );
 }
+
+
+
+
+
+
+
+
