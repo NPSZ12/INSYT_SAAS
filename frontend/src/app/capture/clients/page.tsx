@@ -34,7 +34,7 @@ function ClientsPageContent() {
   const [message, setMessage] = useState("");
 
   function loadClients() {
-    apiGet("/api/azure-projects/clients")
+    apiGet("/api/capture/clients")
       .then((response) => {
         setClients(response.clients || []);
       })

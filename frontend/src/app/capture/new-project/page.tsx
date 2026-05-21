@@ -216,7 +216,10 @@ export default function NewProjectPage() {
 
   const selectedFields =
     selectedTemplate
-      ? [...(customFields[selectedTemplate] || [])]
+      ? [
+          ...(protocolTemplates[selectedTemplate] || []),
+          ...(customFields[selectedTemplate] || []),
+        ]
       : [];
 
   return (
