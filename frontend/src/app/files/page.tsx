@@ -161,7 +161,7 @@ function FilesPageContent() {
                       key={file.blob_path}
                       className="border-t border-slate-800"
                     >
-                      <td className="p-3 text-sky-700 whitespace-nowrap">
+                      <td className="p-3 text-sky-400 whitespace-nowrap">
                         {file.doc_id}
                       </td>
 

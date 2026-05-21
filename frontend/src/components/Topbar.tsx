@@ -78,9 +78,9 @@ export default function Topbar() {
 
         <h1 className="insyt-workspace text-2xl font-bold">
           <span className="text-white">I</span>
-          <span className="text-sky-700">N</span>
+          <span className="text-sky-400">N</span>
           <span className="text-white">SYT</span>
-          <span className="text-sky-700">
+          <span className="text-sky-400">
             {workspaceName.replace("INSYT", "")}
           </span>
         </h1>
@@ -95,7 +95,7 @@ export default function Topbar() {
             Selected Project
           </p>
 
-          <p className="insyt-project text-2xl font-bold text-sky-700 tracking-wide">
+          <p className="insyt-project text-2xl font-bold text-sky-400 tracking-wide">
             {selectedProject.replaceAll("_", " ")}
           </p>
 

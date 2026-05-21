@@ -39,7 +39,7 @@ function LoginPageContent() {
             I
           </span>
 
-          <span className="insyt-brand text-5xl font-bold text-sky-700">
+          <span className="insyt-brand text-5xl font-bold text-sky-400">
             N
           </span>
 
@@ -47,7 +47,7 @@ function LoginPageContent() {
             SYT
           </span>
 
-          <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-700 font-bold">
+          <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-400 font-bold">
             360
           </span>
         </div>

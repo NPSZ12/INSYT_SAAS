@@ -15,11 +15,68 @@ import { apiGet } from "../../../lib/api";
 
 import type { ReviewDocument } from "../../../types";
 
+type ProtocolField = {
+  section: string;
+  data_element: string;
+  format?: string;
+  default_format?: string;
+  notes?: string;
+  source_sheet?: string;
+};
+
+type ProtocolResponse = {
+  has_protocol: boolean;
+  fields?: ProtocolField[];
+  protocol?: {
+    fields?: ProtocolField[];
+  };
+};
+
 function ReviewPageContent() {
   const searchParams = useSearchParams();
 
   const projectId = searchParams.get("project");
-  
+  const batchId = searchParams.get("batch");
+
+  const [reviewDoc, setReviewDoc] = useState<ReviewDocument | null>(null);
+  const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
+  const [protocolMessage, setProtocolMessage] = useState("");
+
+  useEffect(() => {
+    if (!projectId || !batchId) return;
+
+    apiGet(
+      `/api/review/current?project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(batchId)}`
+    )
+      .then(setReviewDoc)
+      .catch(console.error);
+  }, [projectId, batchId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    apiGet(`/api/capture/projects/${encodeURIComponent(projectId)}/protocol`)
+      .then((data: ProtocolResponse) => {
+        const fields = data.protocol?.fields || data.fields || [];
+
+        setProtocolFields(fields);
+
+        if (!data.has_protocol) {
+          setProtocolMessage("No saved protocol found for this project.");
+        } else if (fields.length === 0) {
+          setProtocolMessage("Saved protocol found, but no fields were parsed.");
+        } else {
+          setProtocolMessage("");
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load protocol fields", error);
+        setProtocolFields([]);
+        setProtocolMessage("Failed to load saved protocol fields.");
+      });
+  }, [projectId]);
 
   if (!projectId) {
     return (
@@ -33,41 +90,30 @@ function ReviewPageContent() {
     );
   }
 
-  const batchId = searchParams.get("batch");
   if (!batchId) {
-  return (
-    <AppShell>
-      <PageContainer>
-        <PageHeader
-          title="No Batch Selected"
-          subtitle="Please select a batch before starting review."
-        />
-      </PageContainer>
-    </AppShell>
-  );
-}
-
-  const [reviewDoc, setReviewDoc] =
-    useState<ReviewDocument | null>(null);
-
-  useEffect(() => {
-    apiGet(`/api/review/current?project=${projectId}&batch=${batchId}`)
-      .then(setReviewDoc)
-      .catch(console.error);
-  }, [projectId]);
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="No Batch Selected"
+            subtitle="Please select a batch before starting review."
+          />
+        </PageContainer>
+      </AppShell>
+    );
+  }
 
   if (!reviewDoc) {
     return (
       <AppShell>
         <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-md text-center">
-
             <div className="flex items-end justify-center gap-0.5 mb-6">
               <span className="insyt-brand text-5xl font-bold text-white">
                 I
               </span>
 
-              <span className="insyt-brand text-5xl font-bold text-sky-700">
+              <span className="insyt-brand text-5xl font-bold text-sky-400">
                 N
               </span>
 
@@ -75,7 +121,7 @@ function ReviewPageContent() {
                 SYT
               </span>
 
-              <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-700 font-bold">
+              <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-400 font-bold">
                 360
               </span>
             </div>
@@ -95,18 +141,38 @@ function ReviewPageContent() {
     );
   }
 
+  const fieldsForCapture =
+    protocolFields.length > 0
+      ? protocolFields.map((field) => ({
+          section: field.section || "General",
+          label: field.data_element,
+          type:
+            `${field.format || field.default_format || ""}`
+              .toLowerCase()
+              .includes("tag")
+              ? "tag"
+              : "text",
+          format: field.format || field.default_format || "",
+          notes: field.notes || "",
+        }))
+      : reviewDoc.fields || [];
+
   return (
     <AppShell>
       <div className="min-h-screen flex flex-col text-white">
-
         <ReviewHeader
           project={reviewDoc.project}
           batch={reviewDoc.batch}
           docId={reviewDoc.doc_id}
         />
 
-        <section className="flex-1 grid grid-cols-3 gap-4 p-4">
+        {protocolMessage && (
+          <div className="mx-4 mt-4 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
+            {protocolMessage}
+          </div>
+        )}
 
+        <section className="flex-1 grid grid-cols-3 gap-4 p-4">
           <ReviewDocumentPane
             text={reviewDoc.text}
             nativeUrl={reviewDoc.native_url}
@@ -117,11 +183,9 @@ function ReviewPageContent() {
             projectId={projectId}
             batchId={batchId}
             docId={reviewDoc.doc_id}
-            fields={reviewDoc.fields}
+            fields={fieldsForCapture}
           />
-
         </section>
-
       </div>
     </AppShell>
   );
@@ -134,11 +198,3 @@ export default function ReviewPage() {
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-

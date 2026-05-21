@@ -45,8 +45,10 @@ export default function ProjectSidebar() {
       ? "/discovery"
       : "/capture";
 
-  const projectQuery = `?project=${projectId}${
-    selectedBatch ? `&batch=${selectedBatch}` : ""
+  const encodedProjectId = encodeURIComponent(projectId);
+
+  const projectQuery = `?project=${encodedProjectId}${
+    selectedBatch ? `&batch=${encodeURIComponent(selectedBatch)}` : ""
   }`;
 
   const navItems: NavItem[] = [
@@ -136,7 +138,8 @@ export default function ProjectSidebar() {
 
       <nav className="space-y-2 overflow-y-auto pr-1 flex-1">
         {navItems.map((item) => {
-          const active = pathname === item.href.split("?")[0];
+          const itemPath = item.href.split("?")[0];
+          const active = pathname === itemPath;
           const Icon = item.icon;
 
           return (

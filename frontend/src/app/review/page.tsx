@@ -17,6 +17,22 @@ type BatchFile = {
   status: string;
 };
 
+type ProtocolField = {
+  section: string;
+  data_element: string;
+  format?: string;
+  default_format?: string;
+  notes?: string;
+};
+
+type ProtocolResponse = {
+  has_protocol: boolean;
+  fields?: ProtocolField[];
+  protocol?: {
+    fields?: ProtocolField[];
+  };
+};
+
 function ReviewBatchLandingPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -25,14 +41,43 @@ function ReviewBatchLandingPageContent() {
   const batchId = searchParams.get("batch");
 
   const [files, setFiles] = useState<BatchFile[]>([]);
+  const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
+  const [protocolMessage, setProtocolMessage] = useState("");
 
   useEffect(() => {
     if (!projectId || !batchId) return;
 
-    apiGet(`/api/batches/files?project=${projectId}&batch=${batchId}`)
+    apiGet(
+      `/api/batches/files?project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(batchId)}`
+    )
       .then(setFiles)
       .catch(console.error);
   }, [projectId, batchId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    apiGet(`/api/capture/projects/${encodeURIComponent(projectId)}/protocol`)
+      .then((data: ProtocolResponse) => {
+        const fields = data.protocol?.fields || data.fields || [];
+
+        setProtocolFields(fields);
+
+        if (!data.has_protocol) {
+          setProtocolMessage("No saved protocol found for this project.");
+        } else if (fields.length === 0) {
+          setProtocolMessage("Saved protocol found, but no fields were parsed.");
+        } else {
+          setProtocolMessage(`${fields.length} protocol fields loaded.`);
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+        setProtocolMessage("Failed to load saved protocol.");
+      });
+  }, [projectId]);
 
   if (!projectId || !batchId) {
     return (
@@ -65,7 +110,9 @@ function ReviewBatchLandingPageContent() {
           <Button
             onClick={() =>
               router.push(
-                `/review/doc?project=${projectId}&batch=${batchId}`
+                `/capture/review/doc?project=${encodeURIComponent(
+                  projectId
+                )}&batch=${encodeURIComponent(batchId)}`
               )
             }
           >
@@ -73,34 +120,34 @@ function ReviewBatchLandingPageContent() {
           </Button>
         </div>
 
-        <ContentCard title="Batch Documents">
-          {files.length === 0 ? (
-            <p className="text-slate-500">
-              No documents found for this batch.
-            </p>
-          ) : (
-            <div className="max-h-[45vh] overflow-auto">
-              <DataTable columns={columns} data={files} />
-            </div>
-          )}
+        <ContentCard title="Protocol Status">
+          <p className="text-sm text-slate-300">
+            {protocolMessage || "Checking saved protocol..."}
+          </p>
         </ContentCard>
+
+        <div className="mt-6">
+          <ContentCard title="Batch Documents">
+            {files.length === 0 ? (
+              <p className="text-slate-500">
+                No documents found for this batch.
+              </p>
+            ) : (
+              <div className="max-h-[45vh] overflow-auto">
+                <DataTable columns={columns} data={files} />
+              </div>
+            )}
+          </ContentCard>
+        </div>
       </PageContainer>
     </AppShell>
   );
 }
+
 export default function ReviewBatchLandingPage() {
   return (
-    <Suspense fallback={<div>Loading login...</div>}>
+    <Suspense fallback={<div>Loading review...</div>}>
       <ReviewBatchLandingPageContent />
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-
-

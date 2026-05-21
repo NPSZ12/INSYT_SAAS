@@ -39,7 +39,7 @@ export default function LauncherPage() {
               I
             </span>
 
-            <span className="insyt-brand text-5xl font-bold text-sky-700">
+            <span className="insyt-brand text-5xl font-bold text-sky-400">
               N
             </span>
 
@@ -47,7 +47,7 @@ export default function LauncherPage() {
               SYT
             </span>
 
-            <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-700 font-bold">
+            <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-400 font-bold">
               360
             </span>
           </div>
@@ -83,9 +83,9 @@ export default function LauncherPage() {
           >
             <h2 className="insyt-workspace text-3xl font-bold mb-4">
               <span className="text-white">I</span>
-              <span className="text-sky-700">N</span>
+              <span className="text-sky-400">N</span>
               <span className="text-white">SYT</span>
-              <span className="text-sky-700">
+              <span className="text-sky-400">
                 {app.name.replace("INSYT", "")}
               </span>
             </h2>

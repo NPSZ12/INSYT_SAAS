@@ -193,7 +193,7 @@ function SearchFoldersPageContent() {
             </Button>
 
             {message && (
-              <p className="text-sm text-sky-700 mt-4">
+              <p className="text-sm text-sky-400 mt-4">
                 {message}
               </p>
             )}
@@ -313,7 +313,7 @@ function SearchFoldersPageContent() {
                         <button
                           type="button"
                           onClick={() => openFolder(folder)}
-                          className="flex items-center gap-2 text-sky-700 hover:text-sky-700 underline"
+                          className="flex items-center gap-2 text-sky-400 hover:text-sky-400 underline"
                         >
                           <FolderOpen size={16} />
                           {folder.folder_id}
@@ -378,7 +378,7 @@ function SearchFoldersPageContent() {
                           key={`${hit.doc_id}-${hit.term}-${index}`}
                           className="border-t border-slate-800"
                         >
-                          <td className="p-3 text-sky-700">
+                          <td className="p-3 text-sky-400">
                             {hit.doc_id}
                           </td>
 

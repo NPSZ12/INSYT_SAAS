@@ -253,7 +253,7 @@ function UserAccessPageContent() {
           subtitle="Manage launch access, user levels, project permissions, passwords, and security rights."
         />
         {message && (
-          <p className="text-sm text-sky-700 mb-6">
+          <p className="text-sm text-sky-400 mb-6">
             {message}
           </p>
         )}

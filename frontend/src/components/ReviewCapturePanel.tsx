@@ -8,7 +8,6 @@ import TextArea from "./TextArea";
 import FormLabel from "./FormLabel";
 import Checkbox from "./Checkbox";
 
-
 type CaptureField = {
   section: string;
   label: string;
@@ -45,8 +44,21 @@ export default function ReviewCapturePanel({
   const [furtherReviewReason, setFurtherReviewReason] = useState("");
 
   useEffect(() => {
+    const initialOpenState: Record<string, boolean> = {};
+
+    fields.forEach((field) => {
+      const section = field.section || "General";
+      initialOpenState[section] = false;
+    });
+
+    setOpenSections(initialOpenState);
+  }, [fields]);
+
+  useEffect(() => {
     apiGet(
-      `/api/entities/document?project=${projectId}&batch=${batchId}&doc=${encodeURIComponent(docId)}`
+      `/api/entities/document?project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(batchId)}&doc=${encodeURIComponent(docId)}`
     )
       .then((entities) => {
         setLinkedEntities(
@@ -54,12 +66,31 @@ export default function ReviewCapturePanel({
             id: entity.id ?? index + 1,
             docId: entity.doc_id,
             linked: entity.linked ?? true,
-            values: entity.values,
+            values: entity.values || {},
           }))
         );
       })
       .catch(console.error);
   }, [projectId, batchId, docId]);
+
+  function normalizeFieldType(field: CaptureField) {
+    const typeText = `${field.type || ""} ${field.format || ""}`.toLowerCase();
+
+    if (
+      typeText.includes("tag") ||
+      typeText.includes("checkbox") ||
+      typeText.includes("boolean") ||
+      typeText.includes("yes/no")
+    ) {
+      return "tag";
+    }
+
+    if (typeText.includes("textarea") || typeText.includes("long text")) {
+      return "textarea";
+    }
+
+    return "text";
+  }
 
   function updateValue(label: string, value: string | boolean) {
     setValues((current) => ({
@@ -80,43 +111,33 @@ export default function ReviewCapturePanel({
   }
 
   function validateDocumentCoding() {
+    const linkedOnly = linkedEntities.filter((entity) => entity.linked);
+
     if (!documentCoding) {
       setMessage("Document Coding selection is required.");
       return false;
     }
 
-  if (
-    documentCoding === "Not Responsive" &&
-    linkedEntities.length > 0
-  ) {
-    setMessage(
-      "Not Responsive documents cannot contain linked entities."
-    );
-    return false;
-  }
+    if (documentCoding === "Not Responsive" && linkedOnly.length > 0) {
+      setMessage("Not Responsive documents cannot contain linked entities.");
+      return false;
+    }
 
-  if (
-    documentCoding === "Responsive" &&
-    linkedEntities.length === 0
-  ) {
-    setMessage(
-      "Responsive documents require at least one linked entity."
-    );
-    return false;
-  }
+    if (documentCoding === "Responsive" && linkedOnly.length === 0) {
+      setMessage("Responsive documents require at least one linked entity.");
+      return false;
+    }
 
-  if (
-    documentCoding === "Needs Further Review" &&
-    !furtherReviewReason.trim()
-  ) {
-    setMessage(
-      "Further Review reason is required."
-    );
-    return false;
-  }
+    if (
+      documentCoding === "Needs Further Review" &&
+      !furtherReviewReason.trim()
+    ) {
+      setMessage("Further Review reason is required.");
+      return false;
+    }
 
-  return true;
-}
+    return true;
+  }
 
   function handleLinkEntity() {
     if (documentCoding === "Not Responsive") {
@@ -125,10 +146,7 @@ export default function ReviewCapturePanel({
     }
 
     const hasAnyValue = Object.values(values).some((value) => {
-      if (typeof value === "boolean") {
-        return value;
-      }
-
+      if (typeof value === "boolean") return value;
       return String(value).trim() !== "";
     });
 
@@ -163,14 +181,13 @@ export default function ReviewCapturePanel({
   }
 
   function handleSaveNext() {
-    if (!validateDocumentCoding()) {
-      return;
-    }
+    if (!validateDocumentCoding()) return;
 
     apiPost("/api/review/save-next", {
       project_id: projectId,
       batch_id: batchId,
       doc_id: docId,
+      values,
       document_coding: documentCoding,
       further_review_reason: furtherReviewReason,
       linked_entities: linkedEntities.map((entity) => entity.values),
@@ -188,49 +205,45 @@ export default function ReviewCapturePanel({
   }
 
   function editLinkedEntity(entity: LinkedEntity) {
-  setValues(entity.values);
-  setMessage(`Editing linked entity ${entity.id}. Make corrections, then click Link Entity.`);
-}
-
-function unlinkEntity(entityId: number) {
-  setLinkedEntities((current) =>
-    current.map((entity) =>
-      entity.id === entityId
-        ? { ...entity, linked: false }
-        : entity
-    )
-  );
-
-  setMessage("Entity unlinked from this document but retained in Captured Entities.");
-}
-
-function deleteEntity(entityId: number) {
-  const confirmed = window.confirm(
-    "Confirm Deletion: This will permanently remove this linked entity from the project. Continue?"
-  );
-
-  if (!confirmed) {
-    return;
+    setValues(entity.values);
+    setMessage(`Editing linked entity ${entity.id}. Make corrections, then click Link Entity.`);
   }
 
-  apiPost("/api/entities/delete", {
-    entity_id: entityId,
-  })
-    .then(() => {
-      setLinkedEntities((current) =>
-        current.filter((entity) => entity.id !== entityId)
-      );
+  function unlinkEntity(entityId: number) {
+    setLinkedEntities((current) =>
+      current.map((entity) =>
+        entity.id === entityId ? { ...entity, linked: false } : entity
+      )
+    );
 
-      setMessage("Entity deleted from the project.");
+    setMessage("Entity unlinked from this document but retained in Captured Entities.");
+  }
+
+  function deleteEntity(entityId: number) {
+    const confirmed = window.confirm(
+      "Confirm Deletion: This will permanently remove this linked entity from the project. Continue?"
+    );
+
+    if (!confirmed) return;
+
+    apiPost("/api/entities/delete", {
+      entity_id: entityId,
     })
-    .catch(() => {
-      setMessage("Delete failed.");
-    });
-}
+      .then(() => {
+        setLinkedEntities((current) =>
+          current.filter((entity) => entity.id !== entityId)
+        );
+
+        setMessage("Entity deleted from the project.");
+      })
+      .catch(() => {
+        setMessage("Delete failed.");
+      });
+  }
 
   const groupedFields = fields.reduce<Record<string, CaptureField[]>>(
     (groups, field) => {
-      const section = field.section || "Other";
+      const section = field.section || "General";
 
       if (!groups[section]) {
         groups[section] = [];
@@ -254,7 +267,6 @@ function deleteEntity(entityId: number) {
         </h3>
 
         <div className="space-y-3">
-
           {[
             "Not Responsive",
             "Responsive",
@@ -263,10 +275,7 @@ function deleteEntity(entityId: number) {
             "Password Protected",
             "Needs Further Review",
           ].map((option) => (
-            <label
-              key={option}
-              className="flex items-center gap-3 text-slate-300"
-            >
+            <label key={option} className="flex items-center gap-3 text-slate-300">
               <input
                 type="radio"
                 name="documentCoding"
@@ -281,9 +290,7 @@ function deleteEntity(entityId: number) {
 
           {documentCoding === "Needs Further Review" && (
             <div className="mt-4">
-              <FormLabel>
-                Further Review Reason
-              </FormLabel>
+              <FormLabel>Further Review Reason</FormLabel>
 
               <TextArea
                 rows={3}
@@ -292,97 +299,105 @@ function deleteEntity(entityId: number) {
               />
             </div>
           )}
-
         </div>
       </div>
 
       <div className="space-y-4">
-        {Object.entries(groupedFields).map(([section, sectionFields]) => {
-          const isOpen = openSections[section] ?? false;
+        {Object.entries(groupedFields).length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No protocol capture fields loaded.
+          </p>
+        ) : (
+          Object.entries(groupedFields).map(([section, sectionFields]) => {
+            const isOpen = openSections[section] ?? false;
 
-          return (
-            <div
-              key={section}
-              className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden max-h-[60vh] flex flex-col"
-            >
-              <button
-                type="button"
-                onClick={() => toggleSection(section)}
-                className="sticky top-0 z-20 w-full flex items-center justify-between px-4 py-3 text-left bg-lime-50 hover:bg-lime-50 border border-sky-700 transition border-b border-slate-800"
+            return (
+              <div
+                key={section}
+                className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden"
               >
-              
-                <span className="font-semibold text-white">
-                  {section}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left bg-slate-800 hover:bg-slate-700 border-b border-slate-800 transition"
+                >
+                  <span className="font-semibold text-white">
+                    {section}
+                  </span>
 
-                <span className="text-white text-lg font-bold">
-                  {isOpen ? "−" : "+"}
-                </span>
-              </button>
+                  <span className="text-sky-400 text-lg font-bold">
+                    {isOpen ? "−" : "+"}
+                  </span>
+                </button>
 
-              {isOpen && (
-                <div className="p-4 border-t border-slate-800 overflow-y-auto">
-                  {sectionFields.map((field) => (
-                    <div key={field.label} className="mb-4">
-                      {field.type === "checkbox" ? (
-                        <>
-                          <Checkbox
-                            label={field.label}
-                            checked={Boolean(values[field.label])}
-                            onChange={(checked) =>
-                              updateValue(field.label, checked)
-                            }
-                          />
+                {isOpen && (
+                  <div className="p-4 border-t border-slate-800 space-y-4">
+                    {sectionFields.map((field) => {
+                      const fieldType = normalizeFieldType(field);
 
-                          {field.notes && (
-                            <p className="text-xs text-slate-500 -mt-2 mb-3">
-                              {field.notes}
-                            </p>
+                      return (
+                        <div key={field.label}>
+                          {fieldType === "tag" ? (
+                            <>
+                              <Checkbox
+                                label={field.label}
+                                checked={Boolean(values[field.label])}
+                                onChange={(checked) =>
+                                  updateValue(field.label, checked)
+                                }
+                              />
+
+                              {field.notes && (
+                                <p className="text-xs text-slate-500 mt-1 ml-7">
+                                  {field.notes}
+                                </p>
+                              )}
+                            </>
+                          ) : fieldType === "textarea" ? (
+                            <>
+                              <FormLabel>{field.label}</FormLabel>
+
+                              <TextArea
+                                rows={2}
+                                value={String(values[field.label] ?? "")}
+                                onChange={(value) =>
+                                  updateValue(field.label, value)
+                                }
+                              />
+
+                              {field.notes && (
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {field.notes}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <FormLabel>{field.label}</FormLabel>
+
+                              <Input
+                                value={String(values[field.label] ?? "")}
+                                onChange={(value) =>
+                                  updateValue(field.label, value)
+                                }
+                              />
+
+                              {field.notes && (
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {field.notes}
+                                </p>
+                              )}
+                            </>
                           )}
-                        </>
-                      ) : field.type === "textarea" ? (
-                        <>
-                          <FormLabel>{field.label}</FormLabel>
-
-                          <TextArea
-                            rows={1}
-                            value={String(values[field.label] ?? "")}
-                            onChange={(value) =>
-                              updateValue(field.label, value)
-                            }
-                          />
-
-                          {field.notes && (
-                            <p className="text-xs text-slate-500 mt-1">
-                              {field.notes}
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <FormLabel>{field.label}</FormLabel>
-
-                          <Input
-                            value={String(values[field.label] ?? "")}
-                            onChange={(value) =>
-                              updateValue(field.label, value)
-                            }
-                          />
-
-                          {field.notes && (
-                            <p className="text-xs text-slate-500 mt-1">
-                              {field.notes}
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div className="mt-6">
@@ -395,7 +410,7 @@ function deleteEntity(entityId: number) {
         <Button fullWidth variant="secondary" onClick={handleSaveNext}>
           Save & Next Document
         </Button>
-      </div>    
+      </div>
 
       {message && (
         <p className="text-sm text-slate-400 mt-4">
@@ -438,10 +453,7 @@ function deleteEntity(entityId: number) {
 
               <tbody>
                 {linkedEntities.map((entity, index) => (
-                  <tr
-                    key={entity.id}
-                    className="border-t border-slate-800"
-                  >
+                  <tr key={entity.id} className="border-t border-slate-800">
                     <td className="p-2 sticky left-0 bg-slate-950 z-10">
                       <div className="flex gap-1">
                         <button
@@ -472,6 +484,7 @@ function deleteEntity(entityId: number) {
 
                     <td className="p-3 text-slate-400 sticky left-[150px] bg-slate-950 z-10 border-l border-slate-800">
                       {index + 1}
+
                       {!entity.linked && (
                         <span className="ml-2 text-yellow-400">
                           Unlinked
@@ -505,11 +518,3 @@ function deleteEntity(entityId: number) {
     </aside>
   );
 }
-
-
-
-
-
-
-
-

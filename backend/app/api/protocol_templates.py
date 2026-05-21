@@ -100,3 +100,36 @@ def get_protocol_templates(workspace: str):
             status_code=500,
             detail=f"Protocol template load failed: {str(e)}",
         )
+        
+@router.get("/capture/projects/{project_id}/protocol")
+def get_saved_project_protocol(project_id: str):
+    try:
+        container = get_capture_container_client()
+
+        protocol_blob_path = f"{project_id}/{project_id}_Protocol.xlsx"
+        blob_client = container.get_blob_client(protocol_blob_path)
+
+        if not blob_client.exists():
+            return {
+                "project_id": project_id,
+                "has_protocol": False,
+                "protocol_blob_path": None,
+                "protocol_filename": None,
+            }
+
+        props = blob_client.get_blob_properties()
+
+        return {
+            "project_id": project_id,
+            "has_protocol": True,
+            "protocol_blob_path": protocol_blob_path,
+            "protocol_filename": f"{project_id}_Protocol.xlsx",
+            "last_modified": props.last_modified.isoformat() if props.last_modified else None,
+            "size": props.size,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not load saved protocol: {type(e).__name__}: {e}",
+        )

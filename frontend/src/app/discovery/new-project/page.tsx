@@ -46,7 +46,7 @@ export default function NewProjectPage() {
         />
 
         {message && (
-          <p className="text-sm text-sky-700 mb-6">
+          <p className="text-sm text-sky-400 mb-6">
             {message}
           </p>
         )}

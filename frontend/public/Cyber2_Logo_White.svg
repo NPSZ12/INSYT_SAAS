@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432.77 310.07">
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 371.04 371.04">
   <defs>
     <style>
       .cls-1, .cls-2, .cls-3, .cls-4 {
@@ -8,28 +8,29 @@
       }
 
       .cls-1, .cls-3 {
-        stroke-width: 3px;
-      }
-
-      .cls-1, .cls-4 {
         fill: #fff;
       }
 
-      .cls-2, .cls-3 {
+      .cls-1, .cls-4 {
+        stroke-width: 3px;
+      }
+
+      .cls-2 {
+        stroke-width: 12px;
+      }
+
+      .cls-2, .cls-4 {
         fill: none;
       }
 
-      .cls-4 {
+      .cls-3 {
         font-family: NasalizationRg-Regular, Nasalization;
-        font-size: 99px;
+        font-size: 103.34px;
       }
     </style>
   </defs>
-  <rect class="cls-2" x="56.75" y="56.75" width="196.9" height="196.9" transform="translate(-64.29 155.2) rotate(-45)"/>
-  <g>
-    <rect class="cls-3" x="47.97" y="47.97" width="214.12" height="214.12" transform="translate(-64.22 155.04) rotate(-45)"/>
-    <path class="cls-1" d="M128.75,109.72v-.05h18.68v-27.63h-18.68c-40.31,0-73,32.68-73,73s32.68,73,73,73h18.68v-27.63h-18.68v-.05c-25.03,0-45.32-20.29-45.32-45.32s20.29-45.32,45.32-45.32Z"/>
-    <rect class="cls-3" x="46.91" y="46.91" width="216.25" height="216.25" transform="translate(-64.22 155.04) rotate(-45)"/>
-    <text class="cls-4" transform="translate(147.44 139.04)"><tspan x="0" y="0">2</tspan></text>
-  </g>
+  <rect class="cls-4" x="73.76" y="73.76" width="223.51" height="223.51" transform="translate(-76.84 185.52) rotate(-45)"/>
+  <path class="cls-1" d="M158.08,138.21v-.05h19.5v-28.84h-19.5c-42.08,0-76.2,34.11-76.2,76.2s34.11,76.2,76.2,76.2h19.5v-28.84h-19.5v-.05c-26.13,0-47.31-21.18-47.31-47.31s21.18-47.31,47.31-47.31Z"/>
+  <rect class="cls-2" x="60.34" y="60.34" width="250.36" height="250.36" transform="translate(-76.84 185.52) rotate(-45)"/>
+  <text class="cls-3" transform="translate(177.59 168.82)"><tspan x="0" y="0">2</tspan></text>
 </svg>

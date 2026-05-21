@@ -413,7 +413,7 @@ function BatchesPageContent() {
         </div>
 
         {message && (
-          <p className="text-sm text-sky-700 mb-6">
+          <p className="text-sm text-sky-400 mb-6">
             {message}
           </p>
         )}
@@ -786,7 +786,7 @@ function ReviewerBatches({
         />
 
         {message && (
-          <p className="text-sm text-sky-700 mb-6">
+          <p className="text-sm text-sky-400 mb-6">
             {message}
           </p>
         )}

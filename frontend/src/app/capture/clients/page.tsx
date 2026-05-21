@@ -79,7 +79,7 @@ function ClientsPageContent() {
         />
 
         {message && (
-          <p className="text-sm text-sky-700 mb-6">
+          <p className="text-sm text-sky-400 mb-6">
             {message}
           </p>
         )}
@@ -116,7 +116,7 @@ function ClientsPageContent() {
                             );
                             setExpandedProject("");
                           }}
-                          className="insyt-project text-sky-700 hover:text-sky-700 font-semibold"
+                          className="insyt-project text-sky-400 hover:text-sky-400 font-semibold"
                         >
                           {client.client_name}
                         </button>
