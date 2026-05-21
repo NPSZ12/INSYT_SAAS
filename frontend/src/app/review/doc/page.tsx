@@ -62,11 +62,23 @@ function ReviewPageContent() {
         <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-md text-center">
 
-            <img
-              src="/logo.png"
-              alt="INSYT Logo"
-              className="mx-auto mb-6 h-20 w-auto"
-            />
+            <div className="flex items-end justify-center gap-0.5 mb-6">
+              <span className="insyt-brand text-5xl font-bold text-white">
+                I
+              </span>
+
+              <span className="insyt-brand text-5xl font-bold text-sky-700">
+                N
+              </span>
+
+              <span className="insyt-brand text-5xl font-bold text-white">
+                SYT
+              </span>
+
+              <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-700 font-bold">
+                360
+              </span>
+            </div>
 
             <div className="mx-auto mb-6 h-12 w-12 rounded-full border-4 border-slate-700 border-t-sky-500 animate-spin" />
 
