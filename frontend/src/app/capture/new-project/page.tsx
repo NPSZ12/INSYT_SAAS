@@ -228,9 +228,46 @@ export default function NewProjectPage() {
         const text = String(error?.message || "");
 
         if (text.includes("409")) {
-          setMessage(
-            "Protocol already selected. INSYT Admin approval is required to override."
+          const user = JSON.parse(
+            localStorage.getItem("insyt_user") || "{}"
           );
+
+          const role = user?.role || "";
+
+          const isAdmin =
+            role === "INSYT Admin" ||
+            role === "CDS Admin" ||
+            role === "Admin";
+
+          if (!isAdmin) {
+            setMessage(
+              "Protocol already selected. INSYT Admin approval is required to override."
+            );
+            return;
+          }
+
+          const confirmed = window.confirm(
+            "A protocol already exists for this project.\n\nDo you want to override the existing protocol?"
+          );
+
+          if (!confirmed) {
+            setMessage("Protocol override cancelled.");
+            return;
+          }
+
+          apiPost(`/api/${workspace}/projects/${selectedProject}/protocol`, {
+            protocol_template: selectedTemplate,
+            fields: buildProtocolFields(),
+            override: true,
+          })
+            .then((response) => {
+              setMessage(response.message || "Protocol overridden.");
+            })
+            .catch((overrideError) => {
+              console.error(overrideError);
+              setMessage("Protocol override failed.");
+            });
+
           return;
         }
 
@@ -256,7 +293,7 @@ export default function NewProjectPage() {
         />
 
         {message && (
-          <p className="text-sm text-sky-700 mb-6">
+          <p className="text-sm text-sky-400 mb-6">
             {message}
           </p>
         )}
@@ -327,7 +364,7 @@ export default function NewProjectPage() {
                 <input
                   type="file"
                   multiple
-                  className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-lime-50 file:px-4 file:py-2 file:text-slate hover:file:bg-sky-500"
+                  className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-lime-50 file:px-4 file:py-2 file:text-slate-700 hover:file:bg-sky-500"
                   onChange={(event) => {
                     const files = event.target.files;
 
@@ -472,7 +509,7 @@ export default function NewProjectPage() {
                                   Text Capture
 
                                   {normalizeDefaultFormat(field.default_format || "") === "Text Capture" && (
-                                    <span className="ml-2 text-[10px] bg-sky-700 text-white px-2 py-0.5 rounded-full">
+                                    <span className="ml-2 text-[10px] bg-sky-400 text-white px-2 py-0.5 rounded-full">
                                       Standard
                                     </span>
                                   )}
