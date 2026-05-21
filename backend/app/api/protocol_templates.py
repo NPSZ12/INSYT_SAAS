@@ -58,32 +58,39 @@ def get_protocol_templates(workspace: str):
             df = pd.read_excel(
                 io.BytesIO(blob_data),
                 sheet_name=sheet_name,
-            )
+                dtype=str,
+            ).fillna("")
 
-            df = df.fillna("")
+            df.columns = [str(col).strip() for col in df.columns]
+
+            def get_column(row, names):
+                for name in names:
+                    value = row.get(name, "")
+                    if value:
+                        return str(value).strip()
+                return ""
 
             fields = []
 
             for _, row in df.iterrows():
-                data_element = clean_cell(row.get("Data Element", ""))
+                section = get_column(row, ["Section", "section"])
+                data_element = get_column(row, ["Data Element", "DataElement", "Data element", "data_element"])
+                default_format = get_column(row, ["Format", "Default Format", "Capture Type", "Type"])
+                notes = get_column(row, ["Notes", "Note", "Description"])
 
                 if not data_element:
                     continue
 
-                fields.append(
-                    {
-                        "section": clean_cell(row.get("Section", "")),
-                        "data_element": data_element,
-                        "default_format": clean_cell(row.get("Format", "")),
-                        "notes": clean_cell(row.get("Notes", "")),
-                    }
-                )
+                fields.append({
+                    "section": section,
+                    "data_element": data_element,
+                    "default_format": default_format,
+                    "notes": notes,
+                })
 
             templates[sheet_name] = fields
 
-        return {
-            "templates": templates,
-        }
+        return {"templates": templates}
 
     except HTTPException:
         raise
