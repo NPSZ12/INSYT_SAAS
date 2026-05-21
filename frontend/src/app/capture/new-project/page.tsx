@@ -170,16 +170,22 @@ export default function NewProjectPage() {
   }
 
   function buildProtocolFields() {
-    return [
-      ...(customFields[selectedTemplate] || []),
-    ].map((field) => ({
-      section: field.section || selectedTemplate,
-      data_element: field.data_element,
-      format: field.default_format || "Text Capture",
-      notes: field.notes || "",
-    }));
-  }
+    return selectedFields
+      .filter((field) => {
+        const key = `${selectedTemplate}::${field.data_element}`;
+        return fieldSelections[key];
+      })
+      .map((field) => {
+        const key = `${selectedTemplate}::${field.data_element}`;
 
+        return {
+          section: field.section || selectedTemplate,
+          data_element: field.data_element,
+          format: fieldSelections[key] || field.default_format || "Text Capture",
+          notes: field.notes || "",
+        };
+      });
+  }
   function saveProtocol() {
     if (!selectedProject) {
       setMessage("Select a project before saving a protocol.");
@@ -439,7 +445,7 @@ export default function NewProjectPage() {
                                 >
                                   Text Capture
                                   {normalizeDefaultFormat(field.default_format || "") === "Text Capture" && (
-                                    <span className="ml-2 text-[10px] bg-sky-950 text-sky-700 px-2 py-0.5 rounded-full">
+                                    <span className="ml-2 text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">
                                       Standard
                                     </span>
                                   )}

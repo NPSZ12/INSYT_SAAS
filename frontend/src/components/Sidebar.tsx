@@ -89,7 +89,7 @@ export default function Sidebar() {
           icon: Building2,
         },
         {
-          label: "Review Team",
+          label: "User Accounts",
           href: `${workspaceBase}/review-team`,
           icon: Users,
         },
@@ -147,7 +147,7 @@ export default function Sidebar() {
           className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-base font-semibold transition mb-4"
         >
           <Image
-            src="/cyber_logo.png"
+            src="/Cyber2_Logo_White.svg"
             alt="Cyber² Utility"
             width={22}
             height={22}
