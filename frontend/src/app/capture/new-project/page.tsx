@@ -222,7 +222,13 @@ export default function NewProjectPage() {
       override: false,
     })
       .then((response) => {
-        setMessage(response.message || "Protocol saved.");
+        console.log("PROTOCOL SAVE RESPONSE", response);
+
+        setMessage(
+          `Protocol saved to: ${
+            response.protocol_blob || "unknown location"
+          }`
+        );
       })
       .catch((error) => {
         const text = String(error?.message || "");
