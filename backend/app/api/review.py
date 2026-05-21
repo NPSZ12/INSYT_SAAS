@@ -20,7 +20,6 @@ def get_current_review_document(
         project_id = project
 
         protocol_fields = load_protocol_fields(project_id)
-
         files = list_project_files(project_id)
 
         text_files = [
@@ -40,7 +39,6 @@ def get_current_review_document(
 
         first_text_file = text_files[0]["name"]
         text = read_blob_text(first_text_file)
-
         doc_id = first_text_file.split("/")[-1].replace(".txt", "")
 
         base_name = doc_id.lower()
