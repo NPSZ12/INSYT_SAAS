@@ -56,7 +56,7 @@ export default function SummariesRightPane({
           Summary QC Review
         </h2>
 
-        <p className="mt-1 text-sm text-slate-400 truncate">
+        <p className="mt-1 text-s text-slate-100 truncate">
           {title}
         </p>
       </div>
@@ -64,7 +64,7 @@ export default function SummariesRightPane({
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         <section>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            <h3 className="text-s uppercase tracking-[0.16em] text-slate-100">
               Original Summary
             </h3>
 
@@ -80,7 +80,7 @@ export default function SummariesRightPane({
 
         <section>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            <h3 className="text-s uppercase tracking-[0.16em] text-slate-100">
               QC Summary
             </h3>
 

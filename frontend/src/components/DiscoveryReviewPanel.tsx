@@ -29,8 +29,15 @@ export default function DiscoveryReviewPanel({
   docId,
   fields,
 }: DiscoveryReviewPanelProps) {
-  const [selectedTags, setSelectedTags] = useState<Record<string, string>>({});
-  const [notesBySection, setNotesBySection] = useState<Record<string, string>>({});
+  const [selectedTags, setSelectedTags] =
+    useState<Record<string, string>>({});
+
+  const [notesBySection, setNotesBySection] =
+    useState<Record<string, string>>({});
+
+  const [openSections, setOpenSections] =
+    useState<Record<string, boolean>>({});
+
   const [message, setMessage] = useState("");
 
   const groupedFields = fields.reduce<Record<string, DiscoveryField[]>>(
@@ -50,12 +57,15 @@ export default function DiscoveryReviewPanel({
 
   useEffect(() => {
     const initialSelections: Record<string, string> = {};
+    const initialOpenState: Record<string, boolean> = {};
 
     Object.keys(groupedFields).forEach((section) => {
       initialSelections[section] = "";
+      initialOpenState[section] = false;
     });
 
     setSelectedTags(initialSelections);
+    setOpenSections(initialOpenState);
   }, [fields]);
 
   function updateSelectedTag(section: string, value: string) {
@@ -69,6 +79,13 @@ export default function DiscoveryReviewPanel({
     setNotesBySection((current) => ({
       ...current,
       [section]: value,
+    }));
+  }
+
+  function toggleSection(section: string) {
+    setOpenSections((current) => ({
+      ...current,
+      [section]: !current[section],
     }));
   }
 
@@ -90,62 +107,97 @@ export default function DiscoveryReviewPanel({
   }
 
   return (
-    <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-full">
-      <h2 className="text-lg font-semibold mb-4 text-white">
-        Discovery Coding Panel
-      </h2>
+    <aside className="bg-slate-900 border border-slate-800 rounded-2xl h-full flex flex-col overflow-hidden">
+      <div className="shrink-0 p-6 border-b border-slate-800">
+        <h2 className="text-lg font-semibold text-white">
+          Discovery Coding Panel
+        </h2>
+      </div>
 
-      {Object.entries(groupedFields).length === 0 ? (
-        <p className="text-sm text-slate-500">
-          No Discovery template fields loaded.
-        </p>
-      ) : (
-        <div className="space-y-5">
-          {Object.entries(groupedFields).map(([section, sectionFields]) => (
-            <div
-              key={section}
-              className="rounded-xl border border-slate-800 bg-slate-950 p-4"
-            >
-              <FormLabel>{section}</FormLabel>
+      <div className="flex-1 overflow-y-auto p-6">
+        {Object.entries(groupedFields).length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No Discovery template fields loaded.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {Object.entries(groupedFields).map(([section, sectionFields]) => {
+              const isOpen = openSections[section] ?? false;
 
-              <Select
-                value={selectedTags[section] || ""}
-                onChange={(value) => updateSelectedTag(section, value)}
-              >
-                <option value="">Select one...</option>
+              return (
+                <div
+                  key={section}
+                  className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(section)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left bg-slate-800 hover:bg-slate-700 border-b border-slate-800 transition"
+                  >
+                    <span className="font-semibold text-white">
+                      {section}
+                    </span>
 
-                {sectionFields.map((field) => (
-                  <option key={`${section}-${field.label}`} value={field.label}>
-                    {field.label}
-                  </option>
-                ))}
-              </Select>
+                    <span className="text-sky-400 text-lg font-bold">
+                      {isOpen ? "−" : "+"}
+                    </span>
+                  </button>
 
-              <div className="mt-3">
-                <FormLabel>Notes</FormLabel>
+                  {isOpen && (
+                    <div className="p-4 border-t border-slate-800 space-y-4">
+                      <div>
+                        <FormLabel>{section}</FormLabel>
 
-                <TextArea
-                  rows={2}
-                  value={notesBySection[section] || ""}
-                  onChange={(value) => updateNotes(section, value)}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                        <Select
+                          value={selectedTags[section] || ""}
+                          onChange={(value) =>
+                            updateSelectedTag(section, value)
+                          }
+                        >
+                          <option value="">Select one...</option>
 
-      <div className="mt-6">
+                          {sectionFields.map((field) => (
+                            <option
+                              key={`${section}-${field.label}`}
+                              value={field.label}
+                            >
+                              {field.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+
+                      <div>
+                        <FormLabel>Notes</FormLabel>
+
+                        <TextArea
+                          rows={2}
+                          value={notesBySection[section] || ""}
+                          onChange={(value) =>
+                            updateNotes(section, value)
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="shrink-0 border-t border-slate-800 p-6 space-y-3">
         <Button fullWidth variant="secondary" onClick={handleSaveNext}>
           Save & Next Document
         </Button>
-      </div>
 
-      {message && (
-        <p className="text-sm text-slate-400 mt-4">
-          {message}
-        </p>
-      )}
+        {message && (
+          <p className="text-sm text-slate-400 mt-2">
+            {message}
+          </p>
+        )}
+      </div>
     </aside>
   );
 }
