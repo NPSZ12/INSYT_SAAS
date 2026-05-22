@@ -5,6 +5,13 @@ from app.services.batch_service import get_container_client
 from app.services.protocol_service import load_protocol_fields
 from app.services.project_store import CAPTURED_ENTITIES
 
+from datetime import datetime, timedelta, timezone
+
+from azure.storage.blob import (
+    generate_blob_sas,
+    BlobSasPermissions,
+)
+
 
 router = APIRouter(prefix="/api", tags=["Review"])
 
@@ -46,12 +53,44 @@ def read_workspace_blob_text(workspace: str, blob_path: str):
     )
 
 
-def get_workspace_blob_url(workspace: str, blob_path: str):
+from datetime import datetime, timedelta, timezone
+
+from azure.storage.blob import (
+    generate_blob_sas,
+    BlobSasPermissions,
+)
+
+
+def get_workspace_blob_url(
+    workspace: str,
+    blob_path: str,
+):
+    if not blob_path:
+        return ""
+
     container = get_container_client(workspace)
+
     blob_client = container.get_blob_client(blob_path)
 
-    return blob_client.url
+    account_name = container.account_name
 
+    account_key = (
+        container.credential.account_key
+        if hasattr(container.credential, "account_key")
+        else container.credential
+    )
+
+    sas_token = generate_blob_sas(
+        account_name=account_name,
+        container_name=container.container_name,
+        blob_name=blob_path,
+        account_key=account_key,
+        permission=BlobSasPermissions(read=True),
+        expiry=datetime.now(timezone.utc)
+        + timedelta(hours=4),
+    )
+
+    return f"{blob_client.url}?{sas_token}"
 
 def load_current_review_document(
     workspace: str,
