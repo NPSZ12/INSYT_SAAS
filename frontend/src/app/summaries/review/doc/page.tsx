@@ -46,7 +46,7 @@ function ReviewPageContent() {
     setReviewDoc(null);
 
     apiGet(
-      `/api/review/current?project=${encodeURIComponent(
+      `/api/summaries/review/current?project=${encodeURIComponent(
         projectId
       )}&batch=${encodeURIComponent(batchId)}`
     )

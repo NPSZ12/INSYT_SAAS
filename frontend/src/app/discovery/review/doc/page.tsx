@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import AppShell from "../../../../components/AppShell";
 import ReviewHeader from "../../../../components/ReviewHeader";
 import ReviewDocumentPane from "../../../../components/ReviewDocumentPane";
-import ReviewCapturePanel from "../../../../components/ReviewCapturePanel";
+import DiscoveryReviewPanel from "../../../../components/DiscoveryReviewPanel";
 import PageContainer from "../../../../components/PageContainer";
 import PageHeader from "../../../../components/PageHeader";
 import ContentCard from "../../../../components/ContentCard";
@@ -62,7 +62,7 @@ function ReviewPageContent() {
     setReviewDoc(null);
 
     apiGet(
-      `/api/review/current?project=${encodeURIComponent(
+      `/api/discovery/review/current?project=${encodeURIComponent(
         projectId
       )}&batch=${encodeURIComponent(batchId)}`
     )
@@ -209,7 +209,7 @@ function ReviewPageContent() {
     protocolFields,
   });
 
-  const fieldsFordiscovery: discoveryField[] = protocolFields.map((field) => {
+  const fieldsForDiscovery = protocolFields.map((field) => {
     const fieldFormat = field.format || field.default_format || "";
 
     return {
@@ -243,7 +243,7 @@ function ReviewPageContent() {
             nativeBlob={reviewDoc.native_blob}
           />
 
-          {fieldsFordiscovery.length === 0 ? (
+          {fieldsForDiscovery.length === 0 ? (
             <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-[82vh]">
               <h2 className="text-lg font-semibold mb-4 text-white">
                 discovery Panel
@@ -254,11 +254,11 @@ function ReviewPageContent() {
               </p>
             </aside>
           ) : (
-            <ReviewCapturePanel
+            <DiscoveryReviewPanel
               projectId={projectId}
               batchId={batchId}
               docId={reviewDoc.doc_id}
-              fields={fieldsFordiscovery}
+              fields={fieldsForDiscovery}
             />
           )}
         </section>
