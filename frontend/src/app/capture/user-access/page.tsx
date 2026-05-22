@@ -72,25 +72,22 @@ function UserAccessPageContent() {
 
   function loadData() {
     apiGet("/api/users")
-      .then((response) => {
-        setUsers(Array.isArray(response) ? response : response.users || []);
+      .then((response: any) => {
+        const users = Array.isArray(response)
+          ? response
+          : response?.users || [];
+
+        setUsers(users);
       })
       .catch(console.error);
 
     apiGet("/api/azure-projects/")
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setProjects(Array.isArray(data) ? data : data.projects || []);
-          return;
-        }
+      .then((data: any) => {
+        const projects = Array.isArray(data)
+          ? data
+          : data?.projects || [];
 
-        if (Array.isArray(data.projects)) {
-          setProjects(data.projects);
-          return;
-        }
-
-        console.error("Unexpected projects response:", data);
-        setProjects([]);
+        setProjects(projects);
       })
       .catch((error) => {
         console.error("Failed to load Azure projects:", error);
