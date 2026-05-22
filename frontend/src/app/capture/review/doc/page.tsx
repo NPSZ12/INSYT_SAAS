@@ -90,7 +90,12 @@ function ReviewPageContent() {
       .then((response: ProtocolResponse) => {
         console.log("REVIEW PROTOCOL RESPONSE", response);
 
-        const fields = response.protocol?.fields || response.fields || [];
+        const fields =
+          response?.protocol?.fields ||
+          response?.fields ||
+          [];
+
+        console.log("PARSED REVIEW FIELDS", fields);
 
         if (!response.has_protocol) {
           setProtocolMessage("No saved protocol found for this project.");
@@ -99,7 +104,12 @@ function ReviewPageContent() {
         }
 
         if (fields.length === 0) {
-          setProtocolMessage("Saved protocol found, but no fields were returned.");
+          console.error("NO REVIEW PROTOCOL FIELDS FOUND", response);
+
+          setProtocolMessage(
+            `Saved protocol found for ${projectId}, but no fields were returned.`
+          );
+
           setProtocolFields([]);
           return;
         }
@@ -191,6 +201,13 @@ function ReviewPageContent() {
       </AppShell>
     );
   }
+
+  console.log("PROTOCOL FIELDS STATE", protocolFields);
+
+  console.log("FIELDS FOR CAPTURE INPUT", {
+    protocolFieldsLength: protocolFields.length,
+    protocolFields,
+  });
 
   const fieldsForCapture: CaptureField[] = protocolFields.map((field) => {
     const fieldFormat = field.format || field.default_format || "";
