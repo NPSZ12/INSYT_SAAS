@@ -1,7 +1,16 @@
 "use client";
 
 import { useState } from "react";
+
 import Button from "./Button";
+import dynamic from "next/dynamic";
+
+const PdfDocumentViewer = dynamic(
+  () => import("./PdfDocumentViewer"),
+  {
+    ssr: false,
+  }
+);
 
 type ReviewDocumentPaneProps = {
   text: string;
@@ -14,11 +23,11 @@ export default function ReviewDocumentPane({
   nativeUrl,
   nativeBlob,
 }: ReviewDocumentPaneProps) {
-  const [viewMode, setViewMode] = useState<"text" | "native">("text");
+  const [viewMode, setViewMode] = useState<"text" | "native">("native");
 
   return (
-    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-4">
+    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 h-full flex flex-col overflow-hidden">
+      <div className="shrink-0 flex items-center justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold">
             Document Viewer
@@ -48,35 +57,20 @@ export default function ReviewDocumentPane({
         </div>
       </div>
 
-      {viewMode === "text" && (
-        <div className="bg-slate-950 rounded-xl p-5 h-[75vh] overflow-y-auto text-slate-300 leading-7 whitespace-pre-wrap">
-          {text}
-        </div>
-      )}
+      <div className="flex-1 min-h-0">
+        {viewMode === "text" && (
+          <div className="bg-slate-950 rounded-xl p-5 h-full overflow-y-auto text-slate-300 leading-7 whitespace-pre-wrap">
+            {text}
+          </div>
+        )}
 
-      {viewMode === "native" && (
-        <div className="bg-slate-950 rounded-xl h-[75vh] overflow-hidden border border-slate-800">
-          {nativeUrl ? (
-            <iframe
-              src={nativeUrl}
-              className="w-full h-full"
-              title="Native PDF Viewer"
-            />
-          ) : (
-            <div className="h-full flex items-center justify-center text-slate-400 p-6 text-center">
-              No matching native PDF found for this extracted text file.
-            </div>
-          )}
-        </div>
-      )}
+        {viewMode === "native" && (
+          <PdfDocumentViewer
+            fileUrl={nativeUrl || ""}
+            heightClassName="h-full"
+          />
+        )}
+      </div>
     </div>
   );
 }
-
-
-
-
-
-
-
-
