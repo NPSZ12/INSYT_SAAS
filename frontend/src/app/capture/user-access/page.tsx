@@ -72,13 +72,15 @@ function UserAccessPageContent() {
 
   function loadData() {
     apiGet("/api/users")
-      .then(setUsers)
+      .then((response) => {
+        setUsers(Array.isArray(response) ? response : response.users || []);
+      })
       .catch(console.error);
 
     apiGet("/api/azure-projects/")
       .then((data) => {
         if (Array.isArray(data)) {
-          setProjects(data);
+          setProjects(Array.isArray(data) ? data : data.projects || []);
           return;
         }
 

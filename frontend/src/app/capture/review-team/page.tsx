@@ -71,7 +71,7 @@ export default function UserAccessPage() {
     apiGet("/api/azure-projects")
       .then((data) => {
         if (Array.isArray(data)) {
-          setProjects(data);
+          setProjects(Array.isArray(data) ? data : data.projects || []);
           return;
         }
 

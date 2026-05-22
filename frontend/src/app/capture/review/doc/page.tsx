@@ -15,6 +15,31 @@ import { apiGet } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
 
+type ProtocolField = {
+  section: string;
+  data_element: string;
+  format?: string;
+  default_format?: string;
+  notes?: string;
+  source_sheet?: string;
+};
+
+type ProtocolResponse = {
+  has_protocol: boolean;
+  fields?: ProtocolField[];
+  protocol?: {
+    fields?: ProtocolField[];
+  };
+};
+
+type CaptureField = {
+  section: string;
+  label: string;
+  type: string;
+  format?: string;
+  notes?: string;
+};
+
 function ReviewPageContent() {
   const searchParams = useSearchParams();
 
@@ -22,8 +47,9 @@ function ReviewPageContent() {
   const batchId = searchParams.get("batch") || "";
 
   const [error, setError] = useState("");
-  const [reviewDoc, setReviewDoc] =
-    useState<ReviewDocument | null>(null);
+  const [protocolMessage, setProtocolMessage] = useState("");
+  const [reviewDoc, setReviewDoc] = useState<ReviewDocument | null>(null);
+  const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -35,23 +61,58 @@ function ReviewPageContent() {
     setError("");
     setReviewDoc(null);
 
-    apiGet(`/api/review/current?project=${projectId}&batch=${batchId}`)
+    apiGet(
+      `/api/review/current?project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(batchId)}`
+    )
       .then((response) => {
         setReviewDoc(response);
       })
       .catch((error) => {
         console.error(error);
-        setError(
-          String(
-            error?.message ||
-              "Failed to load review document."
-          )
-        );
+        setError(String(error?.message || "Failed to load review document."));
       })
       .finally(() => {
         setIsLoading(false);
       });
   }, [projectId, batchId]);
+
+  useEffect(() => {
+    if (!projectId) {
+      return;
+    }
+
+    setProtocolMessage("Loading saved protocol fields...");
+    setProtocolFields([]);
+
+    apiGet(`/api/capture/projects/${encodeURIComponent(projectId)}/protocol`)
+      .then((response: ProtocolResponse) => {
+        console.log("REVIEW PROTOCOL RESPONSE", response);
+
+        const fields = response.protocol?.fields || response.fields || [];
+
+        if (!response.has_protocol) {
+          setProtocolMessage("No saved protocol found for this project.");
+          setProtocolFields([]);
+          return;
+        }
+
+        if (fields.length === 0) {
+          setProtocolMessage("Saved protocol found, but no fields were returned.");
+          setProtocolFields([]);
+          return;
+        }
+
+        setProtocolFields(fields);
+        setProtocolMessage("");
+      })
+      .catch((error) => {
+        console.error("Failed to load review protocol", error);
+        setProtocolFields([]);
+        setProtocolMessage("Failed to load saved protocol fields.");
+      });
+  }, [projectId]);
 
   if (!projectId) {
     return (
@@ -131,6 +192,18 @@ function ReviewPageContent() {
     );
   }
 
+  const fieldsForCapture: CaptureField[] = protocolFields.map((field) => {
+    const fieldFormat = field.format || field.default_format || "";
+
+    return {
+      section: field.section || "General",
+      label: field.data_element,
+      type: fieldFormat.toLowerCase().includes("tag") ? "tag" : "text",
+      format: fieldFormat,
+      notes: field.notes || "",
+    };
+  });
+
   return (
     <AppShell>
       <div className="min-h-screen flex flex-col text-white">
@@ -140,6 +213,12 @@ function ReviewPageContent() {
           docId={reviewDoc.doc_id}
         />
 
+        {protocolMessage && (
+          <div className="mx-4 mt-4 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
+            {protocolMessage}
+          </div>
+        )}
+
         <section className="flex-1 grid grid-cols-3 gap-4 p-4">
           <ReviewDocumentPane
             text={reviewDoc.text}
@@ -147,12 +226,24 @@ function ReviewPageContent() {
             nativeBlob={reviewDoc.native_blob}
           />
 
-          <ReviewCapturePanel
-            projectId={projectId}
-            batchId={batchId}
-            docId={reviewDoc.doc_id}
-            fields={reviewDoc.fields}
-          />
+          {fieldsForCapture.length === 0 ? (
+            <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-[82vh]">
+              <h2 className="text-lg font-semibold mb-4 text-white">
+                Capture Panel
+              </h2>
+
+              <p className="text-sm text-amber-200 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3">
+                No protocol capture fields loaded for this project.
+              </p>
+            </aside>
+          ) : (
+            <ReviewCapturePanel
+              projectId={projectId}
+              batchId={batchId}
+              docId={reviewDoc.doc_id}
+              fields={fieldsForCapture}
+            />
+          )}
         </section>
       </div>
     </AppShell>

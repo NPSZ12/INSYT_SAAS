@@ -34,7 +34,9 @@ function AdminPageContent() {
 
   function loadUsers() {
     apiGet("/api/users")
-      .then(setUsers)
+      .then((response) => {
+        setUsers(Array.isArray(response) ? response : response.users || []);
+      })
       .catch(console.error);
   }
 
