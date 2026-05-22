@@ -11,7 +11,22 @@ router = APIRouter(
     tags=["protocol-templates"],
 )
 
-TEMPLATE_BLOB_PATH = "Protocol_Templates.xlsx"
+TEMPLATE_BLOB_PATHS = {
+    "capture": [
+        "System/ProtocolTemplates/Capture_Templates.xlsx",
+        "System/ProtocolTemplates/Protocol_Templates.xlsx",
+        "Protocol_Templates.xlsx",
+    ],
+    "summaries": [
+        "System/ProtocolTemplates/Summaries_Templates.xlsx",
+        "System/ProtocolTemplates/Protocol_Templates.xlsx",
+        "Protocol_Templates.xlsx",
+    ],
+    "discovery": [
+        "System/ProtocolTemplates/Discovery_Templates.xlsx",
+        "system/ProtocolTemplates/Discovery_Templates.xlsx",
+    ],
+}
 
 
 def get_capture_container_client():
@@ -41,12 +56,23 @@ def get_protocol_templates(workspace: str):
 
     try:
         container = get_capture_container_client()
-        blob_client = container.get_blob_client(TEMPLATE_BLOB_PATH)
+        template_paths = TEMPLATE_BLOB_PATHS.get(workspace, [])
 
-        if not blob_client.exists():
+        blob_client = None
+        template_blob_path = None
+
+        for path in template_paths:
+            candidate = container.get_blob_client(path)
+
+            if candidate.exists():
+                blob_client = candidate
+                template_blob_path = path
+                break
+
+        if not blob_client or not template_blob_path:
             raise HTTPException(
                 status_code=404,
-                detail=f"Template file not found: {TEMPLATE_BLOB_PATH}",
+                detail=f"No protocol template file found for workspace: {workspace}",
             )
 
         blob_data = blob_client.download_blob().readall()
@@ -90,7 +116,11 @@ def get_protocol_templates(workspace: str):
 
             templates[sheet_name] = fields
 
-        return {"templates": templates}
+        return {
+            "workspace": workspace,
+            "template_blob_path": template_blob_path,
+            "templates": templates,
+        }
 
     except HTTPException:
         raise

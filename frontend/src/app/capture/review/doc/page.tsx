@@ -10,6 +10,7 @@ import ReviewCapturePanel from "../../../../components/ReviewCapturePanel";
 import PageContainer from "../../../../components/PageContainer";
 import PageHeader from "../../../../components/PageHeader";
 import ContentCard from "../../../../components/ContentCard";
+import LinkedEntitiesStrip from "../../../../components/LinkedEntitiesStrip";
 
 import { apiGet } from "../../../../lib/api";
 
@@ -51,6 +52,7 @@ function ReviewPageContent() {
   const [reviewDoc, setReviewDoc] = useState<ReviewDocument | null>(null);
   const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [linkedEntities, setLinkedEntities] = useState<any[]>([]);
 
   useEffect(() => {
     if (!projectId || !batchId) {
@@ -78,6 +80,29 @@ function ReviewPageContent() {
       });
   }, [projectId, batchId]);
 
+  useEffect(() => {
+    if (!projectId || !batchId || !reviewDoc?.doc_id) return;
+
+    apiGet(
+      `/api/entities/document?project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(batchId)}&doc=${encodeURIComponent(
+        reviewDoc.doc_id
+      )}`
+    )
+      .then((entities: any[]) => {
+        setLinkedEntities(
+          entities.map((entity: any, index: number) => ({
+            id: entity.id ?? index + 1,
+            docId: entity.doc_id,
+            linked: entity.linked ?? true,
+            values: entity.values || {},
+          }))
+        );
+      })
+      .catch(console.error);
+  }, [projectId, batchId, reviewDoc?.doc_id]);
+  
   useEffect(() => {
     if (!projectId) {
       return;
@@ -221,6 +246,32 @@ function ReviewPageContent() {
     };
   });
 
+  function editLinkedEntity(entity: any) {
+    console.log("Edit linked entity", entity);
+  }
+
+  function unlinkEntity(entityId: number) {
+    setLinkedEntities((current) =>
+      current.map((entity) =>
+        entity.id === entityId
+          ? { ...entity, linked: false }
+          : entity
+      )
+    );
+  }
+
+  function deleteEntity(entityId: number) {
+    const confirmed = window.confirm(
+      "Confirm Deletion: This will permanently remove this linked entity from the project. Continue?"
+    );
+
+    if (!confirmed) return;
+
+    setLinkedEntities((current) =>
+      current.filter((entity) => entity.id !== entityId)
+    );
+  }
+
   return (
     <AppShell>
       <div className="min-h-screen flex flex-col text-white">
@@ -236,31 +287,41 @@ function ReviewPageContent() {
           </div>
         )}
 
-        <section className="flex-1 grid grid-cols-3 gap-4 p-4">
-          <ReviewDocumentPane
-            text={reviewDoc.text}
-            nativeUrl={reviewDoc.native_url}
-            nativeBlob={reviewDoc.native_blob}
-          />
-
-          {fieldsForCapture.length === 0 ? (
-            <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-[82vh]">
-              <h2 className="text-lg font-semibold mb-4 text-white">
-                Capture Panel
-              </h2>
-
-              <p className="text-sm text-amber-200 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3">
-                No protocol capture fields loaded for this project.
-              </p>
-            </aside>
-          ) : (
-            <ReviewCapturePanel
-              projectId={projectId}
-              batchId={batchId}
-              docId={reviewDoc.doc_id}
-              fields={fieldsForCapture}
+        <section className="flex-1 flex flex-col gap-4 p-4 overflow-hidden">
+          <div className="flex-1 grid grid-cols-3 gap-4 min-h-0">
+            <ReviewDocumentPane
+              text={reviewDoc.text}
+              nativeUrl={reviewDoc.native_url}
+              nativeBlob={reviewDoc.native_blob}
             />
-          )}
+
+            {fieldsForCapture.length === 0 ? (
+              <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-full">
+                <h2 className="text-lg font-semibold mb-4 text-white">
+                  Capture Panel
+                </h2>
+
+                <p className="text-sm text-amber-200 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3">
+                  No protocol capture fields loaded for this project.
+                </p>
+              </aside>
+            ) : (
+              <ReviewCapturePanel
+                projectId={projectId}
+                batchId={batchId}
+                docId={reviewDoc.doc_id}
+                fields={fieldsForCapture}
+              />
+            )}
+          </div>
+
+          <LinkedEntitiesStrip
+            fields={fieldsForCapture}
+            linkedEntities={linkedEntities}
+            onEdit={editLinkedEntity}
+            onUnlink={unlinkEntity}
+            onDelete={deleteEntity}
+          />
         </section>
       </div>
     </AppShell>

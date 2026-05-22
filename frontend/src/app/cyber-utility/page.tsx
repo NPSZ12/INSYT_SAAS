@@ -97,7 +97,7 @@ function CyberUtilityPageContent() {
               <button
                 type="button"
                 onClick={() => runTool(tool.name)}
-                className="bg-lime-50 hover:bg-lime-50 text-white rounded-xl px-4 py-3 font-semibold"
+                className="bg-lime-50 hover:bg-lime-50 text-slate-700 rounded-xl px-4 py-3 font-semibold"
               >
                 Open Tool
               </button>
