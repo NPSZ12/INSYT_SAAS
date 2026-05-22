@@ -16,7 +16,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
 
   useEffect(() => {
-    apiGet("/api/azure-projects/")
+    apiGet("/api/summaries/projects/")
       .then((response) => {
         console.log("AZURE PROJECTS RESPONSE:", response);
 

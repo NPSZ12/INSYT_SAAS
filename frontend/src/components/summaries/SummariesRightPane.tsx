@@ -1,94 +1,115 @@
 "use client";
 
-import { SummaryDocument } from "../../types/summaries";
+import { useEffect, useState } from "react";
+
+import Button from "../Button";
 
 type Props = {
-  document: SummaryDocument;
-  qcText: string;
-  setQcText: (value: string) => void;
-  codingStatus: string;
-  setCodingStatus: (value: string) => void;
-  onSave: () => void;
-  onSaveAndNext: () => void;
+  summaryDocId: string;
+  title: string;
+  originalSummary: string;
+  qcSummary?: string;
+  onSaveQcSummary?: (
+    summaryDocId: string,
+    qcSummary: string
+  ) => Promise<void>;
 };
 
 export default function SummariesRightPane({
-  document,
-  qcText,
-  setQcText,
-  codingStatus,
-  setCodingStatus,
-  onSave,
-  onSaveAndNext,
+  summaryDocId,
+  title,
+  originalSummary,
+  qcSummary,
+  onSaveQcSummary,
 }: Props) {
+  const [editableQcSummary, setEditableQcSummary] =
+    useState("");
+
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    setEditableQcSummary(
+      qcSummary?.trim()
+        ? qcSummary
+        : originalSummary
+    );
+  }, [qcSummary, originalSummary]);
+
+  async function handleSave() {
+    try {
+      await onSaveQcSummary?.(
+        summaryDocId,
+        editableQcSummary
+      );
+
+      setMessage("QC Summary saved.");
+    } catch (error) {
+      console.error(error);
+      setMessage("Failed to save QC Summary.");
+    }
+  }
+
   return (
-    <div className="w-[420px] border-l border-slate-800 bg-slate-900 flex flex-col">
-      <div className="border-b border-slate-800 p-4">
-        <h2 className="font-bold mb-3 text-white">Document Coding</h2>
+    <aside className="w-[34rem] border-l border-slate-800 bg-slate-900 h-full flex flex-col">
+      <div className="shrink-0 border-b border-slate-800 px-6 py-5">
+        <h2 className="text-lg font-semibold text-white">
+          Summary QC Review
+        </h2>
 
-        <select
-          value={codingStatus}
-          onChange={(e) => setCodingStatus(e.target.value)}
-          className="w-full bg-slate-800 rounded p-2 text-white"
-        >
-          <option value="">Select Coding Status</option>
-          <option value="Responsive">Responsive</option>
-          <option value="Not Responsive">Not Responsive</option>
-          <option value="Needs Further Review">Needs Further Review</option>
-          <option value="Foreign Language">Foreign Language</option>
-          <option value="Tech Issue">Tech Issue</option>
-          <option value="Password Protected">Password Protected</option>
-        </select>
+        <p className="mt-1 text-sm text-slate-400 truncate">
+          {title}
+        </p>
       </div>
 
-      <div className="flex-1 border-b border-slate-800 p-4 flex flex-col min-h-0">
-        <h2 className="font-bold mb-3 text-white">Summary QC Entry</h2>
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              Original Summary
+            </h3>
 
-        <textarea
-          value={qcText}
-          onChange={(e) => setQcText(e.target.value)}
-          className="flex-1 min-h-[260px] bg-slate-800 rounded p-4 resize-none text-white"
-          placeholder="QC edits..."
-        />
+            <span className="text-xs text-slate-500">
+              Read Only
+            </span>
+          </div>
 
-        <div className="grid grid-cols-2 gap-3 mt-4 shrink-0">
-          <button
-            type="button"
-            onClick={onSave}
-            className="bg-slate-700 hover:bg-lime-50 text-white rounded px-4 py-2 font-semibold"
-          >
-            Save
-          </button>
+          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300 whitespace-pre-wrap">
+            {originalSummary || "No original summary loaded."}
+          </div>
+        </section>
 
-          <button
-            type="button"
-            onClick={onSaveAndNext}
-            className="bg-lime-50 hover:bg-lime-50 text-white rounded px-4 py-2 font-semibold"
-          >
-            Save & Next
-          </button>
-        </div>
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              QC Summary
+            </h3>
+
+            <span className="text-xs text-slate-500">
+              Editable
+            </span>
+          </div>
+
+          <textarea
+            value={editableQcSummary}
+            onChange={(event) =>
+              setEditableQcSummary(event.target.value)
+            }
+            className="w-full min-h-[24rem] rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-200 outline-none focus:border-sky-500 resize-none"
+          />
+        </section>
       </div>
 
-      <div className="h-72 overflow-auto p-4 shrink-0">
-        <h2 className="font-bold mb-3 text-white">Linked Entries</h2>
+      <div className="shrink-0 border-t border-slate-800 p-5">
+        <Button fullWidth onClick={handleSave}>
+          Save QC Summary
+        </Button>
 
-        <div className="space-y-2 text-sm text-white">
-          {document.linkedEntries.map((entry, index) => (
-            <div key={index} className="bg-slate-800 rounded p-2">
-              {entry.label}: {entry.value}
-            </div>
-          ))}
-        </div>
+        {message && (
+          <p className="mt-3 text-sm text-sky-400">
+            {message}
+          </p>
+        )}
       </div>
-    </div>
+    </aside>
   );
 }
-
-
-
-
-
-
-
-

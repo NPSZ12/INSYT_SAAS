@@ -3,42 +3,20 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
+
 import AppShell from "../../../../components/AppShell";
 import ReviewHeader from "../../../../components/ReviewHeader";
 import ReviewDocumentPane from "../../../../components/ReviewDocumentPane";
-import ReviewCapturePanel from "../../../../components/ReviewCapturePanel";
+
+import SummariesRightPane from "../../../../components/summaries/SummariesRightPane";
+
 import PageContainer from "../../../../components/PageContainer";
 import PageHeader from "../../../../components/PageHeader";
 import ContentCard from "../../../../components/ContentCard";
 
-import { apiGet } from "../../../../lib/api";
+import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
-
-type ProtocolField = {
-  section: string;
-  data_element: string;
-  format?: string;
-  default_format?: string;
-  notes?: string;
-  source_sheet?: string;
-};
-
-type ProtocolResponse = {
-  has_protocol: boolean;
-  fields?: ProtocolField[];
-  protocol?: {
-    fields?: ProtocolField[];
-  };
-};
-
-type summariesField = {
-  section: string;
-  label: string;
-  type: string;
-  format?: string;
-  notes?: string;
-};
 
 function ReviewPageContent() {
   const searchParams = useSearchParams();
@@ -47,10 +25,16 @@ function ReviewPageContent() {
   const batchId = searchParams.get("batch") || "";
 
   const [error, setError] = useState("");
-  const [protocolMessage, setProtocolMessage] = useState("");
-  const [reviewDoc, setReviewDoc] = useState<ReviewDocument | null>(null);
-  const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
+  const [reviewDoc, setReviewDoc] =
+    useState<ReviewDocument | null>(null);
+
   const [isLoading, setIsLoading] = useState(false);
+
+  const [originalSummary, setOriginalSummary] =
+    useState("");
+
+  const [qcSummary, setQcSummary] =
+    useState("");
 
   useEffect(() => {
     if (!projectId || !batchId) {
@@ -66,63 +50,50 @@ function ReviewPageContent() {
         projectId
       )}&batch=${encodeURIComponent(batchId)}`
     )
-      .then((response) => {
+      .then((response: any) => {
         setReviewDoc(response);
+
+        const original =
+          response?.original_summary ||
+          response?.summary ||
+          response?.text ||
+          "";
+
+        const qc =
+          response?.qc_summary ||
+          original;
+
+        setOriginalSummary(original);
+        setQcSummary(qc);
       })
-      .catch((error) => {
+      .catch((error: any) => {
         console.error(error);
-        setError(String(error?.message || "Failed to load review document."));
+
+        setError(
+          String(
+            error?.message ||
+              "Failed to load summary review document."
+          )
+        );
       })
       .finally(() => {
         setIsLoading(false);
       });
   }, [projectId, batchId]);
 
-  useEffect(() => {
-    if (!projectId) {
-      return;
-    }
+  async function saveQcSummary(
+    summaryDocId: string,
+    updatedQcSummary: string
+  ) {
+    await apiPost("/api/summaries/qc/save", {
+      project_id: projectId,
+      batch_id: batchId,
+      summary_doc_id: summaryDocId,
+      qc_summary: updatedQcSummary,
+    });
 
-    setProtocolMessage("Loading saved protocol fields...");
-    setProtocolFields([]);
-
-    apiGet(`/api/summaries/projects/${encodeURIComponent(projectId)}/protocol`)
-      .then((response: ProtocolResponse) => {
-        console.log("REVIEW PROTOCOL RESPONSE", response);
-
-        const fields =
-          response?.protocol?.fields ||
-          response?.fields ||
-          [];
-
-        console.log("PARSED REVIEW FIELDS", fields);
-
-        if (!response.has_protocol) {
-          setProtocolMessage("No saved protocol found for this project.");
-          setProtocolFields([]);
-          return;
-        }
-
-        if (fields.length === 0) {
-          console.error("NO REVIEW PROTOCOL FIELDS FOUND", response);
-
-          setProtocolMessage(
-            `Saved protocol found for ${projectId}, but no fields were returned.`
-          );
-
-          setProtocolFields([]);
-          return;
-        }
-
-        setProtocolFields(fields);
-        setProtocolMessage("");
-      })
-      .catch((error) => {
-        console.error("Failed to load review protocol", error);
-        setProtocolFields([]);
-        setProtocolMessage("Failed to load saved protocol fields.");
-      });
-  }, [projectId]);
+    setQcSummary(updatedQcSummary);
+  }
 
   if (!projectId) {
     return (
@@ -154,7 +125,7 @@ function ReviewPageContent() {
     return (
       <AppShell>
         <PageContainer>
-          <ContentCard title="Review Workspace Error">
+          <ContentCard title="Summary Review Error">
             <p className="text-red-400 text-sm whitespace-pre-wrap">
               {error}
             </p>
@@ -190,36 +161,17 @@ function ReviewPageContent() {
             <div className="mx-auto mb-6 h-12 w-12 rounded-full border-4 border-slate-700 border-t-sky-500 animate-spin" />
 
             <h1 className="text-2xl font-bold mb-2">
-              Loading Review Workspace
+              Loading Summary Review Workspace
             </h1>
 
             <p className="text-slate-400">
-              Preparing document text, native viewer, protocol fields, and linked entities.
+              Preparing native PDF, outline links, original summary, and QC review.
             </p>
           </div>
         </div>
       </AppShell>
     );
   }
-
-  console.log("PROTOCOL FIELDS STATE", protocolFields);
-
-  console.log("FIELDS FOR summaries INPUT", {
-    protocolFieldsLength: protocolFields.length,
-    protocolFields,
-  });
-
-  const fieldsForsummaries: summariesField[] = protocolFields.map((field) => {
-    const fieldFormat = field.format || field.default_format || "";
-
-    return {
-      section: field.section || "General",
-      label: field.data_element,
-      type: fieldFormat.toLowerCase().includes("tag") ? "tag" : "text",
-      format: fieldFormat,
-      notes: field.notes || "",
-    };
-  });
 
   return (
     <AppShell>
@@ -230,37 +182,25 @@ function ReviewPageContent() {
           docId={reviewDoc.doc_id}
         />
 
-        {protocolMessage && (
-          <div className="mx-4 mt-4 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
-            {protocolMessage}
-          </div>
-        )}
-
-        <section className="flex-1 grid grid-cols-3 gap-4 p-4">
-          <ReviewDocumentPane
-            text={reviewDoc.text}
-            nativeUrl={reviewDoc.native_url}
-            nativeBlob={reviewDoc.native_blob}
-          />
-
-          {fieldsForsummaries.length === 0 ? (
-            <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-[82vh]">
-              <h2 className="text-lg font-semibold mb-4 text-white">
-                summaries Panel
-              </h2>
-
-              <p className="text-sm text-amber-200 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3">
-                No protocol summaries fields loaded for this project.
-              </p>
-            </aside>
-          ) : (
-            <ReviewCapturePanel
-              projectId={projectId}
-              batchId={batchId}
-              docId={reviewDoc.doc_id}
-              fields={fieldsForsummaries}
+        <section className="flex-1 flex gap-4 p-4 overflow-hidden">
+          <div className="flex-1 min-w-0">
+            <ReviewDocumentPane
+              text={reviewDoc.text}
+              nativeUrl={reviewDoc.native_url}
+              nativeBlob={reviewDoc.native_blob}
             />
-          )}
+          </div>
+
+          <SummariesRightPane
+            summaryDocId={reviewDoc.doc_id}
+            title={
+              reviewDoc.doc_id ||
+              "Summary Review"
+            }
+            originalSummary={originalSummary}
+            qcSummary={qcSummary}
+            onSaveQcSummary={saveQcSummary}
+          />
         </section>
       </div>
     </AppShell>
