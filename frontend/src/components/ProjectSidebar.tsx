@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
+import PdfOutlinePane from "./PdfOutlinePane";
+
 import {
   LayoutDashboard,
   FileText,
@@ -125,42 +127,55 @@ export default function ProjectSidebar() {
   ];
 
   return (
-    <aside className="w-64 bg-slate-950 border-r border-slate-800 p-5 min-h-screen h-screen flex flex-col">
-      <div className="shrink-0 mb-4">
-        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500 mb-2">
-          Project Tools
+    <aside className="w-64 bg-slate-950 border-r border-slate-800 min-h-screen h-screen flex flex-col">
+      <div className={isSummaries ? "h-1/2 flex flex-col border-b border-slate-800" : "h-full flex flex-col"}>
+        <div className="shrink-0 p-5 pb-4 border-b border-slate-800 bg-slate-950">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500 mb-2">
+            Project Tools
+          </div>
+
+          <div className="insyt-project text-sky-400 text-sm font-semibold truncate">
+            {projectId.replaceAll("_", " ")}
+          </div>
         </div>
 
-        <div className="insyt-project text-sky-400 text-sm font-semibold truncate">
-          {projectId.replaceAll("_", " ")}
-        </div>
+        <nav className="space-y-2 overflow-y-auto p-5 pt-4 pr-4 flex-1">
+          {navItems.map((item) => {
+            const itemPath = item.href.split("?")[0];
+            const active = pathname === itemPath;
+            const Icon = item.icon;
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={
+                  active
+                    ? "flex items-center gap-3 px-3 py-2.5 rounded-xl bg-teal-600 text-white"
+                    : "flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 text-slate-300"
+                }
+              >
+                <Icon size={18} />
+
+                <span className="insyt-workspace text-sm">
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
       </div>
 
-      <nav className="space-y-2 overflow-y-auto pr-1 flex-1">
-        {navItems.map((item) => {
-          const itemPath = item.href.split("?")[0];
-          const active = pathname === itemPath;
-          const Icon = item.icon;
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={
-                active
-                  ? "flex items-center gap-3 px-3 py-2.5 rounded-xl bg-teal-600 text-white"
-                  : "flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 text-slate-300"
-              }
-            >
-              <Icon size={18} />
-
-              <span className="insyt-workspace text-sm">
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
-      </nav>
+      {isSummaries && (
+        <div className="h-1/2 flex flex-col">
+          <PdfOutlinePane
+            projectId={projectId}
+            outlineItems={[]}
+            originalOutlineItems={[]}
+            updatedOutlineItems={[]}
+          />
+        </div>
+      )}
     </aside>
   );
 }
