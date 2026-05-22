@@ -1,71 +1,88 @@
 "use client";
 
-import { Suspense } from "react";
 import { useRouter } from "next/navigation";
+
 import AppShell from "../../components/AppShell";
+import PageContainer from "../../components/PageContainer";
+import PageHeader from "../../components/PageHeader";
+import ContentCard from "../../components/ContentCard";
 import Button from "../../components/Button";
 
-function SummariesPageContent() {
+export default function summariesPage() {
   const router = useRouter();
 
   return (
     <AppShell>
-      <main className="p-8 text-white">
-        <h1 className="text-3xl font-bold mb-2">INSYT Summaries</h1>
+      <PageContainer>
+        <PageHeader
+          title="INSYT summaries"
+          subtitle="Project intake, batching, review, entity summaries, and export workflows."
+        />
 
-        <p className="text-slate-400 mb-8">
-          Summary QC, linked entries, outlines, batching, and project review workflows.
-        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          <ContentCard title="Project Dashboard">
+            <p className="text-slate-400 mb-4">
+              Open project-level dashboards, review status, batches, and workflow activity.
+            </p>
+            <Button onClick={() => router.push("/project-dashboard")}>
+              Open Dashboard
+            </Button>
+          </ContentCard>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl">
-          <Button onClick={() => router.push("/summaries/review")}>
-            Review
-          </Button>
+          <ContentCard title="Batches">
+            <p className="text-slate-400 mb-4">
+              Create, manage, check out, and complete review batches.
+            </p>
+            <Button onClick={() => router.push("/batches")}>
+              Open Batches
+            </Button>
+          </ContentCard>
 
-          <Button onClick={() => router.push("/summaries/batches")}>
-            Batches
-          </Button>
+          <ContentCard title="Review">
+            <p className="text-slate-400 mb-4">
+              Launch the document review workspace.
+            </p>
+            <Button onClick={() => router.push("/review")}>
+              Open Review
+            </Button>
+          </ContentCard>
 
-          <Button onClick={() => router.push("/summaries/protocol")}>
-            Protocol
-          </Button>
+          <ContentCard title="summariesd Entities">
+            <p className="text-slate-400 mb-4">
+              View extracted/summariesd entities and quality-control outputs.
+            </p>
+            <Button onClick={() => router.push("/summariesd-entities")}>
+              Open Entities
+            </Button>
+          </ContentCard>
 
-          <Button onClick={() => router.push("/summaries/project-hours")}>
-            Project Hours
-          </Button>
+          <ContentCard title="Files">
+            <p className="text-slate-400 mb-4">
+              Browse project files, uploads, text, natives, and outputs.
+            </p>
+            <Button onClick={() => router.push("/files")}>
+              Open Files
+            </Button>
+          </ContentCard>
 
-          <Button onClick={() => router.push("/summaries/original-records-outline")}>
-            Original Records Outline
-          </Button>
-
-          <Button onClick={() => router.push("/summaries/updated-records-outline")}>
-            Updated Records Outline
-          </Button>
-
-          <Button onClick={() => router.push("/summaries/data-management")}>
-            Data Management
-          </Button>
-
-          <Button onClick={() => router.push("/summaries/batch-management")}>
-            Batch Management
-          </Button>
-
-          <Button onClick={() => router.push("/summaries/review-team")}>
-            Review Team
-          </Button>
+          <ContentCard title="User Access">
+            <p className="text-slate-400 mb-4">
+              Manage users, roles, launch access, project access, and passwords.
+            </p>
+            <Button onClick={() => router.push("/user-access")}>
+              Open User Access
+            </Button>
+          </ContentCard>
         </div>
-      </main>
+      </PageContainer>
     </AppShell>
   );
 }
 
-export default function SummariesPage() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <SummariesPageContent />
-    </Suspense>
-  );
-}
+
+
+
+
 
 
 

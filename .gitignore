@@ -28,3 +28,7 @@ backend/.env
 
 # Temp commands
 STARTUP_COMMANDS.txt
+
+_legacy_app_backup/
+
+_legacy_deploy_frontend_backup/

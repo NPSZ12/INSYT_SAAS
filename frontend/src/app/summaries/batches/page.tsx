@@ -1,253 +1,403 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../../components/AppShell";
+import PageContainer from "../../../components/PageContainer";
+import PageHeader from "../../../components/PageHeader";
+import ContentCard from "../../../components/ContentCard";
+import Button from "../../../components/Button";
+import StatusBadge from "../../../components/StatusBadge";
 import { apiGet, apiPost } from "../../../lib/api";
 
 type Batch = {
-  batch_name: string;
+  project_id: string;
+  batch_id: string;
+  name: string;
   status: string;
+  document_count: number;
+  checked_out_by: string | null;
+  checked_out_at?: string;
+  completed_at?: string;
   level: string;
   workflow_type: string;
-  batch_size: number;
-  document_count: number;
   doc_ids: string[];
 };
 
-function SummariesBatchesPageContent() {
+type StoredUser = {
+  username: string;
+  display_name: string;
+  role: string;
+};
+
+function BatchesPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
 
-  const queryProject = searchParams.get("project");
-
-  const storedProject =
-    typeof window !== "undefined"
-      ? localStorage.getItem("insyt_selected_project")
-      : "";
-
-  const selectedProject = queryProject || storedProject;
-
+  const projectId = searchParams.get("project");
+  const [user, setUser] = useState<StoredUser | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [mode, setMode] =
+    useState<"review" | "qc" | "alt" | "statqc">("review");
+  const [expandedBatchName, setExpandedBatchName] = useState("");
+  const [message, setMessage] = useState("");
 
-  const [docsPerBatch, setDocsPerBatch] = useState("10");
-  const [customDocsPerBatch, setCustomDocsPerBatch] = useState("");
-  const [level, setLevel] = useState("1L");
+  useEffect(() => {
+    const storedUser = localStorage.getItem("insyt_user");
 
-  const resolvedBatchSize =
-    docsPerBatch === "Custom"
-      ? Number(customDocsPerBatch)
-      : Number(docsPerBatch);
-
-  async function loadBatches() {
-    if (!selectedProject) {
-      setLoading(false);
-      return;
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
     }
+  }, []);
 
-    try {
-      const data = await apiGet(
-        `/api/summaries/projects/${selectedProject}/batches`
-      );
+  function loadBatches() {
+    if (!projectId) return;
 
-      setBatches(data.batches || []);
-    } catch (error) {
-      console.error(error);
-      setBatches([]);
-    } finally {
-      setLoading(false);
-    }
+    apiGet(`/api/summaries/projects/${projectId}/batches`)
+      .then((response) => {
+        const normalized = (response.batches || []).map((batch: any) => {
+          const batchName = batch.batch_name || batch.batch_id || batch.name;
+
+          return {
+            project_id: batch.project_id,
+            batch_id: batchName,
+            name: batchName,
+            status: batch.status || "Available",
+            document_count:
+              batch.document_count ||
+              batch.doc_ids?.length ||
+              Number(batch.documents || 0),
+            checked_out_by: batch.checked_out_by || null,
+            checked_out_at: batch.checked_out_at || "",
+            completed_at: batch.completed_at || "",
+            level: batch.level || "1L",
+            workflow_type: batch.workflow_type || "standard",
+            doc_ids: batch.doc_ids || [],
+          };
+        });
+
+        setBatches(normalized);
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Failed to load batches.");
+      });
   }
 
   useEffect(() => {
     loadBatches();
-  }, [selectedProject]);
+  }, [projectId]);
 
-  async function createBatch() {
-    if (!selectedProject) {
-      alert("Select a project first.");
-      return;
-    }
+  const selectedLevel =
+    mode === "review"
+      ? "1L"
+      : mode === "qc"
+        ? "QC"
+        : mode === "alt"
+          ? "ALT Workflow"
+          : "Statistical QC";
 
-    if (!resolvedBatchSize || resolvedBatchSize <= 0) {
-      alert("Enter a valid Docs / Batch value.");
-      return;
-    }
+  const modeBatches = batches
+    .filter((batch) => batch.level === selectedLevel)
+    .sort((a, b) => {
+      if (a.status === "Available" && b.status !== "Available") return -1;
+      if (a.status !== "Available" && b.status === "Available") return 1;
+      return a.name.localeCompare(b.name);
+    });
 
-    try {
-      await apiPost(
-        `/api/summaries/projects/${selectedProject}/batches/create`,
-        {
-          batch_size: resolvedBatchSize,
-          level,
-          workflow_type:
-            level === "ALT Workflow" ? "alt_workflow" : "standard",
-          created_by: "admin",
-          search_folder_doc_ids: null,
-        }
-      );
+  const batchNames = Array.from(
+    new Set(modeBatches.map((batch) => batch.name))
+  );
 
-      await loadBatches();
+  const expandedBatches = modeBatches.filter(
+    (batch) => batch.name === expandedBatchName
+  );
 
-      alert("Batch created.");
-    } catch (error) {
-      console.error(error);
-      alert("Failed to create batch.");
-    }
+  function checkoutBatch(batchId: string) {
+    if (!projectId || !user) return;
+
+    apiPost(`/api/summaries/projects/${projectId}/batches/checkout`, {
+      batch_name: batchId,
+      username: user.username,
+    })
+      .then((response) => {
+        setMessage(response.message || "Batch checked out.");
+        loadBatches();
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Batch checkout failed.");
+      });
+  }
+
+  if (!projectId) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="Batches"
+            subtitle="Select a project first."
+          />
+        </PageContainer>
+      </AppShell>
+    );
   }
 
   return (
     <AppShell>
-      <main className="p-8 text-white">
-        <h1 className="text-3xl font-bold mb-2">
-          INSYT Summaries Batches
-        </h1>
+      <PageContainer>
+        <PageHeader
+          title="Batches"
+          subtitle={`Batch checkout and status for ${projectId.replaceAll("_", " ")}.`}
+        />
 
-        <p className="text-slate-400 mb-6">
-          Create and manage review batches for the selected Summaries project.
-        </p>
-
-        {!selectedProject ? (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-400">
-            No project selected. Go to Projects and select a Summaries project first.
-          </div>
-        ) : (
-          <>
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
-              <div className="text-sm text-slate-400 mb-2">
-                Selected Project
-              </div>
-
-              <div className="text-xl font-bold mb-6">
-                {selectedProject}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">
-                    Docs / Batch
-                  </label>
-
-                  <select
-                    value={docsPerBatch}
-                    onChange={(e) => setDocsPerBatch(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white"
-                  >
-                    <option value="1">1</option>
-                    <option value="5">5</option>
-                    <option value="10">10</option>
-                    <option value="20">20</option>
-                    <option value="50">50</option>
-                    <option value="Custom">Custom</option>
-                  </select>
-                </div>
-
-                {docsPerBatch === "Custom" && (
-                  <div>
-                    <label className="block text-sm text-slate-400 mb-2">
-                      Custom Docs / Batch
-                    </label>
-
-                    <input
-                      type="number"
-                      min="1"
-                      value={customDocsPerBatch}
-                      onChange={(e) =>
-                        setCustomDocsPerBatch(e.target.value)
-                      }
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white"
-                    />
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">
-                    Level
-                  </label>
-
-                  <select
-                    value={level}
-                    onChange={(e) => setLevel(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white"
-                  >
-                    <option value="1L">1L</option>
-                    <option value="QC">QC</option>
-                    <option value="ALT Workflow">ALT Workflow</option>
-                  </select>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={createBatch}
-                  className="bg-lime-50 hover:bg-lime-50 text-white rounded-xl px-4 py-3 font-semibold"
-                >
-                  Create Batch
-                </button>
-              </div>
-
-              <div className="text-xs text-slate-500 mt-4">
-                1L excludes already 1L-batched documents. QC excludes already QC-batched documents. ALT Workflow requires Search Folder Results.
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="text-slate-400">Loading batches...</div>
-            ) : batches.length === 0 ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-400">
-                No batches found.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {batches.map((batch) => (
-                  <div
-                    key={batch.batch_name}
-                    className="bg-slate-900 border border-slate-800 rounded-2xl p-6"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-xl font-bold">
-                          {batch.batch_name}
-                        </div>
-
-                        <div className="text-slate-400 text-sm mt-1">
-                          {batch.document_count} documents · {batch.level} · {batch.workflow_type}
-                        </div>
-                      </div>
-
-                      <div className="bg-slate-800 rounded-full px-3 py-1 text-sm">
-                        {batch.status}
-                      </div>
-                    </div>
-
-                    <div className="text-xs text-slate-500 mt-4">
-                      Docs: {batch.doc_ids.join(", ")}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+        {message && (
+          <p className="text-sm text-sky-400 mb-6">
+            {message}
+          </p>
         )}
-      </main>
+
+        <div className="grid grid-cols-4 gap-6 mb-6">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("review");
+              setExpandedBatchName("");
+            }}
+            className={
+              mode === "review"
+                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+            }
+          >
+            <h2 className="text-xl font-semibold">Review Batches</h2>
+            <p className="text-sm mt-2 opacity-80">
+              First-pass review batch checkout and status.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMode("qc");
+              setExpandedBatchName("");
+            }}
+            className={
+              mode === "qc"
+                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+            }
+          >
+            <h2 className="text-xl font-semibold">QC Batches</h2>
+            <p className="text-sm mt-2 opacity-80">
+              Quality-control batch checkout and status.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMode("alt");
+              setExpandedBatchName("");
+            }}
+            className={
+              mode === "alt"
+                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+            }
+          >
+            <h2 className="text-xl font-semibold">Alt Batches</h2>
+            <p className="text-sm mt-2 opacity-80">
+              Supplemental/Search Folder workflow batches.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMode("statqc");
+              setExpandedBatchName("");
+            }}
+            className={
+              mode === "statqc"
+                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+            }
+          >
+            <h2 className="insyt-workspace text-xl font-semibold">
+              Statistical QC
+            </h2>
+            <p className="text-sm mt-2 opacity-80">
+              Randomized quality-control sampling by confidence level.
+            </p>
+          </button>
+
+        </div>
+
+        <ContentCard title={`${selectedLevel} Batch Names`}>
+          {batchNames.length === 0 ? (
+            <p className="text-slate-400">
+              No batches found for this category.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {batchNames.map((batchName) => {
+                const related = modeBatches.filter(
+                  (batch) => batch.name === batchName
+                );
+
+                const availableCount = related.filter(
+                  (batch) => batch.status === "Available"
+                ).length;
+
+                return (
+                  <div
+                    key={batchName}
+                    className="bg-slate-950 border border-slate-800 rounded-xl"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedBatchName(
+                          expandedBatchName === batchName ? "" : batchName
+                        )
+                      }
+                      className="w-full flex items-center justify-between p-4 text-left"
+                    >
+                      <div>
+                        <div className="text-lg font-semibold text-white">
+                          {batchName}
+                        </div>
+
+                        <div className="text-sm text-slate-400">
+                          {related.length} batch record(s) · {availableCount} available
+                        </div>
+                      </div>
+
+                      <StatusBadge>
+                        {expandedBatchName === batchName ? "Expanded" : "Collapsed"}
+                      </StatusBadge>
+                    </button>
+
+                    {expandedBatchName === batchName && (
+                      <div className="border-t border-slate-800 overflow-auto">
+                        <table className="w-full text-xs table-auto">
+                          <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
+                            <tr>
+                              <th className="p-3 text-left">Status</th>
+                              <th className="p-3 text-left">Name</th>
+                              <th className="p-3 text-left">Docs</th>
+                              <th className="p-3 text-left">Checked Out By</th>
+                              <th className="p-3 text-left">Date Checked Out</th>
+                              <th className="p-3 text-left">Date Completed</th>
+                              <th className="p-3 text-left">Action</th>
+                            </tr>
+                          </thead>
+
+                          <tbody>
+                            {related
+                              .sort((a, b) => {
+                                if (a.status === "Available" && b.status !== "Available") {
+                                  return -1;
+                                }
+
+                                if (a.status !== "Available" && b.status === "Available") {
+                                  return 1;
+                                }
+
+                                return a.name.localeCompare(b.name);
+                              })
+                              .map((batch) => (
+                                <tr
+                                  key={batch.batch_id}
+                                  className="border-t border-slate-800"
+                                >
+                                  <td className="p-3">
+                                    <StatusBadge>{batch.status}</StatusBadge>
+                                  </td>
+
+                                  <td className="p-3 text-white">
+                                    {batch.batch_id}
+                                  </td>
+
+                                  <td className="p-3 text-slate-300">
+                                    {batch.document_count}
+                                  </td>
+
+                                  <td className="p-3 text-slate-300">
+                                    {batch.checked_out_by || "—"}
+                                  </td>
+
+                                  <td className="p-3 text-slate-300">
+                                    {batch.checked_out_at || "—"}
+                                  </td>
+
+                                  <td className="p-3 text-slate-300">
+                                    {batch.completed_at || "—"}
+                                  </td>
+
+                                  <td className="p-3">
+                                    {batch.status === "Available" && (
+                                      <Button
+                                        onClick={() =>
+                                          checkoutBatch(batch.batch_id)
+                                        }
+                                      >
+                                        Check Out
+                                      </Button>
+                                    )}
+
+                                    {batch.status === "Checked Out" &&
+                                      batch.checked_out_by === user?.username && (
+                                        <Button
+                                          variant="secondary"
+                                          onClick={() =>
+                                            router.push(
+                                              `/summaries/review?project=${projectId}&batch=${batch.batch_id}`
+                                            )
+                                          }
+                                        >
+                                          Open Review
+                                        </Button>
+                                      )}
+
+                                    {batch.status === "Completed" && (
+                                      <Button variant="secondary">
+                                        Completed
+                                      </Button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </ContentCard>
+      </PageContainer>
     </AppShell>
   );
 }
 
-
-
-
-
-
-
-
-
-
-export default function Page() {
+export default function BatchesPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <SummariesBatchesPageContent />
+    <Suspense fallback={<div>Loading batches...</div>}>
+      <BatchesPageContent />
     </Suspense>
   );
 }
+
+
+
+
+
+
+
+
 

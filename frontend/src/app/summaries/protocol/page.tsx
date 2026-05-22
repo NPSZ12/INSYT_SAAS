@@ -9,7 +9,7 @@ import PageHeader from "../../../components/PageHeader";
 import ContentCard from "../../../components/ContentCard";
 import { apiGet } from "../../../lib/api";
 
-type SummaryProtocolField = {
+type ProtocolField = {
   section: string;
   data_element: string;
   default_format?: string;
@@ -17,21 +17,19 @@ type SummaryProtocolField = {
   notes: string;
 };
 
-type SavedSummaryProtocolResponse = {
-  workspace?: string;
+type SavedProtocolResponse = {
   project_id: string;
   has_protocol: boolean;
-  protocol_blob: string | null;
   protocol_blob_path: string | null;
   protocol_filename: string | null;
   protocol_template?: string;
   last_modified?: string | null;
   size?: number | null;
   protocol?: {
-    protocol_template?: string | null;
-    fields?: SummaryProtocolField[];
+    protocol_template?: string;
+    fields?: ProtocolField[];
   };
-  fields?: SummaryProtocolField[];
+  fields?: ProtocolField[];
   message?: string;
 };
 
@@ -39,30 +37,28 @@ function SummariesProtocolPageContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project");
 
-  const [protocol, setProtocol] =
-    useState<SavedSummaryProtocolResponse | null>(null);
-
+  const [protocol, setProtocol] = useState<SavedProtocolResponse | null>(null);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!projectId) {
       setProtocol(null);
-      setMessage("Select a summary project to view its protocol.");
+      setMessage("Select a project to view its protocol.");
       return;
     }
 
     setProtocol(null);
-    setMessage("Loading saved summary protocol...");
+    setMessage("Loading saved protocol...");
 
     apiGet(`/api/summaries/projects/${encodeURIComponent(projectId)}/protocol`)
-      .then((response: SavedSummaryProtocolResponse) => {
+      .then((response: SavedProtocolResponse) => {
         setProtocol(response);
         setMessage("");
       })
       .catch((error) => {
         console.error(error);
         setProtocol(null);
-        setMessage("Failed to load summary protocol.");
+        setMessage("Failed to load protocol.");
       });
   }, [projectId]);
 
@@ -78,11 +74,11 @@ function SummariesProtocolPageContent() {
     <AppShell>
       <PageContainer>
         <PageHeader
-          title="Summary Protocol"
+          title="Protocol"
           subtitle={
             projectId
-              ? `Saved summary protocol for ${projectId.replaceAll("_", " ")}.`
-              : "Select a summary project to view its saved protocol."
+              ? `Saved protocol for ${projectId.replaceAll("_", " ")}.`
+              : "Select a project to view its saved protocol."
           }
         />
 
@@ -92,20 +88,20 @@ function SummariesProtocolPageContent() {
           </p>
         )}
 
-        <ContentCard title="Summary Extraction Protocol">
+        <ContentCard title="Project Protocol">
           {!projectId ? (
             <p className="text-slate-400">
-              No summary project selected.
+              No project selected.
             </p>
           ) : protocol && !protocol.has_protocol ? (
             <p className="text-slate-400">
-              No saved summary protocol found for this project.
+              No saved protocol found for this project.
             </p>
           ) : protocol?.has_protocol ? (
             <>
               <div className="mb-6 rounded-xl border border-slate-800 bg-slate-950 p-4">
                 <p className="text-sm text-slate-400">
-                  Saved Summary Protocol
+                  Saved Protocol
                 </p>
 
                 <p className="insyt-workspace text-xl font-semibold text-white mt-1">
@@ -128,17 +124,17 @@ function SummariesProtocolPageContent() {
 
               {fields.length === 0 ? (
                 <p className="text-slate-400">
-                  Summary protocol file found, but no fields were returned.
+                  Protocol file found, but no protocol fields were returned.
                 </p>
               ) : (
                 <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-auto max-h-[70vh]">
                   <table className="w-full text-xs table-auto">
                     <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
                       <tr>
-                        <th className="p-3 text-left">Summary Section</th>
-                        <th className="p-3 text-left">Summary Data Element</th>
-                        <th className="p-3 text-left">Capture Type</th>
-                        <th className="p-3 text-left">Instructions</th>
+                        <th className="p-3 text-left">Section</th>
+                        <th className="p-3 text-left">Data Element</th>
+                        <th className="p-3 text-left">summaries Type</th>
+                        <th className="p-3 text-left">Notes</th>
                       </tr>
                     </thead>
 
@@ -172,7 +168,7 @@ function SummariesProtocolPageContent() {
             </>
           ) : (
             <p className="text-slate-400">
-              Loading summary protocol...
+              Loading protocol...
             </p>
           )}
         </ContentCard>
@@ -183,7 +179,7 @@ function SummariesProtocolPageContent() {
 
 export default function Page() {
   return (
-    <Suspense fallback={<div>Loading summary protocol...</div>}>
+    <Suspense fallback={<div>Loading...</div>}>
       <SummariesProtocolPageContent />
     </Suspense>
   );

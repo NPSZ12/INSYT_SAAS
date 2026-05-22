@@ -28,7 +28,7 @@ type AccessUser = {
 const levels = ["1L", "QC", "TL", "Client", "Admin"];
 
 const launches = [
-  "INSYT™ Capture",
+  "INSYT™ summaries",
   "INSYT™ Discovery",
   "INSYT™ Summaries",
   "INSYT™ Developer",
@@ -37,8 +37,8 @@ const launches = [
 const permissions = [
   "Download Docs",
   "Upload Docs",
-  "Edit Captured Entities",
-  "Delete Captured Entities",
+  "Edit summariesd Entities",
+  "Delete summariesd Entities",
   "Create Batches",
   "Create Search Folders",
   "View Messaging",
@@ -57,18 +57,18 @@ export default function UserAccessPage() {
     password: "",
     role: "1L",
     project_access: [] as string[],
-    launches: ["INSYT Capture"] as string[],
+    launches: ["INSYT summaries"] as string[],
     permissions: [] as string[],
   });
 
   function loadData() {
     apiGet("/api/users")
       .then((response: any) => {
-        const users = Array.isArray(response)
-          ? response
-          : response?.users || [];
-
-        setUsers(users);
+        setUsers(
+          Array.isArray(response)
+            ? response
+            : response?.users || []
+        );
       })
       .catch(console.error);
 
@@ -121,7 +121,7 @@ export default function UserAccessPage() {
           password: "",
           role: "1L",
           project_access: [],
-          launches: ["INSYT™ Capture"],
+          launches: ["INSYT™ summaries"],
           permissions: [],
           email: "",
         });
@@ -150,7 +150,7 @@ export default function UserAccessPage() {
           password: "",
           role: "1L",
           project_access: [],
-          launches: ["INSYT™ Capture"],
+          launches: ["INSYT™ summaries"],
           permissions: [],
           email: "",
         });
@@ -419,6 +419,9 @@ export default function UserAccessPage() {
     </AppShell>
   );
 }
+
+
+
 
 
 

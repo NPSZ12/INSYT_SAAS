@@ -1,172 +1,104 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 import AppShell from "../../../components/AppShell";
+import PageContainer from "../../../components/PageContainer";
+import PageHeader from "../../../components/PageHeader";
+import ContentCard from "../../../components/ContentCard";
+import Button from "../../../components/Button";
+import DataTable from "../../../components/DataTable";
+import { apiGet } from "../../../lib/api";
 
-import SummariesLeftPane from "../../../components/summaries/SummariesLeftPane";
-import SummariesCenterPane from "../../../components/summaries/SummariesCenterPane";
-import SummariesRightPane from "../../../components/summaries/SummariesRightPane";
-
-import { summariesDocuments } from "../../../data/summariesMockData";
-
-type SavedSummaryQc = {
-  codingStatus: string;
-  qcText: string;
-  updatedOutlineItems: string[];
+type BatchFile = {
+  doc_id: string;
+  file_name: string;
+  status: string;
 };
 
-function buildOutlineFromText(text: string) {
-  return text
-    .split(".")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
+function ReviewBatchLandingPageContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-export default function SummariesReviewPage() {
-  const [selectedDocument, setSelectedDocument] =
-    useState(summariesDocuments[0]);
+  const projectId = searchParams.get("project");
+  const batchId = searchParams.get("batch");
 
-  const [qcText, setQcText] = useState("");
-  const [codingStatus, setCodingStatus] = useState("");
-  const [extractedMode, setExtractedMode] = useState(true);
-  const [updatedOutlineItems, setUpdatedOutlineItems] =
-    useState<string[]>([]);
+  const [files, setFiles] = useState<BatchFile[]>([]);
 
-  const [savedQcByDocId, setSavedQcByDocId] =
-    useState<Record<string, SavedSummaryQc>>({});
+  useEffect(() => {
+    if (!projectId || !batchId) return;
 
-  function handleQcTextChange(value: string) {
-    setQcText(value);
-    setUpdatedOutlineItems(buildOutlineFromText(value));
-  }
+    apiGet(`/api/batches/files?project=${projectId}&batch=${batchId}`)
+      .then(setFiles)
+      .catch(console.error);
+  }, [projectId, batchId]);
 
-  function loadDocument(doc: (typeof summariesDocuments)[number]) {
-    setSelectedDocument(doc);
-
-    const saved = savedQcByDocId[doc.id];
-
-    if (saved) {
-      setQcText(saved.qcText);
-      setCodingStatus(saved.codingStatus);
-      setUpdatedOutlineItems(saved.updatedOutlineItems);
-    } else {
-      setQcText("");
-      setCodingStatus("");
-      setUpdatedOutlineItems([]);
-    }
-
-    setExtractedMode(true);
-  }
-
-  function handleSave() {
-    if (!codingStatus) {
-      alert("Please select a Document Coding status before saving.");
-      return false;
-    }
-
-    if (!qcText.trim()) {
-      alert("Please enter or select Summary QC text before saving.");
-      return false;
-    }
-
-    setSavedQcByDocId((prev) => {
-      const next = {
-        ...prev,
-        [selectedDocument.id]: {
-          codingStatus,
-          qcText,
-          updatedOutlineItems,
-        },
-      };
-
-      localStorage.setItem("insyt_summaries_qc", JSON.stringify(next));
-
-      return next;
-    });
-
-    useEffect(() => {
-      const stored = localStorage.getItem("insyt_summaries_qc");
-
-      if (stored) {
-        setSavedQcByDocId(JSON.parse(stored));
-      }
-    }, []);
-
-    console.log("Saving Summary QC", {
-      doc_id: selectedDocument.id,
-      filename: selectedDocument.filename,
-      coding_status: codingStatus,
-      qc_text: qcText,
-      updated_outline: updatedOutlineItems,
-    });
-
-    alert("Summary QC saved.");
-    return true;
-  }
-
-  function handleSaveAndNext() {
-    const saved = handleSave();
-
-    if (!saved) {
-      return;
-    }
-
-    const currentIndex = summariesDocuments.findIndex(
-      (doc) => doc.id === selectedDocument.id
+  if (!projectId || !batchId) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="No Batch Selected"
+            subtitle="Please select a batch before starting review."
+          />
+        </PageContainer>
+      </AppShell>
     );
-
-    const nextDoc =
-      summariesDocuments[currentIndex + 1] || summariesDocuments[0];
-
-    const savedNext = savedQcByDocId[nextDoc.id];
-
-    setSelectedDocument(nextDoc);
-
-    if (savedNext) {
-      setQcText(savedNext.qcText);
-      setCodingStatus(savedNext.codingStatus);
-      setUpdatedOutlineItems(savedNext.updatedOutlineItems);
-    } else {
-      setQcText("");
-      setCodingStatus("");
-      setUpdatedOutlineItems([]);
-    }
-
-    setExtractedMode(true);
   }
+
+  const columns = [
+    { key: "doc_id", label: "Doc ID" },
+    { key: "file_name", label: "File Name" },
+    { key: "status", label: "Status" },
+  ];
 
   return (
     <AppShell>
-      <div className="h-screen flex bg-slate-950 text-white overflow-hidden">
-        <SummariesLeftPane
-          documents={summariesDocuments}
-          selectedDocument={selectedDocument}
-          updatedOutlineItems={updatedOutlineItems}
-          savedDocIds={Object.keys(savedQcByDocId)}
-          onSelectDocument={loadDocument}
-          onSelectHyperlink={(text) => handleQcTextChange(text)}
-        />
+      <PageContainer>
+        <div className="flex items-start justify-between mb-8">
+          <PageHeader
+            title={batchId.replaceAll("_", " ")}
+            subtitle={`Documents available for ${projectId.replaceAll("_", " ")}.`}
+          />
 
-        <SummariesCenterPane
-          document={selectedDocument}
-          extractedMode={extractedMode}
-          setExtractedMode={setExtractedMode}
-        />
+          <Button
+            onClick={() =>
+              router.push(
+                `/summaries/review/doc?project=${projectId}&batch=${batchId}`
+              )
+            }
+          >
+            Review Docs
+          </Button>
+        </div>
 
-        <SummariesRightPane
-          document={selectedDocument}
-          qcText={qcText}
-          setQcText={handleQcTextChange}
-          codingStatus={codingStatus}
-          setCodingStatus={setCodingStatus}
-          onSave={handleSave}
-          onSaveAndNext={handleSaveAndNext}
-        />
-      </div>
+        <ContentCard title="Batch Documents">
+          {files.length === 0 ? (
+            <p className="text-slate-500">
+              No documents found for this batch.
+            </p>
+          ) : (
+            <div className="max-h-[45vh] overflow-auto">
+              <DataTable columns={columns} data={files} />
+            </div>
+          )}
+        </ContentCard>
+      </PageContainer>
     </AppShell>
   );
 }
+export default function ReviewBatchLandingPage() {
+  return (
+    <Suspense fallback={<div>Loading login...</div>}>
+      <ReviewBatchLandingPageContent />
+    </Suspense>
+  );
+}
+
+
+
+
 
 
 
