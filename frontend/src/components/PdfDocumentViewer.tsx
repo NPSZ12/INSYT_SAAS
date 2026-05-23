@@ -1,6 +1,6 @@
 "use client";
 
-import { Worker, Viewer } from "@react-pdf-viewer/core";
+import { Worker, Viewer, SpecialZoomLevel } from "@react-pdf-viewer/core";
 import { defaultLayoutPlugin } from "@react-pdf-viewer/default-layout";
 import type { PageChangeEvent } from "@react-pdf-viewer/core";
 
@@ -15,7 +15,7 @@ type PdfDocumentViewerProps = {
 
 export default function PdfDocumentViewer({
   fileUrl,
-  heightClassName = "h-full",
+  heightClassName = "h-[calc(100vh-220px)]",
   onPageChange,
 }: PdfDocumentViewerProps) {
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
@@ -32,28 +32,62 @@ export default function PdfDocumentViewer({
 
   return (
     <div
-      className={`${heightClassName} rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden`}
+      className={`${heightClassName} min-h-[500px] rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden`}
     >
       <Worker workerUrl="/pdf.worker.min.js">
         <Viewer
           fileUrl={cleanedFileUrl}
           plugins={[defaultLayoutPluginInstance]}
+          defaultScale={SpecialZoomLevel.PageWidth}
+          enableSmoothScroll
+          onPageChange={(event: PageChangeEvent) => {
+            onPageChange?.(event.currentPage + 1);
+          }}
           renderError={(error) => (
-            <div className="h-full p-6 text-sm text-red-300">
+            <div className="h-full overflow-auto p-6 text-sm text-red-300">
               <div className="mb-2 font-semibold">Failed to load PDF.</div>
               <div className="break-all text-slate-300">
                 URL: {cleanedFileUrl}
               </div>
-              <div className="mt-3 text-slate-400">
-                {error.message}
-              </div>
+              <div className="mt-3 text-slate-400">{error.message}</div>
             </div>
           )}
-          onPageChange={(event: PageChangeEvent) => {
-            onPageChange?.(event.currentPage + 1);
-          }}
         />
       </Worker>
+
+      <style jsx global>{`
+        .rpv-core__viewer {
+          height: 100% !important;
+        }
+
+        .rpv-core__inner-container {
+          height: 100% !important;
+        }
+
+        .rpv-core__annotation-layer {
+          pointer-events: auto !important;
+          z-index: 20 !important;
+        }
+
+        .rpv-core__annotation-layer a {
+          pointer-events: auto !important;
+          cursor: pointer !important;
+          z-index: 30 !important;
+        }
+
+        .rpv-core__page-layer {
+          position: relative !important;
+        }
+
+        .rpv-core__text-layer {
+          z-index: 10 !important;
+          pointer-events: none !important;
+        }
+
+        .rpv-core__canvas-layer {
+          z-index: 1 !important;
+        }
+      `}</style>
     </div>
   );
 }
