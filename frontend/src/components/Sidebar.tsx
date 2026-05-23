@@ -26,7 +26,13 @@ type NavItem = {
   icon: any;
 };
 
-export default function Sidebar() {
+type SidebarProps = {
+  collapsed?: boolean;
+};
+
+export default function Sidebar({
+  collapsed = false,
+}: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -108,27 +114,47 @@ export default function Sidebar() {
       ];
 
   return (
-    <aside className="w-72 bg-slate-900 border-r border-slate-800 p-6 min-h-screen h-screen flex flex-col">
+    <aside
+      className={
+        collapsed
+          ? "w-16 bg-slate-900 border-r border-slate-800 p-3 min-h-screen h-screen flex flex-col transition-all duration-200"
+          : "w-72 bg-slate-900 border-r border-slate-800 p-6 min-h-screen h-screen flex flex-col transition-all duration-200"
+      }
+    >
 
       {/* TOP STATIC */}
       <div className="shrink-0">
 
-        <div className="flex items-end gap-0.5 mb-4">
-          <span className="insyt-brand text-4xl font-bold text-white">
-            I
-          </span>
+        <div
+          className={
+            collapsed
+              ? "flex justify-center mb-4"
+              : "flex items-end gap-0.5 mb-4"
+          }
+        >
+          {collapsed ? (
+            <span className="insyt-brand text-3xl font-bold text-sky-400">
+              I
+            </span>
+          ) : (
+            <>
+              <span className="insyt-brand text-4xl font-bold text-white">
+                I
+              </span>
 
-          <span className="insyt-brand text-4xl font-bold text-sky-400">
-            N
-          </span>
+              <span className="insyt-brand text-4xl font-bold text-sky-400">
+                N
+              </span>
 
-          <span className="insyt-brand text-4xl font-bold text-white">
-            SYT
-          </span>
+              <span className="insyt-brand text-4xl font-bold text-white">
+                SYT
+              </span>
 
-          <span className="insyt-brand text-[1.4em] leading-none mb-[0.22em] text-sky-400 font-bold">
-            360
-          </span>
+              <span className="insyt-brand text-[1.4em] leading-none mb-[0.22em] text-sky-400 font-bold">
+                360
+              </span>
+            </>
+          )}
         </div>
 
         <Link
@@ -137,9 +163,11 @@ export default function Sidebar() {
         >
           <Rocket size={20} />
 
-          <span className="insyt-workspace">
-            Launcher
-          </span>
+          {!collapsed && (
+            <span className="insyt-workspace">
+              Launcher
+            </span>
+          )}
         </Link>
 
         <Link
@@ -155,9 +183,11 @@ export default function Sidebar() {
             style={{ width: "22px", height: "auto" }}
           />
 
-          <span className="insyt-workspace">
-            Cyber² Utility
-          </span>
+          {!collapsed && (
+            <span className="insyt-workspace">
+              Cyber² Utility
+            </span>
+          )}
         </Link>
 
       </div>
@@ -180,9 +210,11 @@ export default function Sidebar() {
             >
               <Icon size={20} />
 
-              <span className="insyt-workspace">
-                {item.label}
-              </span>
+              {!collapsed && (
+                <span className="insyt-workspace">
+                  {item.label}
+                </span>
+              )}
             </Link>
           );
         })}

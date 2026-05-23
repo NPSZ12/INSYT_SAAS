@@ -98,7 +98,7 @@ export default function DiscoveryReviewPanel({
       discovery_notes: notesBySection,
     })
       .then(() => {
-        setMessage("Discovery coding saved. Ready for next document.");
+        setMessage("Discovery coding saved.");
       })
       .catch((error: any) => {
         console.error(error);
@@ -187,17 +187,17 @@ export default function DiscoveryReviewPanel({
         )}
       </div>
 
-      <div className="shrink-0 border-t border-slate-800 p-6 space-y-3">
+      <div className="mt-6">
         <Button fullWidth variant="secondary" onClick={handleSaveNext}>
-          Save & Next Document
+            Save
         </Button>
 
         {message && (
-          <p className="text-sm text-slate-400 mt-2">
+            <p className="text-sm text-slate-400 mt-3">
             {message}
-          </p>
+            </p>
         )}
-      </div>
+        </div>
     </aside>
   );
 }

@@ -592,6 +592,97 @@ export default function NewProjectPage() {
             )}
           </ContentCard>
         </div>
+        <div className="mt-8">
+          <ContentCard title="Overlay Upload">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              <div>
+                <FormLabel>Select Project</FormLabel>
+
+                <Select
+                  value={selectedProject}
+                  onChange={setSelectedProject}
+                >
+                  <option value="">Select project...</option>
+
+                  {projects.map((project) => (
+                    <option key={project} value={project}>
+                      {project.replaceAll("_", " ")}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="md:col-span-2">
+                <FormLabel>
+                  Upload Captured Entities CSV
+                </FormLabel>
+
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-sky-100 file:px-4 file:py-2 file:text-slate-700 hover:file:bg-sky-500"
+                  onChange={(event) => {
+                    const files = event.target.files;
+
+                    if (!files || files.length === 0) {
+                      setMessage("No overlay CSV selected.");
+                      return;
+                    }
+
+                    setMessage(
+                      `${files[0].name} selected for overlay upload.`
+                    );
+                  }}
+                />
+              </div>
+
+              <div className="md:col-span-3">
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 mb-4">
+                  <h3 className="text-sm font-semibold text-white mb-2">
+                    Required CSV Format
+                  </h3>
+
+                  <div className="text-xs text-slate-400 space-y-1">
+                    <p>
+                      • CSV must contain a{" "}
+                      <span className="text-sky-400 font-semibold">
+                        Doc ID
+                      </span>{" "}
+                      column
+                    </p>
+
+                    <p>
+                      • Remaining columns will automatically map to linked entity fields
+                    </p>
+
+                    <p>
+                      • Matching Doc IDs will auto-link entities to review documents
+                    </p>
+                  </div>
+                </div>
+
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    if (!selectedProject) {
+                      setMessage(
+                        "Select a project before overlay upload."
+                      );
+
+                      return;
+                    }
+
+                    setMessage(
+                      "Overlay Upload backend connection is next."
+                    );
+                  }}
+                >
+                  Upload Overlay CSV
+                </Button>
+              </div>
+            </div>
+          </ContentCard>
+        </div>
       </PageContainer>
     </AppShell>
   );
