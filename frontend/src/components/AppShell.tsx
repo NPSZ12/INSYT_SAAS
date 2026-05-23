@@ -54,12 +54,12 @@ function AppShellContent({ children }: AppShellProps) {
             onClick={() =>
               setMainSidebarCollapsed((current) => !current)
             }
-            className="absolute top-4 right-2 z-50 rounded-full border border-slate-700 bg-slate-900 p-1 text-slate-300 hover:bg-slate-800"
+            className="absolute top-1/2 -translate-y-1/2 right-[-14px] z-50 rounded-full border-2 border-slate-600 bg-slate-900 p-2 text-slate-200 shadow-lg hover:bg-slate-800 hover:border-sky-500 transition"
           >
             {mainSidebarCollapsed ? (
-              <ChevronRight size={16} />
+              <ChevronRight size={20} strokeWidth={2.5} />
             ) : (
-              <ChevronLeft size={16} />
+              <ChevronLeft size={20} strokeWidth={2.5} />
             )}
           </button>
         )}

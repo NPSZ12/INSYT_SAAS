@@ -20,7 +20,9 @@ export default function PdfDocumentViewer({
 }: PdfDocumentViewerProps) {
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
 
-  if (!fileUrl) {
+  const cleanedFileUrl = fileUrl?.trim();
+
+  if (!cleanedFileUrl) {
     return (
       <div className="h-full rounded-2xl border border-slate-800 bg-slate-900 p-6 text-slate-400">
         No PDF loaded.
@@ -29,11 +31,24 @@ export default function PdfDocumentViewer({
   }
 
   return (
-    <div className={`${heightClassName} rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden`}>
-      <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
+    <div
+      className={`${heightClassName} rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden`}
+    >
+      <Worker workerUrl="/pdf.worker.min.js">
         <Viewer
-          fileUrl={fileUrl}
+          fileUrl={cleanedFileUrl}
           plugins={[defaultLayoutPluginInstance]}
+          renderError={(error) => (
+            <div className="h-full p-6 text-sm text-red-300">
+              <div className="mb-2 font-semibold">Failed to load PDF.</div>
+              <div className="break-all text-slate-300">
+                URL: {cleanedFileUrl}
+              </div>
+              <div className="mt-3 text-slate-400">
+                {error.message}
+              </div>
+            </div>
+          )}
           onPageChange={(event: PageChangeEvent) => {
             onPageChange?.(event.currentPage + 1);
           }}
