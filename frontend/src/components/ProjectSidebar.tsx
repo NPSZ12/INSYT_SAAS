@@ -1,9 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
-import PdfOutlinePane from "./PdfOutlinePane";
+import PdfOutlinePane, {
+  type SummaryOutlineItem,
+} from "./summaries/PdfOutlinePane";
+
+import { apiGet } from "../lib/api";
 
 import {
   LayoutDashboard,
@@ -19,6 +24,8 @@ import {
   FolderTree,
   Settings,
   ShieldCheck,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 type NavItem = {
@@ -27,12 +34,59 @@ type NavItem = {
   icon: any;
 };
 
+function parseSummaryOutline(text: string): SummaryOutlineItem[] {
+  const source = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+
+  const pattern =
+    /(\d{1,3}:\s+.*?)(?=\d{4}\/\d{2}\/\d{2})\s*(\d{4}\/\d{2}\/\d{2}[\s\S]*?%)\s*([\s\S]*?)(?=^\d{1,3}:\s+|\s\d{1,3}:\s+|\Z)/gm;
+
+  const items: SummaryOutlineItem[] = [];
+
+  for (const match of source.matchAll(pattern)) {
+    const title =
+      match[1]?.replace(/\s+/g, " ").trim() || "";
+
+    const citation =
+      match[2]?.replace(/\s+/g, " ").trim() || "";
+
+    const originalSummary =
+      match[3]?.replace(/\s+/g, " ").trim() || "";
+
+    if (!title || !citation) continue;
+
+    const pageMatch = citation.match(/\bp\.\s*(\d+)/i);
+    const pageStart = pageMatch ? Number(pageMatch[1]) : 1;
+
+    items.push({
+      id: `summary-${items.length + 1}`,
+      title,
+      citation,
+      originalSummary,
+      pageStart,
+      pageEnd: pageStart,
+    });
+  }
+
+  return items;
+}
+
 export default function ProjectSidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const projectId = searchParams.get("project");
   const selectedBatch = searchParams.get("batch");
+
+  const [selectedOutlineTitle, setSelectedOutlineTitle] =
+    useState("");
+
+  const [outlineItems, setOutlineItems] =
+    useState<SummaryOutlineItem[]>([]);
+
+  const [collapsed, setCollapsed] =
+    useState(false);
 
   if (!projectId) {
     return null;
@@ -52,6 +106,48 @@ export default function ProjectSidebar() {
   const projectQuery = `?project=${encodedProjectId}${
     selectedBatch ? `&batch=${encodeURIComponent(selectedBatch)}` : ""
   }`;
+
+  useEffect(() => {
+    if (!isSummaries || !projectId || !selectedBatch) {
+      setOutlineItems([]);
+      setSelectedOutlineTitle("");
+      return;
+    }
+
+    apiGet(
+      `/api/summaries/review/current?project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(selectedBatch)}`
+    )
+      .then((response: any) => {
+        const sourceText =
+          response?.full_text ||
+          response?.text ||
+          response?.original_summary ||
+          response?.summary ||
+          "";
+
+        const parsedItems = parseSummaryOutline(sourceText);
+
+        setOutlineItems(parsedItems);
+
+        if (parsedItems.length > 0) {
+          setSelectedOutlineTitle(parsedItems[0].title);
+        } else {
+          setSelectedOutlineTitle("");
+        }
+      })
+      .catch((error: any) => {
+        console.error("Failed to load PDF Outline:", error);
+        setOutlineItems([]);
+        setSelectedOutlineTitle("");
+      });
+  }, [isSummaries, projectId, selectedBatch]);
+
+  function handleOutlineSelect(item: SummaryOutlineItem) {
+    setSelectedOutlineTitle(item.title);
+    console.log("Selected PDF Outline item:", item);
+  }
 
   const navItems: NavItem[] = [
     {
@@ -127,19 +223,60 @@ export default function ProjectSidebar() {
   ];
 
   return (
-    <aside className="w-64 bg-slate-950 border-r border-slate-800 min-h-screen h-screen flex flex-col">
-      <div className={isSummaries ? "h-1/2 flex flex-col border-b border-slate-800" : "h-full flex flex-col"}>
-        <div className="shrink-0 p-5 pb-4 border-b border-slate-800 bg-slate-950">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500 mb-2">
-            Project Tools
-          </div>
+    <aside
+      className={`relative bg-slate-950 border-r border-slate-800 min-h-screen h-screen flex flex-col transition-all duration-300 ${
+        collapsed ? "w-16" : "w-64"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setCollapsed((value) => !value)}
+        className="absolute -right-3 top-1/2 z-30 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-300 shadow-lg hover:bg-slate-800 hover:text-white"
+        title={
+          collapsed
+            ? "Expand Project Sidebar"
+            : "Collapse Project Sidebar"
+        }
+      >
+        {collapsed ? (
+          <ChevronRight size={18} />
+        ) : (
+          <ChevronLeft size={18} />
+        )}
+      </button>
 
-          <div className="insyt-project text-sky-400 text-sm font-semibold truncate">
-            {projectId.replaceAll("_", " ")}
-          </div>
+      <div
+        className={
+          isSummaries
+            ? "h-1/2 flex flex-col border-b border-slate-800"
+            : "h-full flex flex-col"
+        }
+      >
+        <div className="shrink-0 p-5 pb-4 border-b border-slate-800 bg-slate-950">
+          {!collapsed && (
+            <>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500 mb-2">
+                Project Tools
+              </div>
+
+              <div className="insyt-project text-sky-400 text-sm font-semibold truncate">
+                {projectId.replaceAll("_", " ")}
+              </div>
+            </>
+          )}
+
+          {collapsed && (
+            <div className="text-center text-[11px] font-bold text-sky-400">
+              P
+            </div>
+          )}
         </div>
 
-        <nav className="space-y-2 overflow-y-auto p-5 pt-4 pr-4 flex-1">
+        <nav
+          className={`space-y-2 overflow-y-auto flex-1 ${
+            collapsed ? "p-2 pt-4" : "p-5 pt-4 pr-4"
+          }`}
+        >
           {navItems.map((item) => {
             const itemPath = item.href.split("?")[0];
             const active = pathname === itemPath;
@@ -149,31 +286,49 @@ export default function ProjectSidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                title={item.label}
                 className={
                   active
-                    ? "flex items-center gap-3 px-3 py-2.5 rounded-xl bg-teal-600 text-white"
-                    : "flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 text-slate-300"
+                    ? `flex items-center ${
+                        collapsed
+                          ? "justify-center px-2"
+                          : "gap-3 px-3"
+                      } py-2.5 rounded-xl bg-teal-600 text-white`
+                    : `flex items-center ${
+                        collapsed
+                          ? "justify-center px-2"
+                          : "gap-3 px-3"
+                      } py-2.5 rounded-xl hover:bg-slate-800 text-slate-300`
                 }
               >
                 <Icon size={18} />
 
-                <span className="insyt-workspace text-sm">
-                  {item.label}
-                </span>
+                {!collapsed && (
+                  <span className="insyt-workspace text-sm">
+                    {item.label}
+                  </span>
+                )}
               </Link>
             );
           })}
         </nav>
       </div>
 
-      {isSummaries && (
-        <div className="h-1/2 flex flex-col">
+      {isSummaries && !collapsed && (
+        <div className="h-1/2 flex flex-col overflow-hidden">
           <PdfOutlinePane
-            projectId={projectId}
-            outlineItems={[]}
-            originalOutlineItems={[]}
-            updatedOutlineItems={[]}
+            items={outlineItems}
+            selectedTitle={selectedOutlineTitle}
+            onSelect={handleOutlineSelect}
           />
+        </div>
+      )}
+
+      {isSummaries && collapsed && (
+        <div className="h-1/2 flex items-center justify-center border-t border-slate-800">
+          <div className="rotate-90 whitespace-nowrap text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            PDF Outline
+          </div>
         </div>
       )}
     </aside>

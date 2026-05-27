@@ -41,14 +41,29 @@ app = FastAPI(title="INSYT SaaS API")
 
 init_db()
 
+
+# =========================
+# CORS CONFIGURATION
+# =========================
+
 allow_origins = [
+    # Local Development
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+
+    # Production Domains
     "https://insyt360.com",
     "https://www.insyt360.com",
+
+    # App Subdomains
     "https://app.insyt360.com",
     "https://portal.insyt360.com",
     "https://media.insyt360.com",
+
+    # Optional Azure App Service URL
+    # Add your exact Azure URL below if frontend/backend still fail
+    # Example:
+    # "https://insyt-platform-prod.azurewebsites.net",
 ]
 
 app.add_middleware(
@@ -57,11 +72,22 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+
+# =========================
+# AUTH ROUTES
+# =========================
 
 app.include_router(auth_router)
 
 protected_dependencies = [Depends(get_current_user)]
+
+
+# =========================
+# PROTECTED ROUTES
+# =========================
 
 app.include_router(projects_router, dependencies=protected_dependencies)
 app.include_router(users_router, dependencies=protected_dependencies)
@@ -75,6 +101,11 @@ app.include_router(search_folders_router, dependencies=protected_dependencies)
 app.include_router(files_router, dependencies=protected_dependencies)
 app.include_router(jobs_router, dependencies=protected_dependencies)
 app.include_router(capture_projects_router, dependencies=protected_dependencies)
+
+
+# =========================
+# WORKSPACE ROUTES
+# =========================
 
 app.include_router(protocol_templates_router)
 app.include_router(summaries_router)
@@ -91,9 +122,18 @@ app.include_router(summaries_qc_router)
 app.include_router(discovery_review_batches_router)
 app.include_router(discovery_router)
 
+
+# =========================
+# TOOLS / UTILITIES
+# =========================
+
 app.include_router(merge_dedupe.router)
 app.include_router(tools_merge_dedupe.router)
 
+
+# =========================
+# HEALTH CHECK
+# =========================
 
 @app.get("/")
 def root():

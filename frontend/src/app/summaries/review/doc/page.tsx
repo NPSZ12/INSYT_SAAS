@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-
 import AppShell from "../../../../components/AppShell";
 import ReviewHeader from "../../../../components/ReviewHeader";
 import ReviewDocumentPane from "../../../../components/ReviewDocumentPane";
@@ -17,6 +16,10 @@ import ContentCard from "../../../../components/ContentCard";
 import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
+import PdfOutlinePane, {
+  type SummaryOutlineItem,
+} from "../../../../components/summaries/PdfOutlinePane";
+
 
 function ReviewPageContent() {
   const searchParams = useSearchParams();
@@ -35,6 +38,22 @@ function ReviewPageContent() {
 
   const [qcSummary, setQcSummary] =
     useState("");
+  
+  const [outlineItems, setOutlineItems] =
+    useState<SummaryOutlineItem[]>([]);
+
+  // =====================================================
+  // PDF Outline Controller State
+  // =====================================================
+
+  const [currentOutlineTitle, setCurrentOutlineTitle] =
+    useState("");
+
+  const [currentOutlinePageStart, setCurrentOutlinePageStart] =
+    useState<number | null>(null);
+
+  const [currentOutlinePageEnd, setCurrentOutlinePageEnd] =
+    useState<number | null>(null);
 
   useEffect(() => {
     if (!projectId || !batchId) {
@@ -65,6 +84,41 @@ function ReviewPageContent() {
 
         setOriginalSummary(original);
         setQcSummary(qc);
+
+        const incomingOutlineItems =
+          response?.outline_items || [
+            {
+              id: "summary-1",
+              title: "1: Statement of Account",
+              citation: "2024/01/01 | Omni/Glofin | p. 38 | Importance: 30%",
+              originalSummary:
+                "Pre-settlement funding and medical billing statement for plaintiff Jane Doe (Case ID 1023416). Total medical charges managed: $2,583.14. Amount due subject to change at case settlement.",
+              pageStart: 38,
+              pageEnd: 38,
+            },
+          ];
+
+        setOutlineItems(incomingOutlineItems);
+
+        const firstOutlineItem = incomingOutlineItems[0];
+
+        setCurrentOutlineTitle(
+          response?.outline_title ||
+            firstOutlineItem?.title ||
+            ""
+        );
+
+        setCurrentOutlinePageStart(
+          response?.outline_page_start ??
+            firstOutlineItem?.pageStart ??
+            null
+        );
+
+        setCurrentOutlinePageEnd(
+          response?.outline_page_end ??
+            firstOutlineItem?.pageEnd ??
+            null
+        );
       })
       .catch((error: any) => {
         console.error(error);
@@ -80,6 +134,15 @@ function ReviewPageContent() {
         setIsLoading(false);
       });
   }, [projectId, batchId]);
+
+  function handleOutlineSelect(item: SummaryOutlineItem) {
+    setCurrentOutlineTitle(item.title);
+    setCurrentOutlinePageStart(item.pageStart);
+    setCurrentOutlinePageEnd(item.pageEnd ?? null);
+
+    setOriginalSummary(item.originalSummary);
+    setQcSummary(item.originalSummary);
+  }
 
   async function saveQcSummary(
     summaryDocId: string,
@@ -194,6 +257,7 @@ function ReviewPageContent() {
           <SummariesRightPane
             summaryDocId={reviewDoc.doc_id}
             title={
+              currentOutlineTitle ||
               reviewDoc.doc_id ||
               "Summary Review"
             }
