@@ -24,27 +24,72 @@ def get_workspace_container(workspace: str):
     return get_container_client(workspace)
 
 
+def build_prefix(
+    project: str,
+    client: str | None = None,
+    folder: str | None = None,
+) -> str:
+    project_name = clean_folder(project)
+
+    if client:
+        client_name = clean_folder(client)
+        base_prefix = f"{client_name}/{project_name}/"
+    else:
+        base_prefix = f"{project_name}/"
+
+    if folder:
+        folder_name = clean_folder(folder)
+        return f"{base_prefix}{folder_name}/"
+
+    return base_prefix
+
+
 @router.get("/{workspace}/files")
 def list_workspace_files(
     workspace: str,
     project: str = Query(...),
     client: str | None = Query(default=None),
+    folder: str | None = Query(default=None),
 ):
     container = get_workspace_container(workspace)
 
     project_name = clean_folder(project)
+    client_name = clean_folder(client) if client else ""
 
-    if client:
-        client_name = clean_folder(client)
-        prefix = f"{client_name}/{project_name}/"
-    else:
-        prefix = f"{project_name}/"
+    prefix = build_prefix(
+        project=project,
+        client=client,
+        folder=folder,
+    )
+    print(
+        "WORKSPACE FILES:",
+        workspace,
+        project,
+        client,
+        folder,
+        prefix,
+    )
 
     files = []
 
     for blob in container.list_blobs(name_starts_with=prefix):
         blob_path = blob.name
         file_name = blob_path.split("/")[-1]
+
+        if not file_name:
+            continue
+
+        # Skip virtual folders
+        if "." not in file_name:
+            continue
+
+        # Skip system files
+        if file_name.startswith("."):
+            continue
+
+        # Skip metadata files
+        if file_name.lower().endswith(".json"):
+            continue
 
         if not file_name:
             continue
@@ -74,8 +119,9 @@ def list_workspace_files(
                     else ""
                 ),
                 "workspace": workspace,
-                "client": client or "",
+                "client": client_name,
                 "project": project_name,
+                "folder": clean_folder(folder) if folder else "",
             }
         )
 
