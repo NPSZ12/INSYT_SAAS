@@ -16,6 +16,7 @@ type ReviewDocumentPaneProps = {
   text: string;
   nativeUrl?: string;
   nativeBlob?: string;
+  targetPage?: number | null;
 };
 
 function getExtension(
@@ -39,6 +40,7 @@ export default function ReviewDocumentPane({
   text,
   nativeUrl,
   nativeBlob,
+  targetPage,
 }: ReviewDocumentPaneProps) {
   const [viewMode, setViewMode] =
     useState<"text" | "native">("native");
@@ -113,6 +115,7 @@ export default function ReviewDocumentPane({
               <PdfDocumentViewer
                 fileUrl={nativeUrl || ""}
                 heightClassName="h-full"
+                targetPage={targetPage}
               />
             ) : isTextFriendly ? (
               <div className="bg-slate-950 rounded-xl p-5 h-full overflow-y-auto text-slate-300 leading-7 whitespace-pre-wrap">

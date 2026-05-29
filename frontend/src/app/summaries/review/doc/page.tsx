@@ -17,7 +17,7 @@ import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
 import PdfOutlinePane, {
-  type SummaryOutlineItem,
+  type PdfOutlineItem,
 } from "../../../../components/summaries/PdfOutlinePane";
 
 
@@ -40,7 +40,10 @@ function ReviewPageContent() {
     useState("");
   
   const [outlineItems, setOutlineItems] =
-    useState<SummaryOutlineItem[]>([]);
+    useState<PdfOutlineItem[]>([]);
+
+  const [targetPdfPage, setTargetPdfPage] =
+    useState<number | null>(null);
 
   // =====================================================
   // PDF Outline Controller State
@@ -135,13 +138,16 @@ function ReviewPageContent() {
       });
   }, [projectId, batchId]);
 
-  function handleOutlineSelect(item: SummaryOutlineItem) {
-    setCurrentOutlineTitle(item.title);
-    setCurrentOutlinePageStart(item.pageStart);
-    setCurrentOutlinePageEnd(item.pageEnd ?? null);
+  function handleOutlineSelect(item: PdfOutlineItem) {
+    const page = item.page ?? item.pageStart ?? 1;
 
-    setOriginalSummary(item.originalSummary);
-    setQcSummary(item.originalSummary);
+    setCurrentOutlineTitle(item.title);
+    setCurrentOutlinePageStart(page);
+    setCurrentOutlinePageEnd(item.pageEnd ?? null);
+    setTargetPdfPage(page);
+
+    setOriginalSummary(item.originalSummary || "");
+    setQcSummary(item.qcSummary || item.originalSummary || "");
   }
 
   async function saveQcSummary(
@@ -246,14 +252,34 @@ function ReviewPageContent() {
         />
 
         <section className="flex-1 flex gap-4 p-4 overflow-hidden">
+          {/* PDF Outline Pane */}
+          <div className="w-80 shrink-0 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+            <PdfOutlinePane
+              projectId={projectId}
+              outlineItems={outlineItems}
+              selectedOutlineItemId={
+                outlineItems.find(
+                  (item) => item.title === currentOutlineTitle
+                )?.id
+              }
+              onSelectOutlineItem={handleOutlineSelect}
+              onSelectHyperlink={(text: string) => {
+                console.log("Navigate PDF to:", text);
+              }}
+            />
+          </div>
+
+          {/* Native PDF Viewer */}
           <div className="flex-1 min-w-0">
             <ReviewDocumentPane
               text={reviewDoc.text}
               nativeUrl={reviewDoc.native_url}
               nativeBlob={reviewDoc.native_blob}
+              targetPage={targetPdfPage}
             />
           </div>
 
+          {/* Summary QC Pane */}
           <SummariesRightPane
             summaryDocId={reviewDoc.doc_id}
             title={

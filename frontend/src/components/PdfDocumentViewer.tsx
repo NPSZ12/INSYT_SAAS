@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-import { Worker, Viewer, SpecialZoomLevel } from "@react-pdf-viewer/core";
+import {
+  Worker,
+  Viewer,
+  SpecialZoomLevel,
+} from "@react-pdf-viewer/core";
 import { defaultLayoutPlugin } from "@react-pdf-viewer/default-layout";
 import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
 import type { PageChangeEvent } from "@react-pdf-viewer/core";
@@ -17,6 +21,7 @@ type PdfViewerApi = {
 type PdfDocumentViewerProps = {
   fileUrl: string;
   heightClassName?: string;
+  targetPage?: number | null;
   onPageChange?: (pageNumber: number) => void;
   onViewerReady?: (api: PdfViewerApi) => void;
 };
@@ -24,6 +29,7 @@ type PdfDocumentViewerProps = {
 export default function PdfDocumentViewer({
   fileUrl,
   heightClassName = "h-[calc(100vh-180px)]",
+  targetPage,
   onPageChange,
   onViewerReady,
 }: PdfDocumentViewerProps) {
@@ -39,6 +45,15 @@ export default function PdfDocumentViewer({
       jumpToPage,
     });
   }, [jumpToPage, onViewerReady]);
+
+  useEffect(() => {
+    if (!targetPage || targetPage < 1) {
+      return;
+    }
+
+    // react-pdf-viewer uses zero-based page indexes.
+    jumpToPage(targetPage - 1);
+  }, [targetPage, jumpToPage]);
 
   if (!cleanedFileUrl) {
     return (
@@ -66,11 +81,17 @@ export default function PdfDocumentViewer({
           }}
           renderError={(error) => (
             <div className="h-full overflow-auto p-6 text-sm text-red-300">
-              <div className="mb-2 font-semibold">Failed to load PDF.</div>
+              <div className="mb-2 font-semibold">
+                Failed to load PDF.
+              </div>
+
               <div className="break-all text-slate-300">
                 URL: {cleanedFileUrl}
               </div>
-              <div className="mt-3 text-slate-400">{error.message}</div>
+
+              <div className="mt-3 text-slate-400">
+                {error.message}
+              </div>
             </div>
           )}
         />
@@ -108,6 +129,7 @@ export default function PdfDocumentViewer({
         .rpv-core__canvas-layer {
           z-index: 1 !important;
         }
+
         .rpv-core__viewer,
         .rpv-core__inner-container,
         .rpv-core__viewer-container {

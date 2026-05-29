@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import PdfOutlinePane, {
-  type SummaryOutlineItem,
+  type PdfOutlineItem,
 } from "./summaries/PdfOutlinePane";
 
 import { apiGet } from "../lib/api";
@@ -34,7 +34,7 @@ type NavItem = {
   icon: any;
 };
 
-function parseSummaryOutline(text: string): SummaryOutlineItem[] {
+function parseSummaryOutline(text: string): PdfOutlineItem[] {
   const source = String(text || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n");
@@ -42,7 +42,7 @@ function parseSummaryOutline(text: string): SummaryOutlineItem[] {
   const pattern =
     /(\d{1,3}:\s+.*?)(?=\d{4}\/\d{2}\/\d{2})\s*(\d{4}\/\d{2}\/\d{2}[\s\S]*?%)\s*([\s\S]*?)(?=^\d{1,3}:\s+|\s\d{1,3}:\s+|\Z)/gm;
 
-  const items: SummaryOutlineItem[] = [];
+  const items: PdfOutlineItem[] = [];
 
   for (const match of source.matchAll(pattern)) {
     const title =
@@ -57,15 +57,18 @@ function parseSummaryOutline(text: string): SummaryOutlineItem[] {
     if (!title || !citation) continue;
 
     const pageMatch = citation.match(/\bp\.\s*(\d+)/i);
-    const pageStart = pageMatch ? Number(pageMatch[1]) : 1;
+
+    const page = pageMatch
+      ? Number(pageMatch[1])
+      : undefined;
 
     items.push({
       id: `summary-${items.length + 1}`,
       title,
       citation,
       originalSummary,
-      pageStart,
-      pageEnd: pageStart,
+      qcSummary: originalSummary,
+      page,
     });
   }
 
@@ -79,21 +82,20 @@ export default function ProjectSidebar() {
   const projectId = searchParams.get("project");
   const selectedBatch = searchParams.get("batch");
 
-  const [selectedOutlineTitle, setSelectedOutlineTitle] =
-    useState("");
+  const [selectedOutlineItem, setSelectedOutlineItem] =
+    useState<PdfOutlineItem | null>(null);
 
   const [outlineItems, setOutlineItems] =
-    useState<SummaryOutlineItem[]>([]);
+    useState<PdfOutlineItem[]>([]);
 
   const [collapsed, setCollapsed] =
     useState(false);
 
-  if (!projectId) {
-    return null;
-  }
+  const isSummaries =
+    pathname.startsWith("/summaries");
 
-  const isSummaries = pathname.startsWith("/summaries");
-  const isDiscovery = pathname.startsWith("/discovery");
+  const isDiscovery =
+    pathname.startsWith("/discovery");
 
   const workspaceBase = isSummaries
     ? "/summaries"
@@ -101,16 +103,10 @@ export default function ProjectSidebar() {
       ? "/discovery"
       : "/capture";
 
-  const encodedProjectId = encodeURIComponent(projectId);
-
-  const projectQuery = `?project=${encodedProjectId}${
-    selectedBatch ? `&batch=${encodeURIComponent(selectedBatch)}` : ""
-  }`;
-
   useEffect(() => {
     if (!isSummaries || !projectId || !selectedBatch) {
       setOutlineItems([]);
-      setSelectedOutlineTitle("");
+      setSelectedOutlineItem(null);
       return;
     }
 
@@ -127,27 +123,66 @@ export default function ProjectSidebar() {
           response?.summary ||
           "";
 
-        const parsedItems = parseSummaryOutline(sourceText);
+        const parsedItems =
+          parseSummaryOutline(sourceText);
 
         setOutlineItems(parsedItems);
 
         if (parsedItems.length > 0) {
-          setSelectedOutlineTitle(parsedItems[0].title);
+          setSelectedOutlineItem(parsedItems[0]);
         } else {
-          setSelectedOutlineTitle("");
+          setSelectedOutlineItem(null);
         }
       })
       .catch((error: any) => {
-        console.error("Failed to load PDF Outline:", error);
-        setOutlineItems([]);
-        setSelectedOutlineTitle("");
-      });
-  }, [isSummaries, projectId, selectedBatch]);
+        console.error(
+          "Failed to load PDF Outline:",
+          error
+        );
 
-  function handleOutlineSelect(item: SummaryOutlineItem) {
-    setSelectedOutlineTitle(item.title);
-    console.log("Selected PDF Outline item:", item);
+        setOutlineItems([]);
+        setSelectedOutlineItem(null);
+      });
+  }, [
+    isSummaries,
+    projectId,
+    selectedBatch,
+  ]);
+
+  if (!projectId) {
+    return null;
   }
+
+  function handleOutlineSelect(
+    item: PdfOutlineItem
+  ) {
+    setSelectedOutlineItem(item);
+
+    /**
+     * Important workflow rule:
+     * PDF Outline click =
+     * populate Summary Coding pane
+     * + navigate PDF.
+     *
+     * Internal PDF link click =
+     * navigate PDF only.
+     */
+    console.log(
+      "PDF Outline selected → populate Summary Coding pane:",
+      item
+    );
+  }
+
+  const encodedProjectId =
+    encodeURIComponent(projectId);
+
+  const projectQuery = `?project=${encodedProjectId}${
+    selectedBatch
+      ? `&batch=${encodeURIComponent(
+          selectedBatch
+        )}`
+      : ""
+  }`;
 
   const navItems: NavItem[] = [
     {
@@ -230,7 +265,9 @@ export default function ProjectSidebar() {
     >
       <button
         type="button"
-        onClick={() => setCollapsed((value) => !value)}
+        onClick={() =>
+          setCollapsed((value) => !value)
+        }
         className="absolute -right-3 top-1/2 z-30 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-300 shadow-lg hover:bg-slate-800 hover:text-white"
         title={
           collapsed
@@ -274,12 +311,18 @@ export default function ProjectSidebar() {
 
         <nav
           className={`space-y-2 overflow-y-auto flex-1 ${
-            collapsed ? "p-2 pt-4" : "p-5 pt-4 pr-4"
+            collapsed
+              ? "p-2 pt-4"
+              : "p-5 pt-4 pr-4"
           }`}
         >
           {navItems.map((item) => {
-            const itemPath = item.href.split("?")[0];
-            const active = pathname === itemPath;
+            const itemPath =
+              item.href.split("?")[0];
+
+            const active =
+              pathname === itemPath;
+
             const Icon = item.icon;
 
             return (
@@ -317,9 +360,22 @@ export default function ProjectSidebar() {
       {isSummaries && !collapsed && (
         <div className="h-1/2 flex flex-col overflow-hidden">
           <PdfOutlinePane
-            items={outlineItems}
-            selectedTitle={selectedOutlineTitle}
-            onSelect={handleOutlineSelect}
+            projectId={projectId}
+            outlineItems={outlineItems}
+            selectedOutlineItemId={
+              selectedOutlineItem?.id
+            }
+            onSelectOutlineItem={
+              handleOutlineSelect
+            }
+            onSelectHyperlink={(
+              text: string
+            ) => {
+              console.log(
+                "Navigate PDF to:",
+                text
+              );
+            }}
           />
         </div>
       )}

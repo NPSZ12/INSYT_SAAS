@@ -33,7 +33,7 @@ function FilesPageContent() {
   useEffect(() => {
     if (!projectId) return;
 
-    apiGet(`/api/files?project=${projectId}`)
+    apiGet(`/api/summaries/files?project=${encodeURIComponent(projectId)}`)
       .then(setFiles)
       .catch(console.error);
   }, [projectId]);

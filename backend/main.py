@@ -18,6 +18,7 @@ from app.api.files import router as files_router
 from app.api.jobs import router as jobs_router
 from app.api.capture_projects import router as capture_projects_router
 from app.api.protocol_templates import router as protocol_templates_router
+from app.routes import project_files
 
 from app.api.summaries import router as summaries_router
 from app.api.summaries_batches import router as summaries_batches_router
@@ -84,6 +85,7 @@ app.include_router(discovery_batches_router)
 app.include_router(cyber_utility_router)
 app.include_router(capture_clients_router)
 app.include_router(workspace_protocols_router)
+app.include_router(project_files.router)
 
 app.include_router(merge_dedupe.router)
 app.include_router(tools_merge_dedupe.router)
