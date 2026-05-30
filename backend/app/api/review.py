@@ -5,7 +5,9 @@ from app.services.batch_service import get_container_client
 from app.services.protocol_service import load_protocol_fields
 from app.services.project_store import CAPTURED_ENTITIES
 from app.services.batch_service import get_container_client
-from app.services.pdf_text_service import get_or_create_extracted_text
+from app.services.summary_outline_service import parse_summary_outline
+from app.services.pdf_text_service import get_text_blob_path
+
 
 from datetime import datetime, timedelta, timezone
 
@@ -124,11 +126,14 @@ def load_current_review_document(
             "batch": batch,
             "doc_id": "No Native PDF",
             "text": "No source/native PDF files found in this Azure project.",
+            "text_truncated": False,
+            "text_length": 0,
+            "outline_items": [],
             "fields": protocol_fields,
             "native_url": "",
             "native_blob": "",
             "text_blob": "",
-            "text_created": False,
+            "text_exists": False,
         }
 
     # TODO: later choose the correct file from the checked-out batch.
@@ -138,12 +143,21 @@ def load_current_review_document(
 
     container = get_container_client(workspace)
 
-    extraction = get_or_create_extracted_text(
-        container=container,
-        source_blob_path=native_blob,
-    )
+    text_blob_path = get_text_blob_path(native_blob)
+    text_blob = container.get_blob_client(text_blob_path)
 
-    text = extraction["text"]
+    text_exists = text_blob.exists()
+
+    text = ""
+    outline_items = []
+
+    if text_exists:
+        text = text_blob.download_blob().readall().decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        outline_items = parse_summary_outline(text)
 
     doc_id = native_blob.split("/")[-1].rsplit(".", 1)[0]
 
@@ -153,14 +167,16 @@ def load_current_review_document(
         "project_id": project_id,
         "batch": batch,
         "doc_id": doc_id,
-        "blob_name": extraction["text_blob_path"],
-        "text": text,
+        "blob_name": text_blob_path,
         "fields": protocol_fields,
         "native_url": get_workspace_blob_url(workspace, native_blob),
         "native_blob": native_blob,
-        "text_blob": extraction["text_blob_path"],
-        "text_metadata_blob": extraction["metadata_blob_path"],
-        "text_created": extraction["created"],
+        "text": text[:200000],
+        "text_truncated": len(text) > 200000,
+        "text_length": len(text),
+        "outline_items": outline_items,
+        "text_blob": text_blob_path,
+        "text_exists": text_exists,
     }
 
 

@@ -36,6 +36,7 @@ from app.api.summaries_text import router as summaries_text_router
 from app.api.workspace_clients import router as workspace_clients_router
 from app.api.workspace_file_uploads import router as workspace_file_uploads_router
 from app.api.workspace_project_create import router as workspace_project_create_router
+from app.api import workspace_projects
 
 from app.routes import merge_dedupe
 from app.routes import tools_merge_dedupe
@@ -104,7 +105,7 @@ app.include_router(messages_router, dependencies=protected_dependencies)
 app.include_router(search_folders_router, dependencies=protected_dependencies)
 app.include_router(files_router, dependencies=protected_dependencies)
 app.include_router(jobs_router, dependencies=protected_dependencies)
-app.include_router(capture_projects_router, dependencies=protected_dependencies)
+# app.include_router(capture_projects_router, dependencies=protected_dependencies)
 
 
 # =========================
@@ -129,6 +130,7 @@ app.include_router(summaries_text_router)
 app.include_router(workspace_clients_router)
 app.include_router(workspace_file_uploads_router)
 app.include_router(workspace_project_create_router)
+app.include_router(workspace_projects.router)
 
 
 # =========================

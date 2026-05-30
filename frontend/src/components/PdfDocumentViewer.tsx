@@ -41,19 +41,16 @@ export default function PdfDocumentViewer({
   const cleanedFileUrl = fileUrl?.trim();
 
   useEffect(() => {
+    if (!targetPage) return;
+
+    jumpToPage(Math.max(targetPage - 1, 0));
+  }, [targetPage, jumpToPage]);
+
+  useEffect(() => {
     onViewerReady?.({
       jumpToPage,
     });
   }, [jumpToPage, onViewerReady]);
-
-  useEffect(() => {
-    if (!targetPage || targetPage < 1) {
-      return;
-    }
-
-    // react-pdf-viewer uses zero-based page indexes.
-    jumpToPage(targetPage - 1);
-  }, [targetPage, jumpToPage]);
 
   if (!cleanedFileUrl) {
     return (

@@ -113,9 +113,9 @@ export default function ProjectFileUploadCard({
     }
 
     apiGet(
-      `/api/${selectedWorkspace}/projects?client=${encodeURIComponent(
+      `/api/${selectedWorkspace}/clients/${encodeURIComponent(
         selectedClient
-      )}`
+      )}/projects`
     )
       .then((response) => {
         setWorkspaceProjects(response.projects || []);

@@ -159,7 +159,11 @@ export default function Sidebar({
 
         <Link
           href="/launcher"
-          className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-base font-semibold transition mb-3"
+          className={
+            collapsed
+              ? "flex items-center justify-center py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 transition mb-3"
+              : "flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-base font-semibold transition mb-3"
+          }
         >
           <Rocket size={20} />
 
@@ -172,7 +176,11 @@ export default function Sidebar({
 
         <Link
           href={`/cyber-utility${projectQuery}`}
-          className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-base font-semibold transition mb-4"
+          className={
+            collapsed
+              ? "flex items-center justify-center py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 transition mb-3"
+              : "flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-base font-semibold transition mb-3"
+          }
         >
           <Image
             src="/Cyber2_Logo_White.svg"
@@ -202,13 +210,18 @@ export default function Sidebar({
             <Link
               key={item.href}
               href={item.href}
+              title={collapsed ? item.label : undefined}
               className={
                 active
-                  ? "flex items-center gap-3 px-4 py-3 rounded-xl bg-teal-600 text-white"
-                  : "flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-800 text-slate-300"
+                  ? collapsed
+                    ? "flex items-center justify-center py-3 rounded-xl bg-teal-600 text-white"
+                    : "flex items-center gap-3 px-4 py-3 rounded-xl bg-teal-600 text-white"
+                  : collapsed
+                    ? "flex items-center justify-center py-3 rounded-xl hover:bg-slate-800 text-slate-300"
+                    : "flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-800 text-slate-300"
               }
             >
-              <Icon size={20} />
+              <Icon size={collapsed ? 24 : 20} />
 
               {!collapsed && (
                 <span className="insyt-workspace">

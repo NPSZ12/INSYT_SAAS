@@ -24,8 +24,14 @@ import PdfOutlinePane, {
 function ReviewPageContent() {
   const searchParams = useSearchParams();
 
-  const projectId = searchParams.get("project") || "";
-  const batchId = searchParams.get("batch") || "";
+  const clientId =
+    searchParams.get("client") || "";
+
+  const projectId =
+    searchParams.get("project") || "";
+
+  const batchId =
+    searchParams.get("batch") || "";
 
   const [error, setError] = useState("");
   const [reviewDoc, setReviewDoc] =
@@ -45,6 +51,8 @@ function ReviewPageContent() {
   const [targetPdfPage, setTargetPdfPage] =
     useState<number | null>(null);
 
+  const [selectedSummaryDocId, setSelectedSummaryDocId] = useState("");
+
   // =====================================================
   // PDF Outline Controller State
   // =====================================================
@@ -52,14 +60,12 @@ function ReviewPageContent() {
   const [currentOutlineTitle, setCurrentOutlineTitle] =
     useState("");
 
-  const [currentOutlinePageStart, setCurrentOutlinePageStart] =
-    useState<number | null>(null);
 
-  const [currentOutlinePageEnd, setCurrentOutlinePageEnd] =
-    useState<number | null>(null);
+  const selectedOutlineId =
+    searchParams.get("outline");
 
   useEffect(() => {
-    if (!projectId || !batchId) {
+    if (!clientId || !projectId || !batchId) {
       return;
     }
 
@@ -75,25 +81,13 @@ function ReviewPageContent() {
       .then((response: any) => {
         setReviewDoc(response);
 
-        const original =
-          response?.original_summary ||
-          response?.summary ||
-          response?.text ||
-          "";
-
-        const qc =
-          response?.qc_summary ||
-          original;
-
-        setOriginalSummary(original);
-        setQcSummary(qc);
-
         const incomingOutlineItems =
           response?.outline_items || [
             {
               id: "summary-1",
               title: "1: Statement of Account",
-              citation: "2024/01/01 | Omni/Glofin | p. 38 | Importance: 30%",
+              citation:
+                "2024/01/01 | Omni/Glofin | p. 38 | Importance: 30%",
               originalSummary:
                 "Pre-settlement funding and medical billing statement for plaintiff Jane Doe (Case ID 1023416). Total medical charges managed: $2,583.14. Amount due subject to change at case settlement.",
               pageStart: 38,
@@ -101,9 +95,23 @@ function ReviewPageContent() {
             },
           ];
 
-        setOutlineItems(incomingOutlineItems);
+        const firstOutlineItem =
+          incomingOutlineItems[0];
 
-        const firstOutlineItem = incomingOutlineItems[0];
+        const original =
+          response?.original_summary ||
+          firstOutlineItem?.originalSummary ||
+          "";
+
+        const qc =
+          response?.qc_summary ||
+          firstOutlineItem?.qcSummary ||
+          original;
+
+        setOriginalSummary(original);
+        setQcSummary(qc);
+
+        setOutlineItems(incomingOutlineItems);
 
         setCurrentOutlineTitle(
           response?.outline_title ||
@@ -111,44 +119,45 @@ function ReviewPageContent() {
             ""
         );
 
-        setCurrentOutlinePageStart(
-          response?.outline_page_start ??
-            firstOutlineItem?.pageStart ??
-            null
-        );
+        })
+        .catch((error: any) => {
+          console.error(error);
 
-        setCurrentOutlinePageEnd(
-          response?.outline_page_end ??
-            firstOutlineItem?.pageEnd ??
-            null
-        );
-      })
-      .catch((error: any) => {
-        console.error(error);
-
-        setError(
-          String(
-            error?.message ||
-              "Failed to load summary review document."
-          )
-        );
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [projectId, batchId]);
+          setError(
+            String(
+              error?.message ||
+                "Failed to load summary review document."
+            )
+          );
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+        }, [clientId, projectId, batchId]);
 
   function handleOutlineSelect(item: PdfOutlineItem) {
     const page = item.page ?? item.pageStart ?? 1;
 
     setCurrentOutlineTitle(item.title);
-    setCurrentOutlinePageStart(page);
-    setCurrentOutlinePageEnd(item.pageEnd ?? null);
+    
     setTargetPdfPage(page);
+    setSelectedSummaryDocId(item.id);
 
     setOriginalSummary(item.originalSummary || "");
     setQcSummary(item.qcSummary || item.originalSummary || "");
   }
+
+  useEffect(() => {
+    if (!selectedOutlineId) return;
+
+    const selectedItem = outlineItems.find(
+      (item) => item.id === selectedOutlineId
+    );
+
+    if (selectedItem) {
+      handleOutlineSelect(selectedItem);
+    }
+  }, [selectedOutlineId, outlineItems]);
 
   async function saveQcSummary(
     summaryDocId: string,
@@ -253,19 +262,11 @@ function ReviewPageContent() {
 
         <section className="flex-1 flex gap-4 p-4 overflow-hidden">
           {/* PDF Outline Pane */}
-          <div className="w-80 shrink-0 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+          <div className="w-80 shrink-0">
             <PdfOutlinePane
-              projectId={projectId}
-              outlineItems={outlineItems}
-              selectedOutlineItemId={
-                outlineItems.find(
-                  (item) => item.title === currentOutlineTitle
-                )?.id
-              }
-              onSelectOutlineItem={handleOutlineSelect}
-              onSelectHyperlink={(text: string) => {
-                console.log("Navigate PDF to:", text);
-              }}
+              items={outlineItems}
+              selectedOutlineItemId={selectedOutlineId || undefined}
+              onSelect={handleOutlineSelect}
             />
           </div>
 
@@ -281,7 +282,7 @@ function ReviewPageContent() {
 
           {/* Summary QC Pane */}
           <SummariesRightPane
-            summaryDocId={reviewDoc.doc_id}
+            summaryDocId={selectedSummaryDocId || reviewDoc.doc_id}
             title={
               currentOutlineTitle ||
               reviewDoc.doc_id ||

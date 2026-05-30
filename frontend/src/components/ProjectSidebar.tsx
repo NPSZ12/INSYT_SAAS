@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import PdfOutlinePane, {
   type PdfOutlineItem,
@@ -80,6 +80,7 @@ export default function ProjectSidebar() {
   const searchParams = useSearchParams();
 
   const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
   const selectedBatch = searchParams.get("batch");
 
   const [selectedOutlineItem, setSelectedOutlineItem] =
@@ -103,6 +104,8 @@ export default function ProjectSidebar() {
       ? "/discovery"
       : "/capture";
 
+  const router = useRouter();
+
   useEffect(() => {
     if (!isSummaries || !projectId || !selectedBatch) {
       setOutlineItems([]);
@@ -116,20 +119,13 @@ export default function ProjectSidebar() {
       )}&batch=${encodeURIComponent(selectedBatch)}`
     )
       .then((response: any) => {
-        const sourceText =
-          response?.full_text ||
-          response?.text ||
-          response?.original_summary ||
-          response?.summary ||
-          "";
+        const incomingOutlineItems =
+          response?.outline_items || [];
 
-        const parsedItems =
-          parseSummaryOutline(sourceText);
+        setOutlineItems(incomingOutlineItems);
 
-        setOutlineItems(parsedItems);
-
-        if (parsedItems.length > 0) {
-          setSelectedOutlineItem(parsedItems[0]);
+        if (incomingOutlineItems.length > 0) {
+          setSelectedOutlineItem(incomingOutlineItems[0]);
         } else {
           setSelectedOutlineItem(null);
         }
@@ -153,36 +149,36 @@ export default function ProjectSidebar() {
     return null;
   }
 
-  function handleOutlineSelect(
-    item: PdfOutlineItem
-  ) {
+  function handleOutlineSelect(item: PdfOutlineItem) {
     setSelectedOutlineItem(item);
 
-    /**
-     * Important workflow rule:
-     * PDF Outline click =
-     * populate Summary Coding pane
-     * + navigate PDF.
-     *
-     * Internal PDF link click =
-     * navigate PDF only.
-     */
-    console.log(
-      "PDF Outline selected → populate Summary Coding pane:",
-      item
-    );
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("outline", item.id);
+
+    router.replace(`${pathname}?${params.toString()}`);
   }
+
+  const encodedClientId =
+    encodeURIComponent(clientId);
 
   const encodedProjectId =
     encodeURIComponent(projectId);
 
-  const projectQuery = `?project=${encodedProjectId}${
-    selectedBatch
-      ? `&batch=${encodeURIComponent(
-          selectedBatch
-        )}`
-      : ""
-  }`;
+  const projectQuery = clientId
+    ? `?client=${encodedClientId}&project=${encodedProjectId}${
+        selectedBatch
+          ? `&batch=${encodeURIComponent(
+              selectedBatch
+            )}`
+          : ""
+      }`
+    : `?project=${encodedProjectId}${
+        selectedBatch
+          ? `&batch=${encodeURIComponent(
+              selectedBatch
+            )}`
+          : ""
+      }`;
 
   const navItems: NavItem[] = [
     {

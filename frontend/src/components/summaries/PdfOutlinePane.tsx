@@ -19,8 +19,7 @@ type PdfOutlinePaneProps = {
   projectId?: string;
 
   outlineItems?: PdfOutlineItem[];
-  originalOutlineItems?: string[];
-  updatedOutlineItems?: string[];
+
 
   selectedOutlineItemId?: string;
 
@@ -39,8 +38,6 @@ type PdfOutlinePaneProps = {
 export default function PdfOutlinePane({
   projectId,
   outlineItems,
-  originalOutlineItems = [],
-  updatedOutlineItems = [],
   selectedOutlineItemId,
   onSelectHyperlink,
   onSelectOutlineItem,
@@ -128,46 +125,6 @@ export default function PdfOutlinePane({
                   </button>
                 );
               })}
-            </div>
-          )}
-        </section>
-
-        <section className="border-t border-slate-800 pt-4">
-          <div className="text-xs uppercase tracking-[0.14em] text-slate-500 mb-2">
-            Original Summary Outline
-          </div>
-
-          {originalOutlineItems.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              Select a table of contents item to load original summary text.
-            </p>
-          ) : (
-            <div className="space-y-1 text-sm text-slate-300">
-              {originalOutlineItems.map((item, index) => (
-                <div key={`${item}-${index}`}>
-                  {index + 1}. {item}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="border-t border-slate-800 pt-4">
-          <div className="text-xs uppercase tracking-[0.14em] text-slate-500 mb-2">
-            QC Summary Outline
-          </div>
-
-          {updatedOutlineItems.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              QC edits will generate the updated outline.
-            </p>
-          ) : (
-            <div className="space-y-1 text-sm text-slate-300">
-              {updatedOutlineItems.map((item, index) => (
-                <div key={`${item}-${index}`}>
-                  {index + 1}. {item}
-                </div>
-              ))}
             </div>
           )}
         </section>

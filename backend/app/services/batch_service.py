@@ -34,6 +34,8 @@ def get_container_client(workspace: Workspace):
         CONTAINER_ENV_MAP[workspace],
         DEFAULT_CONTAINER_MAP[workspace],
     )
+    
+    print(f"WORKSPACE={workspace} CONTAINER={container_name}")
 
     service_client = BlobServiceClient.from_connection_string(
         connection_string

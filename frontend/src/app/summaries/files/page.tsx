@@ -22,7 +22,11 @@ type ProjectFile = {
 
 function FilesPageContent() {
   const searchParams = useSearchParams();
-  const projectId = searchParams.get("project");
+  const clientId =
+    searchParams.get("client") || "";
+
+  const projectId =
+    searchParams.get("project") || "";
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [docIdSearch, setDocIdSearch] = useState("");
@@ -33,10 +37,16 @@ function FilesPageContent() {
   useEffect(() => {
     if (!projectId) return;
 
-    apiGet(`/api/summaries/files?project=${encodeURIComponent(projectId)}`)
+    apiGet(
+      `/api/summaries/files?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId
+      )}&folder=${encodeURIComponent("source/native")}`
+    )
       .then(setFiles)
       .catch(console.error);
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   const filteredFiles = useMemo(() => {
     return files.filter((file) => {
@@ -79,7 +89,7 @@ function FilesPageContent() {
     metadataSearch,
   ]);
 
-  if (!projectId) {
+  if (!clientId || !projectId) {
     return (
       <AppShell>
         <PageContainer>
@@ -97,7 +107,11 @@ function FilesPageContent() {
       <PageContainer>
         <PageHeader
           title="Files"
-          subtitle={`All project files for ${projectId.replaceAll("_", " ")}.`}
+          subtitle={`All project files for ${
+            clientId
+              ? `${clientId.replaceAll("_", " ")} / `
+              : ""
+          }${projectId.replaceAll("_", " ")}.`}
         />
 
         <ContentCard title="File Search">

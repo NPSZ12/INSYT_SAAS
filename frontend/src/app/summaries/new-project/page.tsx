@@ -13,6 +13,7 @@ import Select from "../../../components/Select";
 import { apiGet, apiPost } from "../../../lib/api";
 import ProjectFileUploadCard from "../../../components/ProjectFileUploadCard";
 
+
 type ProtocolTemplateField = {
   section: string;
   data_element: string;
@@ -25,6 +26,7 @@ export default function NewProjectPage() {
   const [projectName, setProjectName] = useState("");
   const [clients, setClients] = useState<string[]>([]);
   const [selectedClient, setSelectedClient] = useState("");
+
   const [newClientName, setNewClientName] = useState("");
   const [message, setMessage] = useState("");
 
@@ -41,11 +43,17 @@ export default function NewProjectPage() {
     Record<string, ProtocolTemplateField[]>
   >({});
 
-  function loadProjects() {
+  function loadProjects(clientOverride?: string) {
+    const client = clientOverride ?? selectedClient;
+
+    if (!client) {
+      setProjects([]);
+      setSelectedProject("");
+      return;
+    }
+
     const endpoint =
-      workspace === "summaries"
-        ? "/api/azure-projects/"
-        : `/api/${workspace}/projects`;
+      `/api/${workspace}/clients/${encodeURIComponent(client)}/projects`;
 
     apiGet(endpoint)
       .then((response) => {
@@ -73,7 +81,7 @@ export default function NewProjectPage() {
   function loadProtocolTemplates() {
     apiGet(`/api/${workspace}/protocol-templates`)
       .then((response) => {
-        setProtocolTemplates(response.templates || [])
+        setProtocolTemplates(response.templates || {})
       })
       .catch((error) => {
         console.error(error);
@@ -82,19 +90,40 @@ export default function NewProjectPage() {
   }
 
   useEffect(() => {
-    loadProjects();
+    apiGet(`/api/${workspace}/clients`)
+      .then((response) => {
+        const loadedClients = response.clients || [];
+
+        setClients(loadedClients);
+
+        if (
+          selectedClient &&
+          !loadedClients.includes(selectedClient)
+        ) {
+          setSelectedClient("");
+          setSelectedProject("");
+        }
+      })
+      .catch(() => {
+        setClients([]);
+        setSelectedClient("");
+        setSelectedProject("");
+      });
+
+    setSelectedTemplate("");
+    setFieldSelections({});
     loadProtocolTemplates();
   }, [workspace]);
 
   useEffect(() => {
-    apiGet(`/api/${workspace}/clients`)
-      .then((response) => {
-        setClients(response.clients || []);
-      })
-      .catch(() => {
-        setClients([]);
-      });
-  }, [workspace]);
+    if (!selectedClient) {
+      setProjects([]);
+      setSelectedProject("");
+      return;
+    }
+
+    loadProjects();
+  }, [workspace, selectedClient]);
 
   function createProject() {
     const client =
@@ -116,17 +145,19 @@ export default function NewProjectPage() {
     })
       .then((response) => {
         setMessage(
+          response.message ||
           `Created ${client}/${projectName} in ${workspace}.`
         );
+
         setProjectName("");
-        setSelectedClient("");
         setNewClientName("");
-        loadProjects();
+
+        if (!selectedClient) {
+          setSelectedClient(client);
+        }
+
+        loadProjects(client);
       })
-      .catch((error) => {
-        console.error(error);
-        setMessage("Project creation failed.");
-      });
   }
 
   function normalizeDefaultFormat(value: string) {
@@ -412,7 +443,37 @@ export default function NewProjectPage() {
 
         <div className="mt-8">
           <ContentCard title="Assign Protocol to Project">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-6">
+              <div>
+                <FormLabel>Select Workspace</FormLabel>
+
+                <Select value={workspace} onChange={setWorkspace}>
+                  <option value="capture">INSYT Capture</option>
+                  <option value="discovery">INSYT Discovery</option>
+                  <option value="summaries">INSYT Summaries</option>
+                </Select>
+              </div>
+
+              <div>
+                <FormLabel>Select Client</FormLabel>
+
+                <Select
+                  value={selectedClient}
+                  onChange={(value) => {
+                    setSelectedClient(value);
+                    setSelectedProject("");
+                  }}
+                >
+                  <option value="">Select client...</option>
+
+                  {clients.map((client) => (
+                    <option key={client} value={client}>
+                      {client.replaceAll("_", " ")}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
               <div>
                 <FormLabel>Select Project</FormLabel>
 

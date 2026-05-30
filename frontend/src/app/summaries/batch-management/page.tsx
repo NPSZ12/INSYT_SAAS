@@ -60,6 +60,7 @@ function BatchesPageContent() {
   const router = useRouter();
 
   const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
 
   const [user, setUser] = useState<StoredUser | null>(null);
   const [mode, setMode] =
@@ -97,9 +98,13 @@ function BatchesPageContent() {
     user?.role === "QC";
 
   function loadBatches() {
-    if (!projectId) return;
+    if (!clientId || !projectId) return;
 
-    apiGet(`/api/summaries/projects/${projectId}/batches`)
+    apiGet(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches?client=${encodeURIComponent(clientId)}`
+    )
       .then((response) => {
         const normalizedBatches = (response.batches || []).map((batch: any) => {
           const batchName = batch.batch_name || batch.batch_id || batch.name;
@@ -132,17 +137,27 @@ function BatchesPageContent() {
   }
 
   function loadFiles() {
-    if (!projectId) return;
+    if (!clientId || !projectId) return;
 
-    apiGet(`/api/batches/files?project=${projectId}&batch=all`)
+    apiGet(
+      `/api/summaries/files?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId
+      )}&folder=${encodeURIComponent("source/native")}`
+    )
       .then(setFiles)
       .catch(console.error);
   }
 
   function loadSearchFolders() {
-    if (!projectId) return;
+    if (!clientId || !projectId) return;
 
-    apiGet(`/api/search-folders/?project=${projectId}`)
+    apiGet(
+      `/api/search-folders/?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}`
+    )
       .then(setSearchFolders)
       .catch(console.error);
   }
@@ -154,9 +169,13 @@ function BatchesPageContent() {
   }, [projectId]);
 
   function createStatisticalQCBatches() {
-    if (!projectId) return;
+    if (!clientId || !projectId) return;
 
-    apiPost(`/api/summaries/projects/${projectId}/batches/create`, {
+    apiPost(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches/create?client=${encodeURIComponent(clientId)}`,
+      {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -192,9 +211,12 @@ function BatchesPageContent() {
   
   
   function checkoutBatch(batchId: string) {
-    if (!projectId || !user) return;
+    if (!clientId || !projectId || !user) return;
 
-    apiPost(`/api/summaries/projects/${projectId}/batches/checkout`,
+    apiPost(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches/checkout?client=${encodeURIComponent(clientId)}`,
       {
         batch_name: batchId,
         username: user.username,
@@ -211,9 +233,13 @@ function BatchesPageContent() {
   }
 
   function createReviewBatches() {
-    if (!projectId) return;
+    if (!clientId || !projectId) return;
 
-    apiPost(`/api/summaries/projects/${projectId}/batches/create`, {
+    apiPost(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches/create?client=${encodeURIComponent(clientId)}`,
+      {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -233,9 +259,13 @@ function BatchesPageContent() {
   }
 
   function createQCBatches() {
-    if (!projectId) return;
+    if (!clientId || !projectId) return;
 
-    apiPost(`/api/summaries/projects/${projectId}/batches/create`, {
+    apiPost(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches/create?client=${encodeURIComponent(clientId)}`,
+      {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -254,9 +284,13 @@ function BatchesPageContent() {
   }
 
   function createAltBatch() {
-    if (!projectId || !selectedFolderId) return;
+    if (!clientId || !projectId || !selectedFolderId) return;
 
-    apiPost(`/api/summaries/projects/${projectId}/batches/create`, {
+    apiPost(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches/create?client=${encodeURIComponent(clientId)}`,
+      {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
