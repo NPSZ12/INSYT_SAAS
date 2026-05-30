@@ -21,18 +21,25 @@ function ReviewBatchLandingPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const projectId = searchParams.get("project");
-  const batchId = searchParams.get("batch");
+  const clientId = searchParams.get("client") || "";
+  const projectId = searchParams.get("project") || "";
+  const batchId = searchParams.get("batch") || "";
 
   const [files, setFiles] = useState<BatchFile[]>([]);
 
   useEffect(() => {
     if (!projectId || !batchId) return;
 
-    apiGet(`/api/batches/files?project=${projectId}&batch=${batchId}`)
+    apiGet(
+      `/api/batches/files?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(batchId)}`
+    )
       .then(setFiles)
       .catch(console.error);
-  }, [projectId, batchId]);
+  }, [clientId, projectId, batchId]);
 
   if (!projectId || !batchId) {
     return (
@@ -59,13 +66,20 @@ function ReviewBatchLandingPageContent() {
         <div className="flex items-start justify-between mb-8">
           <PageHeader
             title={batchId.replaceAll("_", " ")}
-            subtitle={`Documents available for ${projectId.replaceAll("_", " ")}.`}
+            subtitle={`Documents available for ${projectId.replaceAll(
+              "_",
+              " "
+            )}.`}
           />
 
           <Button
             onClick={() =>
               router.push(
-                `/summaries/review/doc?project=${projectId}&batch=${batchId}`
+                `/summaries/review/doc?client=${encodeURIComponent(
+                  clientId
+                )}&project=${encodeURIComponent(
+                  projectId
+                )}&batch=${encodeURIComponent(batchId)}`
               )
             }
           >
@@ -88,22 +102,11 @@ function ReviewBatchLandingPageContent() {
     </AppShell>
   );
 }
+
 export default function ReviewBatchLandingPage() {
   return (
-    <Suspense fallback={<div>Loading login...</div>}>
+    <Suspense fallback={<div>Loading review batch...</div>}>
       <ReviewBatchLandingPageContent />
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-

@@ -11,11 +11,8 @@ import ContentCard from "../../../components/ContentCard";
 function ProjectDashboardPageContent() {
   const searchParams = useSearchParams();
 
-  const clientId =
-    searchParams.get("client") || "";
-
-  const projectId =
-    searchParams.get("project") || "";
+  const projectId = searchParams.get("project") || "";
+  const clientId = searchParams.get("client") || "";
 
   if (!projectId) {
     return (
@@ -30,11 +27,10 @@ function ProjectDashboardPageContent() {
     );
   }
 
-  const projectName =
-    projectId.replaceAll("_", " ");
-
-  const clientName =
-    clientId.replaceAll("_", " ");
+  const projectName = projectId.replaceAll("_", " ");
+  const clientName = clientId
+    ? clientId.replaceAll("_", " ")
+    : "No client selected";
 
   return (
     <AppShell>
@@ -43,39 +39,35 @@ function ProjectDashboardPageContent() {
           title={projectName}
           subtitle={
             clientId
-              ? `Client: ${clientName}`
+              ? `${clientName} • Use the sidebar to access Batches, Review, Captured Entities, Timesheet, and Messaging.`
               : "Use the sidebar to access Batches, Review, Captured Entities, Timesheet, and Messaging."
           }
         />
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <ContentCard title="Project Workspace">
             <p className="text-slate-400">
-              This dashboard is the central workspace
-              for the selected project.
-              Available workflow areas now appear in
-              the sidebar.
+              This dashboard is the central workspace for the selected project.
+              Available workflow areas now appear in the sidebar.
             </p>
 
-            {clientId && (
-              <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500">
-                  Client
-                </div>
-
-                <div className="mt-1 text-sky-400 font-semibold">
-                  {clientName}
-                </div>
+            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm">
+              <div className="text-slate-500">Client</div>
+              <div className="text-white font-semibold">
+                {clientName}
               </div>
-            )}
+
+              <div className="text-slate-500 mt-3">Project</div>
+              <div className="text-white font-semibold">
+                {projectName}
+              </div>
+            </div>
           </ContentCard>
 
           <ContentCard title="Reviewer Workflow">
             <p className="text-slate-400">
-              Select Batches to check out work.
-              Review requires a selected batch.
-              Captured Entities will show only your
-              captures for your active batch.
+              Select Batches to check out work. Review requires a selected batch.
+              Captured Entities will show only your captures for your active batch.
             </p>
           </ContentCard>
         </div>

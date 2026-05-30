@@ -47,8 +47,27 @@ export default function Sidebar({
 
   const projectsHref = `${workspaceBase}/projects`;
 
+  const queryClient = searchParams.get("client");
   const queryProject = searchParams.get("project");
   const selectedBatch = searchParams.get("batch");
+
+  const contextParams = new URLSearchParams();
+
+  if (queryClient) {
+    contextParams.set("client", queryClient);
+  }
+
+  if (queryProject) {
+    contextParams.set("project", queryProject);
+  }
+
+  if (selectedBatch) {
+    contextParams.set("batch", selectedBatch);
+  }
+
+  const projectQuery = contextParams.toString()
+    ? `?${contextParams.toString()}`
+    : "";
 
   const [role, setRole] = useState("");
 
@@ -60,12 +79,6 @@ export default function Sidebar({
       setRole(user.role);
     }
   }, []);
-
-  const projectQuery = queryProject
-    ? `?project=${queryProject}${
-        selectedBatch ? `&batch=${selectedBatch}` : ""
-      }`
-    : "";
 
   const normalizedRole = role.toLowerCase();
 
@@ -101,7 +114,7 @@ export default function Sidebar({
         },
         {
           label: "Project Hours",
-          href: `${workspaceBase}/project-hours`,
+          href: `${workspaceBase}/project-hours${projectQuery}`,
           icon: Clock,
         },
       ]
@@ -121,10 +134,7 @@ export default function Sidebar({
           : "w-72 bg-slate-900 border-r border-slate-800 p-6 min-h-screen h-screen flex flex-col transition-all duration-200"
       }
     >
-
-      {/* TOP STATIC */}
       <div className="shrink-0">
-
         <div
           className={
             collapsed
@@ -159,13 +169,14 @@ export default function Sidebar({
 
         <Link
           href="/launcher"
+          title={collapsed ? "Launcher" : undefined}
           className={
             collapsed
               ? "flex items-center justify-center py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 transition mb-3"
               : "flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-base font-semibold transition mb-3"
           }
         >
-          <Rocket size={20} />
+          <Rocket size={collapsed ? 24 : 20} />
 
           {!collapsed && (
             <span className="insyt-workspace">
@@ -176,6 +187,7 @@ export default function Sidebar({
 
         <Link
           href={`/cyber-utility${projectQuery}`}
+          title={collapsed ? "Cyber² Utility" : undefined}
           className={
             collapsed
               ? "flex items-center justify-center py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 transition mb-3"
@@ -185,10 +197,10 @@ export default function Sidebar({
           <Image
             src="/Cyber2_Logo_White.svg"
             alt="Cyber² Utility"
-            width={22}
-            height={22}
+            width={collapsed ? 24 : 22}
+            height={collapsed ? 24 : 22}
             priority
-            style={{ width: "22px", height: "auto" }}
+            style={{ width: collapsed ? "24px" : "22px", height: "auto" }}
           />
 
           {!collapsed && (
@@ -197,10 +209,8 @@ export default function Sidebar({
             </span>
           )}
         </Link>
-
       </div>
 
-      {/* MIDDLE SCROLLABLE NAV */}
       <nav className="space-y-3 overflow-y-auto pr-1 flex-1">
         {navItems.map((item) => {
           const active = pathname === item.href.split("?")[0];
@@ -232,7 +242,6 @@ export default function Sidebar({
           );
         })}
       </nav>
-
     </aside>
   );
 }

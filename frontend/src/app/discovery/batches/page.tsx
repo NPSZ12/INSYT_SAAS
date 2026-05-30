@@ -35,7 +35,8 @@ function BatchesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
+  const projectId = searchParams.get("project") || "";
   const [user, setUser] = useState<StoredUser | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [mode, setMode] =
@@ -54,7 +55,11 @@ function BatchesPageContent() {
   function loadBatches() {
     if (!projectId) return;
 
-    apiGet(`/api/discovery/projects/${projectId}/batches`)
+    apiGet(
+      `/api/discovery/projects/${encodeURIComponent(
+        projectId
+      )}/batches?client=${encodeURIComponent(clientId)}`
+    )
       .then((response) => {
         const normalized = (response.batches || []).map((batch: any) => {
           const batchName = batch.batch_name || batch.batch_id || batch.name;
@@ -87,7 +92,7 @@ function BatchesPageContent() {
 
   useEffect(() => {
     loadBatches();
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   const selectedLevel =
     mode === "review"
@@ -354,7 +359,13 @@ function BatchesPageContent() {
                                           variant="secondary"
                                           onClick={() =>
                                             router.push(
-                                              `/discovery/review?project=${projectId}&batch=${batch.batch_id}`
+                                              `/discovery/review?client=${encodeURIComponent(
+                                                clientId
+                                              )}&project=${encodeURIComponent(
+                                                projectId
+                                              )}&batch=${encodeURIComponent(
+                                                batch.batch_id
+                                              )}`
                                             )
                                           }
                                         >

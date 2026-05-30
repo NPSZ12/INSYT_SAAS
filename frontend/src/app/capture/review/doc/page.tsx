@@ -44,6 +44,7 @@ type CaptureField = {
 function ReviewPageContent() {
   const searchParams = useSearchParams();
 
+  const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
 
@@ -64,7 +65,9 @@ function ReviewPageContent() {
     setReviewDoc(null);
 
     apiGet(
-      `/api/review/current?project=${encodeURIComponent(
+      `/api/review/current?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
         projectId
       )}&batch=${encodeURIComponent(batchId)}`
     )
@@ -78,17 +81,19 @@ function ReviewPageContent() {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [projectId, batchId]);
+  }, [clientId, projectId, batchId]);
 
   useEffect(() => {
     if (!projectId || !batchId || !reviewDoc?.doc_id) return;
 
     apiGet(
-      `/api/entities/document?project=${encodeURIComponent(
+      `/api/entities/document?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
         projectId
-      )}&batch=${encodeURIComponent(batchId)}&doc=${encodeURIComponent(
-        reviewDoc.doc_id
-      )}`
+      )}&batch=${encodeURIComponent(
+        batchId
+      )}&doc=${encodeURIComponent(reviewDoc.doc_id)}`
     )
       .then((entities: any[]) => {
         setLinkedEntities(
@@ -101,7 +106,7 @@ function ReviewPageContent() {
         );
       })
       .catch(console.error);
-  }, [projectId, batchId, reviewDoc?.doc_id]);
+  }, [clientId, projectId, batchId, reviewDoc?.doc_id]);
   
   useEffect(() => {
     if (!projectId) {
@@ -111,7 +116,11 @@ function ReviewPageContent() {
     setProtocolMessage("Loading saved protocol fields...");
     setProtocolFields([]);
 
-    apiGet(`/api/capture/projects/${encodeURIComponent(projectId)}/protocol`)
+    apiGet(
+      `/api/capture/projects/${encodeURIComponent(
+        projectId
+      )}/protocol?client=${encodeURIComponent(clientId)}`
+    )
       .then((response: ProtocolResponse) => {
         console.log("REVIEW PROTOCOL RESPONSE", response);
 
@@ -147,7 +156,7 @@ function ReviewPageContent() {
         setProtocolFields([]);
         setProtocolMessage("Failed to load saved protocol fields.");
       });
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   if (!projectId) {
     return (

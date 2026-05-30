@@ -35,13 +35,19 @@ function BatchesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
+  const projectId = searchParams.get("project") || "";
+
   const [user, setUser] = useState<StoredUser | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [mode, setMode] =
     useState<"review" | "qc" | "alt" | "statqc">("review");
   const [expandedBatchName, setExpandedBatchName] = useState("");
   const [message, setMessage] = useState("");
+
+  const projectQuery = `client=${encodeURIComponent(
+    clientId
+  )}&project=${encodeURIComponent(projectId)}`;
 
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
@@ -354,7 +360,13 @@ function BatchesPageContent() {
                                           variant="secondary"
                                           onClick={() =>
                                             router.push(
-                                              `/summaries/review?project=${projectId}&batch=${batch.batch_id}`
+                                              `/summaries/review?client=${encodeURIComponent(
+                                                clientId
+                                              )}&project=${encodeURIComponent(
+                                                projectId
+                                              )}&batch=${encodeURIComponent(
+                                                batch.batch_id
+                                              )}`
                                             )
                                           }
                                         >

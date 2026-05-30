@@ -43,6 +43,7 @@ type discoveryField = {
 function ReviewPageContent() {
   const searchParams = useSearchParams();
 
+  const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
 
@@ -62,7 +63,9 @@ function ReviewPageContent() {
     setReviewDoc(null);
 
     apiGet(
-      `/api/discovery/review/current?project=${encodeURIComponent(
+      `/api/discovery/review/current?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
         projectId
       )}&batch=${encodeURIComponent(batchId)}`
     )
@@ -76,7 +79,7 @@ function ReviewPageContent() {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [projectId, batchId]);
+  }, [clientId, projectId, batchId]);
 
   useEffect(() => {
     if (!projectId) {
