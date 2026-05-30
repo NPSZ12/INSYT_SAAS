@@ -85,7 +85,7 @@ export default function Sidebar({
           icon: FolderKanban,
         },
         {
-          label: "New Project",
+          label: "Project Management",
           href: `${workspaceBase}/new-project`,
           icon: FolderPlus,
         },

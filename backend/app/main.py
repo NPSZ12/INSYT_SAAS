@@ -24,7 +24,6 @@ from app.api.summaries_batches import router as summaries_batches_router
 from app.api.capture_batches import router as capture_batches_router
 from app.api.capture_review_batches import router as capture_review_batches_router
 from app.api.summaries_review_batches import router as summaries_review_batches_router
-from app.api.workspace_projects import router as workspace_projects_router
 from app.api.discovery_batches import router as discovery_batches_router
 from app.api.cyber_utility import router as cyber_utility_router
 from app.api.capture_clients import router as capture_clients_router
@@ -33,6 +32,10 @@ from app.api.summaries_qc import router as summaries_qc_router
 from app.api.discovery_review_batches import router as discovery_review_batches_router
 from app.api.discovery import router as discovery_router
 from app.api.workspace_files import router as workspace_files_router
+from app.api.summaries_text import router as summaries_text_router
+from app.api.workspace_clients import router as workspace_clients_router
+from app.api.workspace_file_uploads import router as workspace_file_uploads_router
+from app.api.workspace_project_create import router as workspace_project_create_router
 
 from app.routes import merge_dedupe
 from app.routes import tools_merge_dedupe
@@ -114,7 +117,6 @@ app.include_router(summaries_batches_router)
 app.include_router(capture_batches_router)
 app.include_router(capture_review_batches_router)
 app.include_router(summaries_review_batches_router)
-app.include_router(workspace_projects_router)
 app.include_router(discovery_batches_router)
 app.include_router(cyber_utility_router)
 app.include_router(capture_clients_router)
@@ -123,6 +125,10 @@ app.include_router(summaries_qc_router)
 app.include_router(discovery_review_batches_router)
 app.include_router(discovery_router)
 app.include_router(workspace_files_router)
+app.include_router(summaries_text_router)
+app.include_router(workspace_clients_router)
+app.include_router(workspace_file_uploads_router)
+app.include_router(workspace_project_create_router)
 
 
 # =========================

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
 import AppShell from "../../components/AppShell";
 import PageContainer from "../../components/PageContainer";
 import PageHeader from "../../components/PageHeader";
@@ -9,28 +10,56 @@ import Button from "../../components/Button";
 import Input from "../../components/Input";
 import FormLabel from "../../components/FormLabel";
 import Select from "../../components/Select";
-import { apiPost } from "../../lib/api";
+import { apiGet, apiPost } from "../../lib/api";
 
 export default function NewProjectPage() {
   const [workspace, setWorkspace] = useState("capture");
   const [projectName, setProjectName] = useState("");
-  const [clientName, setClientName] = useState("");
+  const [clients, setClients] = useState<string[]>([]);
+  const [selectedClient, setSelectedClient] = useState("");
+  const [newClientName, setNewClientName] = useState("");
   const [message, setMessage] = useState("");
 
+  useEffect(() => {
+    apiGet(`/api/${workspace}/clients`)
+      .then((response) => {
+        setClients(response.clients || []);
+      })
+      .catch(() => {
+        setClients([]);
+      });
+  }, [workspace]);
+
   function createProject() {
+    const client = selectedClient || newClientName;
+
+    if (!client.trim()) {
+      setMessage("Client name is required.");
+      return;
+    }
+
     if (!projectName.trim()) {
       setMessage("Project name is required.");
       return;
     }
 
     apiPost(`/api/${workspace}/projects/create`, {
-      project_name: projectName,
-      client_name: clientName,
+      project_id: projectName,
+      client,
     })
-      .then((response) => {
-        setMessage(response.message || "Project created.");
+      .then(() => {
+        setMessage(
+          `Created ${client}/${projectName} in ${workspace}.`
+        );
+
         setProjectName("");
-        setClientName("");
+        setSelectedClient("");
+        setNewClientName("");
+
+        return apiGet(`/api/${workspace}/clients`);
+      })
+      .then((response) => {
+        setClients(response.clients || []);
       })
       .catch(() => {
         setMessage("Project creation failed.");
@@ -41,8 +70,8 @@ export default function NewProjectPage() {
     <AppShell>
       <PageContainer>
         <PageHeader
-          title="New Project"
-          subtitle="Create a new Azure project folder for Capture, Summaries, or Discovery."
+          title="Project Management"
+          subtitle="Create and manage client projects, workspace folders, and project protocols."
         />
 
         {message && (
@@ -52,10 +81,18 @@ export default function NewProjectPage() {
         )}
 
         <ContentCard title="Create Azure Project">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
               <FormLabel>Workspace</FormLabel>
-              <Select value={workspace} onChange={setWorkspace}>
+
+              <Select
+                value={workspace}
+                onChange={(value) => {
+                  setWorkspace(value);
+                  setSelectedClient("");
+                  setNewClientName("");
+                }}
+              >
                 <option value="capture">INSYT Capture</option>
                 <option value="summaries">INSYT Summaries</option>
                 <option value="discovery">INSYT Discovery</option>
@@ -63,24 +100,57 @@ export default function NewProjectPage() {
             </div>
 
             <div>
-              <FormLabel>Project Name</FormLabel>
+              <FormLabel>Existing Client</FormLabel>
+
+              <Select
+                value={selectedClient}
+                onChange={(value) => {
+                  setSelectedClient(value);
+
+                  if (value) {
+                    setNewClientName("");
+                  }
+                }}
+              >
+                <option value="">
+                  Select existing client...
+                </option>
+
+                {clients.map((client) => (
+                  <option key={client} value={client}>
+                    {client.replaceAll("_", " ")}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div>
+              <FormLabel>Or Create New Client</FormLabel>
+
               <Input
-                value={projectName}
-                onChange={setProjectName}
-                placeholder="Example: Project_Merlin"
+                value={newClientName}
+                onChange={(value) => {
+                  setNewClientName(value);
+
+                  if (value) {
+                    setSelectedClient("");
+                  }
+                }}
+                placeholder="Example: NLCP"
               />
             </div>
 
             <div>
-              <FormLabel>Client Name</FormLabel>
+              <FormLabel>Project Name</FormLabel>
+
               <Input
-                value={clientName}
-                onChange={setClientName}
-                placeholder="Example: Alpine"
+                value={projectName}
+                onChange={setProjectName}
+                placeholder="Example: Project_NLCP-POC"
               />
             </div>
 
-            <div className="md:col-span-3">
+            <div className="md:col-span-4">
               <Button onClick={createProject}>
                 Create Project Folder
               </Button>
@@ -91,11 +161,3 @@ export default function NewProjectPage() {
     </AppShell>
   );
 }
-
-
-
-
-
-
-
-

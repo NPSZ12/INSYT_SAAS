@@ -11,6 +11,7 @@ import Input from "../../../components/Input";
 import FormLabel from "../../../components/FormLabel";
 import Select from "../../../components/Select";
 import { apiGet, apiPost } from "../../../lib/api";
+import ProjectFileUploadCard from "../../../components/ProjectFileUploadCard";
 
 type ProtocolTemplateField = {
   section: string;
@@ -22,7 +23,9 @@ type ProtocolTemplateField = {
 export default function NewProjectPage() {
   const [workspace, setWorkspace] = useState("capture");
   const [projectName, setProjectName] = useState("");
-  const [clientName, setClientName] = useState("");
+  const [clients, setClients] = useState<string[]>([]);
+  const [selectedClient, setSelectedClient] = useState("");
+  const [newClientName, setNewClientName] = useState("");
   const [message, setMessage] = useState("");
 
   const [projects, setProjects] = useState<string[]>([]);
@@ -83,20 +86,38 @@ export default function NewProjectPage() {
     loadProtocolTemplates();
   }, [workspace]);
 
+  useEffect(() => {
+    apiGet(`/api/${workspace}/clients`)
+      .then((response) => {
+        setClients(response.clients || []);
+      })
+      .catch(() => {
+        setClients([]);
+      });
+  }, [workspace]);
+
   function createProject() {
+    const client = selectedClient || newClientName;
+
+    if (!client.trim()) {
+      setMessage("Client name is required.");
+      return;
+    }
+
     if (!projectName.trim()) {
       setMessage("Project name is required.");
       return;
     }
 
     apiPost(`/api/${workspace}/projects/create`, {
-      project_name: projectName,
-      client_name: clientName,
+      project_id: projectName,
+      client,
     })
-      .then((response) => {
-        setMessage(response.message || "Project created.");
+      .then(() => {
+        setMessage(`Created ${client}/${projectName} in ${workspace}.`);
         setProjectName("");
-        setClientName("");
+        setSelectedClient("");
+        setNewClientName("");
         loadProjects();
       })
       .catch((error) => {
@@ -296,8 +317,8 @@ export default function NewProjectPage() {
     <AppShell>
       <PageContainer>
         <PageHeader
-          title="New Project"
-          subtitle="Create Azure projects and assign project-specific protocols."
+          title="Project Management"
+          subtitle="Create and manage client projects, workspace folders, and project protocols."
         />
 
         {message && (
@@ -319,22 +340,45 @@ export default function NewProjectPage() {
             </div>
 
             <div>
+              <FormLabel>Existing Client</FormLabel>
+
+              <Select
+                value={selectedClient}
+                onChange={(value) => {
+                  setSelectedClient(value);
+                  if (value) setNewClientName("");
+                }}
+              >
+                <option value="">Select existing client...</option>
+
+                {clients.map((client) => (
+                  <option key={client} value={client}>
+                    {client.replaceAll("_", " ")}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div>
+              <FormLabel>Or Create New Client</FormLabel>
+
+              <Input
+                value={newClientName}
+                onChange={(value) => {
+                  setNewClientName(value);
+                  if (value) setSelectedClient("");
+                }}
+                placeholder="Example: NLCP"
+              />
+            </div>
+            
+            <div>
               <FormLabel>Project Name</FormLabel>
 
               <Input
                 value={projectName}
                 onChange={setProjectName}
                 placeholder="Example: Project_Merlin"
-              />
-            </div>
-
-            <div>
-              <FormLabel>Client Name</FormLabel>
-
-              <Input
-                value={clientName}
-                onChange={setClientName}
-                placeholder="Example: Alpine"
               />
             </div>
 
@@ -347,66 +391,12 @@ export default function NewProjectPage() {
         </ContentCard>
 
         <div className="mt-8">
-          <ContentCard title="Upload Files to Project">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-              <div>
-                <FormLabel>Select Project</FormLabel>
-
-                <Select
-                  value={selectedProject}
-                  onChange={setSelectedProject}
-                >
-                  <option value="">Select project...</option>
-
-                  {projects.map((project) => (
-                    <option key={project} value={project}>
-                      {project.replaceAll("_", " ")}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="md:col-span-2">
-                <FormLabel>Select Files</FormLabel>
-
-                <input
-                  type="file"
-                  multiple
-                  className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-lime-50 file:px-4 file:py-2 file:text-slate-700 hover:file:bg-sky-500"
-                  onChange={(event) => {
-                    const files = event.target.files;
-
-                    if (!files || files.length === 0) {
-                      setMessage("No files selected.");
-                      return;
-                    }
-
-                    setMessage(
-                      `${files.length} file(s) selected. Upload endpoint will be connected next.`
-                    );
-                  }}
-                />
-              </div>
-
-              <div className="md:col-span-3">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    if (!selectedProject) {
-                      setMessage("Select a project before uploading files.");
-                      return;
-                    }
-
-                    setMessage(
-                      "Upload Files to Project backend connection is next."
-                    );
-                  }}
-                >
-                  Upload Files to Project
-                </Button>
-              </div>
-            </div>
-          </ContentCard>
+          <ProjectFileUploadCard
+            projects={projects}
+            selectedProject={selectedProject}
+            setSelectedProject={setSelectedProject}
+            setMessage={setMessage}
+          />
         </div>
 
         <div className="mt-8">
@@ -594,7 +584,7 @@ export default function NewProjectPage() {
         </div>
         <div className="mt-8">
           <ContentCard title="Overlay Upload">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               <div>
                 <FormLabel>Select Project</FormLabel>
 
