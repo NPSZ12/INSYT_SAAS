@@ -18,8 +18,9 @@ class UserCreateRequest(BaseModel):
     email: str = ""
     role: str
     password: str
+    workspace_access: List[str] = Field(default_factory=list)
+    client_access: List[str] = Field(default_factory=list)
     project_access: List[str] = Field(default_factory=list)
-    launches: List[str] = Field(default_factory=list)
     permissions: List[str] = Field(default_factory=list)
 
 
@@ -30,8 +31,9 @@ class UserUpdateRequest(BaseModel):
     role: str
     status: str = "Active"
     password: str = ""
+    workspace_access: List[str] = Field(default_factory=list)
+    client_access: List[str] = Field(default_factory=list)
     project_access: List[str] = Field(default_factory=list)
-    launches: List[str] = Field(default_factory=list)
     permissions: List[str] = Field(default_factory=list)
 
 
@@ -57,8 +59,9 @@ def serialize_user(user: User):
         "email": user.email,
         "role": user.role,
         "status": user.status,
+        "workspace_access": json.loads(user.workspace_access or "[]"),
+        "client_access": json.loads(user.client_access or "[]"),
         "project_access": json.loads(user.project_access or "[]"),
-        "launches": json.loads(user.launches or "[]"),
         "permissions": json.loads(user.permissions or "[]"),
     }
 
@@ -96,8 +99,9 @@ def create_user(
         role=payload.role,
         status="Active",
         password_hash=hash_password(payload.password),
+        workspace_access=json.dumps(payload.workspace_access),
+        client_access=json.dumps(payload.client_access),
         project_access=json.dumps(payload.project_access),
-        launches=json.dumps(payload.launches),
         permissions=json.dumps(payload.permissions),
     )
 
@@ -126,8 +130,9 @@ def update_user(
     user.email = payload.email
     user.role = payload.role
     user.status = payload.status
+    user.workspace_access = json.dumps(payload.workspace_access)
+    user.client_access = json.dumps(payload.client_access)
     user.project_access = json.dumps(payload.project_access)
-    user.launches = json.dumps(payload.launches)
     user.permissions = json.dumps(payload.permissions)
 
     if payload.password:

@@ -16,17 +16,101 @@ import { apiGet } from "../../../lib/api";
 
 import type { Project } from "../../../types";
 
+type StoredUser = {
+  username: string;
+  display_name: string;
+  role: string;
+  workspace_access?: string[];
+  client_access?: string[];
+  project_access?: string[];
+  permissions?: string[];
+};
+
+function isAdminUser(user: StoredUser | null) {
+  const role = user?.role?.toLowerCase() || "";
+
+  return (
+    role.includes("admin") ||
+    role === "rm" ||
+    role === "tl" ||
+    role === "qc" ||
+    role.includes("review manager") ||
+    role.includes("team lead")
+  );
+}
+
 export default function ProjectsPage() {
   const router = useRouter();
 
+  const [user, setUser] = useState<StoredUser | null>(null);
   const [clients, setClients] = useState<string[]>([]);
   const [selectedClient, setSelectedClient] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
+  const [accessDenied, setAccessDenied] = useState(false);
 
-  function loadClients() {
+  const isAdmin = isAdminUser(user);
+
+  function userCanAccessWorkspace(currentUser: StoredUser | null) {
+    if (isAdminUser(currentUser)) return true;
+
+    const allowedWorkspaces =
+      currentUser?.workspace_access || [];
+
+    return allowedWorkspaces.includes("discovery");
+  }
+
+  function userCanAccessClient(
+    currentUser: StoredUser | null,
+    client: string
+  ) {
+    if (isAdminUser(currentUser)) return true;
+
+    const allowedClients =
+      currentUser?.client_access || [];
+
+    return allowedClients.includes(client);
+  }
+
+  function userCanAccessProject(
+    currentUser: StoredUser | null,
+    client: string,
+    projectId: string
+  ) {
+    if (isAdminUser(currentUser)) return true;
+
+    const allowedProjects =
+      currentUser?.project_access || [];
+
+    return allowedProjects.includes(
+      `${client}/${projectId}`
+    );
+  }
+
+  function loadClients(currentUser: StoredUser | null) {
+    if (!userCanAccessWorkspace(currentUser)) {
+      setAccessDenied(true);
+      setClients([]);
+      setProjects([]);
+      return;
+    }
+
+    setAccessDenied(false);
+
     apiGet("/api/discovery/clients")
       .then((response) => {
-        setClients(response.clients || []);
+        const incomingClients = response.clients || [];
+
+        const visibleClients = isAdminUser(currentUser)
+          ? incomingClients
+          : incomingClients.filter((client: string) =>
+              userCanAccessClient(currentUser, client)
+            );
+
+        setClients(visibleClients);
+
+        if (visibleClients.length === 1) {
+          setSelectedClient(visibleClients[0]);
+        }
       })
       .catch((error) => {
         console.error("Failed to load clients:", error);
@@ -35,19 +119,27 @@ export default function ProjectsPage() {
   }
 
   function loadProjects(client: string) {
-    if (!client) {
+    if (!client || !user) {
       setProjects([]);
       return;
     }
 
     apiGet(
-      `/api/discovery/clients/${encodeURIComponent(client)}/projects`
+      `/api/discovery/clients/${encodeURIComponent(
+        client
+      )}/projects`
     )
       .then((response) => {
         const projectList = response.projects || [];
 
+        const visibleProjects = isAdmin
+          ? projectList
+          : projectList.filter((projectId: string) =>
+              userCanAccessProject(user, client, projectId)
+            );
+
         setProjects(
-          projectList.map((projectId: string) => ({
+          visibleProjects.map((projectId: string) => ({
             name: projectId.replaceAll("_", " "),
             client,
             status: "Active",
@@ -65,7 +157,17 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
-    loadClients();
+    const storedUser = localStorage.getItem("insyt_user");
+
+    if (!storedUser) {
+      setAccessDenied(true);
+      return;
+    }
+
+    const parsedUser = JSON.parse(storedUser);
+
+    setUser(parsedUser);
+    loadClients(parsedUser);
   }, []);
 
   useEffect(() => {
@@ -75,7 +177,26 @@ export default function ProjectsPage() {
     }
 
     loadProjects(selectedClient);
-  }, [selectedClient]);
+  }, [selectedClient, user]);
+
+  if (accessDenied) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="Access Restricted"
+            subtitle="You do not have access to INSYT Discovery projects."
+          />
+
+          <ContentCard title="No Access">
+            <p className="text-sm text-slate-400">
+              Please contact an INSYT administrator if you believe this is incorrect.
+            </p>
+          </ContentCard>
+        </PageContainer>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -111,9 +232,15 @@ export default function ProjectsPage() {
                 Select a client to load projects.
               </p>
             </ContentCard>
+          ) : projects.length === 0 ? (
+            <ContentCard title="Projects">
+              <p className="text-sm text-slate-400">
+                No projects available for this client.
+              </p>
+            </ContentCard>
           ) : (
             <SectionGrid cols={3}>
-              {(projects || []).map((project) => (
+              {projects.map((project) => (
                 <ProjectCard
                   key={`${selectedClient}-${project.name}`}
                   name={project.name}

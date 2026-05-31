@@ -58,16 +58,22 @@ function BatchesPageContent() {
   }, []);
 
   function loadBatches() {
-    if (!projectId) return;
+    if (!clientId || !projectId) return;
 
-    apiGet(`/api/summaries/projects/${projectId}/batches`)
+    apiGet(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches?client=${encodeURIComponent(clientId)}`
+    )
       .then((response) => {
         const normalized = (response.batches || []).map((batch: any) => {
           const batchName = batch.batch_name || batch.batch_id || batch.name;
 
           return {
             project_id: batch.project_id,
+            client_id: batch.client_id || clientId,
             batch_id: batchName,
+            batch_name: batchName,
             name: batchName,
             status: batch.status || "Available",
             document_count:
@@ -93,7 +99,7 @@ function BatchesPageContent() {
 
   useEffect(() => {
     loadBatches();
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   const selectedLevel =
     mode === "review"
@@ -121,12 +127,17 @@ function BatchesPageContent() {
   );
 
   function checkoutBatch(batchId: string) {
-    if (!projectId || !user) return;
+    if (!clientId || !projectId || !user) return;
 
-    apiPost(`/api/summaries/projects/${projectId}/batches/checkout`, {
-      batch_name: batchId,
-      username: user.username,
-    })
+    apiPost(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches/checkout?client=${encodeURIComponent(clientId)}`,
+      {
+        batch_name: batchId,
+        username: user.username,
+      }
+    )
       .then((response) => {
         setMessage(response.message || "Batch checked out.");
         loadBatches();

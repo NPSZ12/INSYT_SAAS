@@ -1,3 +1,5 @@
+import React from "react";
+
 import Button from "./Button";
 
 type Column = {
@@ -5,9 +7,11 @@ type Column = {
   label: string;
 };
 
+type DataTableRow = Record<string, React.ReactNode>;
+
 type DataTableProps = {
   columns: Column[];
-  data: Record<string, string>[];
+  data: DataTableRow[];
   showActions?: boolean;
 };
 
@@ -37,9 +41,12 @@ export default function DataTable({
 
         <tbody>
           {data.map((row, rowIndex) => (
-            <tr key={rowIndex} className="border-t border-slate-800">
+            <tr
+              key={rowIndex}
+              className="border-t border-slate-800"
+            >
               {columns.map((column) => (
-                <td key={column.key} className="p-5 text-white">
+                <td key={column.key} className="p-5 text-white align-top">
                   {row[column.key]}
                 </td>
               ))}
@@ -58,11 +65,3 @@ export default function DataTable({
     </div>
   );
 }
-
-
-
-
-
-
-
-

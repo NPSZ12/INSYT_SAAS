@@ -100,12 +100,22 @@ function BatchesPageContent() {
   function loadBatches() {
     if (!clientId || !projectId) return;
 
+    console.log("LOAD BATCHES", {
+      clientId,
+      projectId,
+    });
+
     apiGet(
       `/api/summaries/projects/${encodeURIComponent(
         projectId
       )}/batches?client=${encodeURIComponent(clientId)}`
     )
       .then((response) => {
+        console.log("BATCH RESPONSE", response);
+        console.log(
+          "BATCHES RAW JSON",
+          JSON.stringify(response.batches, null, 2)
+        );
         const normalizedBatches = (response.batches || []).map((batch: any) => {
           const batchName = batch.batch_name || batch.batch_id || batch.name;
 
@@ -166,7 +176,7 @@ function BatchesPageContent() {
     loadBatches();
     loadFiles();
     loadSearchFolders();
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   function createStatisticalQCBatches() {
     if (!clientId || !projectId) return;
@@ -326,6 +336,7 @@ function BatchesPageContent() {
     return (
       <ReviewerBatches
         projectId={projectId}
+        clientId={clientId}
         batches={batches}
         message={message}
         checkoutBatch={checkoutBatch}
@@ -800,12 +811,14 @@ function BatchCreateControls({
 
 function ReviewerBatches({
   projectId,
+  clientId,
   batches,
   message,
   checkoutBatch,
   router,
 }: {
   projectId: string;
+  clientId: string;
   batches: Batch[];
   message: string;
   checkoutBatch: (batchId: string) => void;
@@ -883,7 +896,11 @@ function ReviewerBatches({
                     variant="secondary"
                     onClick={() =>
                       router.push(
-                        `/summaries/review?project=${projectId}&batch=${batch.batch_id}`
+                        `/summaries/review?client=${encodeURIComponent(
+                          clientId
+                        )}&project=${encodeURIComponent(
+                          projectId
+                        )}&batch=${encodeURIComponent(batch.batch_id)}`
                       )
                     }
                   >

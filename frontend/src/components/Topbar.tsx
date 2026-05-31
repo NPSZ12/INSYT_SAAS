@@ -16,6 +16,13 @@ type StoredUser = {
 };
 
 function getWorkspaceName(pathname: string) {
+  if (
+    pathname.startsWith("/developer") ||
+    pathname.startsWith("/development")
+  ) {
+    return "INSYT Developer";
+  }
+
   if (pathname.startsWith("/summaries")) {
     return "INSYT Summaries";
   }

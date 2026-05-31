@@ -11,6 +11,13 @@ export type PdfOutlineItem = {
   y?: number;
   originalSummary?: string;
   qcSummary?: string;
+  pdfPage?: number;
+  pdf_page?: number;
+  originalSourceStartPdfPage?: number;
+  summaryPdfPage?: number;
+  summary_pdf_page?: number;
+  summaryPage?: number;
+  summary_page?: number;
 };
 
 export type SummaryOutlineItem = PdfOutlineItem;
@@ -20,8 +27,8 @@ type PdfOutlinePaneProps = {
 
   outlineItems?: PdfOutlineItem[];
 
-
   selectedOutlineItemId?: string;
+  selectedId?: string;
 
   onSelectHyperlink?: (text: string) => void;
   onSelectOutlineItem?: (item: PdfOutlineItem) => void;
@@ -39,6 +46,7 @@ export default function PdfOutlinePane({
   projectId,
   outlineItems,
   selectedOutlineItemId,
+  selectedId,
   onSelectHyperlink,
   onSelectOutlineItem,
 
@@ -48,23 +56,29 @@ export default function PdfOutlinePane({
 }: PdfOutlinePaneProps) {
   const resolvedOutlineItems = outlineItems ?? items ?? [];
 
+  const activeSelectedId = selectedOutlineItemId ?? selectedId;
+
   function getItemPage(item: PdfOutlineItem) {
-    return item.page ?? item.pageStart;
+    return item.page ?? item.pageStart ?? 1;
   }
 
   function handleSelectItem(item: PdfOutlineItem) {
+    const page = getItemPage(item);
+
     const normalizedItem: PdfOutlineItem = {
       ...item,
-      page: item.page ?? item.pageStart,
+      page,
+      pageStart: item.pageStart ?? page,
+      pageEnd: item.pageEnd ?? page,
       qcSummary: item.qcSummary || item.originalSummary || "",
     };
 
     onSelectOutlineItem?.(normalizedItem);
     onSelect?.(normalizedItem);
 
-    onSelectHyperlink?.(
-      normalizedItem.linkedText || normalizedItem.title
-    );
+    if (normalizedItem.linkedText || normalizedItem.title) {
+      onSelectHyperlink?.(normalizedItem.linkedText || normalizedItem.title);
+    }
   }
 
   return (
@@ -97,7 +111,7 @@ export default function PdfOutlinePane({
                 const itemPage = getItemPage(item);
 
                 const isSelected =
-                  item.id === selectedOutlineItemId ||
+                  item.id === activeSelectedId ||
                   item.title === selectedTitle;
 
                 return (
@@ -113,8 +127,8 @@ export default function PdfOutlinePane({
                     ].join(" ")}
                   >
                     <div className="font-medium">
-                      {itemPage ? `p. ${itemPage} — ` : ""}
                       {item.title}
+                      {itemPage ? ` - p. ${itemPage}` : ""}
                     </div>
 
                     {item.citation && (

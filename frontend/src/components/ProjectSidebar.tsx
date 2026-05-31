@@ -106,17 +106,29 @@ export default function ProjectSidebar() {
 
   const router = useRouter();
 
+  const selectedDocId = searchParams.get("doc") || "";
+
   useEffect(() => {
-    if (!isSummaries || !projectId || !selectedBatch) {
+    if (
+      !isSummaries ||
+      !clientId ||
+      !projectId ||
+      !selectedBatch ||
+      !selectedDocId
+    ) {
       setOutlineItems([]);
       setSelectedOutlineItem(null);
       return;
     }
 
     apiGet(
-      `/api/summaries/review/current?project=${encodeURIComponent(
+      `/api/summaries/review/current?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
         projectId
-      )}&batch=${encodeURIComponent(selectedBatch)}`
+      )}&batch=${encodeURIComponent(
+        selectedBatch
+      )}&doc=${encodeURIComponent(selectedDocId)}`
     )
       .then((response: any) => {
         const incomingOutlineItems =
@@ -141,8 +153,10 @@ export default function ProjectSidebar() {
       });
   }, [
     isSummaries,
+    clientId,
     projectId,
     selectedBatch,
+    selectedDocId,
   ]);
 
   if (!projectId) {
@@ -222,8 +236,12 @@ export default function ProjectSidebar() {
       icon: ClipboardList,
     },
     {
-      label: "Captured Entities",
-      href: `${workspaceBase}/captured-entities${projectQuery}`,
+      label: isSummaries
+        ? "Saved QC Summaries"
+        : "Captured Entities",
+      href: isSummaries
+        ? `/summaries/summary-data?client=${clientId}&project=${projectId}`
+        : `${workspaceBase}/captured-entities?client=${clientId}&project=${projectId}`,
       icon: Database,
     },
     {
@@ -358,19 +376,32 @@ export default function ProjectSidebar() {
           <PdfOutlinePane
             projectId={projectId}
             outlineItems={outlineItems}
-            selectedOutlineItemId={
-              selectedOutlineItem?.id
-            }
-            onSelectOutlineItem={
-              handleOutlineSelect
-            }
-            onSelectHyperlink={(
-              text: string
-            ) => {
-              console.log(
-                "Navigate PDF to:",
-                text
+            selectedOutlineItemId={selectedOutlineItem?.id}
+            onSelectOutlineItem={(item) => {
+              handleOutlineSelect(item);
+
+              const params = new URLSearchParams(
+                searchParams.toString()
               );
+
+              params.set("outline", item.id);
+
+              const targetPage =
+                item.summaryPdfPage ??
+                item.summary_pdf_page ??
+                item.pdfPage ??
+                item.pdf_page ??
+                item.page ??
+                item.pageStart;
+
+              if (targetPage) {
+                params.set("page", String(targetPage));
+              }
+
+              router.replace(`${pathname}?${params.toString()}`);
+            }}
+            onSelectHyperlink={(text: string) => {
+              console.log("Navigate PDF to:", text);
             }}
           />
         </div>

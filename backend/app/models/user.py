@@ -17,6 +17,8 @@ class User(Base):
 
     password_hash = Column(String, nullable=False)
 
+    workspace_access = Column(Text, default="[]")
+    client_access = Column(Text, default="[]")
     project_access = Column(Text, default="[]")
     launches = Column(Text, default="[]")
     permissions = Column(Text, default="[]")

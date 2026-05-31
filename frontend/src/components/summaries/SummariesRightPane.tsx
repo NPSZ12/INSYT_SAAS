@@ -6,9 +6,13 @@ import Button from "../Button";
 
 type Props = {
   summaryDocId: string;
+
   title: string;
+  citation?: string;
+
   originalSummary: string;
   qcSummary?: string;
+
   onSaveQcSummary?: (
     summaryDocId: string,
     qcSummary: string
@@ -18,6 +22,7 @@ type Props = {
 export default function SummariesRightPane({
   summaryDocId,
   title,
+  citation,
   originalSummary,
   qcSummary,
   onSaveQcSummary,
@@ -33,7 +38,13 @@ export default function SummariesRightPane({
         ? qcSummary
         : originalSummary
     );
-  }, [qcSummary, originalSummary]);
+
+    setMessage("");
+  }, [
+    summaryDocId,
+    qcSummary,
+    originalSummary,
+  ]);
 
   async function handleSave() {
     try {
@@ -50,18 +61,41 @@ export default function SummariesRightPane({
   }
 
   return (
-    <aside className="w-[34rem] border-l border-slate-800 bg-slate-900 h-full flex flex-col">
+    <aside className="w-full border-l border-slate-800 bg-slate-900 h-full flex flex-col">
       <div className="shrink-0 border-b border-slate-800 px-6 py-5">
         <h2 className="text-lg font-semibold text-white">
           Summary QC Review
         </h2>
-
-        <p className="mt-1 text-s text-slate-100 truncate">
-          {title}
-        </p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+        {/* TITLE */}
+
+        <section>
+          <h3 className="text-s uppercase tracking-[0.16em] text-slate-100 mb-2">
+            Title
+          </h3>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-200">
+            {title || "No title loaded."}
+          </div>
+        </section>
+
+        {/* CITATION */}
+
+        <section>
+          <h3 className="text-s uppercase tracking-[0.16em] text-slate-100 mb-2">
+            Citation
+          </h3>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300 whitespace-pre-wrap">
+            {citation || "No citation loaded."}
+          </div>
+        </section>
+
+        {/* ORIGINAL SUMMARY */}
+
         <section>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-s uppercase tracking-[0.16em] text-slate-100">
@@ -74,9 +108,12 @@ export default function SummariesRightPane({
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300 whitespace-pre-wrap">
-            {originalSummary || "No original summary loaded."}
+            {originalSummary ||
+              "No original summary loaded."}
           </div>
         </section>
+
+        {/* QC SUMMARY */}
 
         <section>
           <div className="flex items-center justify-between mb-2">
@@ -92,11 +129,14 @@ export default function SummariesRightPane({
           <textarea
             value={editableQcSummary}
             onChange={(event) =>
-              setEditableQcSummary(event.target.value)
+              setEditableQcSummary(
+                event.target.value
+              )
             }
             className="w-full min-h-[24rem] rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-200 outline-none focus:border-sky-500 resize-none"
           />
         </section>
+
       </div>
 
       <div className="shrink-0 border-t border-slate-800 p-5">

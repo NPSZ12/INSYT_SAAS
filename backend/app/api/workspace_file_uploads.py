@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.services.batch_service import get_container_client
+from app.services.summary_text_service import create_summary_text_file
 
 router = APIRouter(
     prefix="/api",
@@ -85,11 +86,29 @@ async def upload_workspace_files(
             overwrite=True,
         )
 
+        text_blob_path = None
+        text_created = False
+
+        if (
+            workspace == "summaries"
+            and folder_name == "source/native"
+            and file_name.lower().endswith(".pdf")
+        ):
+            text_blob_path = create_summary_text_file(
+                container=container,
+                native_blob_name=blob_path,
+                pdf_bytes=content,
+            )
+
+            text_created = bool(text_blob_path)
+
         uploaded.append(
             {
                 "file_name": file_name,
                 "blob_path": blob_path,
                 "size": len(content),
+                "text_blob_path": text_blob_path,
+                "text_created": text_created,
             }
         )
 

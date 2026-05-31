@@ -24,6 +24,13 @@ class BootstrapAdminRequest(BaseModel):
     email: str
     password: str
 
+def safe_json_list(value: str):
+    try:
+        return json.loads(value or "[]")
+    except Exception:
+        return []
+
+
 def serialize_user(user: User):
     return {
         "username": user.username,
@@ -31,9 +38,11 @@ def serialize_user(user: User):
         "email": user.email,
         "role": user.role,
         "status": user.status,
-        "project_access": json.loads(user.project_access or "[]"),
-        "launches": json.loads(user.launches or "[]"),
-        "permissions": json.loads(user.permissions or "[]"),
+        "workspace_access": safe_json_list(user.workspace_access),
+        "client_access": safe_json_list(user.client_access),
+        "project_access": safe_json_list(user.project_access),
+        "launches": safe_json_list(user.launches),
+        "permissions": safe_json_list(user.permissions),
     }
 
 @router.post("/bootstrap-admin")
@@ -73,9 +82,16 @@ def bootstrap_admin(
         role="INSYT Admin",
         status="Active",
         password_hash=hash_password(payload.password),
-        project_access="[]",
-        launches="[]",
-        permissions="[]",
+        workspace_access=json.dumps([
+            "capture",
+            "discovery",
+            "summaries",
+            "development",
+        ]),
+        client_access=json.dumps([]),
+        project_access=json.dumps([]),
+        launches=json.dumps([]),
+        permissions=json.dumps([]),
     )
 
     db.add(user)

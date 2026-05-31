@@ -18,6 +18,11 @@ type StoredUser = {
   username: string;
   display_name: string;
   role: string;
+
+  workspace_access?: string[];
+  client_access?: string[];
+  project_access?: string[];
+  permissions?: string[];
 };
 
 type NavItem = {
@@ -69,18 +74,19 @@ export default function Sidebar({
     ? `?${contextParams.toString()}`
     : "";
 
-  const [role, setRole] = useState("");
+  const [user, setUser] =
+    useState<StoredUser | null>(null);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
 
     if (storedUser) {
-      const user: StoredUser = JSON.parse(storedUser);
-      setRole(user.role);
+      setUser(JSON.parse(storedUser));
     }
   }, []);
 
-  const normalizedRole = role.toLowerCase();
+  const normalizedRole =
+    user?.role?.toLowerCase() || "";
 
   const isAdminRole =
     normalizedRole.includes("admin") ||
@@ -109,7 +115,13 @@ export default function Sidebar({
         },
         {
           label: "User Accounts",
-          href: `${workspaceBase}/review-team`,
+          href: `/user-access?workspace=${
+            isSummaries
+              ? "summaries"
+              : isDiscovery
+                ? "discovery"
+                : "capture"
+          }`,
           icon: Users,
         },
         {

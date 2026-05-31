@@ -44,10 +44,18 @@ def get_container_client(workspace: Workspace):
     return service_client.get_container_client(container_name)
 
 
-def list_project_batches(workspace: Workspace, project_id: str):
+def list_project_batches(
+    workspace: Workspace,
+    project_id: str,
+    client_id: str = "",
+):
     container = get_container_client(workspace)
 
-    batch_prefix = f"{project_id}/Batches/"
+    if client_id:
+        batch_prefix = f"{client_id}/{project_id}/Batches/"
+    else:
+        batch_prefix = f"{project_id}/Batches/"
+
     batches = []
 
     for blob in container.list_blobs(name_starts_with=batch_prefix):
@@ -65,15 +73,24 @@ def list_project_batches(workspace: Workspace, project_id: str):
 
     return {
         "workspace": workspace,
+        "client_id": client_id,
         "project_id": project_id,
         "batches": batches,
     }
 
 
-def list_project_doc_ids(workspace: Workspace, project_id: str):
+def list_project_doc_ids(
+    workspace: Workspace,
+    project_id: str,
+    client_id: str = "",
+):
     container = get_container_client(workspace)
 
-    prefix = f"{project_id}/"
+    if client_id:
+        prefix = f"{client_id}/{project_id}/source/native/"
+    else:
+        prefix = f"{project_id}/source/native/"
+
     doc_ids = []
 
     for blob in container.list_blobs(name_starts_with=prefix):
@@ -82,21 +99,15 @@ def list_project_doc_ids(workspace: Workspace, project_id: str):
         if name.endswith("/"):
             continue
 
-        if "/Batches/" in name:
-            continue
-
-        if "/QC/" in name:
-            continue
-
-        if "/Audit/" in name:
-            continue
-
-        if "/SearchFolders/" in name:
-            continue
-
         filename = name.split("/")[-1]
 
         if not filename:
+            continue
+
+        if filename == ".keep":
+            continue
+
+        if filename.lower().endswith(".json"):
             continue
 
         doc_id = os.path.splitext(filename)[0]
@@ -109,14 +120,21 @@ def get_already_batched_doc_ids(
     workspace: Workspace,
     project_id: str,
     level: str,
+    client_id: str = "",
 ):
-    existing = list_project_batches(workspace, project_id)
+    existing = list_project_batches(
+        workspace,
+        project_id,
+        client_id,
+    )
 
     already_batched = set()
 
     for batch in existing["batches"]:
         if batch.get("level") == level:
-            already_batched.update(batch.get("doc_ids", []))
+            already_batched.update(
+                batch.get("doc_ids", [])
+            )
 
     return already_batched
 
@@ -240,6 +258,7 @@ def create_project_batch(
     created_by: str = "admin",
     search_folder_doc_ids: list[str] | None = None,
     options: dict | None = None,
+    client_id: str = "",
 ):
     if batch_size <= 0:
         raise HTTPException(
@@ -279,13 +298,18 @@ def create_project_batch(
         eligible_doc_ids = sorted(set(expanded_doc_ids))
 
     else:
-        all_doc_ids = list_project_doc_ids(workspace, project_id)
+        all_doc_ids = list_project_doc_ids(
+            workspace,
+            project_id,
+            client_id,
+        )
 
         if level == "1L":
             already_batched = get_already_batched_doc_ids(
                 workspace,
                 project_id,
                 "1L",
+                client_id,
             )
 
             eligible_doc_ids = [
@@ -299,6 +323,7 @@ def create_project_batch(
                 workspace,
                 project_id,
                 "QC",
+                client_id,
             )
 
             eligible_doc_ids = [
@@ -369,7 +394,11 @@ def create_project_batch(
         )
 
     container = get_container_client(workspace)
-    batch_prefix = f"{project_id}/Batches/"
+
+    if client_id:
+        batch_prefix = f"{client_id}/{project_id}/Batches/"
+    else:
+        batch_prefix = f"{project_id}/Batches/"
 
     existing_batch_files = [
         blob.name
@@ -384,6 +413,7 @@ def create_project_batch(
         "batch_name": batch_name,
         "workspace": workspace,
         "project_id": project_id,
+        "client_id": client_id,
         "level": level,
         "workflow_type": workflow_type,
         "status": "Available",
@@ -411,6 +441,54 @@ def create_project_batch(
             len(eligible_doc_ids) - len(selected_doc_ids),
             0,
         ),
+    }
+
+def checkout_project_batch(
+    workspace: Workspace,
+    project_id: str,
+    batch_name: str,
+    username: str,
+    client_id: str = "",
+):
+    container = get_container_client(workspace)
+
+    if client_id:
+        batch_blob_name = f"{client_id}/{project_id}/Batches/{batch_name}.json"
+    else:
+        batch_blob_name = f"{project_id}/Batches/{batch_name}.json"
+
+    blob_client = container.get_blob_client(batch_blob_name)
+
+    if not blob_client.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Batch not found.",
+        )
+
+    batch = json.loads(
+        blob_client.download_blob()
+        .readall()
+        .decode("utf-8")
+    )
+
+    if batch.get("status") == "Checked Out":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Batch already checked out by {batch.get('checked_out_by')}.",
+        )
+
+    batch["status"] = "Checked Out"
+    batch["checked_out_by"] = username
+    batch["checked_out_at"] = datetime.now(timezone.utc).isoformat()
+
+    blob_client.upload_blob(
+        json.dumps(batch, indent=2),
+        overwrite=True,
+    )
+
+    return {
+        "message": "Batch checked out.",
+        "batch": batch,
     }
     
 def remove_docs_from_batch(

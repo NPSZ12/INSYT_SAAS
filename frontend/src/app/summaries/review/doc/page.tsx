@@ -16,9 +16,7 @@ import ContentCard from "../../../../components/ContentCard";
 import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
-import PdfOutlinePane, {
-  type PdfOutlineItem,
-} from "../../../../components/summaries/PdfOutlinePane";
+import type { PdfOutlineItem } from "../../../../components/summaries/PdfOutlinePane";
 
 
 function ReviewPageContent() {
@@ -53,6 +51,15 @@ function ReviewPageContent() {
 
   const [selectedSummaryDocId, setSelectedSummaryDocId] = useState("");
 
+  const [currentCitation, setCurrentCitation] = useState("");
+
+  const outlineId = searchParams.get("outline") || "";
+  const pageParam = searchParams.get("page") || "";
+
+  const [qcPaneWidth, setQcPaneWidth] = useState(544);
+  const [isResizing, setIsResizing] = useState(false);
+  
+
   // =====================================================
   // PDF Outline Controller State
   // =====================================================
@@ -61,8 +68,81 @@ function ReviewPageContent() {
     useState("");
 
 
-  const selectedOutlineId =
-    searchParams.get("outline");
+  function handleOutlineSelect(item: PdfOutlineItem) {
+    const targetPage =
+      item.summaryPdfPage ??
+      item.summary_pdf_page ??
+      item.pdfPage ??
+      item.pdf_page ??
+      item.page ??
+      item.pageStart ??
+      1;
+
+    setSelectedSummaryDocId(item.id);
+
+    setCurrentOutlineTitle(item.title);
+    setCurrentCitation(item.citation || "");
+
+    setTargetPdfPage(targetPage);
+
+    setOriginalSummary(item.originalSummary || "");
+
+    setQcSummary(
+      item.qcSummary ||
+      item.originalSummary ||
+      ""
+    );
+  }
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    function handleMouseMove(event: MouseEvent) {
+      const windowWidth = window.innerWidth;
+      const newWidth = windowWidth - event.clientX;
+
+      const minWidth = 380;
+      const maxWidth = 760;
+
+      setQcPaneWidth(
+        Math.min(Math.max(newWidth, minWidth), maxWidth)
+      );
+    }
+
+    function handleMouseUp() {
+      setIsResizing(false);
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (!outlineId || outlineItems.length === 0) return;
+
+    const item = outlineItems.find(
+      (outlineItem) => outlineItem.id === outlineId
+    );
+
+    if (!item) return;
+
+    handleOutlineSelect(item);
+  }, [outlineId, outlineItems]);
+
+  useEffect(() => {
+    if (!pageParam) return;
+
+    const page = Number(pageParam);
+
+    if (!Number.isNaN(page) && page > 0) {
+      setTargetPdfPage(page);
+    }
+  }, [pageParam]);
 
   useEffect(() => {
     if (!clientId || !projectId || !batchId) {
@@ -115,6 +195,12 @@ function ReviewPageContent() {
 
         setOutlineItems(incomingOutlineItems);
 
+        if (incomingOutlineItems.length > 0) {
+          handleOutlineSelect(
+            incomingOutlineItems[0]
+          );
+        }
+
         setCurrentOutlineTitle(
           response?.outline_title ||
             firstOutlineItem?.title ||
@@ -137,38 +223,54 @@ function ReviewPageContent() {
         });
         }, [clientId, projectId, batchId]);
 
-  function handleOutlineSelect(item: PdfOutlineItem) {
-    const page = item.page ?? item.pageStart ?? 1;
-
-    setCurrentOutlineTitle(item.title);
-    
-    setTargetPdfPage(page);
-    setSelectedSummaryDocId(item.id);
-
-    setOriginalSummary(item.originalSummary || "");
-    setQcSummary(item.qcSummary || item.originalSummary || "");
-  }
-
-  useEffect(() => {
-    if (!selectedOutlineId) return;
-
-    const selectedItem = outlineItems.find(
-      (item) => item.id === selectedOutlineId
-    );
-
-    if (selectedItem) {
-      handleOutlineSelect(selectedItem);
-    }
-  }, [selectedOutlineId, outlineItems]);
-
   async function saveQcSummary(
     summaryDocId: string,
     updatedQcSummary: string
   ) {
-    await apiPost("/api/summaries/qc/save", {
+    if (!projectId || !clientId || !reviewDoc) return;
+
+    const pdfName =
+      reviewDoc.native_blob?.split("/").pop() ||
+      reviewDoc.doc_id ||
+      "Unknown PDF";
+
+    const title =
+      currentOutlineTitle ||
+      summaryDocId;
+
+    const existingCheck = await apiPost(
+      "/api/summaries/summary-data/exists",
+      {
+        client: clientId,
+        project_id: projectId,
+        pdf_name: pdfName,
+        summary_key: title,
+      }
+    );
+
+    if (existingCheck.exists) {
+      const confirmed = window.confirm(
+        `${title} has already been saved for ${pdfName}.\n\nDo you want to update the existing Summary Data Table row?`
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    await apiPost("/api/summaries/summary-data/save", {
+      client: clientId,
       project_id: projectId,
       batch_id: batchId,
+      pdf_name: pdfName,
       summary_doc_id: summaryDocId,
+
+      // Save by summary number/title, not page number.
+      summary_key: title,
+      title,
+
+      citation: currentCitation || "",
+      original_summary: originalSummary || "",
       qc_summary: updatedQcSummary,
     });
 
@@ -263,14 +365,6 @@ function ReviewPageContent() {
         />
 
         <section className="flex-1 flex gap-4 p-4 overflow-hidden">
-          {/* PDF Outline Pane */}
-          <div className="w-80 shrink-0">
-            <PdfOutlinePane
-              items={outlineItems}
-              selectedOutlineItemId={selectedOutlineId || undefined}
-              onSelect={handleOutlineSelect}
-            />
-          </div>
 
           {/* Native PDF Viewer */}
           <div className="flex-1 min-w-0">
@@ -282,18 +376,47 @@ function ReviewPageContent() {
             />
           </div>
 
+          {/* Draggable Pane Divider */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            title="Drag to resize panes"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setIsResizing(true);
+            }}
+            className={[
+              "relative w-3 shrink-0 cursor-col-resize",
+              "bg-slate-950 hover:bg-sky-950/70",
+              "border-x border-slate-800",
+              isResizing ? "bg-sky-900/70" : "",
+            ].join(" ")}
+          >
+            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center">
+              <div className="rounded-full border border-slate-600 bg-slate-900 px-1 py-3 text-[10px] text-slate-300 shadow-lg">
+                &lt;&gt;
+              </div>
+            </div>
+          </div>
+
           {/* Summary QC Pane */}
-          <SummariesRightPane
-            summaryDocId={selectedSummaryDocId || reviewDoc.doc_id}
-            title={
-              currentOutlineTitle ||
-              reviewDoc.doc_id ||
-              "Summary Review"
-            }
-            originalSummary={originalSummary}
-            qcSummary={qcSummary}
-            onSaveQcSummary={saveQcSummary}
-          />
+          <div
+            className="shrink-0 h-full"
+            style={{ width: qcPaneWidth }}
+          >
+            <SummariesRightPane
+              summaryDocId={selectedSummaryDocId || reviewDoc.doc_id}
+              title={
+                currentOutlineTitle ||
+                reviewDoc.doc_id ||
+                "Summary Review"
+              }
+              citation={currentCitation}
+              originalSummary={originalSummary}
+              qcSummary={qcSummary}
+              onSaveQcSummary={saveQcSummary}
+            />
+          </div>
         </section>
       </div>
     </AppShell>

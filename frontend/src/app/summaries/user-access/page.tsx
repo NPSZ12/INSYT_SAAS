@@ -20,9 +20,22 @@ type AccessUser = {
   password?: string;
   role: string;
   status: string;
-  project_access: string[];
-  launches?: string[];
+  workspace_access?: string[];
+  client_access?: string[];
+  project_access?: string[];
   permissions?: string[];
+};
+
+type UserAccessForm = {
+  display_name: string;
+  email: string;
+  username: string;
+  password: string;
+  role: string;
+  workspace_access: string[];
+  client_access: string[];
+  project_access: string[];
+  permissions: string[];
 };
 
 const levels = [
@@ -35,59 +48,55 @@ const levels = [
   "Client",
 ];
 
-const launches = [
-  "INSYT™ summaries",
-  "INSYT™ Discovery",
-  "INSYT™ Summaries",
-  "INSYT™ Developer",
+const workspaces = [
+  "capture",
+  "discovery",
+  "summaries",
+  "development",
 ];
+
+const clients = ["NLCP", "BFS", "Demo"];
 
 const permissions = [
   "Download Docs",
   "Upload Docs",
-  "Edit summariesd Entities",
-  "Delete summariesd Entities",
+  "Edit Summaries",
+  "Delete Summaries",
   "Create Batches",
   "Create Search Folders",
   "View Messaging",
   "Send Messaging",
 ];
 
+const emptyForm: UserAccessForm = {
+  display_name: "",
+  email: "",
+  username: "",
+  password: "",
+  role: "1L",
+  workspace_access: ["summaries"],
+  client_access: [],
+  project_access: [],
+  permissions: [],
+};
+
 function UserAccessPageContent() {
   const [users, setUsers] = useState<AccessUser[]>([]);
   const [projects, setProjects] = useState<string[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<Record<string, boolean>>({});
   const [message, setMessage] = useState("");
-
-  const [form, setForm] = useState({
-    display_name: "",
-    email: "",
-    username: "",
-    password: "",
-    role: "1L",
-    project_access: [] as string[],
-    launches: ["INSYT summaries"] as string[],
-    permissions: [] as string[],
-  });
+  const [form, setForm] = useState<UserAccessForm>(emptyForm);
 
   function loadData() {
     apiGet("/api/users")
       .then((response: any) => {
-        const users = Array.isArray(response)
-          ? response
-          : response?.users || [];
-
-        setUsers(users);
+        setUsers(Array.isArray(response) ? response : response?.users || []);
       })
       .catch(console.error);
 
     apiGet("/api/azure-projects/")
       .then((data: any) => {
-        const projects = Array.isArray(data)
-          ? data
-          : data?.projects || [];
-
-        setProjects(projects);
+        setProjects(Array.isArray(data) ? data : data?.projects || []);
       })
       .catch((error) => {
         console.error("Failed to load Azure projects:", error);
@@ -99,7 +108,10 @@ function UserAccessPageContent() {
     loadData();
   }, []);
 
-  function toggleArrayValue(key: "project_access" | "launches" | "permissions", value: string) {
+  function toggleArrayValue(
+    key: "workspace_access" | "client_access" | "project_access" | "permissions",
+    value: string
+  ) {
     setForm((current) => {
       const exists = current[key].includes(value);
 
@@ -129,32 +141,20 @@ function UserAccessPageContent() {
       password: form.password,
       role: form.role,
       status: "active",
+      workspace_access: form.workspace_access,
+      client_access: form.client_access,
       project_access: form.project_access,
-      launches: form.launches,
       permissions: form.permissions,
       email: form.email,
     })
       .then((response) => {
         setMessage(response.message || "User access saved.");
-
-        setForm({
-          display_name: "",
-          username: "",
-          password: "",
-          role: "1L",
-          project_access: [],
-          launches: ["INSYT™ summaries"],
-          permissions: [],
-          email: "",
-        });
-
+        setForm(emptyForm);
         loadData();
       })
       .catch((error) => {
         console.error(error);
-        setMessage(
-          "Save User Access failed. Check backend /api/users/create."
-        );
+        setMessage("Save User Access failed. Check backend /api/users/create.");
       });
   }
 
@@ -164,24 +164,16 @@ function UserAccessPageContent() {
       display_name: form.display_name,
       password: form.password,
       role: form.role,
+      workspace_access: form.workspace_access,
+      client_access: form.client_access,
       project_access: form.project_access,
-      launches: form.launches,
       permissions: form.permissions,
       email: form.email,
     })
       .then(() => {
+        setMessage("User access updated.");
+        setForm(emptyForm);
         loadData();
-
-        setForm({
-          display_name: "",
-          username: "",
-          password: "",
-          role: "1L",
-          project_access: [],
-          launches: ["INSYT™ summaries"],
-          permissions: [],
-          email: "",
-        });
       })
       .catch(console.error);
   }
@@ -196,29 +188,23 @@ function UserAccessPageContent() {
       return;
     }
 
-    const selectedUser = users.find(
-      (user) => user.username === usernames[0]
-    );
+    const selectedUser = users.find((user) => user.username === usernames[0]);
 
-    if (!selectedUser) {
-      return;
-    }
+    if (!selectedUser) return;
 
     setForm({
       display_name: selectedUser.display_name,
       username: selectedUser.username,
       password: "",
       role: selectedUser.role,
+      workspace_access: selectedUser.workspace_access || [],
+      client_access: selectedUser.client_access || [],
       project_access: selectedUser.project_access || [],
-      launches: selectedUser.launches || [],
       permissions: selectedUser.permissions || [],
       email: selectedUser.email || "",
     });
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function deleteSelectedUsers() {
@@ -235,9 +221,7 @@ function UserAccessPageContent() {
     if (!confirmed) return;
 
     Promise.all(
-      usernames.map((username) =>
-        apiPost("/api/users/delete", { username })
-      )
+      usernames.map((username) => apiPost("/api/users/delete", { username }))
     ).then(() => {
       setSelectedUsers({});
       loadData();
@@ -249,8 +233,9 @@ function UserAccessPageContent() {
       <PageContainer>
         <PageHeader
           title="User Access"
-          subtitle="Manage launch access, user levels, project permissions, passwords, and security rights."
+          subtitle="Manage workspace, client, project, permissions, passwords, and user levels."
         />
+
         {message && (
           <p className="text-sm text-sky-400 mb-6">
             {message}
@@ -267,6 +252,7 @@ function UserAccessPageContent() {
                 placeholder="Display name"
               />
             </div>
+
             <div>
               <FormLabel>Email</FormLabel>
               <Input
@@ -310,21 +296,33 @@ function UserAccessPageContent() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-6">
             <div>
-              <h3 className="font-semibold mb-3">Launch Access</h3>
-              {launches.map((launch) => (
+              <h3 className="font-semibold mb-3">Workspace</h3>
+              {workspaces.map((workspace) => (
                 <Checkbox
-                  key={launch}
-                  label={launch}
-                  checked={form.launches.includes(launch)}
-                  onChange={() => toggleArrayValue("launches", launch)}
+                  key={workspace}
+                  label={workspace}
+                  checked={form.workspace_access.includes(workspace)}
+                  onChange={() => toggleArrayValue("workspace_access", workspace)}
                 />
               ))}
             </div>
 
             <div>
-              <h3 className="font-semibold mb-3">Projects</h3>
+              <h3 className="font-semibold mb-3">Client</h3>
+              {clients.map((client) => (
+                <Checkbox
+                  key={client}
+                  label={client}
+                  checked={form.client_access.includes(client)}
+                  onChange={() => toggleArrayValue("client_access", client)}
+                />
+              ))}
+            </div>
+
+            <div>
+              <h3 className="font-semibold mb-3">Project</h3>
               {(projects || []).map((project) => (
                 <Checkbox
                   key={project}
@@ -353,10 +351,7 @@ function UserAccessPageContent() {
               Save User Access
             </Button>
 
-            <Button
-              variant="secondary"
-              onClick={updateUser}
-            >
+            <Button variant="secondary" onClick={updateUser}>
               Update User Access
             </Button>
           </div>
@@ -365,17 +360,11 @@ function UserAccessPageContent() {
         <div className="mt-6">
           <ContentCard title="Existing Users">
             <div className="mb-4 flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={editSelectedUsers}
-              >
+              <Button variant="secondary" onClick={editSelectedUsers}>
                 Edit Selected
               </Button>
 
-              <Button
-                variant="danger"
-                onClick={deleteSelectedUsers}
-              >
+              <Button variant="danger" onClick={deleteSelectedUsers}>
                 Delete Selected
               </Button>
             </div>
@@ -390,7 +379,9 @@ function UserAccessPageContent() {
                     <th className="p-3 text-left">Level</th>
                     <th className="p-3 text-left">User Name</th>
                     <th className="p-3 text-left">Password</th>
-                    <th className="p-3 text-left">Projects</th>
+                    <th className="p-3 text-left">Workspace</th>
+                    <th className="p-3 text-left">Client</th>
+                    <th className="p-3 text-left">Project</th>
                     <th className="p-3 text-left">Permissions</th>
                   </tr>
                 </thead>
@@ -412,24 +403,18 @@ function UserAccessPageContent() {
                         />
                       </td>
 
-                      <td className="p-3 text-white">
-                        {user.display_name}
+                      <td className="p-3 text-white">{user.display_name}</td>
+                      <td className="p-3 text-slate-300">{user.email || "—"}</td>
+                      <td className="p-3 text-slate-300">{user.role}</td>
+                      <td className="p-3 text-slate-300">{user.username}</td>
+                      <td className="p-3 text-slate-500">********</td>
+
+                      <td className="p-3 text-slate-300 max-w-[180px] break-words">
+                        {(user.workspace_access || []).join(", ") || "—"}
                       </td>
 
-                      <td className="p-3 text-slate-300">
-                        {user.email || "—"}
-                      </td>
-
-                      <td className="p-3 text-slate-300">
-                        {user.role}
-                      </td>
-
-                      <td className="p-3 text-slate-300">
-                        {user.username}
-                      </td>
-
-                      <td className="p-3 text-slate-500">
-                        ********
+                      <td className="p-3 text-slate-300 max-w-[180px] break-words">
+                        {(user.client_access || []).join(", ") || "—"}
                       </td>
 
                       <td className="p-3 text-slate-300 max-w-[250px] break-words">
@@ -453,7 +438,6 @@ function UserAccessPageContent() {
   );
 }
 
-
 export default function UserAccessPage() {
   return (
     <Suspense fallback={<div>Loading user access...</div>}>
@@ -461,11 +445,3 @@ export default function UserAccessPage() {
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-

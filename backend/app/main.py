@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from app.database.connection import SessionLocal
 
 from app.database.init_db import init_db
 from app.services.security import get_current_user
@@ -37,12 +39,45 @@ from app.api.workspace_clients import router as workspace_clients_router
 from app.api.workspace_file_uploads import router as workspace_file_uploads_router
 from app.api.workspace_project_create import router as workspace_project_create_router
 from app.api import workspace_projects
+from app.api import summaries_summary_data
 
 from app.routes import merge_dedupe
 from app.routes import tools_merge_dedupe
 
 
 app = FastAPI(title="INSYT SaaS API")
+
+def migrate_user_access_columns():
+    db = SessionLocal()
+
+    try:
+        db.execute(
+            text(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS workspace_access TEXT DEFAULT '[]'
+                """
+            )
+        )
+
+        db.execute(
+            text(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS client_access TEXT DEFAULT '[]'
+                """
+            )
+        )
+
+        db.commit()
+
+        print("User access migration completed.")
+
+    finally:
+        db.close()
+
+
+migrate_user_access_columns()
 
 init_db()
 
@@ -131,6 +166,7 @@ app.include_router(workspace_clients_router)
 app.include_router(workspace_file_uploads_router)
 app.include_router(workspace_project_create_router)
 app.include_router(workspace_projects.router)
+app.include_router(summaries_summary_data.router)
 
 
 # =========================

@@ -63,7 +63,7 @@ export default function ReviewDocumentPane({
   ].includes(extension);
 
   return (
-    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 h-full flex flex-col overflow-hidden">
+    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 h-[calc(100vh-7.5rem)] min-h-[760px] flex flex-col overflow-hidden">
       <div className="shrink-0 flex items-center justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold">
@@ -102,9 +102,9 @@ export default function ReviewDocumentPane({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {viewMode === "text" && (
-          <div className="bg-slate-950 rounded-xl p-5 h-full overflow-y-auto text-slate-300 leading-7 whitespace-pre-wrap">
+          <div className="h-full w-full overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-5 text-slate-300 leading-7 whitespace-pre-wrap">
             {text || "No extracted text available."}
           </div>
         )}
@@ -112,17 +112,19 @@ export default function ReviewDocumentPane({
         {viewMode === "native" && (
           <>
             {isPdf ? (
-              <PdfDocumentViewer
-                fileUrl={nativeUrl || ""}
-                heightClassName="h-full"
-                targetPage={targetPage}
-              />
+              <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                <PdfDocumentViewer
+                  fileUrl={nativeUrl || ""}
+                  heightClassName="h-full"
+                  targetPage={targetPage}
+                />
+              </div>
             ) : isTextFriendly ? (
-              <div className="bg-slate-950 rounded-xl p-5 h-full overflow-y-auto text-slate-300 leading-7 whitespace-pre-wrap">
+              <div className="h-full w-full overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-5 text-slate-300 leading-7 whitespace-pre-wrap">
                 {text || "No extracted text available."}
               </div>
             ) : (
-              <div className="bg-slate-950 rounded-xl border border-slate-800 h-full flex flex-col items-center justify-center p-8 text-center">
+              <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
                 <div className="max-w-lg">
                   <h3 className="text-xl font-semibold text-white mb-3">
                     Native File Preview Not Yet Supported

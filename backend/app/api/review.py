@@ -23,10 +23,20 @@ router = APIRouter(prefix="/api", tags=["Review"])
 VALID_WORKSPACES = ["capture", "summaries", "discovery"]
 
 
-def list_workspace_project_files(workspace: str, project_id: str):
+def list_workspace_project_files(
+    workspace: str,
+    project_id: str,
+    client_id: str = "",
+):
     container = get_container_client(workspace)
 
-    prefix = f"{project_id.strip('/')}/"
+    clean_project_id = project_id.strip("/")
+    clean_client_id = client_id.strip("/")
+
+    if clean_client_id:
+        prefix = f"{clean_client_id}/{clean_project_id}/"
+    else:
+        prefix = f"{clean_project_id}/"
 
     files = []
 
@@ -100,6 +110,7 @@ def load_current_review_document(
     workspace: str,
     project: str,
     batch: str,
+    client: str = "",
 ):
     if workspace not in VALID_WORKSPACES:
         raise HTTPException(
@@ -108,9 +119,24 @@ def load_current_review_document(
         )
 
     project_id = project
+    print(
+        "LOAD REVIEW DOC",
+        {
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "batch": batch,
+        },
+    )
     protocol_fields = load_protocol_fields(project_id)
 
-    files = list_workspace_project_files(workspace, project_id)
+    files = list_workspace_project_files(
+        workspace,
+        project_id,
+        client,
+    )
+
+    print("FILES FOUND", len(files))
 
     pdf_files = [
         file for file in files
@@ -204,10 +230,12 @@ def get_workspace_current_review_document(
     workspace: str,
     project: str,
     batch: str,
+    client: str = "",
 ):
     try:
         return load_current_review_document(
             workspace=workspace,
+            client=client,
             project=project,
             batch=batch,
         )

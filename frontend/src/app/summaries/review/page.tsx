@@ -17,6 +17,12 @@ type BatchFile = {
   status: string;
 };
 
+type StoredUser = {
+  username: string;
+  display_name: string;
+  role: string;
+};
+
 function ReviewBatchLandingPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -26,22 +32,90 @@ function ReviewBatchLandingPageContent() {
   const batchId = searchParams.get("batch") || "";
 
   const [files, setFiles] = useState<BatchFile[]>([]);
+  const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    if (!projectId || !batchId) return;
+  const [user, setUser] = useState<StoredUser | null>(null);
+  const [resolvedBatchId, setResolvedBatchId] = useState(batchId);
 
-    apiGet(
-      `/api/batches/files?client=${encodeURIComponent(
+  function openReview(docId?: string) {
+    const firstDocId = docId || files[0]?.doc_id || "";
+
+    if (!firstDocId) {
+      setMessage("No document selected for review.");
+      return;
+    }
+
+    router.push(
+      `/summaries/review/doc?client=${encodeURIComponent(
         clientId
       )}&project=${encodeURIComponent(
         projectId
-      )}&batch=${encodeURIComponent(batchId)}`
-    )
-      .then(setFiles)
-      .catch(console.error);
-  }, [clientId, projectId, batchId]);
+      )}&batch=${encodeURIComponent(
+        resolvedBatchId
+      )}&doc=${encodeURIComponent(firstDocId)}`
+    );
+  }
 
-  if (!projectId || !batchId) {
+  useEffect(() => {
+    const storedUser = localStorage.getItem("insyt_user");
+
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!clientId || !projectId || !user) return;
+
+    apiGet(
+      `/api/summaries/projects/${encodeURIComponent(
+        projectId
+      )}/batches?client=${encodeURIComponent(clientId)}`
+    )
+      .then((response) => {
+        const batches = response.batches || [];
+
+        const selectedBatchId =
+          batchId ||
+          batches.find(
+            (batch: any) =>
+              batch.status === "Checked Out" &&
+              batch.checked_out_by?.toLowerCase() === user.username?.toLowerCase()
+          )?.batch_name ||
+          "";
+
+        setResolvedBatchId(selectedBatchId);
+
+        if (!selectedBatchId) {
+          setFiles([]);
+          return;
+        }
+
+        const selectedBatch = batches.find(
+          (batch: any) =>
+            batch.batch_name === selectedBatchId ||
+            batch.batch_id === selectedBatchId ||
+            batch.name === selectedBatchId
+        );
+
+        const docIds = selectedBatch?.doc_ids || [];
+
+        setFiles(
+          docIds.map((docId: string) => ({
+            doc_id: docId,
+            file_name: docId,
+            status: selectedBatch?.status || "Ready",
+          }))
+        );
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Failed to load checked-out batch.");
+        setFiles([]);
+      });
+  }, [clientId, projectId, batchId, user]);
+
+  if (!projectId || !resolvedBatchId) {
     return (
       <AppShell>
         <PageContainer>
@@ -54,10 +128,25 @@ function ReviewBatchLandingPageContent() {
     );
   }
 
+  const tableRows = files.map((file) => ({
+    doc_id: file.doc_id,
+    file_name: file.file_name || file.doc_id,
+    status: file.status || "Ready",
+    action: (
+      <Button
+        variant="secondary"
+        onClick={() => openReview(file.doc_id)}
+      >
+        Open
+      </Button>
+    ),
+  }));
+
   const columns = [
     { key: "doc_id", label: "Doc ID" },
     { key: "file_name", label: "File Name" },
     { key: "status", label: "Status" },
+    { key: "action", label: "Open" },
   ];
 
   return (
@@ -65,27 +154,23 @@ function ReviewBatchLandingPageContent() {
       <PageContainer>
         <div className="flex items-start justify-between mb-8">
           <PageHeader
-            title={batchId.replaceAll("_", " ")}
+            title={resolvedBatchId.replaceAll("_", " ")}
             subtitle={`Documents available for ${projectId.replaceAll(
               "_",
               " "
             )}.`}
           />
 
-          <Button
-            onClick={() =>
-              router.push(
-                `/summaries/review/doc?client=${encodeURIComponent(
-                  clientId
-                )}&project=${encodeURIComponent(
-                  projectId
-                )}&batch=${encodeURIComponent(batchId)}`
-              )
-            }
-          >
-            Review Docs
+          <Button onClick={() => openReview()}>
+            Open Review
           </Button>
         </div>
+
+        {message && (
+          <p className="mb-4 text-sm text-sky-400">
+            {message}
+          </p>
+        )}
 
         <ContentCard title="Batch Documents">
           {files.length === 0 ? (
@@ -93,8 +178,8 @@ function ReviewBatchLandingPageContent() {
               No documents found for this batch.
             </p>
           ) : (
-            <div className="max-h-[45vh] overflow-auto">
-              <DataTable columns={columns} data={files} />
+            <div className="max-h-[55vh] overflow-auto">
+              <DataTable columns={columns} data={tableRows} />
             </div>
           )}
         </ContentCard>
