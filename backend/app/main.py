@@ -40,6 +40,9 @@ from app.api.workspace_file_uploads import router as workspace_file_uploads_rout
 from app.api.workspace_project_create import router as workspace_project_create_router
 from app.api import workspace_projects
 from app.api import summaries_summary_data
+from app.models.audit_log import AuditLog
+from app.api.audit_logs import router as audit_logs_router
+from app.api.admin_clients import router as admin_clients_router
 
 from app.routes import merge_dedupe
 from app.routes import tools_merge_dedupe
@@ -212,6 +215,8 @@ app.include_router(workspace_file_uploads_router)
 app.include_router(workspace_project_create_router)
 app.include_router(workspace_projects.router)
 app.include_router(summaries_summary_data.router)
+app.include_router(audit_logs_router, dependencies=protected_dependencies)
+app.include_router(admin_clients_router, dependencies=protected_dependencies)
 
 
 # =========================

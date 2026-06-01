@@ -15,23 +15,34 @@ type StoredUser = {
   role: string;
 };
 
-function getWorkspaceName(pathname: string) {
+function getWorkspaceName(pathname: string, workspace?: string | null) {
   if (
-    pathname.startsWith("/developer") ||
-    pathname.startsWith("/development")
+    pathname.startsWith("/clients") ||
+    pathname.startsWith("/user-access") ||
+    pathname.startsWith("/project-hours") ||
+    pathname.startsWith("/new-project") ||
+    pathname.startsWith("/project-management")
   ) {
-    return "INSYT Developer";
+    return "INSYT360";
   }
 
-  if (pathname.startsWith("/summaries")) {
+  if (workspace === "summaries" || pathname.startsWith("/summaries")) {
     return "INSYT Summaries";
   }
 
-  if (pathname.startsWith("/discovery")) {
+  if (workspace === "discovery" || pathname.startsWith("/discovery")) {
     return "INSYT Discovery";
   }
 
-  return "INSYT Capture";
+  if (workspace === "development" || pathname.startsWith("/development")) {
+    return "INSYT Development";
+  }
+
+  if (workspace === "capture" || pathname.startsWith("/capture")) {
+    return "INSYT Capture";
+  }
+
+  return "INSYT360";
 }
 
 export default function Topbar() {
@@ -52,7 +63,10 @@ export default function Topbar() {
     searchParams.get("project");
 
   const workspaceName =
-    getWorkspaceName(pathname);
+    getWorkspaceName(
+      pathname,
+      searchParams.get("workspace")
+    );
 
   useEffect(() => {
     const storedUser =
@@ -83,14 +97,25 @@ export default function Topbar() {
           Workspace
         </div>
 
-        <h1 className="insyt-workspace text-2xl font-bold">
-          <span className="text-white">I</span>
-          <span className="text-sky-400">N</span>
-          <span className="text-white">SYT</span>
-          <span className="text-sky-400">
-            {workspaceName.replace("INSYT", "")}
-          </span>
-        </h1>
+        {workspaceName === "INSYT360" ? (
+          <h1 className="insyt-workspace text-2xl font-bold flex items-end gap-0">
+            <span className="text-white">I</span>
+            <span className="text-sky-400">N</span>
+            <span className="text-white">SYT</span>
+            <span className="text-sky-400 text-[0.75em] leading-none mb-[0.22em]">
+              360
+            </span>
+          </h1>
+        ) : (
+          <h1 className="insyt-workspace text-2xl font-bold">
+            <span className="text-white">I</span>
+            <span className="text-sky-400">N</span>
+            <span className="text-white">SYT</span>
+            <span className="text-sky-400">
+              {workspaceName.replace("INSYT", "")}
+            </span>
+          </h1>
+        )}
 
       </div>
 

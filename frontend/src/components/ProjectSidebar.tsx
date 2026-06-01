@@ -82,6 +82,7 @@ export default function ProjectSidebar() {
   const projectId = searchParams.get("project");
   const clientId = searchParams.get("client") || "";
   const selectedBatch = searchParams.get("batch");
+  const workspaceParam = searchParams.get("workspace");
 
   const [selectedOutlineItem, setSelectedOutlineItem] =
     useState<PdfOutlineItem | null>(null);
@@ -92,10 +93,16 @@ export default function ProjectSidebar() {
   const [collapsed, setCollapsed] =
     useState(false);
 
+  const isCapture =
+    workspaceParam === "capture" ||
+    pathname.startsWith("/capture");
+  
   const isSummaries =
+    workspaceParam === "summaries" ||
     pathname.startsWith("/summaries");
 
   const isDiscovery =
+    workspaceParam === "discovery" ||
     pathname.startsWith("/discovery");
 
   const workspaceBase = isSummaries
@@ -178,6 +185,12 @@ export default function ProjectSidebar() {
   const encodedProjectId =
     encodeURIComponent(projectId);
 
+  const workspaceName = isSummaries
+    ? "summaries"
+    : isDiscovery
+      ? "discovery"
+      : "capture";
+
   const projectQuery = clientId
     ? `?client=${encodedClientId}&project=${encodedProjectId}${
         selectedBatch
@@ -245,8 +258,8 @@ export default function ProjectSidebar() {
       icon: Database,
     },
     {
-      label: "Project Hours",
-      href: `${workspaceBase}/project-hours${projectQuery}`,
+      label: "Review Hours",
+      href: `/review-hours?workspace=${workspaceName}&client=${encodeURIComponent(clientId)}&project=${encodeURIComponent(projectId || "")}`,
       icon: Clock,
     },
     {
@@ -255,8 +268,10 @@ export default function ProjectSidebar() {
       icon: MessageSquare,
     },
     {
-      label: "User Access",
-      href: `${workspaceBase}/user-access${projectQuery}`,
+      label: "Review Team",
+      href: `/project-users?workspace=${workspaceName}&client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId || "")}`,
       icon: Users,
     },
     {

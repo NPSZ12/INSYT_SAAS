@@ -50,7 +50,12 @@ export default function Sidebar({
       ? "/discovery"
       : "/capture";
 
-  const projectsHref = `${workspaceBase}/projects`;
+  const workspaceName =
+    searchParams.get("workspace") ||
+    localStorage.getItem("insyt_selected_workspace") ||
+    "capture";
+
+  const projectsHref = `/projects?workspace=${workspaceName}`;
 
   const queryClient = searchParams.get("client");
   const queryProject = searchParams.get("project");
@@ -105,28 +110,22 @@ export default function Sidebar({
         },
         {
           label: "Project Management",
-          href: `${workspaceBase}/new-project`,
+          href: `/new-project?workspace=${workspaceName}`,
           icon: FolderPlus,
         },
         {
           label: "Clients",
-          href: `${workspaceBase}/clients`,
+          href: `/clients?workspace=${workspaceName}`,
           icon: Building2,
         },
         {
           label: "User Accounts",
-          href: `/user-access?workspace=${
-            isSummaries
-              ? "summaries"
-              : isDiscovery
-                ? "discovery"
-                : "capture"
-          }`,
+          href: `/user-access?workspace=${workspaceName}`,
           icon: Users,
         },
         {
           label: "Project Hours",
-          href: `${workspaceBase}/project-hours${projectQuery}`,
+          href: `/project-hours?workspace=${workspaceName}`,
           icon: Clock,
         },
       ]

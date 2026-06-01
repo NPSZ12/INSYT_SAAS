@@ -4,6 +4,8 @@ from app.database.connection import Base, engine, SessionLocal
 from app.models.user import User
 from app.services.security import hash_password
 from app.models.project import Project, Batch, DocumentStatus, CapturedEntity
+from app.models.audit_log import AuditLog
+from app.models.time_entry import TimeEntry
 
 
 def init_db():

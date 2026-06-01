@@ -1,14 +1,16 @@
 import json
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.models.user import User
-from app.services.security import hash_password, require_admin
+from app.services.audit_service import write_audit_log
 from app.services.entra_service import invite_external_user
+from app.services.security import hash_password, require_admin
+
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
@@ -32,6 +34,8 @@ class UserUpdateRequest(BaseModel):
     email: str = ""
     role: str
     auth_provider: str = "entra"
+    status: str = "Active"
+    password: str = ""
     workspace_access: List[str] = Field(default_factory=list)
     client_access: List[str] = Field(default_factory=list)
     project_access: List[str] = Field(default_factory=list)
@@ -74,6 +78,7 @@ def list_users(
     admin: User = Depends(require_admin),
 ):
     users = db.query(User).order_by(User.username.asc()).all()
+
     return {
         "status": "success",
         "users": [serialize_user(user) for user in users],
@@ -83,10 +88,15 @@ def list_users(
 @router.post("/create")
 def create_user(
     payload: UserCreateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    existing = db.query(User).filter(User.username == payload.username).first()
+    existing = (
+        db.query(User)
+        .filter(User.username == payload.username)
+        .first()
+    )
 
     if existing:
         return {
@@ -100,7 +110,7 @@ def create_user(
     ):
         raise HTTPException(
             status_code=403,
-            detail="Only an INSYT Admin may assign INSYT Admin access."
+            detail="Only an INSYT Admin may assign INSYT Admin access.",
         )
 
     if payload.role == "INSYT Admin":
@@ -128,16 +138,57 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
+    write_audit_log(
+        db=db,
+        action="USER_CREATED",
+        actor=admin,
+        request=request,
+        target_type="user",
+        target_id=user.username,
+        details={
+            "email": user.email,
+            "role": user.role,
+            "auth_provider": user.auth_provider,
+        },
+    )
+
     if payload.auth_provider == "entra":
         try:
             invite_external_user(
                 payload.email,
                 payload.display_name,
             )
+
+            write_audit_log(
+                db=db,
+                action="ENTRA_INVITATION_SENT",
+                actor=admin,
+                request=request,
+                target_type="user",
+                target_id=user.username,
+                details={
+                    "email": user.email,
+                    "display_name": user.display_name,
+                },
+            )
+
         except Exception as error:
             print(
                 f"Unable to invite Entra user: {error}"
+            )
+
+            write_audit_log(
+                db=db,
+                action="ENTRA_INVITATION_FAILED",
+                actor=admin,
+                request=request,
+                target_type="user",
+                target_id=user.username,
+                details={
+                    "email": user.email,
+                    "error": str(error),
+                },
             )
 
     return {
@@ -145,13 +196,19 @@ def create_user(
         "user": serialize_user(user),
     }
 
+
 @router.post("/update")
 def update_user(
     payload: UserUpdateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    user = db.query(User).filter(User.username == payload.username).first()
+    user = (
+        db.query(User)
+        .filter(User.username == payload.username)
+        .first()
+    )
 
     if not user:
         return {"status": "not_found"}
@@ -162,7 +219,7 @@ def update_user(
     ):
         raise HTTPException(
             status_code=403,
-            detail="Only an INSYT Admin may assign INSYT Admin access."
+            detail="Only an INSYT Admin may assign INSYT Admin access.",
         )
 
     if payload.role == "INSYT Admin":
@@ -172,6 +229,18 @@ def update_user(
         payload.client_access = ["ALL"]
         payload.project_access = ["ALL"]
         payload.permissions = ["ALL"]
+
+    previous = {
+        "display_name": user.display_name,
+        "email": user.email,
+        "role": user.role,
+        "auth_provider": user.auth_provider,
+        "status": user.status,
+        "workspace_access": json.loads(user.workspace_access or "[]"),
+        "client_access": json.loads(user.client_access or "[]"),
+        "project_access": json.loads(user.project_access or "[]"),
+        "permissions": json.loads(user.permissions or "[]"),
+    }
 
     user.display_name = payload.display_name
     user.email = payload.email
@@ -190,6 +259,29 @@ def update_user(
     db.commit()
     db.refresh(user)
 
+    write_audit_log(
+        db=db,
+        action="USER_UPDATED",
+        actor=admin,
+        request=request,
+        target_type="user",
+        target_id=user.username,
+        details={
+            "previous": previous,
+            "current": {
+                "display_name": user.display_name,
+                "email": user.email,
+                "role": user.role,
+                "auth_provider": user.auth_provider,
+                "status": user.status,
+                "workspace_access": json.loads(user.workspace_access or "[]"),
+                "client_access": json.loads(user.client_access or "[]"),
+                "project_access": json.loads(user.project_access or "[]"),
+                "permissions": json.loads(user.permissions or "[]"),
+            },
+        },
+    )
+
     return {
         "status": "updated",
         "user": serialize_user(user),
@@ -199,14 +291,19 @@ def update_user(
 @router.post("/delete")
 def delete_user(
     payload: UserDeleteRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    user = db.query(User).filter(User.username == payload.username).first()
+    user = (
+        db.query(User)
+        .filter(User.username == payload.username)
+        .first()
+    )
 
     if not user:
         return {"status": "not_found"}
-    
+
     if user.role == "INSYT Admin":
         admin_count = (
             db.query(User)
@@ -217,11 +314,30 @@ def delete_user(
         if admin_count <= 1:
             raise HTTPException(
                 status_code=400,
-                detail="At least one INSYT Admin must remain."
+                detail="At least one INSYT Admin must remain.",
             )
+
+    deleted_snapshot = {
+        "username": user.username,
+        "display_name": user.display_name,
+        "email": user.email,
+        "role": user.role,
+        "auth_provider": user.auth_provider,
+        "status": user.status,
+    }
 
     db.delete(user)
     db.commit()
+
+    write_audit_log(
+        db=db,
+        action="USER_DELETED",
+        actor=admin,
+        request=request,
+        target_type="user",
+        target_id=payload.username,
+        details=deleted_snapshot,
+    )
 
     return {
         "status": "deleted",
@@ -235,7 +351,11 @@ def reset_password(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    user = db.query(User).filter(User.username == payload.username).first()
+    user = (
+        db.query(User)
+        .filter(User.username == payload.username)
+        .first()
+    )
 
     if not user:
         return {"status": "user_not_found"}
@@ -256,7 +376,11 @@ def update_project_access(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    user = db.query(User).filter(User.username == payload.username).first()
+    user = (
+        db.query(User)
+        .filter(User.username == payload.username)
+        .first()
+    )
 
     if not user:
         return {"status": "user_not_found"}

@@ -7,11 +7,12 @@ from typing import Optional
 
 import pyotp
 import qrcode
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from urllib.parse import urlencode
+from app.services.audit_service import write_audit_log
 
 import requests
 
@@ -150,10 +151,25 @@ def bootstrap_admin(
 
 
 @router.post("/login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(
+    payload: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.username == payload.username).first()
 
     if not user:
+        write_audit_log(
+            db=db,
+            action="LOGIN_FAILED",
+            request=request,
+            target_type="user",
+            target_id=payload.username,
+            details={
+                "reason": "user_not_found",
+            },
+        )
+
         raise HTTPException(
             status_code=401,
             detail="Invalid username or password",
@@ -172,6 +188,18 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         )
 
     if not verify_password(payload.password, user.password_hash):
+        write_audit_log(
+            db=db,
+            action="LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "bad_password",
+            },
+        )
+
         raise HTTPException(
             status_code=401,
             detail="Invalid username or password",
@@ -205,6 +233,18 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             )
 
     token = create_user_token(user)
+
+    write_audit_log(
+        db=db,
+        action="LOGIN_SUCCESS",
+        actor=user,
+        request=request,
+        target_type="user",
+        target_id=user.username,
+        details={
+            "provider": "local",
+        },
+    )
 
     return {
         "status": "success",
@@ -252,6 +292,8 @@ def setup_mfa(
         "data:image/png;base64,"
         + base64.b64encode(buffer.getvalue()).decode("utf-8")
     )
+
+
 
     return {
         "status": "success",
@@ -394,7 +436,7 @@ def entra_callback(
         )
 
     token_data = token_response.json()
-    id_token_claims = token_data.get("id_token")
+    
 
     userinfo_response = requests.get(
         "https://graph.microsoft.com/oidc/userinfo",
@@ -460,6 +502,17 @@ def entra_callback(
         db.refresh(user)
 
     token = create_user_token(user)
+
+    write_audit_log(
+        db=db,
+        action="ENTRA_LOGIN_SUCCESS",
+        actor=user,
+        target_type="user",
+        target_id=user.username,
+        details={
+            "provider": "entra",
+        },
+    )
 
     return {
         "status": "success",

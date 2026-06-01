@@ -22,6 +22,8 @@ function LoginPageContent() {
 
   const [errorMessage, setErrorMessage] = useState("");
 
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+
   function finishLogin(response: any) {
     localStorage.setItem(
       "insyt_access_token",
@@ -137,7 +139,28 @@ function LoginPageContent() {
           Enterprise Review & Intelligence Platform
         </p>
 
-        {loginStage === "password" ? (
+        {!showAdminLogin ? (
+          <>
+            <Button
+              fullWidth
+              variant="primary"
+              onClick={handleMicrosoftLogin}
+            >
+              Secure Sign In
+            </Button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowAdminLogin(true);
+                setErrorMessage("");
+              }}
+              className="mt-5 w-full text-sm text-slate-400 hover:text-white"
+            >
+              INSYT Admin Login
+            </button>
+          </>
+        ) : loginStage === "password" ? (
           <>
             <div className="mb-4">
               <Input
@@ -162,26 +185,23 @@ function LoginPageContent() {
             </div>
 
             <Button fullWidth onClick={handleLogin}>
-              Sign In
+              INSYT Admin Sign In
             </Button>
 
-            <div className="my-5 flex items-center gap-3">
-              <div className="h-px flex-1 bg-slate-800" />
-
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                or
-              </span>
-
-              <div className="h-px flex-1 bg-slate-800" />
-            </div>
-
-            <Button
-              fullWidth
-              variant="secondary"
-              onClick={handleMicrosoftLogin}
+            <button
+              type="button"
+              onClick={() => {
+                setShowAdminLogin(false);
+                setLoginStage("password");
+                setUsername("");
+                setPassword("");
+                setMfaCode("");
+                setErrorMessage("");
+              }}
+              className="mt-4 w-full text-sm text-slate-400 hover:text-white"
             >
-              Sign in with Microsoft
-            </Button>
+              Back to Microsoft Sign In
+            </button>
           </>
         ) : (
           <>
@@ -215,7 +235,7 @@ function LoginPageContent() {
               }}
               className="mt-4 w-full text-sm text-slate-400 hover:text-white"
             >
-              Back to password login
+              Back to Admin Login
             </button>
           </>
         )}
