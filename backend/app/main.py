@@ -69,9 +69,54 @@ def migrate_user_access_columns():
             )
         )
 
+        db.execute(
+            text(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(50) DEFAULT 'local'
+                """
+            )
+        )
+
+        db.execute(
+            text(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE
+                """
+            )
+        )
+
+        db.execute(
+            text(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS mfa_secret TEXT DEFAULT ''
+                """
+            )
+        )
+
+        db.execute(
+            text(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS mfa_backup_codes TEXT DEFAULT '[]'
+                """
+            )
+        )
+
+        db.execute(
+            text(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS mfa_confirmed_at TIMESTAMP NULL
+                """
+            )
+        )
+
         db.commit()
 
-        print("User access migration completed.")
+        print("User/MFA migration completed.")
 
     finally:
         db.close()

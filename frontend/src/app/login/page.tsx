@@ -14,26 +14,79 @@ function LoginPageContent() {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+
+  const [loginStage, setLoginStage] = useState<
+    "password" | "mfa"
+  >("password");
+
   const [errorMessage, setErrorMessage] = useState("");
+
+  function finishLogin(response: any) {
+    localStorage.setItem(
+      "insyt_access_token",
+      response.access_token
+    );
+
+    localStorage.setItem(
+      "insyt_user",
+      JSON.stringify(response.user)
+    );
+
+    window.location.href = nextPath;
+  }
 
   function handleLogin() {
     setErrorMessage("");
 
-    apiPost("/api/auth/login", { username, password })
+    apiPost("/api/auth/login", {
+      username,
+      password,
+      mfa_code: loginStage === "mfa" ? mfaCode : "",
+    })
       .then((response) => {
-        localStorage.setItem("insyt_access_token", response.access_token);
-        localStorage.setItem("insyt_user", JSON.stringify(response.user));
-        window.location.href = nextPath;
+        if (response.status === "success") {
+          finishLogin(response);
+          return;
+        }
+
+        if (response.status === "mfa_required") {
+          setLoginStage("mfa");
+          setErrorMessage("");
+          return;
+        }
+
+        if (response.status === "mfa_setup_required") {
+          localStorage.setItem(
+            "insyt_access_token",
+            response.access_token
+          );
+
+          localStorage.setItem(
+            "insyt_user",
+            JSON.stringify(response.user)
+          );
+
+          window.location.href = "/mfa/setup";
+          return;
+        }
+
+        setErrorMessage("Unable to complete sign in.");
       })
-      .catch(() => {
-        setErrorMessage("Invalid username or password.");
+      .catch((error) => {
+        console.error(error);
+
+        if (loginStage === "mfa") {
+          setErrorMessage("Invalid MFA code.");
+        } else {
+          setErrorMessage("Invalid username or password.");
+        }
       });
   }
 
   return (
     <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
       <div className="w-full max-w-md bg-slate-900 p-8 rounded-2xl shadow-xl border border-slate-800">
-        
         <div className="flex items-end justify-center gap-0.5 mb-2">
           <span className="insyt-brand text-5xl font-bold text-white">
             I
@@ -56,28 +109,70 @@ function LoginPageContent() {
           Enterprise Review & Intelligence Platform
         </p>
 
-        <div className="mb-4">
-          <Input placeholder="Username" value={username} onChange={setUsername} />
-        </div>
+        {loginStage === "password" ? (
+          <>
+            <div className="mb-4">
+              <Input
+                placeholder="Username"
+                value={username}
+                onChange={setUsername}
+              />
+            </div>
 
-        <div className="mb-6">
-          <Input
-            type="password"
-            placeholder="Password"
-            value={password} 
-            onChange={setPassword}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                handleLogin();
-              }
-            }}
-          />
-          
-        </div>
+            <div className="mb-6">
+              <Input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={setPassword}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    handleLogin();
+                  }
+                }}
+              />
+            </div>
 
-        <Button fullWidth onClick={handleLogin}>
-          Sign In
-        </Button>
+            <Button fullWidth onClick={handleLogin}>
+              Sign In
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="mb-3 rounded-xl border border-sky-800 bg-sky-950/40 p-4 text-sm text-sky-100">
+              Enter the 6-digit code from your authenticator app.
+            </div>
+
+            <div className="mb-6">
+              <Input
+                placeholder="MFA Code"
+                value={mfaCode}
+                onChange={setMfaCode}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    handleLogin();
+                  }
+                }}
+              />
+            </div>
+
+            <Button fullWidth onClick={handleLogin}>
+              Verify MFA Code
+            </Button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setLoginStage("password");
+                setMfaCode("");
+                setErrorMessage("");
+              }}
+              className="mt-4 w-full text-sm text-slate-400 hover:text-white"
+            >
+              Back to password login
+            </button>
+          </>
+        )}
 
         {errorMessage && (
           <p className="text-red-400 text-sm mt-4 text-center">
@@ -96,11 +191,3 @@ export default function LoginPage() {
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-
