@@ -11,6 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from urllib.parse import urlencode
+
+import requests
+
 from app.database.connection import get_db
 from app.models.user import User
 from app.services.security import (
@@ -74,6 +78,16 @@ def create_user_token(user: User):
         }
     )
 
+def entra_authority():
+    tenant_id = os.getenv("ENTRA_TENANT_ID")
+    return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0"
+
+
+def entra_redirect_uri():
+    return os.getenv(
+        "ENTRA_REDIRECT_URI",
+        "http://localhost:3000/auth/entra/callback",
+    )
 
 @router.post("/bootstrap-admin")
 def bootstrap_admin(
@@ -322,6 +336,137 @@ def disable_mfa(
         "user": serialize_user(user),
     }
 
+@router.get("/entra/start")
+def entra_start():
+    client_id = os.getenv("ENTRA_CLIENT_ID")
+
+    if not client_id:
+        raise HTTPException(
+            status_code=500,
+            detail="ENTRA_CLIENT_ID is not configured.",
+        )
+
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "redirect_uri": entra_redirect_uri(),
+        "response_mode": "query",
+        "scope": "openid profile email User.Read",
+        "prompt": "select_account",
+    }
+
+    return {
+        "status": "success",
+        "auth_url": f"{entra_authority()}/authorize?{urlencode(params)}",
+    }
+
+
+@router.post("/entra/callback")
+def entra_callback(
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    code = payload.get("code")
+
+    if not code:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing Entra authorization code.",
+        )
+
+    token_response = requests.post(
+        f"{entra_authority()}/token",
+        data={
+            "client_id": os.getenv("ENTRA_CLIENT_ID"),
+            "client_secret": os.getenv("ENTRA_CLIENT_SECRET"),
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": entra_redirect_uri(),
+            "scope": "openid profile email User.Read",
+        },
+        timeout=20,
+    )
+
+    if token_response.status_code >= 400:
+        raise HTTPException(
+            status_code=401,
+            detail="Unable to exchange Entra authorization code.",
+        )
+
+    token_data = token_response.json()
+    id_token_claims = token_data.get("id_token")
+
+    userinfo_response = requests.get(
+        "https://graph.microsoft.com/oidc/userinfo",
+        headers={
+            "Authorization": f"Bearer {token_data.get('access_token')}",
+        },
+        timeout=20,
+    )
+
+    if userinfo_response.status_code >= 400:
+        raise HTTPException(
+            status_code=401,
+            detail="Unable to read Entra user profile.",
+        )
+
+    profile = userinfo_response.json()
+
+    email = (
+        profile.get("email")
+        or profile.get("preferred_username")
+        or profile.get("upn")
+        or ""
+    ).lower()
+
+    display_name = profile.get("name") or email
+
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Entra profile did not include an email.",
+        )
+
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This email address has not been provisioned in INSYT. "
+                "Please contact your INSYT administrator."
+            ),
+        )
+
+    if user.status != "Active":
+        raise HTTPException(
+            status_code=403,
+            detail="User account is not active.",
+        )
+
+    if user.auth_provider != "entra":
+        if user.role == "INSYT Admin":
+            raise HTTPException(
+                status_code=403,
+                detail="INSYT Admins must use local INSYT login with MFA.",
+            )
+
+        user.auth_provider = "entra"
+        db.commit()
+        db.refresh(user)
+
+    token = create_user_token(user)
+
+    return {
+        "status": "success",
+        "user": serialize_user(user),
+        "access_token": token,
+        "token_type": "bearer",
+    }
 
 @router.get("/me")
 def me(current_user: User = Depends(get_current_user)):

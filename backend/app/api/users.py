@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.models.user import User
 from app.services.security import hash_password, require_admin
+from app.services.entra_service import invite_external_user
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
@@ -17,7 +18,8 @@ class UserCreateRequest(BaseModel):
     display_name: str
     email: str = ""
     role: str
-    password: str
+    auth_provider: str = "entra"
+    password: str = ""
     workspace_access: List[str] = Field(default_factory=list)
     client_access: List[str] = Field(default_factory=list)
     project_access: List[str] = Field(default_factory=list)
@@ -29,8 +31,7 @@ class UserUpdateRequest(BaseModel):
     display_name: str
     email: str = ""
     role: str
-    status: str = "Active"
-    password: str = ""
+    auth_provider: str = "entra"
     workspace_access: List[str] = Field(default_factory=list)
     client_access: List[str] = Field(default_factory=list)
     project_access: List[str] = Field(default_factory=list)
@@ -59,6 +60,7 @@ def serialize_user(user: User):
         "email": user.email,
         "role": user.role,
         "status": user.status,
+        "auth_provider": user.auth_provider,
         "workspace_access": json.loads(user.workspace_access or "[]"),
         "client_access": json.loads(user.client_access or "[]"),
         "project_access": json.loads(user.project_access or "[]"),
@@ -91,7 +93,7 @@ def create_user(
             "status": "duplicate_user",
             "message": "A user with this username already exists.",
         }
-        
+
     if (
         payload.role == "INSYT Admin"
         and admin.role != "INSYT Admin"
@@ -102,6 +104,8 @@ def create_user(
         )
 
     if payload.role == "INSYT Admin":
+        payload.auth_provider = "local"
+
         payload.workspace_access = ["ALL"]
         payload.client_access = ["ALL"]
         payload.project_access = ["ALL"]
@@ -112,6 +116,7 @@ def create_user(
         display_name=payload.display_name,
         email=payload.email,
         role=payload.role,
+        auth_provider=payload.auth_provider,
         status="Active",
         password_hash=hash_password(payload.password),
         workspace_access=json.dumps(payload.workspace_access),
@@ -123,12 +128,22 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    
+    if payload.auth_provider == "entra":
+        try:
+            invite_external_user(
+                payload.email,
+                payload.display_name,
+            )
+        except Exception as error:
+            print(
+                f"Unable to invite Entra user: {error}"
+            )
 
     return {
         "status": "created",
         "user": serialize_user(user),
     }
-
 
 @router.post("/update")
 def update_user(
@@ -140,7 +155,7 @@ def update_user(
 
     if not user:
         return {"status": "not_found"}
-    
+
     if (
         payload.role == "INSYT Admin"
         and admin.role != "INSYT Admin"
@@ -151,6 +166,8 @@ def update_user(
         )
 
     if payload.role == "INSYT Admin":
+        payload.auth_provider = "local"
+
         payload.workspace_access = ["ALL"]
         payload.client_access = ["ALL"]
         payload.project_access = ["ALL"]
@@ -159,7 +176,9 @@ def update_user(
     user.display_name = payload.display_name
     user.email = payload.email
     user.role = payload.role
+    user.auth_provider = payload.auth_provider
     user.status = payload.status
+
     user.workspace_access = json.dumps(payload.workspace_access)
     user.client_access = json.dumps(payload.client_access)
     user.project_access = json.dumps(payload.project_access)

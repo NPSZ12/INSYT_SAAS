@@ -24,6 +24,7 @@ type AccessUser = {
   client_access?: string[];
   project_access?: string[];
   permissions?: string[];
+  auth_provider?: string;
 };
 
 type UserAccessForm = {
@@ -36,6 +37,7 @@ type UserAccessForm = {
   client_access: string[];
   project_access: string[];
   permissions: string[];
+  auth_provider: string;
 };
 
 const levels = [
@@ -77,6 +79,7 @@ function makeEmptyForm(defaultWorkspace = "summaries"): UserAccessForm {
     client_access: [],
     project_access: [],
     permissions: [],
+    auth_provider: "entra",
   };
 }
 
@@ -233,6 +236,10 @@ function UserAccessPageContent() {
       display_name: form.display_name,
       password: form.password,
       role: form.role,
+      auth_provider:
+        form.role === "INSYT Admin"
+        ? "local"
+        : form.auth_provider,
       status: "active",
       workspace_access: form.workspace_access,
       client_access: form.client_access,
@@ -264,6 +271,10 @@ function UserAccessPageContent() {
       display_name: form.display_name,
       password: form.password,
       role: form.role,
+      auth_provider:
+        form.role === "INSYT Admin"
+            ? "local"
+            : form.auth_provider,
       workspace_access: form.workspace_access,
       client_access: form.client_access,
       project_access: form.project_access,
@@ -301,16 +312,18 @@ function UserAccessPageContent() {
       selectedUser.workspace_access?.[0] || defaultWorkspace;
 
     setForm({
-      display_name: selectedUser.display_name,
-      username: selectedUser.username,
-      password: "",
-      role: selectedUser.role,
-      workspace_access: [userWorkspace],
-      client_access: selectedUser.client_access || [],
-      project_access: selectedUser.project_access || [],
-      permissions: selectedUser.permissions || [],
-      email: selectedUser.email || "",
-    });
+        display_name: selectedUser.display_name,
+        username: selectedUser.username,
+        password: "",
+        role: selectedUser.role,
+        auth_provider:
+            selectedUser.auth_provider || "entra",
+        workspace_access: [userWorkspace],
+        client_access: selectedUser.client_access || [],
+        project_access: selectedUser.project_access || [],
+        permissions: selectedUser.permissions || [],
+        email: selectedUser.email || "",
+        });
 
     window.scrollTo({
       top: 0,
@@ -441,6 +454,33 @@ function UserAccessPageContent() {
                 ))}
               </Select>
             </div>
+            <div>
+                <FormLabel>Authentication</FormLabel>
+
+                {isInsytAdminLevel ? (
+                    <div className="rounded-lg border border-lime-500/40 bg-lime-500/10 p-3 text-sm text-lime-200">
+                    Local INSYT Login + MFA Required
+                    </div>
+                ) : (
+                    <Select
+                    value={form.auth_provider}
+                    onChange={(value) =>
+                        setForm({
+                        ...form,
+                        auth_provider: value,
+                        })
+                    }
+                    >
+                    <option value="entra">
+                        Microsoft Entra
+                    </option>
+
+                    <option value="local">
+                        Local INSYT Login
+                    </option>
+                    </Select>
+                )}
+                </div>
           </div>
 
           {isInsytAdminLevel ? (
@@ -603,6 +643,7 @@ function UserAccessPageContent() {
                     <th className="p-3 text-left">User</th>
                     <th className="p-3 text-left">Email</th>
                     <th className="p-3 text-left">Level</th>
+                    <th className="p-3 text-left">Authentication</th>
                     <th className="p-3 text-left">User Name</th>
                     <th className="p-3 text-left">Password</th>
                     <th className="p-3 text-left">Workspace</th>
@@ -645,6 +686,10 @@ function UserAccessPageContent() {
 
                       <td className="p-3 text-slate-300">
                         {user.role}
+                      </td>
+
+                      <td className="p-3 text-slate-300">
+                        {user.auth_provider || "local"}
                       </td>
 
                       <td className="p-3 text-slate-300">

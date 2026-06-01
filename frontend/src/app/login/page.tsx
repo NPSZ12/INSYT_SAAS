@@ -36,6 +36,34 @@ function LoginPageContent() {
     window.location.href = nextPath;
   }
 
+  function handleMicrosoftLogin() {
+    setErrorMessage("");
+
+    const apiBase =
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      "http://127.0.0.1:8000";
+
+    fetch(`${apiBase}/api/auth/entra/start`)
+      .then((response) => response.json())
+      .then((response) => {
+        if (!response.auth_url) {
+          setErrorMessage(
+            "Microsoft login is not configured."
+          );
+          return;
+        }
+
+        window.location.href = response.auth_url;
+      })
+      .catch((error) => {
+        console.error(error);
+
+        setErrorMessage(
+          "Microsoft login failed to start."
+        );
+      });
+  }
+
   function handleLogin() {
     setErrorMessage("");
 
@@ -135,6 +163,24 @@ function LoginPageContent() {
 
             <Button fullWidth onClick={handleLogin}>
               Sign In
+            </Button>
+
+            <div className="my-5 flex items-center gap-3">
+              <div className="h-px flex-1 bg-slate-800" />
+
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                or
+              </span>
+
+              <div className="h-px flex-1 bg-slate-800" />
+            </div>
+
+            <Button
+              fullWidth
+              variant="secondary"
+              onClick={handleMicrosoftLogin}
+            >
+              Sign in with Microsoft
             </Button>
           </>
         ) : (
