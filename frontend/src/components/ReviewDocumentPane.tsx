@@ -63,7 +63,7 @@ export default function ReviewDocumentPane({
   ].includes(extension);
 
   return (
-    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 h-[calc(100vh-7.5rem)] min-h-[760px] flex flex-col overflow-hidden">
+    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 h-full min-h-[760px] max-h-full flex flex-col overflow-hidden">
       <div className="shrink-0 flex items-center justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold">

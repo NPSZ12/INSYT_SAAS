@@ -91,6 +91,21 @@ def create_user(
             "status": "duplicate_user",
             "message": "A user with this username already exists.",
         }
+        
+    if (
+        payload.role == "INSYT Admin"
+        and admin.role != "INSYT Admin"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only an INSYT Admin may assign INSYT Admin access."
+        )
+
+    if payload.role == "INSYT Admin":
+        payload.workspace_access = ["ALL"]
+        payload.client_access = ["ALL"]
+        payload.project_access = ["ALL"]
+        payload.permissions = ["ALL"]
 
     user = User(
         username=payload.username,
@@ -125,6 +140,21 @@ def update_user(
 
     if not user:
         return {"status": "not_found"}
+    
+    if (
+        payload.role == "INSYT Admin"
+        and admin.role != "INSYT Admin"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only an INSYT Admin may assign INSYT Admin access."
+        )
+
+    if payload.role == "INSYT Admin":
+        payload.workspace_access = ["ALL"]
+        payload.client_access = ["ALL"]
+        payload.project_access = ["ALL"]
+        payload.permissions = ["ALL"]
 
     user.display_name = payload.display_name
     user.email = payload.email
@@ -157,6 +187,19 @@ def delete_user(
 
     if not user:
         return {"status": "not_found"}
+    
+    if user.role == "INSYT Admin":
+        admin_count = (
+            db.query(User)
+            .filter(User.role == "INSYT Admin")
+            .count()
+        )
+
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one INSYT Admin must remain."
+            )
 
     db.delete(user)
     db.commit()

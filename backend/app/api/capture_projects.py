@@ -2,23 +2,27 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 
-
-
-from app.services.azure_blob_service import list_project_folders
-
 from app.models.user import User
 from app.services.security import get_current_user
+from app.services.azure_blob_service import (
+    get_container_client,
+    list_project_folders,
+)
 from app.services.cds_storage_service import (
     list_capture_projects,
     list_project_files,
     read_project_text_file,
 )
 
+
 router = APIRouter(prefix="/api/capture", tags=["Capture"])
 
 
+ADMIN_ROLES = ["INSYT Admin", "CDS Admin", "RM", "TL", "QC"]
+
+
 def user_allowed_project(user: User, project_id: str) -> bool:
-    if user.role in ["INSYT Admin", "CDS Admin", "RM", "TL", "QC"]:
+    if user.role in ADMIN_ROLES:
         return True
 
     try:
@@ -42,7 +46,7 @@ def get_capture_projects(
             "message": f"Unable to load capture projects: {type(e).__name__}",
         }
 
-    if current_user.role in ["INSYT Admin", "CDS Admin", "RM", "TL", "QC"]:
+    if current_user.role in ADMIN_ROLES:
         visible_projects = projects
     else:
         try:
@@ -58,6 +62,56 @@ def get_capture_projects(
     return {
         "status": "success",
         "projects": visible_projects,
+    }
+
+
+@router.get("/clients")
+def get_capture_clients(
+    current_user: User = Depends(get_current_user),
+):
+    container = get_container_client()
+
+    clients = set()
+
+    for blob in container.list_blobs():
+        parts = blob.name.split("/")
+
+        if len(parts) >= 2:
+            client = parts[0]
+
+            if client and not client.startswith("_") and client.lower() != "system":
+                clients.add(client)
+
+    return {
+        "status": "success",
+        "clients": sorted(clients),
+    }
+
+
+@router.get("/clients/{client_name}/projects")
+def list_client_projects(
+    client_name: str,
+    current_user: User = Depends(get_current_user),
+):
+    container = get_container_client()
+
+    prefix = f"{client_name.strip('/')}/"
+
+    projects = set()
+
+    for blob in container.list_blobs(name_starts_with=prefix):
+        parts = blob.name.split("/")
+
+        if len(parts) >= 2:
+            project = parts[1]
+
+            if current_user.role in ADMIN_ROLES or user_allowed_project(current_user, project):
+                projects.add(project)
+
+    return {
+        "status": "success",
+        "client": client_name,
+        "projects": sorted(projects),
     }
 
 
@@ -111,21 +165,4 @@ def get_capture_project_text(
         "project_id": project_id,
         "blob_name": blob_name,
         "text": text,
-    }
-    
-@router.get("/clients")
-def get_capture_clients(
-    current_user: User = Depends(get_current_user),
-):
-    projects = list_project_folders()
-
-    clients = sorted({
-        project.split("_")[0]
-        for project in projects
-        if project and not project.startswith("_") and project.lower() != "system"
-    })
-
-    return {
-        "status": "success",
-        "clients": clients,
     }

@@ -104,6 +104,9 @@ function UserAccessPageContent() {
   const selectedWorkspace =
     form.workspace_access[0] || defaultWorkspace;
 
+  const isInsytAdminLevel =
+    form.role === "INSYT Admin";
+
   function resetForm() {
     setForm(makeEmptyForm(defaultWorkspace));
     setSelectedUsers({});
@@ -440,93 +443,125 @@ function UserAccessPageContent() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-6">
-            <div>
-              <h3 className="font-semibold mb-3">
-                Workspace
-              </h3>
+          {isInsytAdminLevel ? (
+            <div className="mb-6 rounded-lg border border-lime-500/40 bg-lime-500/10 p-4 text-lime-200">
+                <div className="font-semibold mb-2">
+                Full INSYT Platform Access
+                </div>
 
-              <Select
-                value={selectedWorkspace}
-                onChange={setWorkspace}
-              >
-                {workspaces.map((workspace) => (
-                  <option
-                    key={workspace.value}
-                    value={workspace.value}
-                  >
-                    {workspace.label}
-                  </option>
+                <div className="text-sm">
+                Workspace, Client, Project, and Permission
+                selections are not required. INSYT Admin
+                users automatically receive access to all
+                INSYT modules, clients, projects, and
+                administrative functions.
+                </div>
+            </div>
+            ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-6">
+                <div>
+                <h3 className="font-semibold mb-3">
+                    Workspace
+                </h3>
+
+                <Select
+                    value={selectedWorkspace}
+                    onChange={setWorkspace}
+                >
+                    {workspaces.map((workspace) => (
+                    <option
+                        key={workspace.value}
+                        value={workspace.value}
+                    >
+                        {workspace.label}
+                    </option>
+                    ))}
+                </Select>
+                </div>
+
+                <div>
+                <h3 className="font-semibold mb-3">
+                    Clients
+                </h3>
+
+                {clients.length === 0 ? (
+                    <p className="text-sm text-slate-500">
+                    No clients found for this workspace.
+                    </p>
+                ) : (
+                    clients.map((client) => (
+                    <Checkbox
+                        key={client}
+                        label={client}
+                        checked={form.client_access.includes(client)}
+                        onChange={() =>
+                        toggleArrayValue(
+                            "client_access",
+                            client
+                        )
+                        }
+                    />
+                    ))
+                )}
+                </div>
+
+                <div>
+                <h3 className="font-semibold mb-3">
+                    Projects
+                </h3>
+
+                {visibleProjects.length === 0 ? (
+                    <p className="text-sm text-slate-500">
+                    Select one or more clients to load
+                    projects.
+                    </p>
+                ) : (
+                    visibleProjects.map(
+                    ({ client, project, key }) => (
+                        <Checkbox
+                        key={key}
+                        label={`${client} / ${project.replaceAll(
+                            "_",
+                            " "
+                        )}`}
+                        checked={form.project_access.includes(
+                            key
+                        )}
+                        onChange={() =>
+                            toggleArrayValue(
+                            "project_access",
+                            key
+                            )
+                        }
+                        />
+                    )
+                    )
+                )}
+                </div>
+
+                <div>
+                <h3 className="font-semibold mb-3">
+                    Permissions
+                </h3>
+
+                {permissions.map((permission) => (
+                    <Checkbox
+                    key={permission}
+                    label={permission}
+                    checked={form.permissions.includes(
+                        permission
+                    )}
+                    onChange={() =>
+                        toggleArrayValue(
+                        "permissions",
+                        permission
+                        )
+                    }
+                    />
                 ))}
-              </Select>
+                </div>
             </div>
-
-            <div>
-              <h3 className="font-semibold mb-3">
-                Clients
-              </h3>
-
-              {clients.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  No clients found for this workspace.
-                </p>
-              ) : (
-                clients.map((client) => (
-                  <Checkbox
-                    key={client}
-                    label={client}
-                    checked={form.client_access.includes(client)}
-                    onChange={() =>
-                      toggleArrayValue("client_access", client)
-                    }
-                  />
-                ))
-              )}
-            </div>
-
-            <div>
-              <h3 className="font-semibold mb-3">
-                Projects
-              </h3>
-
-              {visibleProjects.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  Select one or more clients to load projects.
-                </p>
-              ) : (
-                visibleProjects.map(({ client, project, key }) => (
-                  <Checkbox
-                    key={key}
-                    label={`${client} / ${project.replaceAll(
-                      "_",
-                      " "
-                    )}`}
-                    checked={form.project_access.includes(key)}
-                    onChange={() =>
-                      toggleArrayValue("project_access", key)
-                    }
-                  />
-                ))
-              )}
-            </div>
-
-            <div>
-              <h3 className="font-semibold mb-3">
-                Permissions
-              </h3>
-
-              {permissions.map((permission) => (
-                <Checkbox
-                  key={permission}
-                  label={permission}
-                  checked={form.permissions.includes(permission)}
-                  onChange={() =>
-                    toggleArrayValue("permissions", permission)
-                  }
-                />
-              ))}
-            </div>
-          </div>
+            )}
 
           <div className="flex gap-3">
             <Button onClick={createUser}>

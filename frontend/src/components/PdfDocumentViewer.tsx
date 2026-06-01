@@ -62,45 +62,70 @@ export default function PdfDocumentViewer({
 
   return (
     <div
-      className={`${heightClassName} max-h-[calc(100vh-220px)] min-h-[500px] rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden`}
+      className="h-full max-h-full min-h-0 w-full rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden"
     >
-      <Worker workerUrl="/pdf.worker.min.js">
-        <Viewer
-          fileUrl={cleanedFileUrl}
-          plugins={[
-            defaultLayoutPluginInstance,
-            pageNavigationPluginInstance,
-          ]}
-          defaultScale={SpecialZoomLevel.PageWidth}
-          enableSmoothScroll
-          onPageChange={(event: PageChangeEvent) => {
-            onPageChange?.(event.currentPage + 1);
-          }}
-          renderError={(error) => (
-            <div className="h-full overflow-auto p-6 text-sm text-red-300">
-              <div className="mb-2 font-semibold">
-                Failed to load PDF.
-              </div>
+      <div className="h-full max-h-full min-h-0 w-full overflow-hidden">
+        <Worker workerUrl="/pdf.worker.min.js">
+          <Viewer
+            fileUrl={cleanedFileUrl}
+            plugins={[
+              defaultLayoutPluginInstance,
+              pageNavigationPluginInstance,
+            ]}
+            defaultScale={SpecialZoomLevel.PageWidth}
+            enableSmoothScroll
+            onPageChange={(event: PageChangeEvent) => {
+              onPageChange?.(event.currentPage + 1);
+            }}
+            renderError={(error) => (
+              <div className="h-full overflow-auto p-6 text-sm text-red-300">
+                <div className="mb-2 font-semibold">
+                  Failed to load PDF.
+                </div>
 
-              <div className="break-all text-slate-300">
-                URL: {cleanedFileUrl}
-              </div>
+                <div className="break-all text-slate-300">
+                  URL: {cleanedFileUrl}
+                </div>
 
-              <div className="mt-3 text-slate-400">
-                {error.message}
+                <div className="mt-3 text-slate-400">
+                  {error.message}
+                </div>
               </div>
-            </div>
-          )}
-        />
-      </Worker>
+            )}
+          />
+        </Worker>
+      </div>
 
       <style jsx global>{`
         .rpv-core__viewer {
           height: 100% !important;
+          max-height: 100% !important;
+          overflow: hidden !important;
         }
 
         .rpv-core__inner-container {
           height: 100% !important;
+          max-height: 100% !important;
+          overflow: hidden !important;
+        }
+
+        .rpv-core__viewer-container {
+          height: 100% !important;
+          max-height: 100% !important;
+          overflow: hidden !important;
+        }
+
+        .rpv-core__inner-pages {
+          height: 100% !important;
+          max-height: 100% !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+          contain: strict !important;
+        }
+
+        .rpv-core__inner-page-container {
+          height: auto !important;
+          max-height: none !important;
         }
 
         .rpv-core__annotation-layer {
@@ -125,20 +150,6 @@ export default function PdfDocumentViewer({
 
         .rpv-core__canvas-layer {
           z-index: 1 !important;
-        }
-
-        .rpv-core__viewer,
-        .rpv-core__inner-container,
-        .rpv-core__viewer-container {
-          height: 100% !important;
-          max-height: 100% !important;
-          overflow: hidden !important;
-        }
-
-        .rpv-core__inner-pages {
-          height: 100% !important;
-          max-height: 100% !important;
-          overflow-y: auto !important;
         }
       `}</style>
     </div>

@@ -364,10 +364,10 @@ function ReviewPageContent() {
           docId={reviewDoc.doc_id}
         />
 
-        <section className="flex-1 flex gap-4 p-4 overflow-hidden">
+        <section className="flex-1 flex gap-4 p-4 items-stretch overflow-hidden">
 
           {/* Native PDF Viewer */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 self-stretch">
             <ReviewDocumentPane
               text={reviewDoc.text}
               nativeUrl={reviewDoc.native_url}
@@ -401,7 +401,7 @@ function ReviewPageContent() {
 
           {/* Summary QC Pane */}
           <div
-            className="shrink-0 h-full"
+            className="shrink-0 self-stretch min-h-[760px] h-full overflow-hidden"
             style={{ width: qcPaneWidth }}
           >
             <SummariesRightPane
