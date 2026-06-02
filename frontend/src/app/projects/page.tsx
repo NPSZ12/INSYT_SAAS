@@ -149,13 +149,14 @@ function ProjectsPageContent() {
 
         setProjects(
           visibleProjects.map((projectId: string) => ({
-            name: projectId.replaceAll("_", " "),
+            id: projectId,
+            name: projectId,
             client,
             status: "Active",
             progress: 0,
             openHref: `/project-dashboard?workspace=${workspace}&client=${encodeURIComponent(
               client
-            )}&project=${encodeURIComponent(projectId)}`
+            )}&project=${encodeURIComponent(projectId)}`,
           }))
         );
       })
@@ -275,7 +276,7 @@ function ProjectsPageContent() {
                   qc={project.qc}
                   onOpen={() => {
                     const projectId =
-                      project.name.replaceAll(" ", "_");
+                      (project as any).id || project.name;
 
                     localStorage.setItem(
                       "insyt_selected_client",
