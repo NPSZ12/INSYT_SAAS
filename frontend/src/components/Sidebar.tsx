@@ -50,10 +50,15 @@ export default function Sidebar({
       ? "/discovery"
       : "/capture";
 
-  const workspaceName =
-    searchParams.get("workspace") ||
-    localStorage.getItem("insyt_selected_workspace") ||
-    "capture";
+  const workspaceName = pathname.startsWith("/summaries")
+    ? "summaries"
+    : pathname.startsWith("/discovery")
+      ? "discovery"
+      : pathname.startsWith("/capture")
+        ? "capture"
+        : searchParams.get("workspace") ||
+          localStorage.getItem("insyt_selected_workspace") ||
+          "capture";
 
   const projectsHref = `/projects?workspace=${workspaceName}`;
 
