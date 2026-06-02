@@ -19,6 +19,9 @@ class CreateBatchRequest(BaseModel):
     created_by: str = "admin"
     search_folder_doc_ids: list[str] | None = None
 
+class BatchCheckoutRequest(BaseModel):
+    batch_name: str
+    username: str
 
 @router.get("/projects/{project_id}/batches")
 def get_discovery_batches(project_id: str):
@@ -55,4 +58,23 @@ def create_discovery_batch(
         raise HTTPException(
             status_code=500,
             detail=f"Unable to create discovery batch: {type(e).__name__}: {e}",
+        )
+        
+@router.post("/projects/{project_id}/batches/checkout")
+def checkout_discovery_batch(
+    project_id: str,
+    payload: BatchCheckoutRequest,
+):
+    try:
+        return checkout_project_batch(
+            workspace="discovery",
+            project_id=project_id,
+            batch_name=payload.batch_name,
+            username=payload.username,
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Discovery batch checkout failed: {type(e).__name__}: {e}",
         )

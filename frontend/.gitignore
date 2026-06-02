@@ -41,3 +41,4 @@ yarn-error.log*
 next-env.d.ts
 
 frontend/_legacy_app_backup/
+_workspace_backup/

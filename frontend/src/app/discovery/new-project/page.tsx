@@ -12,7 +12,7 @@ import FormLabel from "../../../components/FormLabel";
 import Select from "../../../components/Select";
 import { apiGet, apiPost } from "../../../lib/api";
 import ProjectFileUploadCard from "../../../components/ProjectFileUploadCard";
-import AssignProtocolToProjectCard from "../../../components/protocols/AssignProtocolToProjectCard";
+
 
 type ProtocolTemplateField = {
   section: string;
