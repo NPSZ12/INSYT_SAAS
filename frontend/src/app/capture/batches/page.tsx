@@ -112,6 +112,12 @@ function BatchesPageContent() {
     loadBatches();
   }, [clientId, projectId]);
 
+  useEffect(() => {
+    if (!canViewAdvancedBatchModes() && mode !== "review") {
+      setMode("review");
+    }
+  }, [user, mode]);
+
   const selectedLevel =
     mode === "review"
       ? "1L"
@@ -147,6 +153,26 @@ function BatchesPageContent() {
       return getBatchNumber(a.name) - getBatchNumber(b.name);
     });
 
+  const availableCount = modeBatches.filter(
+    (batch) =>
+      String(batch.status || "").toLowerCase() === "available"
+  ).length;
+
+  const checkedOutCount = modeBatches.filter((batch) => {
+    const status = String(batch.status || "")
+      .toLowerCase()
+      .replaceAll("_", " ");
+
+    return status === "checked out";
+  }).length;
+
+  const completedCount = modeBatches.filter(
+    (batch) =>
+      String(batch.status || "").toLowerCase() === "completed"
+  ).length;
+
+  const totalBatchCount = modeBatches.length;
+
 
   function checkoutBatch(batchId: string) {
     if (!projectId || !user) return;
@@ -168,6 +194,96 @@ function BatchesPageContent() {
         console.error(error);
         setMessage("Batch checkout failed.");
       });
+  }
+
+  function completeBatch(batchId: string) {
+    if (!projectId || !user) return;
+
+    apiPost(
+      `/api/capture/projects/${encodeURIComponent(
+        projectId
+      )}/batches/complete?client=${encodeURIComponent(clientId)}`,
+      {
+        batch_name: batchId,
+        username: user.username,
+      }
+    )
+      .then((response) => {
+        setMessage(response.message || "Batch marked completed.");
+        loadBatches();
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Failed to complete batch.");
+      });
+  }
+
+  function markBatchAvailable(batchId: string) {
+    if (!projectId || !user) return;
+
+    apiPost(
+      `/api/capture/projects/${encodeURIComponent(
+        projectId
+      )}/batches/release?client=${encodeURIComponent(clientId)}`,
+      {
+        batch_name: batchId,
+        username: user.username,
+        role: user.role,
+      }
+    )
+      .then((response) => {
+        setMessage(response.message || "Batch marked available.");
+        loadBatches();
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Failed to mark batch available.");
+      });
+  }
+
+  function canOpenAnyBatch() {
+    const role = user?.role || "";
+
+    return [
+      "TL",
+      "RM",
+      "Admin",
+      "INSYT Admin",
+      "CDS Admin",
+    ].includes(role);
+  }
+
+  function canViewAdvancedBatchModes() {
+    const role = user?.role || "";
+
+    return [
+      "QC",
+      "TL",
+      "RM",
+      "Admin",
+      "INSYT Admin",
+      "CDS Admin",
+    ].includes(role);
+  }
+  
+  function canReassignBatch() {
+    const role = user?.role || "";
+
+    return [
+      "RM",
+      "Admin",
+      "INSYT Admin",
+      "CDS Admin",
+    ].includes(role);
+  }
+
+  function canOpenBatch(batch: Batch) {
+    if (batch.status !== "Checked Out") return false;
+
+    return (
+      batch.checked_out_by === user?.username ||
+      canOpenAnyBatch()
+    );
   }
 
   if (!projectId) {
@@ -197,7 +313,13 @@ function BatchesPageContent() {
           </p>
         )}
 
-        <div className="grid grid-cols-4 gap-6 mb-6">
+        <div
+          className={
+            canViewAdvancedBatchModes()
+              ? "grid grid-cols-4 gap-6 mb-6"
+              : "grid grid-cols-1 gap-6 mb-6 max-w-sm"
+          }
+        >
           <button
             type="button"
             onClick={() => {
@@ -216,65 +338,103 @@ function BatchesPageContent() {
             </p>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setMode("qc");
-              
-            }}
-            className={
-              mode === "qc"
-                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
-                : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
-            }
-          >
-            <h2 className="text-xl font-semibold">QC Batches</h2>
-            <p className="text-sm mt-2 opacity-80">
-              Quality-control batch checkout and status.
-            </p>
-          </button>
+          {canViewAdvancedBatchModes() && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("qc");
+                  
+                }}
+                className={
+                  mode === "qc"
+                    ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                    : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+                }
+              >
+                <h2 className="text-xl font-semibold">QC Batches</h2>
+                <p className="text-sm mt-2 opacity-80">
+                  Quality-control batch checkout and status.
+                </p>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setMode("alt");
-              
-            }}
-            className={
-              mode === "alt"
-                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
-                : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
-            }
-          >
-            <h2 className="text-xl font-semibold">Alt Batches</h2>
-            <p className="text-sm mt-2 opacity-80">
-              Supplemental/Search Folder workflow batches.
-            </p>
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("alt");
+                  
+                }}
+                className={
+                  mode === "alt"
+                    ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                    : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+                }
+              >
+                <h2 className="text-xl font-semibold">Alt Batches</h2>
+                <p className="text-sm mt-2 opacity-80">
+                  Supplemental/Search Folder workflow batches.
+                </p>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setMode("statqc");
-              
-            }}
-            className={
-              mode === "statqc"
-                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
-                : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
-            }
-          >
-            <h2 className="insyt-workspace text-xl font-semibold">
-              Statistical QC
-            </h2>
-            <p className="text-sm mt-2 opacity-80">
-              Randomized quality-control sampling by confidence level.
-            </p>
-          </button>
-
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("statqc");
+                  
+                }}
+                className={
+                  mode === "statqc"
+                    ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                    : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+                }
+              >
+                <h2 className="insyt-workspace text-xl font-semibold">
+                  Statistical QC
+                </h2>
+                <p className="text-sm mt-2 opacity-80">
+                  Randomized quality-control sampling by confidence level.
+                </p>
+              </button>
+            </>
+          )}
         </div>
 
                 <ContentCard title={`${selectedLevel} Batches`}>
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <div className="text-sm font-semibold text-white">
+                      Batch Status
+                    </div>
+
+                    <div className="flex flex-wrap gap-3 text-sm">
+                      <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-slate-300">
+                        Total:{" "}
+                        <span className="font-semibold text-white">
+                          {totalBatchCount}
+                        </span>
+                      </div>
+
+                      <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-slate-300">
+                        Available:{" "}
+                        <span className="font-semibold text-lime-300">
+                          {availableCount}
+                        </span>
+                      </div>
+
+                      <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-slate-300">
+                        In Progress:{" "}
+                        <span className="font-semibold text-sky-300">
+                          {checkedOutCount}
+                        </span>
+                      </div>
+
+                      <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-slate-300">
+                        Completed:{" "}
+                        <span className="font-semibold text-slate-100">
+                          {completedCount}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                   {modeBatches.length === 0 ? (
                     <p className="text-slate-400">
                       No batches found for this category.
@@ -360,8 +520,8 @@ function BatchesPageContent() {
                                 </Button>
                               )}
 
-                              {batch.status === "Checked Out" &&
-                                batch.checked_out_by === user?.username && (
+                              {canOpenBatch(batch) && (
+                                <div className="space-y-2">
                                   <Button
                                     fullWidth
                                     variant="secondary"
@@ -379,12 +539,42 @@ function BatchesPageContent() {
                                   >
                                     Open Review
                                   </Button>
-                                )}
 
-                              {batch.status === "Completed" && (
-                                <Button fullWidth variant="secondary">
-                                  Completed
-                                </Button>
+                                  {batch.checked_out_by === user?.username && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Button
+                                        fullWidth
+                                        onClick={() => completeBatch(batch.batch_id)}
+                                      >
+                                        Completed
+                                      </Button>
+
+                                      <Button
+                                        fullWidth
+                                        variant="secondary"
+                                        onClick={() => markBatchAvailable(batch.batch_id)}
+                                      >
+                                        Mark Available
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {batch.status === "Checked Out" && canReassignBatch() && (
+                                <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
+                                  <p className="text-xs text-slate-400 mb-2">
+                                    Leadership Reassignment
+                                  </p>
+
+                                  <Button
+                                    fullWidth
+                                    variant="secondary"
+                                    onClick={() => markBatchAvailable(batch.batch_id)}
+                                  >
+                                    Reassign to Available
+                                  </Button>
+                                </div>
                               )}
                             </div>
                           </div>

@@ -99,7 +99,8 @@ export default function LauncherPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mt-2">
         {apps.map((app) => {
-          const allowed = hasWorkspaceAccess(app.key);
+          const loggedIn = Boolean(user);
+          const allowed = loggedIn ? hasWorkspaceAccess(app.key) : true;
 
           return (
             <div
@@ -137,9 +138,16 @@ export default function LauncherPage() {
                 <div className="mt-6">
                   <Button
                     fullWidth
-                    onClick={() => router.push(app.path)}
+                    onClick={() => {
+                      if (!loggedIn) {
+                        router.push(`/login?workspace=${app.key}`);
+                        return;
+                      }
+
+                      router.push(app.path);
+                    }}
                   >
-                    Open
+                    {loggedIn ? "Open" : "Sign In"}
                   </Button>
                 </div>
               )}

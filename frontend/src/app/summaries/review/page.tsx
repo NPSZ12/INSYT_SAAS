@@ -78,11 +78,17 @@ function ReviewBatchLandingPageContent() {
         const selectedBatchId =
           batchId ||
           batches.find(
-            (batch: any) =>
-              batch.status === "Checked Out" &&
-              batch.checked_out_by?.toLowerCase() === user.username?.toLowerCase()
-          )?.batch_name ||
-          "";
+            (batch: any) => {
+              const status = String(batch.status || "")
+                .toLowerCase()
+                .replaceAll("_", " ");
+
+              return (
+                status === "checked out" &&
+                batch.checked_out_by?.toLowerCase() === user.username?.toLowerCase()
+              );
+            }
+          )?.batch_name || "";
 
         setResolvedBatchId(selectedBatchId);
 

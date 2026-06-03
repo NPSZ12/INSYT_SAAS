@@ -63,7 +63,7 @@ export default function ReviewDocumentPane({
   ].includes(extension);
 
   return (
-    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 h-full min-h-[760px] max-h-full flex flex-col overflow-hidden">
+    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 h-[calc(100vh-24px)] min-h-[980px] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden">
       <div className="shrink-0 flex items-center justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold">
@@ -104,8 +104,12 @@ export default function ReviewDocumentPane({
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {viewMode === "text" && (
-          <div className="h-full w-full overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-5 text-slate-300 leading-7 whitespace-pre-wrap">
-            {text || "No extracted text available."}
+          <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+            <div className="h-full w-full overflow-auto p-5">
+              <pre className="m-0 whitespace-pre-wrap break-words text-sm leading-7 text-slate-300 font-sans">
+                {text || "No extracted text available."}
+              </pre>
+            </div>
           </div>
         )}
 
@@ -120,8 +124,12 @@ export default function ReviewDocumentPane({
                 />
               </div>
             ) : isTextFriendly ? (
-              <div className="h-full w-full overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-5 text-slate-300 leading-7 whitespace-pre-wrap">
-                {text || "No extracted text available."}
+              <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                <div className="h-full w-full overflow-auto p-5">
+                  <pre className="m-0 whitespace-pre-wrap break-words text-sm leading-7 text-slate-300 font-sans">
+                    {text || "No extracted text available."}
+                  </pre>
+                </div>
               </div>
             ) : (
               <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-8 text-center">

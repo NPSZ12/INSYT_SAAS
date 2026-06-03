@@ -13,28 +13,23 @@ export default function Button({
   onClick,
   type = "button",
 }: ButtonProps) {
+  const baseStyles =
+    "px-5 py-3 rounded-xl font-semibold transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-slate-950";
+
   const styles =
     variant === "primary"
-      ? "bg-lime-50 hover:bg-sky-500 text-slate-700"
+      ? "bg-sky-500 hover:bg-sky-400 active:bg-sky-700 text-white shadow-md shadow-sky-950/30"
       : variant === "danger"
-      ? "bg-red-600 hover:bg-red-500 text-white"
-      : "border border-slate-700 hover:bg-slate-800 text-slate-200";
+        ? "bg-red-600 hover:bg-red-500 active:bg-red-700 text-white shadow-md shadow-red-950/30"
+        : "border border-slate-700 bg-slate-900 hover:bg-slate-700 hover:border-sky-500 active:bg-sky-900 text-slate-200 hover:text-white";
 
   return (
     <button
       type={type}
       onClick={onClick}
-      className={`${fullWidth ? "w-full" : ""} px-5 py-3 rounded-xl font-semibold transition ${styles}`}
+      className={`${fullWidth ? "w-full" : ""} ${baseStyles} ${styles}`}
     >
       {children}
     </button>
   );
 }
-
-
-
-
-
-
-
-

@@ -34,46 +34,11 @@ type NavItem = {
   icon: any;
 };
 
-function parseSummaryOutline(text: string): PdfOutlineItem[] {
-  const source = String(text || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
-
-  const pattern =
-    /(\d{1,3}:\s+.*?)(?=\d{4}\/\d{2}\/\d{2})\s*(\d{4}\/\d{2}\/\d{2}[\s\S]*?%)\s*([\s\S]*?)(?=^\d{1,3}:\s+|\s\d{1,3}:\s+|\Z)/gm;
-
-  const items: PdfOutlineItem[] = [];
-
-  for (const match of source.matchAll(pattern)) {
-    const title =
-      match[1]?.replace(/\s+/g, " ").trim() || "";
-
-    const citation =
-      match[2]?.replace(/\s+/g, " ").trim() || "";
-
-    const originalSummary =
-      match[3]?.replace(/\s+/g, " ").trim() || "";
-
-    if (!title || !citation) continue;
-
-    const pageMatch = citation.match(/\bp\.\s*(\d+)/i);
-
-    const page = pageMatch
-      ? Number(pageMatch[1])
-      : undefined;
-
-    items.push({
-      id: `summary-${items.length + 1}`,
-      title,
-      citation,
-      originalSummary,
-      qcSummary: originalSummary,
-      page,
-    });
-  }
-
-  return items;
-}
+type StoredUser = {
+  username: string;
+  display_name?: string;
+  role: string;
+};
 
 export default function ProjectSidebar() {
   const pathname = usePathname();
@@ -111,7 +76,56 @@ export default function ProjectSidebar() {
       ? "/discovery"
       : "/capture";
 
+  const workspaceName = isSummaries
+    ? "summaries"
+    : isDiscovery
+      ? "discovery"
+      : "capture";
+
   const router = useRouter();
+
+  const [user, setUser] = useState<StoredUser | null>(null);
+  const [currentUserBatch, setCurrentUserBatch] = useState("");
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("insyt_user");
+
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user?.username || !projectId) {
+      setCurrentUserBatch("");
+      return;
+    }
+
+    apiGet(
+      `/api/${workspaceName}/projects/${encodeURIComponent(
+        projectId
+      )}/batches?client=${encodeURIComponent(clientId)}`
+    )
+      .then((response: any) => {
+        const checkedOutBatch = (response.batches || []).find(
+          (batch: any) =>
+            String(batch.status || "").toLowerCase() === "checked out" &&
+            batch.checked_out_by === user.username
+        );
+
+        const batchName =
+          checkedOutBatch?.batch_name ||
+          checkedOutBatch?.batch_id ||
+          checkedOutBatch?.name ||
+          "";
+
+        setCurrentUserBatch(batchName);
+      })
+      .catch((error: any) => {
+        console.error("Failed to load current user batch:", error);
+        setCurrentUserBatch("");
+      });
+  }, [workspaceName, clientId, projectId, user?.username]);
 
   const selectedDocId = searchParams.get("doc") || "";
 
@@ -185,11 +199,6 @@ export default function ProjectSidebar() {
   const encodedProjectId =
     encodeURIComponent(projectId);
 
-  const workspaceName = isSummaries
-    ? "summaries"
-    : isDiscovery
-      ? "discovery"
-      : "capture";
 
   const projectQuery = clientId
     ? `?client=${encodedClientId}&project=${encodedProjectId}${
@@ -206,6 +215,35 @@ export default function ProjectSidebar() {
             )}`
           : ""
       }`;
+
+  const reviewBatch =
+    selectedBatch || currentUserBatch;
+
+  const reviewQuery = clientId
+    ? `?client=${encodedClientId}&project=${encodedProjectId}${
+        reviewBatch
+          ? `&batch=${encodeURIComponent(reviewBatch)}`
+          : ""
+      }`
+    : `?project=${encodedProjectId}${
+        reviewBatch
+          ? `&batch=${encodeURIComponent(reviewBatch)}`
+          : ""
+      }`;
+
+  function isHiddenFor1L(label: string) {
+    if (user?.role !== "1L") return false;
+
+    return [
+      "Batch Management",
+      "Search Folders",
+      "Files",
+      "QC Review",
+      "Review Team",
+      "Admin",
+      "Settings",
+    ].includes(label);
+  }
 
   const navItems: NavItem[] = [
     {
@@ -240,7 +278,7 @@ export default function ProjectSidebar() {
     },
     {
       label: "Review",
-      href: `${workspaceBase}/review${projectQuery}`,
+      href: `${workspaceBase}/review${reviewQuery}`,
       icon: FileSearch,
     },
     {
@@ -345,7 +383,9 @@ export default function ProjectSidebar() {
               : "p-5 pt-4 pr-4"
           }`}
         >
-          {navItems.map((item) => {
+          {navItems
+            .filter((item) => !isHiddenFor1L(item.label))
+            .map((item) => {
             const itemPath =
               item.href.split("?")[0];
 

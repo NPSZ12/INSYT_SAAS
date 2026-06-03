@@ -31,14 +31,36 @@ function ReviewBatchLandingPageContent() {
     if (!projectId || !batchId) return;
 
     apiGet(
-      `/api/batches/files?client=${encodeURIComponent(
-        clientId
-      )}&project=${encodeURIComponent(
+      `/api/discovery/projects/${encodeURIComponent(
         projectId
-      )}&batch=${encodeURIComponent(batchId)}`
+      )}/batches?client=${encodeURIComponent(clientId)}`
     )
-      .then(setFiles)
-      .catch(console.error);
+      .then((response) => {
+        const selectedBatch = (response.batches || []).find(
+          (batch: any) => {
+            const batchName =
+              batch.batch_name ||
+              batch.batch_id ||
+              batch.name;
+
+            return batchName === batchId;
+          }
+        );
+
+        const docIds = selectedBatch?.doc_ids || [];
+
+        const batchFiles = docIds.map((docId: string) => ({
+          doc_id: docId,
+          file_name: docId,
+          status: "Ready",
+        }));
+
+        setFiles(batchFiles);
+      })
+      .catch((error) => {
+        console.error(error);
+        setFiles([]);
+      });
   }, [clientId, projectId, batchId]);
 
   if (!projectId || !batchId) {

@@ -8,6 +8,7 @@ import Sidebar from "./Sidebar";
 import ProjectSidebar from "./ProjectSidebar";
 import Topbar from "./Topbar";
 import AutoLogout from "./AutoLogout";
+import UrgentMessageOverlay from "./UrgentMessageOverlay";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -24,10 +25,23 @@ function AppShellContent({ children }: AppShellProps) {
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
+    const pathname = window.location.pathname;
+
+    const publicRoutes = ["/launcher", "/login"];
+
+    const isPublicRoute = publicRoutes.some((route) =>
+      pathname.startsWith(route)
+    );
+
+    if (isPublicRoute) {
+      setAuthChecked(true);
+      return;
+    }
+
     const storedUser = localStorage.getItem("insyt_user");
 
     if (!storedUser) {
-      window.location.href = "/login";
+      window.location.href = "/launcher";
       return;
     }
 
@@ -41,6 +55,7 @@ function AppShellContent({ children }: AppShellProps) {
   return (
     <div className="min-h-screen bg-slate-950 text-white flex">
       <AutoLogout />
+      <UrgentMessageOverlay />
       <div
         className={
           projectSidebarVisible && mainSidebarCollapsed

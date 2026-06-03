@@ -33,12 +33,34 @@ function ReviewBatchLandingPageContent() {
     apiGet(
       `/api/capture/projects/${encodeURIComponent(
         projectId
-      )}/batches/${encodeURIComponent(
-        batchId
-      )}/files?client=${encodeURIComponent(clientId)}`
+      )}/batches?client=${encodeURIComponent(clientId)}`
     )
-      .then(setFiles)
-      .catch(console.error);
+      .then((response) => {
+        const selectedBatch = (response.batches || []).find(
+          (batch: any) => {
+            const batchName =
+              batch.batch_name ||
+              batch.batch_id ||
+              batch.name;
+
+            return batchName === batchId;
+          }
+        );
+
+        const docIds = selectedBatch?.doc_ids || [];
+
+        const batchFiles = docIds.map((docId: string) => ({
+          doc_id: docId,
+          file_name: docId,
+          status: "Ready",
+        }));
+
+        setFiles(batchFiles);
+      })
+      .catch((error) => {
+        console.error(error);
+        setFiles([]);
+      });
   }, [clientId, projectId, batchId]);
 
   if (!projectId || !batchId) {
