@@ -19,6 +19,7 @@ type CaptureField = {
 };
 
 type ReviewCapturePanelProps = {
+  clientId: string;
   projectId: string;
   batchId: string;
   docId: string;
@@ -26,6 +27,7 @@ type ReviewCapturePanelProps = {
 };
 
 export default function ReviewCapturePanel({
+  clientId,
   projectId,
   batchId,
   docId,
@@ -143,6 +145,7 @@ export default function ReviewCapturePanel({
     }
 
     apiPost("/api/review/save", {
+      client_id: clientId,
       project_id: projectId,
       batch_id: batchId,
       doc_id: docId,
@@ -165,6 +168,7 @@ export default function ReviewCapturePanel({
     }
 
     apiPost("/api/review/save-next", {
+      client_id: clientId,
       project_id: projectId,
       batch_id: batchId,
       doc_id: docId,

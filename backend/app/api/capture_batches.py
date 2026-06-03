@@ -27,9 +27,16 @@ class RemoveDocsRequest(BaseModel):
 
 
 @router.get("/projects/{project_id}/batches")
-def get_capture_batches(project_id: str):
+def get_capture_batches(
+    project_id: str,
+    client: str = "",
+):
     try:
-        return list_project_batches("capture", project_id)
+        return list_project_batches(
+            "capture",
+            project_id,
+            client,
+        )
 
     except Exception as e:
         raise HTTPException(
@@ -42,11 +49,13 @@ def get_capture_batches(project_id: str):
 def create_capture_batch(
     project_id: str,
     payload: CreateBatchRequest,
+    client: str = "",
 ):
     try:
         return create_project_batch(
             workspace="capture",
             project_id=project_id,
+            client_id=client,
             batch_size=payload.batch_size,
             level=payload.level,
             workflow_type=payload.workflow_type,

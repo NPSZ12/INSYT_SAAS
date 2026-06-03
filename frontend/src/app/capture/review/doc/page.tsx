@@ -316,6 +316,7 @@ function ReviewPageContent() {
               </aside>
             ) : (
               <ReviewCapturePanel
+                clientId={clientId}
                 projectId={projectId}
                 batchId={batchId}
                 docId={reviewDoc.doc_id}

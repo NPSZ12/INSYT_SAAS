@@ -31,11 +31,11 @@ function ReviewBatchLandingPageContent() {
     if (!projectId || !batchId) return;
 
     apiGet(
-      `/api/batches/files?client=${encodeURIComponent(
-        clientId
-      )}&project=${encodeURIComponent(
+      `/api/capture/projects/${encodeURIComponent(
         projectId
-      )}&batch=${encodeURIComponent(batchId)}`
+      )}/batches/${encodeURIComponent(
+        batchId
+      )}/files?client=${encodeURIComponent(clientId)}`
     )
       .then(setFiles)
       .catch(console.error);

@@ -387,7 +387,15 @@ def create_project_batch(
     else:
         selected_doc_ids = eligible_doc_ids[:batch_size]
 
-    if not selected_doc_ids:
+    if level == "Statistical QC":
+        batch_chunks = [selected_doc_ids]
+    else:
+        batch_chunks = [
+            eligible_doc_ids[index:index + batch_size]
+            for index in range(0, len(eligible_doc_ids), batch_size)
+        ]
+
+    if not batch_chunks:
         raise HTTPException(
             status_code=400,
             detail=f"No eligible documents available for {level} batch.",
@@ -407,40 +415,53 @@ def create_project_batch(
     ]
 
     next_number = len(existing_batch_files) + 1
-    batch_name = f"Batch_{next_number:03d}"
+    created_batches = []
 
-    batch = {
-        "batch_name": batch_name,
-        "workspace": workspace,
-        "project_id": project_id,
-        "client_id": client_id,
-        "level": level,
-        "workflow_type": workflow_type,
-        "status": "Available",
-        "batch_size": batch_size,
-        "document_count": len(selected_doc_ids),
-        "doc_ids": selected_doc_ids,
-        "checked_out_by": None,
-        "completed_count": 0,
-        "created_by": created_by,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    for chunk in batch_chunks:
+        if not chunk:
+            continue
 
-    blob_name = f"{batch_prefix}{batch_name}.json"
+        batch_name = f"Batch_{next_number:03d}"
 
-    container.upload_blob(
-        name=blob_name,
-        data=json.dumps(batch, indent=2),
-        overwrite=True,
-    )
+        batch = {
+            "batch_name": batch_name,
+            "workspace": workspace,
+            "project_id": project_id,
+            "client_id": client_id,
+            "level": level,
+            "workflow_type": workflow_type,
+            "status": "Available",
+            "batch_size": batch_size,
+            "document_count": len(chunk),
+            "doc_ids": chunk,
+            "checked_out_by": None,
+            "completed_count": 0,
+            "created_by": created_by,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        blob_name = f"{batch_prefix}{batch_name}.json"
+
+        container.upload_blob(
+            name=blob_name,
+            data=json.dumps(batch, indent=2),
+            overwrite=True,
+        )
+
+        created_batches.append(batch)
+        next_number += 1
+
+    if not created_batches:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No eligible documents available for {level} batch.",
+        )
 
     return {
-        "message": "Batch created",
-        "batch": batch,
-        "eligible_remaining": max(
-            len(eligible_doc_ids) - len(selected_doc_ids),
-            0,
-        ),
+        "message": f"{len(created_batches)} batch(es) created.",
+        "batches": created_batches,
+        "created_count": len(created_batches),
+        "eligible_remaining": 0,
     }
 
 def checkout_project_batch(

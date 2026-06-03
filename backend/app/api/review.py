@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
@@ -210,10 +211,12 @@ def load_current_review_document(
 def get_current_review_document_compat(
     project: str = "Project_Timber",
     batch: str = "Batch_001",
+    client: str = "",
 ):
     try:
         return load_current_review_document(
             workspace="capture",
+            client=client,
             project=project,
             batch=batch,
         )
@@ -248,6 +251,7 @@ def get_workspace_current_review_document(
 
 
 class CaptureSaveRequest(BaseModel):
+    client_id: str = ""
     project_id: str
     batch_id: str
     doc_id: str
@@ -274,6 +278,55 @@ def save_capture(
     }
 
     CAPTURED_ENTITIES.append(entity)
+    
+    container = get_container_client("capture")
+
+    if payload.client_id:
+        batch_blob = (
+            f"{payload.client_id}/"
+            f"{payload.project_id}/"
+            f"Batches/"
+            f"{payload.batch_id}.json"
+        )
+    else:
+        batch_blob = (
+            f"{payload.project_id}/"
+            f"Batches/"
+            f"{payload.batch_id}.json"
+        )
+
+    blob_client = container.get_blob_client(batch_blob)
+
+    if blob_client.exists():
+        batch = json.loads(
+            blob_client.download_blob()
+            .readall()
+            .decode("utf-8")
+        )
+
+        reviewed_docs = batch.get(
+            "reviewed_doc_ids",
+            []
+        )
+
+        if payload.doc_id not in reviewed_docs:
+            reviewed_docs.append(payload.doc_id)
+
+        batch["reviewed_doc_ids"] = reviewed_docs
+        batch["completed_count"] = len(reviewed_docs)
+        batch["last_reviewed_doc_id"] = payload.doc_id
+        batch["last_reviewed_by"] = x_username
+        batch["last_reviewed_at"] = datetime.now(
+            timezone.utc
+        ).isoformat()
+
+        if batch["completed_count"] >= batch.get("document_count", 0):
+            batch["status"] = "Completed"
+
+        blob_client.upload_blob(
+            json.dumps(batch, indent=2),
+            overwrite=True,
+        )
 
     return {
         "status": "saved",

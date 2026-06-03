@@ -26,6 +26,7 @@ type Batch = {
 
   documents: string;
   document_count?: number;
+  completed_count?: number;
   doc_ids?: string[];
 
   checked_out_by: string | null;
@@ -130,6 +131,7 @@ function BatchesPageContent() {
               batch.document_count ||
               batch.doc_ids?.length ||
               Number(batch.documents || 0),
+            completed_count: batch.completed_count || 0,
             checked_out_by: batch.checked_out_by || "",
             level: batch.level || "1L",
             workflow_type: batch.workflow_type || "standard",
@@ -352,10 +354,12 @@ function BatchesPageContent() {
   ];
 
   const batchColumns = [
-    { key: "batch_id", label: "Batch ID" },
+    { key: "batch_id", label: "Name" },
     { key: "level", label: "Level" },
     { key: "status", label: "Status" },
-    { key: "documents", label: "Documents" },
+    { key: "documents", label: "Docs" },
+    { key: "reviewed", label: "Reviewed" },
+    { key: "pending", label: "Pending" },
     { key: "workflow_type", label: "Workflow" },
     { key: "checked_out_by", label: "Checked Out By" },
   ];
@@ -376,14 +380,32 @@ function BatchesPageContent() {
     return true;
   });
 
-  const batchRows = filteredBatches.map((batch) => ({
-    batch_id: batch.batch_id,
-    level: batch.level || "1L",
-    status: batch.status,
-    documents: String(batch.document_count || batch.documents || 0),
-    workflow_type: batch.workflow_type || "standard",
-    checked_out_by: batch.checked_out_by || "—",
-  }));
+  const batchRows = filteredBatches.map((batch) => {
+    const totalDocs =
+      batch.document_count || 0;
+
+    const reviewedCount =
+      batch.completed_count || 0;
+
+    return {
+      batch_id: batch.batch_id,
+      level: batch.level || "1L",
+      status: batch.status,
+
+      documents: totalDocs,
+      reviewed: reviewedCount,
+      pending: Math.max(
+        totalDocs - reviewedCount,
+        0
+      ),
+
+      workflow_type:
+        batch.workflow_type || "standard",
+
+      checked_out_by:
+        batch.checked_out_by || "—",
+    };
+  });
 
   return (
     <AppShell>
@@ -824,6 +846,30 @@ function ReviewerBatches({
   checkoutBatch: (batchId: string) => void;
   router: ReturnType<typeof useRouter>;
 }) {
+  function getBatchNumber(batchName: string) {
+    const match = String(batchName || "").match(/(\d+)/);
+    return match ? Number(match[1]) : 999999;
+  }
+
+  function getStatusRank(status: string) {
+    const clean = String(status || "").toLowerCase();
+
+    if (clean === "available") return 1;
+    if (clean === "checked out") return 2;
+    if (clean === "completed") return 3;
+
+    return 4;
+  }
+
+  const sortedBatches = [...batches].sort((a, b) => {
+    const statusDiff =
+      getStatusRank(a.status) - getStatusRank(b.status);
+
+    if (statusDiff !== 0) return statusDiff;
+
+    return getBatchNumber(a.batch_id) - getBatchNumber(b.batch_id);
+  });
+
   return (
     <AppShell>
       <PageContainer>
@@ -838,82 +884,105 @@ function ReviewerBatches({
           </p>
         )}
 
-        <div className="grid grid-cols-3 gap-6">
-          {batches.map((batch) => {
-            const isAvailable = batch.status === "Available";
-            const isCheckedOut = batch.status === "Checked Out";
-            const isCompleted = batch.status === "Completed";
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {sortedBatches.map((batch) => {
+            const totalDocs = batch.document_count || 0;
+            const reviewed = batch.completed_count || 0;
+            const pending = Math.max(totalDocs - reviewed, 0);
 
             return (
-              <ContentCard
+              <div
                 key={batch.batch_id}
-                title={`${batch.name} (${batch.level || "1L"})`}
+                className="bg-slate-950 border border-slate-800 rounded-xl p-4 min-h-[190px]"
               >
-                <div className="mb-4">
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3 className="text-white font-bold text-lg">
+                      {batch.name}
+                    </h3>
+
+                    <p className="text-xs text-slate-400">
+                      {batch.level || "1L"} •{" "}
+                      {batch.workflow_type || "standard"}
+                    </p>
+                  </div>
+
                   <StatusBadge>{batch.status}</StatusBadge>
                 </div>
 
-                <div className="space-y-2 text-slate-300 mb-6">
-                  <p>
-                    Documents:{" "}
-                    {batch.document_count || batch.documents}
-                  </p>
+                <div className="grid grid-cols-3 gap-2 text-center mb-4">
+                  <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                    <p className="text-[10px] text-slate-500 uppercase">
+                      Docs
+                    </p>
+                    <p className="text-white font-semibold">
+                      {totalDocs}
+                    </p>
+                  </div>
 
-                  <p>
-                    Workflow:{" "}
-                    <span className="text-white">
-                      {batch.workflow_type || "standard"}
-                    </span>
-                  </p>
+                  <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                    <p className="text-[10px] text-slate-500 uppercase">
+                      Reviewed
+                    </p>
+                    <p className="text-white font-semibold">
+                      {reviewed}
+                    </p>
+                  </div>
 
-                  <p>
-                    Level:{" "}
-                    <span className="text-white">
-                      {batch.level || "1L"}
-                    </span>
-                  </p>
+                  <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                    <p className="text-[10px] text-slate-500 uppercase">
+                      Pending
+                    </p>
+                    <p className="text-white font-semibold">
+                      {pending}
+                    </p>
+                  </div>
+                </div>
 
+                <div className="text-xs text-slate-400 mb-4 space-y-1">
                   <p>
-                    Checked out by:{" "}
-                    <span className="text-white">
+                    Checked Out By:{" "}
+                    <span className="text-slate-200">
                       {batch.checked_out_by || "—"}
                     </span>
                   </p>
                 </div>
 
-                {isAvailable && (
-                  <Button
-                    fullWidth
-                    onClick={() => checkoutBatch(batch.batch_id)}
-                  >
-                    Check Out Batch
-                  </Button>
-                )}
+                <div>
+                  {batch.status === "Available" && (
+                    <Button
+                      fullWidth
+                      onClick={() => checkoutBatch(batch.batch_id)}
+                    >
+                      Check Out Batch
+                    </Button>
+                  )}
 
-                {isCheckedOut && (
-                  <Button
-                    fullWidth
-                    variant="secondary"
-                    onClick={() =>
-                      router.push(
-                        `/summaries/review?client=${encodeURIComponent(
-                          clientId
-                        )}&project=${encodeURIComponent(
-                          projectId
-                        )}&batch=${encodeURIComponent(batch.batch_id)}`
-                      )
-                    }
-                  >
-                    Open Review
-                  </Button>
-                )}
+                  {batch.status === "Checked Out" && (
+                    <Button
+                      fullWidth
+                      variant="secondary"
+                      onClick={() =>
+                        router.push(
+                          `/summaries/review?client=${encodeURIComponent(
+                            clientId
+                          )}&project=${encodeURIComponent(
+                            projectId
+                          )}&batch=${encodeURIComponent(batch.batch_id)}`
+                        )
+                      }
+                    >
+                      Open Review
+                    </Button>
+                  )}
 
-                {isCompleted && (
-                  <Button fullWidth variant="secondary">
-                    Completed
-                  </Button>
-                )}
-              </ContentCard>
+                  {batch.status === "Completed" && (
+                    <Button fullWidth variant="secondary">
+                      Completed
+                    </Button>
+                  )}
+                </div>
+              </div>
             );
           })}
         </div>

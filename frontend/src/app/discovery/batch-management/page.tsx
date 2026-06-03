@@ -26,6 +26,7 @@ type Batch = {
 
   documents: string;
   document_count?: number;
+  completed_count?: number;
   doc_ids?: string[];
 
   checked_out_by: string | null;
@@ -60,6 +61,7 @@ function BatchesPageContent() {
   const router = useRouter();
 
   const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
 
   const [user, setUser] = useState<StoredUser | null>(null);
   const [mode, setMode] =
@@ -99,7 +101,11 @@ function BatchesPageContent() {
   function loadBatches() {
     if (!projectId) return;
 
-    apiGet(`/api/discovery/projects/${projectId}/batches`)
+    apiGet(
+      `/api/discovery/projects/${encodeURIComponent(
+        projectId
+      )}/batches?client=${encodeURIComponent(clientId)}`
+    )
       .then((response) => {
         const normalizedBatches = (response.batches || []).map((batch: any) => {
           const batchName = batch.batch_name || batch.batch_id || batch.name;
@@ -115,6 +121,7 @@ function BatchesPageContent() {
               batch.document_count ||
               batch.doc_ids?.length ||
               Number(batch.documents || 0),
+            completed_count: batch.completed_count || 0,
             checked_out_by: batch.checked_out_by || "",
             level: batch.level || "1L",
             workflow_type: batch.workflow_type || "standard",
@@ -134,7 +141,13 @@ function BatchesPageContent() {
   function loadFiles() {
     if (!projectId) return;
 
-    apiGet(`/api/batches/files?project=${projectId}&batch=all`)
+    apiGet(
+      `/api/discovery/files?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId
+      )}&folder=${encodeURIComponent("source/native")}`
+    )
       .then(setFiles)
       .catch(console.error);
   }
@@ -151,12 +164,12 @@ function BatchesPageContent() {
     loadBatches();
     loadFiles();
     loadSearchFolders();
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   function createStatisticalQCBatches() {
     if (!projectId) return;
 
-    apiPost(`/api/discovery/projects/${projectId}/batches/create`, {
+    apiPost(`/api/discovery/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -194,7 +207,10 @@ function BatchesPageContent() {
   function checkoutBatch(batchId: string) {
     if (!projectId || !user) return;
 
-    apiPost(`/api/discovery/projects/${projectId}/batches/checkout`,
+    apiPost(
+      `/api/discovery/projects/${encodeURIComponent(
+        projectId
+      )}/batches/checkout?client=${encodeURIComponent(clientId)}`,
       {
         batch_name: batchId,
         username: user.username,
@@ -213,7 +229,7 @@ function BatchesPageContent() {
   function createReviewBatches() {
     if (!projectId) return;
 
-    apiPost(`/api/discovery/projects/${projectId}/batches/create`, {
+    apiPost(`/api/discovery/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -235,7 +251,7 @@ function BatchesPageContent() {
   function createQCBatches() {
     if (!projectId) return;
 
-    apiPost(`/api/discovery/projects/${projectId}/batches/create`, {
+    apiPost(`/api/discovery/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -256,7 +272,7 @@ function BatchesPageContent() {
   function createAltBatch() {
     if (!projectId || !selectedFolderId) return;
 
-    apiPost(`/api/discovery/projects/${projectId}/batches/create`, {
+    apiPost(`/api/discovery/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -291,6 +307,7 @@ function BatchesPageContent() {
   if (!isAdmin) {
     return (
       <ReviewerBatches
+        clientId={clientId}
         projectId={projectId}
         batches={batches}
         message={message}
@@ -307,10 +324,12 @@ function BatchesPageContent() {
   ];
 
   const batchColumns = [
-    { key: "batch_id", label: "Batch ID" },
+    { key: "batch_id", label: "Name" },
     { key: "level", label: "Level" },
     { key: "status", label: "Status" },
-    { key: "documents", label: "Documents" },
+    { key: "documents", label: "Docs" },
+    { key: "reviewed", label: "Reviewed" },
+    { key: "pending", label: "Pending" },
     { key: "workflow_type", label: "Workflow" },
     { key: "checked_out_by", label: "Checked Out By" },
   ];
@@ -331,14 +350,21 @@ function BatchesPageContent() {
     return true;
   });
 
-  const batchRows = filteredBatches.map((batch) => ({
-    batch_id: batch.batch_id,
-    level: batch.level || "1L",
-    status: batch.status,
-    documents: String(batch.document_count || batch.documents || 0),
-    workflow_type: batch.workflow_type || "standard",
-    checked_out_by: batch.checked_out_by || "—",
-  }));
+  const batchRows = filteredBatches.map((batch) => {
+    const totalDocs = batch.document_count || 0;
+    const reviewedCount = batch.completed_count || 0;
+
+    return {
+      batch_id: batch.batch_id,
+      level: batch.level || "1L",
+      status: batch.status,
+      documents: totalDocs,
+      reviewed: reviewedCount,
+      pending: Math.max(totalDocs - reviewedCount, 0),
+      workflow_type: batch.workflow_type || "standard",
+      checked_out_by: batch.checked_out_by || "—",
+    };
+  });
 
   return (
     <AppShell>
@@ -765,12 +791,14 @@ function BatchCreateControls({
 }
 
 function ReviewerBatches({
+  clientId,
   projectId,
   batches,
   message,
   checkoutBatch,
   router,
 }: {
+  clientId: string;
   projectId: string;
   batches: Batch[];
   message: string;
@@ -849,7 +877,13 @@ function ReviewerBatches({
                     variant="secondary"
                     onClick={() =>
                       router.push(
-                        `/discovery/review?project=${projectId}&batch=${batch.batch_id}`
+                        `/discovery/review?client=${encodeURIComponent(
+                          clientId
+                        )}&project=${encodeURIComponent(
+                          projectId
+                        )}&batch=${encodeURIComponent(
+                          batch.batch_id
+                        )}`
                       )
                     }
                   >
@@ -878,14 +912,3 @@ export default function BatchesPage() {
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-
-
-
-

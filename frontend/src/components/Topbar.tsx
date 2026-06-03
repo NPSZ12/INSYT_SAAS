@@ -127,8 +127,14 @@ export default function Topbar() {
             Selected Project
           </p>
 
-          <p className="insyt-project text-2xl font-bold text-sky-400 tracking-wide">
-            {selectedProject.replaceAll("_", " ")}
+          <p className="insyt-project text-2xl font-bold tracking-wide">
+            <span className="text-white">
+              {" "}
+            </span>
+
+            <span className="text-sky-400">
+              {selectedProject.replaceAll("_", " ")}
+            </span>
           </p>
 
         </div>

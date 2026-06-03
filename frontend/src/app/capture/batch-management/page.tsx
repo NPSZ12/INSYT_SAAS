@@ -26,6 +26,7 @@ type Batch = {
 
   documents: string;
   document_count?: number;
+  completed_count?: number;
   doc_ids?: string[];
 
   checked_out_by: string | null;
@@ -59,6 +60,7 @@ function BatchesPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
+  const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project");
 
   const [user, setUser] = useState<StoredUser | null>(null);
@@ -99,7 +101,11 @@ function BatchesPageContent() {
   function loadBatches() {
     if (!projectId) return;
 
-    apiGet(`/api/capture/projects/${projectId}/batches`)
+    apiGet(
+      `/api/capture/projects/${encodeURIComponent(
+        projectId
+      )}/batches?client=${encodeURIComponent(clientId)}`
+    )
       .then((response) => {
         const normalizedBatches = (response.batches || []).map((batch: any) => {
           const batchName = batch.batch_name || batch.batch_id || batch.name;
@@ -115,6 +121,7 @@ function BatchesPageContent() {
               batch.document_count ||
               batch.doc_ids?.length ||
               Number(batch.documents || 0),
+            completed_count: batch.completed_count || 0,
             checked_out_by: batch.checked_out_by || "",
             level: batch.level || "1L",
             workflow_type: batch.workflow_type || "standard",
@@ -134,8 +141,20 @@ function BatchesPageContent() {
   function loadFiles() {
     if (!projectId) return;
 
-    apiGet(`/api/batches/files?project=${projectId}&batch=all`)
-      .then(setFiles)
+    apiGet(
+      `/api/capture/files?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId
+      )}&folder=${encodeURIComponent("source/native")}`
+    )
+      .then((response: any) => {
+        const incomingFiles = Array.isArray(response)
+          ? response
+          : response?.files || [];
+
+        setFiles(incomingFiles);
+      })
       .catch(console.error);
   }
 
@@ -151,12 +170,12 @@ function BatchesPageContent() {
     loadBatches();
     loadFiles();
     loadSearchFolders();
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   function createStatisticalQCBatches() {
     if (!projectId) return;
 
-    apiPost(`/api/capture/projects/${projectId}/batches/create`, {
+    apiPost(`/api/capture/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -194,7 +213,7 @@ function BatchesPageContent() {
   function checkoutBatch(batchId: string) {
     if (!projectId || !user) return;
 
-    apiPost(`/api/capture/projects/${projectId}/batches/checkout`,
+    apiPost(`/api/capture/projects/${encodeURIComponent(projectId)}/batches/checkout?client=${encodeURIComponent(clientId)}`,
       {
         batch_name: batchId,
         username: user.username,
@@ -213,7 +232,7 @@ function BatchesPageContent() {
   function createReviewBatches() {
     if (!projectId) return;
 
-    apiPost(`/api/capture/projects/${projectId}/batches/create`, {
+    apiPost(`/api/capture/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -235,7 +254,7 @@ function BatchesPageContent() {
   function createQCBatches() {
     if (!projectId) return;
 
-    apiPost(`/api/capture/projects/${projectId}/batches/create`, {
+    apiPost(`/api/capture/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -256,7 +275,7 @@ function BatchesPageContent() {
   function createAltBatch() {
     if (!projectId || !selectedFolderId) return;
 
-    apiPost(`/api/capture/projects/${projectId}/batches/create`, {
+    apiPost(`/api/capture/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
       batch_size:
         docsPerBatch === "Custom"
           ? Number(customDocsPerBatch)
@@ -291,6 +310,7 @@ function BatchesPageContent() {
   if (!isAdmin) {
     return (
       <ReviewerBatches
+        clientId={clientId}
         projectId={projectId}
         batches={batches}
         message={message}
@@ -307,38 +327,75 @@ function BatchesPageContent() {
   ];
 
   const batchColumns = [
-    { key: "batch_id", label: "Batch ID" },
+    { key: "batch_id", label: "Name" },
     { key: "level", label: "Level" },
     { key: "status", label: "Status" },
-    { key: "documents", label: "Documents" },
+
+    { key: "documents", label: "Docs" },
+    { key: "reviewed", label: "Reviewed" },
+    { key: "pending", label: "Pending" },
+
     { key: "workflow_type", label: "Workflow" },
     { key: "checked_out_by", label: "Checked Out By" },
   ];
 
-  const filteredBatches = batches.filter((batch) => {
-    if (mode === "review") {
-      return batch.level === "1L";
-    }
+  function getBatchNumber(batchName: string) {
+    const match = String(batchName || "").match(/(\d+)/);
+    return match ? Number(match[1]) : 999999;
+  }
 
-    if (mode === "qc") {
-      return batch.level === "QC";
-    }
+  function getStatusRank(status: string) {
+    const clean = String(status || "").toLowerCase();
 
-    if (mode === "alt") {
-      return batch.level === "ALT Workflow";
-    }
+    if (clean === "available") return 1;
+    if (clean === "checked out") return 2;
+    if (clean === "completed") return 3;
 
-    return true;
+    return 4;
+  }
+
+  const filteredBatches = [...batches]
+    .filter((batch) => {
+      if (mode === "review") return batch.level === "1L";
+      if (mode === "qc") return batch.level === "QC";
+      if (mode === "alt") return batch.level === "ALT Workflow";
+      return true;
+    })
+    .sort((a, b) => {
+      const statusDiff =
+        getStatusRank(a.status) - getStatusRank(b.status);
+
+      if (statusDiff !== 0) return statusDiff;
+
+      return getBatchNumber(a.batch_id) - getBatchNumber(b.batch_id);
+    });
+
+  const batchRows = filteredBatches.map((batch) => {
+    const totalDocs =
+      batch.document_count || 0;
+
+    const reviewedCount =
+      batch.completed_count || 0;
+
+    return {
+      batch_id: batch.batch_id,
+      level: batch.level || "1L",
+      status: batch.status,
+
+      documents: totalDocs,
+      reviewed: reviewedCount,
+      pending: Math.max(
+        totalDocs - reviewedCount,
+        0
+      ),
+
+      workflow_type:
+        batch.workflow_type || "standard",
+
+      checked_out_by:
+        batch.checked_out_by || "—",
+    };
   });
-
-  const batchRows = filteredBatches.map((batch) => ({
-    batch_id: batch.batch_id,
-    level: batch.level || "1L",
-    status: batch.status,
-    documents: String(batch.document_count || batch.documents || 0),
-    workflow_type: batch.workflow_type || "standard",
-    checked_out_by: batch.checked_out_by || "—",
-  }));
 
   return (
     <AppShell>
@@ -765,12 +822,14 @@ function BatchCreateControls({
 }
 
 function ReviewerBatches({
+  clientId,
   projectId,
   batches,
   message,
   checkoutBatch,
   router,
 }: {
+  clientId: string;
   projectId: string;
   batches: Batch[];
   message: string;
@@ -791,80 +850,114 @@ function ReviewerBatches({
           </p>
         )}
 
-        <div className="grid grid-cols-3 gap-6">
-          {batches.map((batch) => {
-            const isAvailable = batch.status === "Available";
-            const isCheckedOut = batch.status === "Checked Out";
-            const isCompleted = batch.status === "Completed";
+        <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-auto max-h-[75vh]">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
+              <tr>
+                <th className="p-2 text-left">Name</th>
+                <th className="p-2 text-left">Level</th>
+                <th className="p-2 text-left">Status</th>
+                <th className="p-2 text-left">Docs</th>
+                <th className="p-2 text-left">Reviewed</th>
+                <th className="p-2 text-left">Pending</th>
+                <th className="p-2 text-left">Workflow</th>
+                <th className="p-2 text-left">Checked Out By</th>
+                <th className="p-2 text-left">Actions</th>
+              </tr>
+            </thead>
 
-            return (
-              <ContentCard
-                key={batch.batch_id}
-                title={`${batch.name} (${batch.level || "1L"})`}
-              >
-                <div className="mb-4">
-                  <StatusBadge>{batch.status}</StatusBadge>
-                </div>
+            <tbody>
+              {batches.map((batch) => {
+                const totalDocs =
+                  batch.document_count ||
+                  Number(batch.documents || 0);
 
-                <div className="space-y-2 text-slate-300 mb-6">
-                  <p>
-                    Documents:{" "}
-                    {batch.document_count || batch.documents}
-                  </p>
+                const reviewed =
+                  batch.completed_count || 0;
 
-                  <p>
-                    Workflow:{" "}
-                    <span className="text-white">
-                      {batch.workflow_type || "standard"}
-                    </span>
-                  </p>
+                const pending = Math.max(
+                  totalDocs - reviewed,
+                  0
+                );
 
-                  <p>
-                    Level:{" "}
-                    <span className="text-white">
+                return (
+                  <tr
+                    key={batch.batch_id}
+                    className="border-t border-slate-800 hover:bg-slate-900/60"
+                  >
+                    <td className="p-2 text-white whitespace-nowrap">
+                      {batch.name}
+                    </td>
+
+                    <td className="p-2 text-slate-300 whitespace-nowrap">
                       {batch.level || "1L"}
-                    </span>
-                  </p>
+                    </td>
 
-                  <p>
-                    Checked out by:{" "}
-                    <span className="text-white">
+                    <td className="p-2 text-slate-300 whitespace-nowrap">
+                      <StatusBadge>{batch.status}</StatusBadge>
+                    </td>
+
+                    <td className="p-2 text-slate-300 whitespace-nowrap">
+                      {totalDocs}
+                    </td>
+
+                    <td className="p-2 text-slate-300 whitespace-nowrap">
+                      {reviewed}
+                    </td>
+
+                    <td className="p-2 text-slate-300 whitespace-nowrap">
+                      {pending}
+                    </td>
+
+                    <td className="p-2 text-slate-300 whitespace-nowrap">
+                      {batch.workflow_type || "standard"}
+                    </td>
+
+                    <td className="p-2 text-slate-300 whitespace-nowrap">
                       {batch.checked_out_by || "—"}
-                    </span>
-                  </p>
-                </div>
+                    </td>
 
-                {isAvailable && (
-                  <Button
-                    fullWidth
-                    onClick={() => checkoutBatch(batch.batch_id)}
-                  >
-                    Check Out Batch
-                  </Button>
-                )}
+                    <td className="p-2 whitespace-nowrap">
+                      {batch.status === "Available" && (
+                        <Button
+                          onClick={() =>
+                            checkoutBatch(batch.batch_id)
+                          }
+                        >
+                          Check Out
+                        </Button>
+                      )}
 
-                {isCheckedOut && (
-                  <Button
-                    fullWidth
-                    variant="secondary"
-                    onClick={() =>
-                      router.push(
-                        `/capture/review?project=${projectId}&batch=${batch.batch_id}`
-                      )
-                    }
-                  >
-                    Open Review
-                  </Button>
-                )}
+                      {batch.status === "Checked Out" && (
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            router.push(
+                              `/capture/review?client=${encodeURIComponent(
+                                clientId
+                              )}&project=${encodeURIComponent(
+                                projectId
+                              )}&batch=${encodeURIComponent(
+                                batch.batch_id
+                              )}`
+                            )
+                          }
+                        >
+                          Open
+                        </Button>
+                      )}
 
-                {isCompleted && (
-                  <Button fullWidth variant="secondary">
-                    Completed
-                  </Button>
-                )}
-              </ContentCard>
-            );
-          })}
+                      {batch.status === "Completed" && (
+                        <Button variant="secondary">
+                          Completed
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </PageContainer>
     </AppShell>

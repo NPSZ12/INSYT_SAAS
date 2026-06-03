@@ -43,6 +43,7 @@ from app.api import summaries_summary_data
 from app.models.audit_log import AuditLog
 from app.api.audit_logs import router as audit_logs_router
 from app.api.admin_clients import router as admin_clients_router
+from app.api import document_overlays
 
 from app.routes import merge_dedupe
 from app.routes import tools_merge_dedupe
@@ -217,6 +218,7 @@ app.include_router(workspace_projects.router)
 app.include_router(summaries_summary_data.router)
 app.include_router(audit_logs_router, dependencies=protected_dependencies)
 app.include_router(admin_clients_router, dependencies=protected_dependencies)
+app.include_router(document_overlays.router)
 
 
 # =========================

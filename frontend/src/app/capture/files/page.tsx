@@ -22,7 +22,9 @@ type ProjectFile = {
 
 function FilesPageContent() {
   const searchParams = useSearchParams();
-  const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
+  const projectId = searchParams.get("project") || "";
+  
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [docIdSearch, setDocIdSearch] = useState("");
@@ -33,10 +35,24 @@ function FilesPageContent() {
   useEffect(() => {
     if (!projectId) return;
 
-    apiGet(`/api/files?project=${projectId}`)
-      .then(setFiles)
+    apiGet(
+      `/api/capture/files?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId
+      )}&folder=${encodeURIComponent("source/native")}`
+    )
+      .then((response: any) => {
+        console.log("FILES RESPONSE", response);
+
+        const incomingFiles = Array.isArray(response)
+          ? response
+          : response?.files || [];
+
+        setFiles(incomingFiles);
+      })
       .catch(console.error);
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   const filteredFiles = useMemo(() => {
     return files.filter((file) => {
