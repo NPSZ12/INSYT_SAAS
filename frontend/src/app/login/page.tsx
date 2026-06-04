@@ -41,29 +41,21 @@ function LoginPageContent() {
   function handleMicrosoftLogin() {
     setErrorMessage("");
 
-    const apiBase =
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "http://127.0.0.1:8000";
+    const postLoginRedirect =
+      encodeURIComponent(nextPath || "/launcher");
 
-    fetch(`${apiBase}/api/auth/entra/start`)
-      .then((response) => response.json())
-      .then((response) => {
-        if (!response.auth_url) {
-          setErrorMessage(
-            "Microsoft login is not configured."
-          );
-          return;
-        }
+    const isLocal =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
 
-        window.location.href = response.auth_url;
-      })
-      .catch((error) => {
-        console.error(error);
+    if (isLocal) {
+      window.location.href =
+        `https://www.insyt360.com/.auth/login/aad?post_login_redirect_uri=${postLoginRedirect}`;
+      return;
+    }
 
-        setErrorMessage(
-          "Microsoft login failed to start."
-        );
-      });
+    window.location.href =
+      `/.auth/login/aad?post_login_redirect_uri=${postLoginRedirect}`;
   }
 
   function handleLogin() {
