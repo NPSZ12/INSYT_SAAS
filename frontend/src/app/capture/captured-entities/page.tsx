@@ -1,154 +1,17 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { Suspense } from "react";
 
-import AppShell from "../../../components/AppShell";
-import PageContainer from "../../../components/PageContainer";
-import PageHeader from "../../../components/PageHeader";
-import ContentCard from "../../../components/ContentCard";
-import { apiGet } from "../../../lib/api";
-
-type CapturedEntitiesResponse = {
-  headers: string[];
-  rows: Record<string, string>[];
-};
-
-function CapturedEntitiesPageContent() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-
-  const projectId = searchParams.get("project");
-  const batchId = searchParams.get("batch") || "";
-
-  const [data, setData] = useState<CapturedEntitiesResponse>({
-    headers: [],
-    rows: [],
-  });
-
-  useEffect(() => {
-    if (!projectId) return;
-
-    const batchQuery = batchId ? `&batch=${batchId}` : "";
-
-    apiGet(`/api/entities?project=${projectId}${batchQuery}`)
-      .then(setData)
-      .catch(console.error);
-  }, [projectId, batchId]);
-
-  if (!projectId) {
-    return (
-      <AppShell>
-        <PageContainer>
-          <PageHeader
-            title="No Project Selected"
-            subtitle="Return to Projects and select a project first."
-          />
-        </PageContainer>
-      </AppShell>
-    );
-  }
-
-  function openDocument(docId: string) {
-    router.push(
-      `/review?project=${projectId}&batch=${batchId}&doc=${encodeURIComponent(docId)}`
-    );
-  }
-
-  return (
-    <AppShell>
-      <PageContainer>
-        <PageHeader
-          title="Captured Entities"
-          subtitle={`Protocol-aligned captured entities for ${projectId.replaceAll("_", " ")}${batchId ? ` / ${batchId.replaceAll("_", " ")}` : ""}.`}
-        />
-
-        <ContentCard title="Captured Entity Table">
-          {data.rows.length === 0 ? (
-            <p className="text-slate-500">
-              No captured entities found for this project/batch.
-            </p>
-          ) : (
-            <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-auto max-h-[70vh]">
-              <table className="min-w-max w-full text-xs">
-                <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
-                  <tr>
-                    {data.headers.map((header, index) => (
-                      <th
-                        key={header}
-                        className={
-                          index === 0
-                            ? "p-3 text-left sticky left-0 bg-slate-900 z-10 whitespace-nowrap"
-                            : "p-3 text-left border-l border-slate-800 whitespace-nowrap"
-                        }
-                      >
-                        {header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {data.rows.map((row, rowIndex) => (
-                    <tr
-                      key={rowIndex}
-                      className="border-t border-slate-800"
-                    >
-                      {data.headers.map((header, index) => {
-                        const value = row[header] || "";
-
-                        if (header === "Doc ID") {
-                          return (
-                            <td
-                              key={header}
-                              className="p-3 sticky left-0 bg-slate-950 z-10 whitespace-nowrap"
-                            >
-                              <button
-                                className="text-sky-400 hover:text-sky-400 underline"
-                                onClick={() => openDocument(value)}
-                              >
-                                {value || "Open Doc"}
-                              </button>
-                            </td>
-                          );
-                        }
-
-                        return (
-                          <td
-                            key={header}
-                            className="p-3 text-slate-300 border-l border-slate-800 whitespace-nowrap"
-                          >
-                            {value}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ContentCard>
-      </PageContainer>
-    </AppShell>
-  );
-}
+import CapturedEntitiesTable from "../../../components/CapturedEntitiesTable";
 
 export default function CapturedEntitiesPage() {
   return (
     <Suspense fallback={<div>Loading captured entities...</div>}>
-      <CapturedEntitiesPageContent />
+      <CapturedEntitiesTable
+        workspace="capture"
+        title="Captured Entities"
+        subtitlePrefix="Protocol-aligned captured entities"
+      />
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-
-
-
-

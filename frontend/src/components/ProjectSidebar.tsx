@@ -288,11 +288,13 @@ export default function ProjectSidebar() {
     },
     {
       label: isSummaries
-        ? "Saved QC Summaries"
-        : "Captured Entities",
+        ? "Completed QC Summaries"
+        : isDiscovery
+          ? "Captured Coding"
+          : "Captured Entities",
       href: isSummaries
-        ? `/summaries/summary-data?client=${clientId}&project=${projectId}`
-        : `${workspaceBase}/captured-entities?client=${clientId}&project=${projectId}`,
+        ? `/summaries/summary-data?client=${clientId}&project=${projectId}&view=raw`
+        : `${workspaceBase}/captured-entities?client=${clientId}&project=${projectId}&view=raw`,
       icon: Database,
     },
     {

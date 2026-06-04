@@ -1,12 +1,14 @@
 import csv
 import io
 import json
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+import pandas as pd
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
-from datetime import datetime, timezone
 from app.services.batch_service import get_container_client
+
 
 router = APIRouter(
     prefix="/api/document-overlays",
@@ -14,7 +16,11 @@ router = APIRouter(
 )
 
 
+VALID_WORKSPACES = {"capture", "summaries", "discovery"}
+VALID_OVERLAY_VIEWS = {"raw", "final"}
+
 DOC_ID_FIELD_CANDIDATES = [
+    "Doc ID",
     "doc_id",
     "doc id",
     "document id",
@@ -29,23 +35,55 @@ DOC_ID_FIELD_CANDIDATES = [
     "insyt_doc_id",
 ]
 
-def build_overlay_blob_paths(project_id: str, filename: str) -> tuple[str, str]:
-    safe_project_id = project_id.strip("/")
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
-    original_name = filename.replace("\\", "_").replace("/", "_")
+def clean_path(value: str | None) -> str:
+    return (value or "").strip().strip("/")
 
-    overlay_path = (
-        f"{safe_project_id}/overlays/"
-        f"overlay_{timestamp}_{original_name}.json"
-    )
 
-    latest_path = f"{safe_project_id}/overlays/latest_overlay.json"
+def validate_workspace(workspace: str):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid workspace.",
+        )
 
-    return overlay_path, latest_path
+
+def validate_overlay_view(overlay_view: str):
+    if overlay_view not in VALID_OVERLAY_VIEWS:
+        raise HTTPException(
+            status_code=400,
+            detail="overlay_view must be raw or final.",
+        )
+
+
+def project_base_path(client: str | None, project_id: str) -> str:
+    project_name = clean_path(project_id)
+    client_name = clean_path(client)
+
+    if client_name:
+        return f"{client_name}/{project_name}"
+
+    return project_name
+
 
 def normalize_header(value: str) -> str:
     return value.strip().lower().replace("-", " ").replace("_", " ")
+
+
+def unique_values(values: list[str]) -> list[str]:
+    seen = set()
+    output = []
+
+    for value in values:
+        clean = value.strip()
+
+        if not clean or clean in seen:
+            continue
+
+        seen.add(clean)
+        output.append(clean)
+
+    return output
 
 
 def detect_doc_id_field(headers: list[str]) -> str | None:
@@ -66,21 +104,18 @@ def detect_doc_id_field(headers: list[str]) -> str | None:
 def parse_csv_overlay(content: bytes) -> list[dict[str, Any]]:
     text = content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
-
     return [dict(row) for row in reader]
 
 
 def parse_dat_overlay(content: bytes) -> list[dict[str, Any]]:
     text = content.decode("utf-8-sig", errors="replace")
-
-    # Concordance-style DAT usually uses þ as quote and ¶ as delimiter.
     sample = text[:5000]
 
     delimiter = "\x14"
-    quotechar = "þ"
+    quotechar = "\xfe"
 
-    if "¶" in sample:
-        delimiter = "¶"
+    if "\xb6" in sample:
+        delimiter = "\xb6"
     elif "\t" in sample:
         delimiter = "\t"
     elif "," in sample:
@@ -97,7 +132,6 @@ def parse_dat_overlay(content: bytes) -> list[dict[str, Any]]:
 
 def parse_json_overlay(content: bytes) -> list[dict[str, Any]]:
     text = content.decode("utf-8-sig", errors="replace")
-
     data = json.loads(text)
 
     if isinstance(data, list):
@@ -132,22 +166,183 @@ def parse_overlay_file(filename: str, content: bytes) -> list[dict[str, Any]]:
         status_code=400,
         detail="Unsupported overlay file type. Upload CSV, DAT, or JSON.",
     )
-    
-def list_project_doc_ids(project_id: str) -> set[str]:
-    container = get_container_client()
-    prefix = f"{project_id.strip('/')}/"
+
+
+def load_protocol_fields(
+    workspace: str,
+    project_id: str,
+    client: str | None = None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    container = get_container_client(workspace)
+
+    base_path = project_base_path(client, project_id)
+    project_name = clean_path(project_id)
+
+    possible_protocol_files = [
+        f"{base_path}/source/protocol/{project_name}_Protocol.json",
+        f"{base_path}/{project_name}_Protocol.json",
+        f"{base_path}/Protocol/{project_name}_Protocol.json",
+        f"{base_path}/protocol.json",
+        f"{base_path}/source/protocol/{project_name}_Protocol.xlsx",
+        f"{base_path}/{project_name}_Protocol.xlsx",
+        f"{base_path}/Protocol/{project_name}_Protocol.xlsx",
+        f"{base_path}/protocol.xlsx",
+        f"{project_name}/source/protocol/{project_name}_Protocol.json",
+        f"{project_name}/{project_name}_Protocol.json",
+        f"{project_name}/Protocol/{project_name}_Protocol.json",
+        f"{project_name}/protocol.json",
+        f"{project_name}/source/protocol/{project_name}_Protocol.xlsx",
+        f"{project_name}/{project_name}_Protocol.xlsx",
+        f"{project_name}/Protocol/{project_name}_Protocol.xlsx",
+        f"{project_name}/protocol.xlsx",
+    ]
+
+    for blob_name in possible_protocol_files:
+        blob_client = container.get_blob_client(blob_name)
+
+        if not blob_client.exists():
+            continue
+
+        blob_data = blob_client.download_blob().readall()
+
+        if blob_name.lower().endswith(".json"):
+            payload = json.loads(blob_data.decode("utf-8"))
+            return payload.get("fields", []), blob_name
+
+        if blob_name.lower().endswith(".xlsx"):
+            workbook = pd.ExcelFile(io.BytesIO(blob_data))
+            fields = []
+
+            for sheet_name in workbook.sheet_names:
+                df = pd.read_excel(
+                    io.BytesIO(blob_data),
+                    sheet_name=sheet_name,
+                    dtype=str,
+                ).fillna("")
+
+                df.columns = [str(column).strip() for column in df.columns]
+
+                for _, row in df.iterrows():
+                    section = str(
+                        row.get("Section")
+                        or row.get("section")
+                        or ""
+                    ).strip()
+
+                    data_element = str(
+                        row.get("Data Element")
+                        or row.get("DataElement")
+                        or row.get("Data element")
+                        or row.get("data_element")
+                        or ""
+                    ).strip()
+
+                    field_format = str(
+                        row.get("Format")
+                        or row.get("Default Format")
+                        or row.get("Capture Type")
+                        or row.get("Type")
+                        or ""
+                    ).strip()
+
+                    notes = str(
+                        row.get("Notes")
+                        or row.get("Note")
+                        or row.get("Description")
+                        or ""
+                    ).strip()
+
+                    if not data_element:
+                        continue
+
+                    fields.append(
+                        {
+                            "section": section,
+                            "data_element": data_element,
+                            "format": field_format,
+                            "default_format": field_format,
+                            "notes": notes,
+                            "source_sheet": sheet_name,
+                        }
+                    )
+
+            return fields, blob_name
+
+    return [], None
+
+
+def get_protocol_headers(fields: list[dict[str, Any]]) -> list[str]:
+    headers = []
+
+    for field in fields:
+        header = (
+            field.get("data_element")
+            or field.get("label")
+            or field.get("name")
+            or ""
+        )
+
+        if header:
+            headers.append(str(header).strip())
+
+    return unique_values(headers)
+
+
+def validate_overlay_headers(
+    upload_headers: list[str],
+    protocol_headers: list[str],
+) -> dict[str, Any]:
+    expected_headers = unique_values(["Doc ID", *protocol_headers])
+
+    upload_set = set(upload_headers)
+    expected_set = set(expected_headers)
+
+    missing_protocol_headers = [
+        header for header in expected_headers
+        if header not in upload_set
+    ]
+
+    extra_upload_headers = [
+        header for header in upload_headers
+        if header not in expected_set
+    ]
+
+    return {
+        "expected_headers": expected_headers,
+        "upload_headers": upload_headers,
+        "headers_match_exactly": (
+            len(missing_protocol_headers) == 0
+            and len(extra_upload_headers) == 0
+        ),
+        "missing_protocol_headers": missing_protocol_headers,
+        "extra_upload_headers": extra_upload_headers,
+    }
+
+
+def list_project_doc_ids(
+    workspace: str,
+    project_id: str,
+    client: str | None = None,
+) -> set[str]:
+    container = get_container_client(workspace)
+
+    base_path = project_base_path(client, project_id)
+    prefix = f"{base_path}/source/native/"
 
     doc_ids = set()
 
     for blob in container.list_blobs(name_starts_with=prefix):
         name = blob.name
 
-        if "/overlays/" in name:
+        if name.endswith("/"):
             continue
 
         filename = name.split("/")[-1]
 
-        if not filename:
+        if not filename or filename == ".keep":
+            continue
+
+        if filename.lower().endswith(".json"):
             continue
 
         doc_id = filename.rsplit(".", 1)[0].strip()
@@ -158,55 +353,60 @@ def list_project_doc_ids(project_id: str) -> set[str]:
     return doc_ids
 
 
-@router.post("/preview")
-async def preview_document_overlay(
-    project_id: str = Form(...),
-    file: UploadFile = File(...),
-    doc_id_field: str | None = Form(None),
-):
-    content = await file.read()
+def build_overlay_blob_paths(
+    client: str | None,
+    project_id: str,
+    overlay_view: str,
+    filename: str,
+) -> tuple[str, str]:
+    base_path = project_base_path(client, project_id)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    original_name = filename.replace("\\", "_").replace("/", "_")
 
-    if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing filename.",
-        )
+    overlay_path = (
+        f"{base_path}/overlays/{overlay_view}/"
+        f"overlay_{timestamp}_{original_name}.json"
+    )
 
-    rows = parse_overlay_file(file.filename, content)
+    latest_path = (
+        f"{base_path}/overlays/{overlay_view}/latest_overlay.json"
+    )
 
-    if not rows:
-        raise HTTPException(
-            status_code=400,
-            detail="Overlay file did not contain any rows.",
-        )
+    return overlay_path, latest_path
 
-    headers = list(rows[0].keys())
 
-    selected_doc_id_field = doc_id_field or detect_doc_id_field(headers)
+def build_overlay_records(
+    rows: list[dict[str, Any]],
+    doc_id_field: str,
+) -> tuple[list[dict[str, Any]], int]:
+    records = []
+    missing_doc_id_count = 0
 
-    if not selected_doc_id_field:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "message": "Could not detect Doc ID field.",
-                "available_fields": headers,
-            },
-        )
+    for row in rows:
+        doc_id = str(row.get(doc_id_field, "")).strip()
 
-    preview_rows = []
+        if not doc_id:
+            missing_doc_id_count += 1
+            continue
 
-    for row in rows[:50]:
-        doc_id = str(row.get(selected_doc_id_field, "")).strip()
-
-        preview_rows.append(
+        records.append(
             {
                 "doc_id": doc_id,
                 "metadata": row,
             }
         )
 
+    return records, missing_doc_id_count
+
+
+def build_overlay_validation(
+    rows: list[dict[str, Any]],
+    selected_doc_id_field: str,
+    project_doc_ids: set[str],
+):
     duplicate_doc_ids = set()
     seen_doc_ids = set()
+    overlay_doc_ids = set()
 
     for row in rows:
         doc_id = str(row.get(selected_doc_id_field, "")).strip()
@@ -218,25 +418,9 @@ async def preview_document_overlay(
             duplicate_doc_ids.add(doc_id)
 
         seen_doc_ids.add(doc_id)
-    
-    overlay_doc_ids = set()
+        overlay_doc_ids.add(doc_id)
 
-    for row in rows:
-        doc_id = str(row.get(selected_doc_id_field, "")).strip()
-
-        if doc_id:
-            overlay_doc_ids.add(doc_id)
-
-    project_doc_ids = set()
-
-    try:
-        project_doc_ids = list_project_doc_ids(project_id)
-    except Exception:
-        project_doc_ids = set()
-
-    matched_doc_ids = overlay_doc_ids.intersection(
-        project_doc_ids
-    )
+    matched_doc_ids = overlay_doc_ids.intersection(project_doc_ids)
 
     unmatched_overlay_doc_ids = (
         overlay_doc_ids.difference(project_doc_ids)
@@ -251,30 +435,30 @@ async def preview_document_overlay(
     )
 
     return {
-        "project_id": project_id,
-        "filename": file.filename,
-        "row_count": len(rows),
-        "detected_doc_id_field": selected_doc_id_field,
-        "headers": headers,
-        "duplicate_doc_id_count": len(duplicate_doc_ids),
-        "duplicate_doc_ids_sample": sorted(list(duplicate_doc_ids))[:25],
-        "validation_available": bool(project_doc_ids),
         "project_file_count": len(project_doc_ids),
         "overlay_doc_id_count": len(overlay_doc_ids),
         "matched_doc_id_count": len(matched_doc_ids),
         "unmatched_overlay_doc_id_count": len(unmatched_overlay_doc_ids),
         "missing_overlay_doc_id_count": len(missing_overlay_doc_ids),
+        "duplicate_doc_id_count": len(duplicate_doc_ids),
+        "duplicate_doc_ids_sample": sorted(list(duplicate_doc_ids))[:25],
         "unmatched_overlay_doc_ids_sample": sorted(list(unmatched_overlay_doc_ids))[:25],
         "missing_overlay_doc_ids_sample": sorted(list(missing_overlay_doc_ids))[:25],
-        "preview_rows": preview_rows,
     }
-    
-@router.post("/commit")
-async def commit_document_overlay(
+
+
+@router.post("/preview")
+async def preview_document_overlay(
+    workspace: str = Form(...),
     project_id: str = Form(...),
+    client: str | None = Form(default=None),
+    overlay_view: str = Form(...),
     file: UploadFile = File(...),
     doc_id_field: str | None = Form(None),
 ):
+    validate_workspace(workspace)
+    validate_overlay_view(overlay_view)
+
     content = await file.read()
 
     if not file.filename:
@@ -292,7 +476,6 @@ async def commit_document_overlay(
         )
 
     headers = list(rows[0].keys())
-
     selected_doc_id_field = doc_id_field or detect_doc_id_field(headers)
 
     if not selected_doc_id_field:
@@ -303,6 +486,118 @@ async def commit_document_overlay(
                 "available_fields": headers,
             },
         )
+
+    protocol_fields, protocol_blob = load_protocol_fields(
+        workspace=workspace,
+        project_id=project_id,
+        client=client,
+    )
+
+    protocol_headers = get_protocol_headers(protocol_fields)
+    header_validation = validate_overlay_headers(
+        upload_headers=headers,
+        protocol_headers=protocol_headers,
+    )
+
+
+    project_doc_ids = list_project_doc_ids(
+        workspace=workspace,
+        project_id=project_id,
+        client=client,
+    )
+
+    doc_validation = build_overlay_validation(
+        rows=rows,
+        selected_doc_id_field=selected_doc_id_field,
+        project_doc_ids=project_doc_ids,
+    )
+
+    preview_rows = []
+
+    for row in rows[:50]:
+        doc_id = str(row.get(selected_doc_id_field, "")).strip()
+
+        preview_rows.append(
+            {
+                "doc_id": doc_id,
+                "metadata": row,
+            }
+        )
+
+    return {
+        "workspace": workspace,
+        "client": clean_path(client),
+        "project_id": project_id,
+        "overlay_view": overlay_view,
+        "filename": file.filename,
+        "row_count": len(rows),
+        "detected_doc_id_field": selected_doc_id_field,
+        "headers": headers,
+        "protocol_blob": protocol_blob,
+        "protocol_header_count": len(protocol_headers),
+        "validation_available": bool(project_doc_ids),
+        **header_validation,
+        **doc_validation,
+        "preview_rows": preview_rows,
+    }
+
+
+@router.post("/commit")
+async def commit_document_overlay(
+    workspace: str = Form(...),
+    project_id: str = Form(...),
+    client: str | None = Form(default=None),
+    overlay_view: str = Form(...),
+    file: UploadFile = File(...),
+    doc_id_field: str | None = Form(None),
+):
+    validate_workspace(workspace)
+    validate_overlay_view(overlay_view)
+
+    content = await file.read()
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing filename.",
+        )
+
+    rows = parse_overlay_file(file.filename, content)
+
+    if not rows:
+        raise HTTPException(
+            status_code=400,
+            detail="Overlay file did not contain any rows.",
+        )
+
+    headers = list(rows[0].keys())
+    selected_doc_id_field = doc_id_field or detect_doc_id_field(headers)
+
+    if not selected_doc_id_field:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Could not detect Doc ID field.",
+                "available_fields": headers,
+            },
+        )
+
+    protocol_fields, protocol_blob = load_protocol_fields(
+        workspace=workspace,
+        project_id=project_id,
+        client=client,
+    )
+
+    protocol_headers = get_protocol_headers(protocol_fields)
+    header_validation = validate_overlay_headers(
+        upload_headers=headers,
+        protocol_headers=protocol_headers,
+    )
+
+    committed_headers = [
+        header for header in header_validation["expected_headers"]
+        if header in headers and header != "Doc ID"
+    ]
 
     overlay_records = []
     missing_doc_id_count = 0
@@ -317,27 +612,55 @@ async def commit_document_overlay(
         overlay_records.append(
             {
                 "doc_id": doc_id,
-                "metadata": row,
+                "metadata": {
+                    header: row.get(header, "")
+                    for header in committed_headers
+                },
             }
         )
 
+    project_doc_ids = list_project_doc_ids(
+        workspace=workspace,
+        project_id=project_id,
+        client=client,
+    )
+
+    doc_validation = build_overlay_validation(
+        rows=rows,
+        selected_doc_id_field=selected_doc_id_field,
+        project_doc_ids=project_doc_ids,
+    )
+
     overlay_payload = {
+        "workspace": workspace,
+        "client": clean_path(client),
         "project_id": project_id,
+        "overlay_view": overlay_view,
         "source_filename": file.filename,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "doc_id_field": selected_doc_id_field,
         "row_count": len(rows),
         "committed_record_count": len(overlay_records),
         "missing_doc_id_count": missing_doc_id_count,
-        "headers": headers,
+        "upload_headers": headers,
+        "committed_headers": committed_headers,
+        "ignored_extra_headers": header_validation["extra_upload_headers"],
+        "missing_protocol_headers": header_validation["missing_protocol_headers"],
+        "protocol_blob": protocol_blob,
         "records": overlay_records,
+        "validation": {
+            **header_validation,
+            **doc_validation,
+        },
     }
 
     try:
-        container = get_container_client()
+        container = get_container_client(workspace)
 
         overlay_path, latest_path = build_overlay_blob_paths(
+            client=client,
             project_id=project_id,
+            overlay_view=overlay_view,
             filename=file.filename,
         )
 
@@ -367,7 +690,10 @@ async def commit_document_overlay(
 
     return {
         "message": "Document overlay committed successfully.",
+        "workspace": workspace,
+        "client": clean_path(client),
         "project_id": project_id,
+        "overlay_view": overlay_view,
         "source_filename": file.filename,
         "stored_overlay_path": overlay_path,
         "latest_overlay_path": latest_path,
@@ -375,27 +701,53 @@ async def commit_document_overlay(
         "row_count": len(rows),
         "committed_record_count": len(overlay_records),
         "missing_doc_id_count": missing_doc_id_count,
+        "headers_match_exactly": header_validation["headers_match_exactly"],
+        "committed_headers": committed_headers,
+        "ignored_extra_headers": header_validation["extra_upload_headers"],
+        "missing_protocol_headers": header_validation["missing_protocol_headers"],
+        "validation": {
+            **header_validation,
+            **doc_validation,
+        },
     }
-    
+
+
 @router.get("/{project_id}/list")
-def list_document_overlays(project_id: str):
+def list_document_overlays(
+    project_id: str,
+    workspace: str = Query(default="capture"),
+    client: str | None = Query(default=None),
+    overlay_view: str | None = Query(default=None),
+):
+    validate_workspace(workspace)
+
+    if overlay_view:
+        validate_overlay_view(overlay_view)
+
     try:
-        container = get_container_client()
-        prefix = f"{project_id.strip('/')}/overlays/"
+        container = get_container_client(workspace)
+        base_path = project_base_path(client, project_id)
+
+        if overlay_view:
+            prefix = f"{base_path}/overlays/{overlay_view}/"
+        else:
+            prefix = f"{base_path}/overlays/"
 
         overlays = []
 
         for blob in container.list_blobs(name_starts_with=prefix):
-            if blob.name.endswith(".json"):
-                overlays.append(
-                    {
-                        "name": blob.name,
-                        "size": blob.size,
-                        "last_modified": blob.last_modified.isoformat()
-                        if blob.last_modified
-                        else None,
-                    }
-                )
+            if not blob.name.endswith(".json"):
+                continue
+
+            overlays.append(
+                {
+                    "name": blob.name,
+                    "size": blob.size,
+                    "last_modified": blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else None,
+                }
+            )
 
         overlays.sort(
             key=lambda item: item["last_modified"] or "",
@@ -403,7 +755,10 @@ def list_document_overlays(project_id: str):
         )
 
         return {
+            "workspace": workspace,
+            "client": clean_path(client),
             "project_id": project_id,
+            "overlay_view": overlay_view,
             "count": len(overlays),
             "overlays": overlays,
         }
@@ -413,19 +768,29 @@ def list_document_overlays(project_id: str):
             status_code=500,
             detail=f"Failed to list overlays: {str(exc)}",
         )
-        
+
+
 @router.get("/{project_id}/latest")
-def get_latest_document_overlay(project_id: str):
+def get_latest_document_overlay(
+    project_id: str,
+    workspace: str = Query(default="capture"),
+    client: str | None = Query(default=None),
+    overlay_view: str = Query(default="raw"),
+):
+    validate_workspace(workspace)
+    validate_overlay_view(overlay_view)
+
     try:
-        container = get_container_client()
-        latest_path = f"{project_id.strip('/')}/overlays/latest_overlay.json"
+        container = get_container_client(workspace)
+        base_path = project_base_path(client, project_id)
+        latest_path = f"{base_path}/overlays/{overlay_view}/latest_overlay.json"
 
         blob_client = container.get_blob_client(latest_path)
 
         if not blob_client.exists():
             raise HTTPException(
                 status_code=404,
-                detail="No latest overlay found for this project.",
+                detail="No latest overlay found for this project/view.",
             )
 
         content = blob_client.download_blob().readall()

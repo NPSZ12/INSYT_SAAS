@@ -25,6 +25,9 @@ class EntityDeleteRequest(BaseModel):
 def list_entities(
     project: str,
     batch: str = "",
+    workspace: str = "capture",
+    client: str = "",
+    view: str = "raw",
     x_username: str = Header(default=""),
 ):
     protocol_fields = load_protocol_fields(project)
@@ -39,11 +42,14 @@ def list_entities(
         if header
     ]
 
+    normalized_view = "final" if view == "final" else "raw"
+
     matching_entities = [
         entity for entity in CAPTURED_ENTITIES
         if entity.get("project_id") == project
         and entity.get("linked", True)
         and (not batch or entity.get("batch_id") == batch)
+        and entity.get("entity_view", "raw") == normalized_view
     ]
 
     rows = []

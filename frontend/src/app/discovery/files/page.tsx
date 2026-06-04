@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
@@ -21,8 +21,17 @@ type ProjectFile = {
 };
 
 function FilesPageContent() {
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+
   const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
+
+  const workspace = pathname.startsWith("/discovery")
+    ? "discovery"
+    : pathname.startsWith("/summaries")
+      ? "summaries"
+      : "capture";
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [docIdSearch, setDocIdSearch] = useState("");
@@ -33,10 +42,19 @@ function FilesPageContent() {
   useEffect(() => {
     if (!projectId) return;
 
-    apiGet(`/api/files?project=${projectId}`)
+    const params = new URLSearchParams({
+      project: projectId,
+      folder: "source/native",
+    });
+
+    if (clientId) {
+      params.set("client", clientId);
+    }
+
+    apiGet(`/api/${workspace}/files?${params.toString()}`)
       .then(setFiles)
       .catch(console.error);
-  }, [projectId]);
+  }, [workspace, clientId, projectId]);
 
   const filteredFiles = useMemo(() => {
     return files.filter((file) => {

@@ -43,6 +43,9 @@ export default function NewProjectPage() {
     Record<string, ProtocolTemplateField[]>
   >({});
 
+  const [overlayView, setOverlayView] =
+    useState<"raw" | "final">("raw");
+
   function loadProjects(clientOverride?: string) {
     const client = clientOverride ?? selectedClient;
 
@@ -362,7 +365,7 @@ export default function NewProjectPage() {
         )}
 
         <ContentCard title="Create Azure Project">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
               <FormLabel>Workspace</FormLabel>
 
@@ -646,97 +649,116 @@ export default function NewProjectPage() {
             )}
           </ContentCard>
         </div>
+        
         <div className="mt-8">
           <ContentCard title="Overlay Upload">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-              <div>
-                <FormLabel>Select Project</FormLabel>
+            <div className="space-y-4">
+              <p className="text-sm text-slate-400">
+                Upload CSV, JSON, or DAT overlays into Raw or Final overlay storage.
+                Uploaded headers must exactly match the saved project protocol and
+                include a Doc ID column.
+              </p>
 
-                <Select
-                  value={selectedProject}
-                  onChange={setSelectedProject}
-                >
-                  <option value="">Select project...</option>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <FormLabel>Workspace</FormLabel>
 
-                  {projects.map((project) => (
-                    <option key={project} value={project}>
-                      {project.replaceAll("_", " ")}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="md:col-span-2">
-                <FormLabel>
-                  Upload Captured Entities CSV
-                </FormLabel>
-
-                <input
-                  type="file"
-                  accept=".csv"
-                  className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-sky-100 file:px-4 file:py-2 file:text-slate-700 hover:file:bg-sky-500"
-                  onChange={(event) => {
-                    const files = event.target.files;
-
-                    if (!files || files.length === 0) {
-                      setMessage("No overlay CSV selected.");
-                      return;
-                    }
-
-                    setMessage(
-                      `${files[0].name} selected for overlay upload.`
-                    );
-                  }}
-                />
-              </div>
-
-              <div className="md:col-span-3">
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 mb-4">
-                  <h3 className="text-sm font-semibold text-white mb-2">
-                    Required CSV Format
-                  </h3>
-
-                  <div className="text-xs text-slate-400 space-y-1">
-                    <p>
-                      • CSV must contain a{" "}
-                      <span className="text-sky-400 font-semibold">
-                        Doc ID
-                      </span>{" "}
-                      column
-                    </p>
-
-                    <p>
-                      • Remaining columns will automatically map to linked entity fields
-                    </p>
-
-                    <p>
-                      • Matching Doc IDs will auto-link entities to review documents
-                    </p>
-                  </div>
+                  <Select
+                    value={workspace}
+                    onChange={(value) => {
+                      setWorkspace(value);
+                      setSelectedClient("");
+                      setSelectedProject("");
+                      setProjects([]);
+                    }}
+                  >
+                    <option value="capture">Capture</option>
+                    <option value="discovery">Discovery</option>
+                    <option value="summaries">Summaries</option>
+                  </Select>
                 </div>
 
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    if (!selectedProject) {
-                      setMessage(
-                        "Select a project before overlay upload."
-                      );
+                <div>
+                  <FormLabel>Client</FormLabel>
 
-                      return;
+                  <Select
+                    value={selectedClient}
+                    onChange={(value) => {
+                      setSelectedClient(value);
+                      setSelectedProject("");
+                    }}
+                  >
+                    <option value="">Select client...</option>
+
+                    {clients.map((client) => (
+                      <option key={client} value={client}>
+                        {client}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                <div>
+                  <FormLabel>Project</FormLabel>
+
+                  <Select
+                    value={selectedProject}
+                    onChange={setSelectedProject}
+                  >
+                    <option value="">Select project...</option>
+
+                    {projects.map((project) => (
+                      <option key={project} value={project}>
+                        {project.replaceAll("_", " ")}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                <div>
+                  <FormLabel>Overlay Target</FormLabel>
+
+                  <Select
+                    value={overlayView}
+                    onChange={(value) =>
+                      setOverlayView(value as "raw" | "final")
                     }
-
-                    setMessage(
-                      "Overlay Upload backend connection is next."
-                    );
-                  }}
-                >
-                  Upload Overlay CSV
-                </Button>
+                  >
+                    <option value="raw">Raw</option>
+                    <option value="final">Final</option>
+                  </Select>
+                </div>
               </div>
+
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (!selectedClient) {
+                    setMessage("Select a client before opening Overlay Upload.");
+                    return;
+                  }
+
+                  if (!selectedProject) {
+                    setMessage("Select a project before opening Overlay Upload.");
+                    return;
+                  }
+
+                  const params = new URLSearchParams({
+                    workspace,
+                    client: selectedClient,
+                    project: selectedProject,
+                    overlay_view: overlayView,
+                  });
+
+                  window.location.href = `/project-management/upload-overlay?${params.toString()}`;
+                }}
+              >
+                Open Overlay Upload
+              </Button>
             </div>
           </ContentCard>
         </div>
+
       </PageContainer>
     </AppShell>
   );

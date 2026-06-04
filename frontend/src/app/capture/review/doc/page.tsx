@@ -47,6 +47,7 @@ function ReviewPageContent() {
   const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
+  const docId = searchParams.get("doc") || "";
 
   const [error, setError] = useState("");
   const [protocolMessage, setProtocolMessage] = useState("");
@@ -56,13 +57,51 @@ function ReviewPageContent() {
   const [linkedEntities, setLinkedEntities] = useState<any[]>([]);
 
   useEffect(() => {
-    if (!projectId || !batchId) {
+    if (!projectId || (!batchId && !docId)) {
       return;
     }
 
     setIsLoading(true);
     setError("");
     setReviewDoc(null);
+
+    if (docId && !batchId) {
+      apiGet(
+        `/api/capture/files?client=${encodeURIComponent(
+          clientId
+        )}&project=${encodeURIComponent(
+          projectId
+        )}&folder=${encodeURIComponent("source/native")}`
+      )
+        .then((files: any[]) => {
+          const file = files.find(
+            (item) => item.doc_id === docId
+          );
+
+          if (!file) {
+            setError("Document not found in project source/native.");
+            return;
+          }
+
+          setReviewDoc({
+            project: projectId,
+            batch: "Direct Open",
+            doc_id: file.doc_id,
+            text: "",
+            native_url: "",
+            native_blob: file.blob_path,
+          } as ReviewDocument);
+        })
+        .catch((error) => {
+          console.error(error);
+          setError("Failed to open document directly.");
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+
+      return;
+    }
 
     apiGet(
       `/api/review/current?client=${encodeURIComponent(
@@ -81,7 +120,7 @@ function ReviewPageContent() {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [clientId, projectId, batchId]);
+  }, [clientId, projectId, batchId, docId]);
 
   useEffect(() => {
     if (!projectId || !batchId || !reviewDoc?.doc_id) return;
@@ -171,7 +210,7 @@ function ReviewPageContent() {
     );
   }
 
-  if (!batchId) {
+  if (!batchId && !docId) {
     return (
       <AppShell>
         <PageContainer>

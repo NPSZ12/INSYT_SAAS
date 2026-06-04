@@ -22,6 +22,9 @@ DEFAULT_PROJECT_FOLDERS = [
     "source/protocol",
     "review/batches",
     "review/qc",
+    "overlays/raw",
+    "overlays/final",
+    "overlays/logs",
     "reports",
     "exports",
     "archive",
@@ -119,4 +122,52 @@ def create_workspace_project(
         "client": client_name,
         "project": project_name,
         "created_paths": created_paths,
+    }
+    
+@router.post("/{workspace}/projects/ensure-folders")
+def ensure_workspace_project_folders(
+    workspace: str,
+    payload: CreateWorkspaceProjectRequest,
+):
+    container = get_workspace_container(workspace)
+
+    client_name = clean_folder(payload.client)
+    project_name = clean_folder(payload.project_id)
+
+    if not client_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required.",
+        )
+
+    if not project_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Project name is required.",
+        )
+
+    ensured_paths = []
+
+    for folder in DEFAULT_PROJECT_FOLDERS:
+        blob_path = (
+            f"{client_name}/"
+            f"{project_name}/"
+            f"{folder}/.keep"
+        )
+
+        blob_client = container.get_blob_client(blob_path)
+
+        blob_client.upload_blob(
+            b"",
+            overwrite=True,
+        )
+
+        ensured_paths.append(blob_path)
+
+    return {
+        "status": "ensured",
+        "workspace": workspace,
+        "client": client_name,
+        "project": project_name,
+        "ensured_paths": ensured_paths,
     }

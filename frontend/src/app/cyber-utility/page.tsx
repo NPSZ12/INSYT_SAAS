@@ -1,92 +1,78 @@
 "use client";
 
+import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
 import AppShell from "../../components/AppShell";
 import PageContainer from "../../components/PageContainer";
 import PageHeader from "../../components/PageHeader";
 import ContentCard from "../../components/ContentCard";
-import { Suspense, useState } from "react";
-import { apiPost } from "../../lib/api";
-import { usePathname, useSearchParams } from "next/navigation";
-
 
 const tools = [
   {
     name: "XL Processing",
-    description: "Convert Excel workbooks to CSV outputs inside Azure storage.",
+    path: "/cyber-utility/xl-processing",
+    description: "Convert Excel workbooks to CSV outputs, preview spreadsheets, extract headers, and build master outputs.",
   },
   {
     name: "Merge / Dedupe",
+    path: "",
     description: "Merge datasets, normalize records, and remove duplicates.",
   },
   {
     name: "Denist",
+    path: "",
     description: "Remove known system/application files from processing populations.",
   },
   {
     name: "Assign Doc IDs",
+    path: "",
     description: "Apply sequential Doc IDs and create defensible load-ready indexes.",
   },
   {
     name: "Entity Normalization",
+    path: "",
     description: "Normalize names, emails, addresses, and entity variants.",
   },
   {
     name: "Breach Population Analyzer",
+    path: "",
     description: "Analyze PII/PHI populations and reduce notification populations.",
   },
 ];
 
-function CyberUtilityPageContent() {
-
-  const [message, setMessage] = useState("");
-  const pathname = usePathname();
+function CyberUtilityLandingContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
 
-  const selectedProject =
-    searchParams.get("project") || "";
+  function openTool(path: string) {
+  if (!path) {
+    return;
+  }
 
-  const workspace = pathname.startsWith("/summaries")
-    ? "summaries"
-    : pathname.startsWith("/discovery")
-      ? "discovery"
-      : "capture";
+    const params = new URLSearchParams();
 
+    const client = searchParams.get("client");
+    const project = searchParams.get("project");
+    const batch = searchParams.get("batch");
 
-  function runTool(toolName: string) {
-    if (!selectedProject) {
-      setMessage("Select a project first.");
-      return;
-    }
-  apiPost("/api/cyber-utility/jobs", {
-    workspace,
-    project_id: selectedProject,
-    tool_name: toolName,
-    input_path: null,
-    output_path: null,
-    options: {},
-  })
-    .then((response) => {
-      setMessage(
-        `${response.tool_name} queued. Job ID: ${response.job_id}`
-      );
-    })
-    .catch((error) => {
-      console.error(error);
-      setMessage("Failed to queue Cyber² Utility job.");
-    });
-}
+    if (client) params.set("client", client);
+    if (project) params.set("project", project);
+    if (batch) params.set("batch", batch);
+
+    const query = params.toString();
+
+    router.push(query ? `${path}?${query}` : path);
+  }
+
   return (
     <AppShell>
       <PageContainer>
         <PageHeader
           title="Cyber² Utility Suite"
-          subtitle="Run utility workflows against Azure-hosted project files without downloading documents locally."
+          subtitle="Select a utility workflow to run against Azure-hosted project files without downloading documents locally."
         />
-        {message && (
-          <p className="text-sm text-sky-400 mb-6">
-            {message}
-          </p>
-        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {tools.map((tool) => (
             <ContentCard key={tool.name} title={tool.name}>
@@ -96,8 +82,8 @@ function CyberUtilityPageContent() {
 
               <button
                 type="button"
-                onClick={() => runTool(tool.name)}
-                className="bg-lime-50 hover:bg-lime-50 text-slate-700 rounded-xl px-4 py-3 font-semibold"
+                onClick={() => openTool(tool.path)}
+                className="bg-lime-50 hover:bg-lime-100 text-slate-700 rounded-xl px-4 py-3 font-semibold"
               >
                 Open Tool
               </button>
@@ -109,13 +95,10 @@ function CyberUtilityPageContent() {
   );
 }
 
-
-
 export default function Page() {
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      <CyberUtilityPageContent />
+      <CyberUtilityLandingContent />
     </Suspense>
   );
 }
-
