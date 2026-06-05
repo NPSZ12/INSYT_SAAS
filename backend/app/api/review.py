@@ -107,11 +107,149 @@ def get_workspace_blob_url(
 
     return f"{blob_client.url}?{sas_token}"
 
+SUPPORTED_REVIEW_EXTENSIONS = (
+    ".pdf",
+    ".txt",
+    ".docx",
+    ".xlsx",
+    ".xls",
+    ".xlsm",
+    ".csv",
+    ".dat",
+    ".json",
+)
+
+
+def normalize_doc_id(value: str) -> str:
+    name = str(value or "").strip().split("/")[-1]
+
+    if "." in name:
+        name = name.rsplit(".", 1)[0]
+
+    return name.strip().lower()
+
+
+def get_batch_blob_name(
+    client: str,
+    project_id: str,
+    batch: str,
+) -> str:
+    if client:
+        return f"{client}/{project_id}/Batches/{batch}.json"
+
+    return f"{project_id}/Batches/{batch}.json"
+
+
+def load_batch_payload(
+    workspace: str,
+    client: str,
+    project_id: str,
+    batch: str,
+):
+    container = get_container_client(workspace)
+
+    batch_blob_name = get_batch_blob_name(
+        client=client,
+        project_id=project_id,
+        batch=batch,
+    )
+
+    blob_client = container.get_blob_client(batch_blob_name)
+
+    if not blob_client.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Batch not found: {batch_blob_name}",
+        )
+
+    payload = json.loads(
+        blob_client.download_blob()
+        .readall()
+        .decode("utf-8")
+    )
+
+    doc_ids = [
+        str(doc_id).strip()
+        for doc_id in payload.get("doc_ids", [])
+        if str(doc_id).strip()
+    ]
+
+    if not doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Batch {batch} has no assigned documents.",
+        )
+
+    return payload, doc_ids
+
+
+def get_project_files_for_review(
+    workspace: str,
+    project_id: str,
+    client: str,
+):
+    try:
+        return list_workspace_project_files(
+            workspace,
+            project_id,
+            client,
+        )
+    except TypeError:
+        return list_workspace_project_files(
+            workspace,
+            project_id,
+        )
+
+
+def find_native_file_for_doc(
+    files: list[dict],
+    doc_id: str,
+):
+    requested = normalize_doc_id(doc_id)
+
+    native_files = [
+        file for file in files
+        if "/source/native/" in f"/{str(file.get('path', '')).lower()}"
+        and str(file.get("name", "")).lower().endswith(
+            SUPPORTED_REVIEW_EXTENSIONS
+        )
+    ]
+
+    for file in native_files:
+        file_name = str(file.get("name", "")).split("/")[-1]
+        file_base = normalize_doc_id(file_name)
+        blob_base = normalize_doc_id(str(file.get("path", "")))
+
+        if file_base == requested or blob_base == requested:
+            return file
+
+    return None
+
+
+def resolve_text_blob_path(native_blob: str) -> str:
+    if native_blob.lower().endswith(".txt"):
+        return native_blob
+
+    try:
+        return get_text_blob_path(native_blob)
+    except Exception:
+        base_path, file_name = native_blob.rsplit("/", 1)
+        doc_id = file_name.rsplit(".", 1)[0]
+
+        if "/source/native" in base_path:
+            text_base = base_path.replace("/source/native", "/source/text")
+            return f"{text_base}/{doc_id}.txt"
+
+        return f"{base_path}/{doc_id}.txt"
+
+
+
 def load_current_review_document(
     workspace: str,
     project: str,
     batch: str,
     client: str = "",
+    doc: str = "",
 ):
     if workspace not in VALID_WORKSPACES:
         raise HTTPException(
@@ -120,61 +258,74 @@ def load_current_review_document(
         )
 
     project_id = project
-    print(
-        "LOAD REVIEW DOC",
-        {
-            "workspace": workspace,
-            "client": client,
-            "project": project,
-            "batch": batch,
-        },
-    )
+
     protocol_fields = load_protocol_fields(project_id)
 
-    files = list_workspace_project_files(
-        workspace,
-        project_id,
-        client,
+    batch_payload, batch_doc_ids = load_batch_payload(
+        workspace=workspace,
+        client=client,
+        project_id=project_id,
+        batch=batch,
     )
 
-    print("FILES FOUND", len(files))
+    reviewed_doc_ids = batch_payload.get("reviewed_doc_ids", [])
 
-    pdf_files = [
-        file for file in files
-        if file["name"].lower().endswith(".pdf")
-        and "/source/native/" in f"/{file['path'].lower()}"
-    ]
+    if doc:
+        target_doc_id = doc.strip()
+    else:
+        target_doc_id = next(
+            (
+                doc_id
+                for doc_id in batch_doc_ids
+                if doc_id not in reviewed_doc_ids
+            ),
+            batch_doc_ids[0],
+        )
 
-    if not pdf_files:
-        return {
-            "workspace": workspace,
-            "project": project_id.replace("_", " "),
-            "project_id": project_id,
-            "batch": batch,
-            "doc_id": "No Native PDF",
-            "text": "No source/native PDF files found in this Azure project.",
-            "text_truncated": False,
-            "text_length": 0,
-            "outline_items": [],
-            "fields": protocol_fields,
-            "native_url": "",
-            "native_blob": "",
-            "text_blob": "",
-            "text_exists": False,
-        }
+    normalized_batch_doc_ids = {
+        normalize_doc_id(doc_id): doc_id
+        for doc_id in batch_doc_ids
+    }
 
-    # TODO: later choose the correct file from the checked-out batch.
-    # For now, use the first source/native PDF.
-    first_pdf = pdf_files[0]
-    native_blob = first_pdf["path"]
+    normalized_target = normalize_doc_id(target_doc_id)
+
+    if normalized_target not in normalized_batch_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Requested document {target_doc_id} is not assigned "
+                f"to batch {batch}."
+            ),
+        )
+
+    target_doc_id = normalized_batch_doc_ids[normalized_target]
+
+    files = get_project_files_for_review(
+        workspace=workspace,
+        project_id=project_id,
+        client=client,
+    )
+
+    native_file = find_native_file_for_doc(
+        files=files,
+        doc_id=target_doc_id,
+    )
+
+    if not native_file:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Native file not found for batch document: {target_doc_id}"
+            ),
+        )
+
+    native_blob = native_file["path"]
+    text_blob_path = resolve_text_blob_path(native_blob)
 
     container = get_container_client(workspace)
-
-    text_blob_path = get_text_blob_path(native_blob)
     text_blob = container.get_blob_client(text_blob_path)
 
     text_exists = text_blob.exists()
-
     text = ""
     outline_items = []
 
@@ -184,16 +335,31 @@ def load_current_review_document(
             errors="replace",
         )
 
-        outline_items = parse_summary_outline(text)
+        try:
+            outline_items = parse_summary_outline(text)
+        except Exception:
+            outline_items = []
 
-    doc_id = native_blob.split("/")[-1].rsplit(".", 1)[0]
+    current_index = batch_doc_ids.index(target_doc_id)
+
+    previous_doc_id = (
+        batch_doc_ids[current_index - 1]
+        if current_index > 0
+        else ""
+    )
+
+    next_doc_id = (
+        batch_doc_ids[current_index + 1]
+        if current_index < len(batch_doc_ids) - 1
+        else ""
+    )
 
     return {
         "workspace": workspace,
         "project": project_id.replace("_", " "),
         "project_id": project_id,
         "batch": batch,
-        "doc_id": doc_id,
+        "doc_id": target_doc_id,
         "blob_name": text_blob_path,
         "fields": protocol_fields,
         "native_url": get_workspace_blob_url(workspace, native_blob),
@@ -204,6 +370,13 @@ def load_current_review_document(
         "outline_items": outline_items,
         "text_blob": text_blob_path,
         "text_exists": text_exists,
+        "batch_doc_ids": batch_doc_ids,
+        "batch_doc_index": current_index,
+        "batch_doc_count": len(batch_doc_ids),
+        "previous_doc_id": previous_doc_id,
+        "next_doc_id": next_doc_id,
+        "is_first_doc": current_index == 0,
+        "is_last_doc": current_index == len(batch_doc_ids) - 1,
     }
 
 
@@ -212,6 +385,7 @@ def get_current_review_document_compat(
     project: str = "Project_Timber",
     batch: str = "Batch_001",
     client: str = "",
+    doc: str = "",
 ):
     try:
         return load_current_review_document(
@@ -219,6 +393,7 @@ def get_current_review_document_compat(
             client=client,
             project=project,
             batch=batch,
+            doc=doc,
         )
 
     except Exception as e:
@@ -234,6 +409,7 @@ def get_workspace_current_review_document(
     project: str,
     batch: str,
     client: str = "",
+    doc: str = "",
 ):
     try:
         return load_current_review_document(
@@ -241,6 +417,7 @@ def get_workspace_current_review_document(
             client=client,
             project=project,
             batch=batch,
+            doc=doc,
         )
 
     except Exception as e:

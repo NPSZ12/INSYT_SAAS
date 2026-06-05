@@ -213,7 +213,10 @@ function BatchesPageContent() {
   function checkoutBatch(batchId: string) {
     if (!projectId || !user) return;
 
-    apiPost(`/api/capture/projects/${encodeURIComponent(projectId)}/batches/checkout?client=${encodeURIComponent(clientId)}`,
+    apiPost(
+      `/api/capture/projects/${encodeURIComponent(
+        projectId
+      )}/batches/checkout?client=${encodeURIComponent(clientId)}`,
       {
         batch_name: batchId,
         username: user.username,
@@ -227,6 +230,25 @@ function BatchesPageContent() {
         console.error(error);
         setMessage("Batch checkout failed.");
       });
+  }
+
+  function openBatchReview(batch: Batch) {
+    const firstDocId = batch.doc_ids?.[0] || "";
+
+    if (!firstDocId) {
+      alert("This batch has no assigned documents.");
+      return;
+    }
+
+    router.push(
+      `/capture/review/doc?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId || ""
+      )}&batch=${encodeURIComponent(
+        batch.batch_id
+      )}&doc=${encodeURIComponent(firstDocId)}`
+    );
   }
 
   function createReviewBatches() {
@@ -315,7 +337,7 @@ function BatchesPageContent() {
         batches={batches}
         message={message}
         checkoutBatch={checkoutBatch}
-        router={router}
+        openBatchReview={openBatchReview}
       />
     );
   }
@@ -827,14 +849,14 @@ function ReviewerBatches({
   batches,
   message,
   checkoutBatch,
-  router,
+  openBatchReview,
 }: {
   clientId: string;
   projectId: string;
   batches: Batch[];
   message: string;
   checkoutBatch: (batchId: string) => void;
-  router: ReturnType<typeof useRouter>;
+  openBatchReview: (batch: Batch) => void;
 }) {
   return (
     <AppShell>
@@ -930,20 +952,11 @@ function ReviewerBatches({
 
                       {batch.status === "Checked Out" && (
                         <Button
+                          fullWidth
                           variant="secondary"
-                          onClick={() =>
-                            router.push(
-                              `/capture/review?client=${encodeURIComponent(
-                                clientId
-                              )}&project=${encodeURIComponent(
-                                projectId
-                              )}&batch=${encodeURIComponent(
-                                batch.batch_id
-                              )}`
-                            )
-                          }
+                          onClick={() => openBatchReview(batch)}
                         >
-                          Open
+                          Open Review
                         </Button>
                       )}
 

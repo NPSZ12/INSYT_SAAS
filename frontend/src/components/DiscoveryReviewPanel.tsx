@@ -21,6 +21,11 @@ type DiscoveryReviewPanelProps = {
   batchId: string;
   docId: string;
   fields: DiscoveryField[];
+
+  workspace?: "capture" | "discovery" | "summaries";
+  clientId?: string;
+  isLastDoc?: boolean;
+  onSaveComplete?: () => void;
 };
 
 export default function DiscoveryReviewPanel({
@@ -28,6 +33,10 @@ export default function DiscoveryReviewPanel({
   batchId,
   docId,
   fields,
+  workspace = "discovery",
+  clientId = "",
+  isLastDoc = false,
+  onSaveComplete,
 }: DiscoveryReviewPanelProps) {
   const [selectedTags, setSelectedTags] =
     useState<Record<string, string>>({});
@@ -91,6 +100,8 @@ export default function DiscoveryReviewPanel({
 
   function handleSaveNext() {
     apiPost("/api/review/save-next", {
+      workspace,
+      client_id: clientId,
       project_id: projectId,
       batch_id: batchId,
       doc_id: docId,
@@ -98,7 +109,13 @@ export default function DiscoveryReviewPanel({
       discovery_notes: notesBySection,
     })
       .then(() => {
-        setMessage("Discovery coding saved.");
+        setMessage(
+          isLastDoc
+            ? "Discovery coding saved. Exiting review batch."
+            : "Discovery coding saved. Loading next doc."
+        );
+
+        onSaveComplete?.();
       })
       .catch((error: any) => {
         console.error(error);
@@ -187,17 +204,20 @@ export default function DiscoveryReviewPanel({
         )}
       </div>
 
-      <div className="mt-6">
-        <Button fullWidth variant="secondary" onClick={handleSaveNext}>
-            Save
+      <div className="shrink-0 border-t border-slate-800 p-6 space-y-3">
+        <Button
+          fullWidth
+          onClick={handleSaveNext}
+        >
+          {isLastDoc ? "Save & Exit" : "Save & Next"}
         </Button>
 
         {message && (
-            <p className="text-sm text-slate-400 mt-3">
+          <p className="text-sm text-slate-400 mt-2">
             {message}
-            </p>
+          </p>
         )}
-        </div>
+      </div>
     </aside>
   );
 }

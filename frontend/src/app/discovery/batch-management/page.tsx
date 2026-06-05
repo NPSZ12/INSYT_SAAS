@@ -875,17 +875,24 @@ function ReviewerBatches({
                   <Button
                     fullWidth
                     variant="secondary"
-                    onClick={() =>
+                    onClick={() => {
+                      const firstDocId = batch.doc_ids?.[0] || "";
+
+                      if (!firstDocId) {
+                        alert("This batch has no assigned documents.");
+                        return;
+                      }
+
                       router.push(
-                        `/discovery/review?client=${encodeURIComponent(
+                        `/discovery/review/doc?client=${encodeURIComponent(
                           clientId
                         )}&project=${encodeURIComponent(
                           projectId
                         )}&batch=${encodeURIComponent(
                           batch.batch_id
-                        )}`
-                      )
-                    }
+                        )}&doc=${encodeURIComponent(firstDocId)}`
+                      );
+                    }}
                   >
                     Open Review
                   </Button>

@@ -19,19 +19,32 @@ type CaptureField = {
 };
 
 type ReviewCapturePanelProps = {
-  clientId: string;
   projectId: string;
   batchId: string;
   docId: string;
   fields: CaptureField[];
+
+  workspace?: "capture" | "discovery" | "summaries";
+  clientId?: string;
+  isFirstDoc?: boolean;
+  isLastDoc?: boolean;
+  onPreviousDoc?: () => void;
+  onNextDoc?: () => void;
+  onSaveComplete?: () => void;
 };
 
 export default function ReviewCapturePanel({
-  clientId,
   projectId,
   batchId,
   docId,
   fields,
+  workspace = "capture",
+  clientId = "",
+  isFirstDoc = false,
+  isLastDoc = false,
+  onPreviousDoc,
+  onNextDoc,
+  onSaveComplete,
 }: ReviewCapturePanelProps) {
   const [values, setValues] = useState<Record<string, string | boolean>>({});
 
@@ -168,6 +181,7 @@ export default function ReviewCapturePanel({
     }
 
     apiPost("/api/review/save-next", {
+      workspace,
       client_id: clientId,
       project_id: projectId,
       batch_id: batchId,
@@ -178,12 +192,16 @@ export default function ReviewCapturePanel({
     })
       .then(() => {
         setMessage(
-          "Document saved. Ready for next document."
+          isLastDoc
+            ? "Document saved. Exiting review batch."
+            : "Loading next document"
         );
 
         setValues({});
         setDocumentCoding("");
         setFurtherReviewReason("");
+
+        onSaveComplete?.();
       })
       .catch(() => {
         setMessage("Save & Next failed.");
@@ -208,7 +226,14 @@ export default function ReviewCapturePanel({
 
   return (
     <aside className="bg-slate-900 border border-slate-800 rounded-2xl h-full flex flex-col overflow-hidden">
-      <div className="shrink-0 p-6 border-b border-slate-800">
+      <div className="shrink-0 p-6 border-b border-slate-800 space-y-3">
+        <Button
+          fullWidth
+          onClick={handleSaveNext}
+        >
+          {isLastDoc ? "Save & Exit" : "Save & Next"}
+        </Button>
+
         <h2 className="text-lg font-semibold text-white">
           Capture Panel
         </h2>
@@ -406,14 +431,6 @@ export default function ReviewCapturePanel({
           onClick={handleLinkEntity}
         >
           Link Entity
-        </Button>
-
-        <Button
-          fullWidth
-          variant="secondary"
-          onClick={handleSaveNext}
-        >
-          Save & Next Document
         </Button>
 
         {message && (

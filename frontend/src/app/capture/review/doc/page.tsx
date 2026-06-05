@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../../../components/AppShell";
 import ReviewHeader from "../../../../components/ReviewHeader";
@@ -43,6 +43,7 @@ type CaptureField = {
 
 function ReviewPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
@@ -103,13 +104,17 @@ function ReviewPageContent() {
       return;
     }
 
-    apiGet(
-      `/api/review/current?client=${encodeURIComponent(
-        clientId
-      )}&project=${encodeURIComponent(
-        projectId
-      )}&batch=${encodeURIComponent(batchId)}`
-    )
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+      batch: batchId,
+    });
+
+    if (docId) {
+      params.set("doc", docId);
+    }
+
+    apiGet(`/api/review/current?${params.toString()}`)
       .then((response) => {
         setReviewDoc(response);
       })
@@ -294,6 +299,114 @@ function ReviewPageContent() {
     };
   });
 
+  const reviewNav = reviewDoc as ReviewDocument & {
+    previous_doc_id?: string;
+    next_doc_id?: string;
+    is_first_doc?: boolean;
+    is_last_doc?: boolean;
+    batch_doc_index?: number;
+    batch_doc_count?: number;
+  };
+
+  function buildReviewDocUrl(targetDocId: string) {
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+      batch: batchId,
+      doc: targetDocId,
+    });
+
+    return `/capture/review/doc?${params.toString()}`;
+  }
+
+  function getBatchDocIds() {
+    return ((reviewNav as any).batch_doc_ids || []) as string[];
+  }
+
+  function getCurrentDocIndex() {
+    return Number((reviewNav as any).batch_doc_index ?? -1);
+  }
+
+  function goFirstDoc() {
+    const batchDocIds = getBatchDocIds();
+    const firstDocId = batchDocIds[0] || "";
+
+    if (!firstDocId) return;
+
+    router.push(buildReviewDocUrl(firstDocId));
+  }
+
+  function goLastDoc() {
+    const batchDocIds = getBatchDocIds();
+    const lastDocId = batchDocIds[batchDocIds.length - 1] || "";
+
+    if (!lastDocId) return;
+
+    router.push(buildReviewDocUrl(lastDocId));
+  }
+
+  const currentDocIndex = getCurrentDocIndex();
+  const batchDocCount =
+    Number((reviewNav as any).batch_doc_count || getBatchDocIds().length || 0);
+
+  const docPositionLabel =
+    currentDocIndex >= 0 && batchDocCount > 0
+      ? `Doc ${currentDocIndex + 1} of ${batchDocCount}`
+      : "";
+
+  function goPreviousDoc() {
+    const batchDocIds = getBatchDocIds();
+    const currentIndex = getCurrentDocIndex();
+
+    const previousDocId =
+      reviewNav.previous_doc_id ||
+      (
+        currentIndex > 0
+          ? batchDocIds[currentIndex - 1]
+          : ""
+      );
+
+    if (!previousDocId) return;
+
+    router.push(buildReviewDocUrl(previousDocId));
+  }
+
+  function goNextDoc() {
+    const batchDocIds = getBatchDocIds();
+    const currentIndex = getCurrentDocIndex();
+
+    const nextDocId =
+      reviewNav.next_doc_id ||
+      (
+        currentIndex >= 0 &&
+        currentIndex < batchDocIds.length - 1
+          ? batchDocIds[currentIndex + 1]
+          : ""
+      );
+
+    if (!nextDocId) return;
+
+    router.push(buildReviewDocUrl(nextDocId));
+  }
+
+  function exitReview() {
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+    });
+
+    router.push(`/capture/batch-management?${params.toString()}`);
+  }
+
+  function handleSaveComplete() {
+    if (reviewNav.is_last_doc) {
+      exitReview();
+      return;
+    }
+
+    goNextDoc();
+  }
+
   function editLinkedEntity(entity: any) {
     console.log("Edit linked entity", entity);
   }
@@ -327,6 +440,13 @@ function ReviewPageContent() {
           project={reviewDoc.project}
           batch={reviewDoc.batch}
           docId={reviewDoc.doc_id}
+          isFirstDoc={Boolean(reviewNav.is_first_doc)}
+          isLastDoc={Boolean(reviewNav.is_last_doc)}
+          docPositionLabel={docPositionLabel}
+          onFirstDoc={goFirstDoc}
+          onPreviousDoc={goPreviousDoc}
+          onNextDoc={goNextDoc}
+          onLastDoc={goLastDoc}
         />
 
         {protocolMessage && (
@@ -356,10 +476,16 @@ function ReviewPageContent() {
             ) : (
               <ReviewCapturePanel
                 clientId={clientId}
+                workspace="capture"
                 projectId={projectId}
                 batchId={batchId}
                 docId={reviewDoc.doc_id}
                 fields={fieldsForCapture}
+                isFirstDoc={Boolean(reviewNav.is_first_doc)}
+                isLastDoc={Boolean(reviewNav.is_last_doc)}
+                onPreviousDoc={goPreviousDoc}
+                onNextDoc={goNextDoc}
+                onSaveComplete={handleSaveComplete}
               />
             )}
           </div>

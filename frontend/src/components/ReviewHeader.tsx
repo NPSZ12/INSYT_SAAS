@@ -1,78 +1,85 @@
 "use client";
 
-import { useState } from "react";
 import Button from "./Button";
 
 type ReviewHeaderProps = {
   project: string;
   batch: string;
   docId: string;
+  isFirstDoc?: boolean;
+  isLastDoc?: boolean;
+  docPositionLabel?: string;
+  onFirstDoc?: () => void;
+  onPreviousDoc?: () => void;
+  onNextDoc?: () => void;
+  onLastDoc?: () => void;
 };
 
 export default function ReviewHeader({
   project,
   batch,
   docId,
+  isFirstDoc = false,
+  isLastDoc = false,
+  docPositionLabel = "",
+  onFirstDoc,
+  onPreviousDoc,
+  onNextDoc,
+  onLastDoc,
 }: ReviewHeaderProps) {
-  const [message, setMessage] = useState("");
-
-  function handlePreviousDoc() {
-    setMessage(`Loading previous document before ${docId}...`);
-  }
-
-  function handleSaveNext() {
-    setMessage(`Saved ${docId}. Loading next document...`);
-  }
-
-  function handleNextDoc() {
-    setMessage(`Loading next document after ${docId}...`);
-  }
-
   return (
     <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between">
       <div>
-        <h1 className="text-xl font-bold">
-          INSYT Review
-        </h1>
+        
 
         <p className="text-xs text-slate-400">
           {project} / {batch} / {docId}
         </p>
-
-        {message && (
-          <p className="text-xs text-sky-400 mt-1">
-            {message}
-          </p>
-        )}
       </div>
 
       <div className="flex items-center gap-3">
-        <Button
-          variant="secondary"
-          onClick={handlePreviousDoc}
-        >
-          Previous Doc
-        </Button>
+        {!isFirstDoc && (
+          <Button
+            variant="secondary"
+            onClick={onFirstDoc}
+          >
+            First Doc
+          </Button>
+        )}
 
-        <Button onClick={handleSaveNext}>
-          Save & Next
-        </Button>
+        {!isFirstDoc && (
+          <Button
+            variant="secondary"
+            onClick={onPreviousDoc}
+          >
+            Previous Doc
+          </Button>
+        )}
 
-        <Button
-          variant="secondary"
-          onClick={handleNextDoc}
-        >
-          Next Doc
-        </Button>
+        {docPositionLabel && (
+          <span className="text-sm text-slate-300 whitespace-nowrap">
+            {docPositionLabel}
+          </span>
+        )}
+
+        {!isLastDoc && (
+          <Button
+            variant="secondary"
+            onClick={onNextDoc}
+          >
+            Next Doc
+          </Button>
+        )}
+
+        {!isLastDoc && (
+          <Button
+            variant="secondary"
+            onClick={onLastDoc}
+          >
+            Last Doc
+          </Button>
+        )}
       </div>
     </header>
   );
 }
-
-
-
-
-
-
-
-
