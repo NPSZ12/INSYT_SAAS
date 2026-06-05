@@ -172,29 +172,42 @@ export default function CapturedEntitiesTable({
       ? `client=${encodeURIComponent(clientId)}&`
       : "";
 
-    apiGet(
-      `/api/entities?${clientQuery}workspace=${encodeURIComponent(
+    const entitiesUrl =
+      `/api/entities/?${clientQuery}workspace=${encodeURIComponent(
         workspace
       )}&project=${encodeURIComponent(
         projectId
       )}&view=${encodeURIComponent(
         entityView
-      )}${batchQuery}`
-    )
-      .then(async (response: CapturedEntitiesResponse) => {
-        let headers = response.headers || [];
-        let rows = response.rows || [];
+      )}${batchQuery}`;
 
-        try {
-          const overlay = await apiGet(
-            `/api/document-overlays/${encodeURIComponent(
-              projectId
-            )}/latest?workspace=${encodeURIComponent(
-              workspace
-            )}&client=${encodeURIComponent(
-              clientId
-            )}&overlay_view=${encodeURIComponent(entityView)}`
-          );
+    const overlayUrl =
+      `/api/document-overlays/${encodeURIComponent(
+        projectId
+      )}/latest?workspace=${encodeURIComponent(
+        workspace
+      )}&client=${encodeURIComponent(
+        clientId
+      )}&overlay_view=${encodeURIComponent(entityView)}`;
+
+    Promise.allSettled([
+      apiGet(entitiesUrl),
+      apiGet(overlayUrl),
+    ])
+      .then(([entitiesResult, overlayResult]) => {
+        let headers: string[] = [];
+        let rows: Record<string, string>[] = [];
+
+        if (entitiesResult.status === "fulfilled") {
+          const response =
+            entitiesResult.value as CapturedEntitiesResponse;
+
+          headers = response.headers || [];
+          rows = response.rows || [];
+        }
+
+        if (overlayResult.status === "fulfilled") {
+          const overlay = overlayResult.value as any;
 
           const overlayHeaders =
             overlay.committed_headers ||
@@ -218,8 +231,18 @@ export default function CapturedEntitiesTable({
             entityView === "final"
               ? overlayRows
               : [...rows, ...overlayRows];
-        } catch {
-          // No overlay exists yet for this view. That is fine.
+        }
+
+        if (
+          entitiesResult.status === "rejected" &&
+          overlayResult.status === "rejected"
+        ) {
+          console.error(entitiesResult.reason);
+          console.error(overlayResult.reason);
+          setMessage("Captured entities could not be loaded.");
+        } else if (entitiesResult.status === "rejected") {
+          console.error(entitiesResult.reason);
+          setMessage("Manual captured entities could not be loaded. Showing latest overlay data.");
         }
 
         setEntityData({
@@ -227,13 +250,10 @@ export default function CapturedEntitiesTable({
           rows,
         });
       })
-      .catch((error) => {
-        console.error(error);
-        setMessage("Captured entities could not be loaded.");
-      })
       .finally(() => {
         setIsLoading(false);
       });
+    
   }, [workspace, clientId, projectId, batchId, entityView]);
 
   const headers = useMemo(() => {
