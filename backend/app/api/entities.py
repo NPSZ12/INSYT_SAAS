@@ -4,6 +4,54 @@ from pydantic import BaseModel
 from app.services.project_store import CAPTURED_ENTITIES
 from app.services.protocol_service import load_protocol_fields
 
+import json
+from typing import Any
+
+from app.services.batch_service import get_container_client
+
+
+def clean_path(value: str | None) -> str:
+    return str(value or "").strip().strip("/")
+
+
+def project_base_path(client: str | None, project: str) -> str:
+    client_name = clean_path(client)
+    project_name = clean_path(project)
+
+    if client_name:
+        return f"{client_name}/{project_name}"
+
+    return project_name
+
+
+def normalize_doc_lookup(value: str) -> str:
+    clean = str(value or "").strip()
+    clean = clean.split("/")[-1]
+    clean = clean.rsplit(".", 1)[0]
+    return clean.replace("_", " ").lower()
+
+
+def load_latest_overlay_records(
+    workspace: str,
+    client: str | None,
+    project: str,
+    overlay_view: str = "raw",
+) -> list[dict[str, Any]]:
+    container = get_container_client(workspace)
+    base_path = project_base_path(client, project)
+    latest_path = f"{base_path}/overlays/{overlay_view}/latest_overlay.json"
+
+    blob_client = container.get_blob_client(latest_path)
+
+    if not blob_client.exists():
+        return []
+
+    payload = json.loads(
+        blob_client.download_blob().readall().decode("utf-8")
+    )
+
+    return payload.get("records", [])
+
 
 router = APIRouter(prefix="/api/entities", tags=["Captured Entities"])
 
@@ -80,17 +128,53 @@ def list_entities(
 @router.get("/document")
 def list_document_entities(
     project: str,
-    batch: str,
-    doc: str,
+    batch: str = "",
+    doc: str = "",
+    client: str = "",
+    workspace: str = "capture",
+    view: str = "raw",
     x_username: str = Header(default=""),
 ):
-    return [
+    normalized_doc = normalize_doc_lookup(doc)
+
+    manual_entities = [
         entity for entity in CAPTURED_ENTITIES
         if entity.get("project_id") == project
-        and entity.get("batch_id") == batch
-        and entity.get("doc_id") == doc
+        and normalize_doc_lookup(entity.get("doc_id", "")) == normalized_doc
         and entity.get("linked", True)
+        and (not batch or entity.get("batch_id") == batch)
     ]
+
+    overlay_entities = []
+
+    for index, record in enumerate(
+        load_latest_overlay_records(
+            workspace=workspace,
+            client=client,
+            project=project,
+            overlay_view=view,
+        )
+    ):
+        record_doc_id = str(record.get("doc_id", "")).strip()
+
+        if normalize_doc_lookup(record_doc_id) != normalized_doc:
+            continue
+
+        overlay_entities.append(
+            {
+                "id": f"overlay-{index}",
+                "project_id": project,
+                "batch_id": batch or "Overlay",
+                "doc_id": record_doc_id,
+                "captured_by": "Overlay Upload",
+                "linked": True,
+                "source": "overlay",
+                "xl_mapped": True,
+                "values": record.get("metadata", {}),
+            }
+        )
+
+    return manual_entities + overlay_entities
 
 
 @router.post("/update")

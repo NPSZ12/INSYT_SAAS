@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
@@ -22,15 +22,37 @@ type ProjectFile = {
 
 function FilesPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
-  
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [docIdSearch, setDocIdSearch] = useState("");
   const [fileNameSearch, setFileNameSearch] = useState("");
   const [extensionSearch, setExtensionSearch] = useState("");
   const [metadataSearch, setMetadataSearch] = useState("");
+  
+  function openDocument(docId: string) {
+    const storedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("insyt_user")
+        : null;
+
+    const user = storedUser ? JSON.parse(storedUser) : null;
+    const role = String(user?.role || "").toLowerCase();
+
+    if (role === "1l" || role === "1lm") {
+      return;
+    }
+
+    const params = new URLSearchParams();
+
+    if (clientId) params.set("client", clientId);
+    if (projectId) params.set("project", projectId);
+    if (docId) params.set("doc", docId);
+
+    router.push(`/capture/review/doc?${params.toString()}`);
+  }
 
   useEffect(() => {
     if (!projectId) return;
@@ -177,8 +199,14 @@ function FilesPageContent() {
                       key={file.blob_path}
                       className="border-t border-slate-800"
                     >
-                      <td className="p-3 text-sky-400 whitespace-nowrap">
-                        {file.doc_id}
+                      <td className="p-3">
+                        <button
+                          type="button"
+                          onClick={() => openDocument(file.doc_id)}
+                          className="text-sky-400 hover:text-sky-300 underline"
+                        >
+                          {file.doc_id}
+                        </button>
                       </td>
 
                       <td className="p-3 text-slate-300 whitespace-nowrap">

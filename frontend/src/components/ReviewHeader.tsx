@@ -13,6 +13,8 @@ type ReviewHeaderProps = {
   onPreviousDoc?: () => void;
   onNextDoc?: () => void;
   onLastDoc?: () => void;
+  currentDocIndex?: number;
+  batchDocCount?: number;
 };
 
 export default function ReviewHeader({
@@ -22,6 +24,8 @@ export default function ReviewHeader({
   isFirstDoc = false,
   isLastDoc = false,
   docPositionLabel = "",
+  currentDocIndex,
+  batchDocCount,
   onFirstDoc,
   onPreviousDoc,
   onNextDoc,

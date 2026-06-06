@@ -41,9 +41,46 @@ type CaptureField = {
   notes?: string;
 };
 
+type ReviewDocumentWithNav = ReviewDocument & {
+  batch_doc_index?: number;
+  batch_doc_count?: number;
+  batch_doc_ids?: string[];
+  is_first_doc?: boolean;
+  is_last_doc?: boolean;
+};
+
+function normalizeDocLookup(value: string) {
+  return decodeURIComponent(value || "")
+    .trim()
+    .replaceAll("_", " ")
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase();
+}
+
+function getFileDocCandidates(item: any) {
+  const blobName = String(item.blob_path || item.name || "");
+  const fileName =
+    String(item.file_name || item.filename || item.name || "")
+      || blobName.split("/").pop()
+      || "";
+
+  return [
+    item.doc_id,
+    item.document_id,
+    item.id,
+    fileName,
+    fileName.replace(/\.[^.]+$/, ""),
+    blobName.split("/").pop() || "",
+    (blobName.split("/").pop() || "").replace(/\.[^.]+$/, ""),
+  ]
+    .filter(Boolean)
+    .map((value) => normalizeDocLookup(String(value)));
+}
+
 function ReviewPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  
 
   const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
@@ -56,6 +93,8 @@ function ReviewPageContent() {
   const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [linkedEntities, setLinkedEntities] = useState<any[]>([]);
+  const [fileDocIds, setFileDocIds] = useState<string[]>([]);
+  const isFileView = Boolean(docId && !batchId);
 
   useEffect(() => {
     if (!projectId || (!batchId && !docId)) {
@@ -68,34 +107,18 @@ function ReviewPageContent() {
 
     if (docId && !batchId) {
       apiGet(
-        `/api/capture/files?client=${encodeURIComponent(
+        `/api/review/current?client=${encodeURIComponent(
           clientId
         )}&project=${encodeURIComponent(
           projectId
-        )}&folder=${encodeURIComponent("source/native")}`
+        )}&doc=${encodeURIComponent(docId)}`
       )
-        .then((files: any[]) => {
-          const file = files.find(
-            (item) => item.doc_id === docId
-          );
-
-          if (!file) {
-            setError("Document not found in project source/native.");
-            return;
-          }
-
-          setReviewDoc({
-            project: projectId,
-            batch: "Direct Open",
-            doc_id: file.doc_id,
-            text: "",
-            native_url: "",
-            native_blob: file.blob_path,
-          } as ReviewDocument);
+        .then((response) => {
+          setReviewDoc(response);
         })
         .catch((error) => {
           console.error(error);
-          setError("Failed to open document directly.");
+          setError(String(error?.message || "Failed to open document directly."));
         })
         .finally(() => {
           setIsLoading(false);
@@ -128,16 +151,41 @@ function ReviewPageContent() {
   }, [clientId, projectId, batchId, docId]);
 
   useEffect(() => {
-    if (!projectId || !batchId || !reviewDoc?.doc_id) return;
+    if (!projectId || !isFileView) {
+      setFileDocIds([]);
+      return;
+    }
+
+    apiGet(
+      `/api/capture/files?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId
+      )}&folder=${encodeURIComponent("source/native")}`
+    )
+      .then((files: any[]) => {
+        const docIds = files
+          .map((file) => file.doc_id || file.file_name || "")
+          .filter(Boolean);
+
+        setFileDocIds(docIds);
+      })
+      .catch(console.error);
+  }, [clientId, projectId, isFileView]);
+  
+  useEffect(() => {
+    if (!projectId || !reviewDoc?.doc_id) return;
 
     apiGet(
       `/api/entities/document?client=${encodeURIComponent(
         clientId
-      )}&project=${encodeURIComponent(
+      )}&workspace=capture&project=${encodeURIComponent(
         projectId
       )}&batch=${encodeURIComponent(
         batchId
-      )}&doc=${encodeURIComponent(reviewDoc.doc_id)}`
+      )}&doc=${encodeURIComponent(
+        reviewDoc.doc_id
+      )}&view=raw`
     )
       .then((entities: any[]) => {
         setLinkedEntities(
@@ -287,6 +335,8 @@ function ReviewPageContent() {
     protocolFields,
   });
 
+  
+
   const fieldsForCapture: CaptureField[] = protocolFields.map((field) => {
     const fieldFormat = field.format || field.default_format || "";
 
@@ -407,6 +457,44 @@ function ReviewPageContent() {
     goNextDoc();
   }
 
+  const fileDocIndex = fileDocIds.findIndex(
+    (id) =>
+      normalizeDocLookup(id) === normalizeDocLookup(reviewDoc?.doc_id || "") ||
+      normalizeDocLookup(id) === normalizeDocLookup(docId)
+  );
+
+  const fileDocCount = fileDocIds.length;
+
+  function openFileViewDoc(nextDocId: string) {
+    const params = new URLSearchParams();
+
+    if (clientId) params.set("client", clientId);
+    if (projectId) params.set("project", projectId);
+    if (nextDocId) params.set("doc", nextDocId);
+
+    router.push(`/capture/review/doc?${params.toString()}`);
+  }
+
+  function goFileFirstDoc() {
+    if (fileDocIds[0]) openFileViewDoc(fileDocIds[0]);
+  }
+
+  function goFilePreviousDoc() {
+    if (fileDocIndex > 0) openFileViewDoc(fileDocIds[fileDocIndex - 1]);
+  }
+
+  function goFileNextDoc() {
+    if (fileDocIndex >= 0 && fileDocIndex < fileDocIds.length - 1) {
+      openFileViewDoc(fileDocIds[fileDocIndex + 1]);
+    }
+  }
+
+  function goFileLastDoc() {
+    if (fileDocIds.length > 0) {
+      openFileViewDoc(fileDocIds[fileDocIds.length - 1]);
+    }
+  }
+
   function editLinkedEntity(entity: any) {
     console.log("Edit linked entity", entity);
   }
@@ -438,15 +526,29 @@ function ReviewPageContent() {
       <div className="min-h-screen flex flex-col text-white">
         <ReviewHeader
           project={reviewDoc.project}
-          batch={reviewDoc.batch}
+          batch={isFileView ? "File View" : reviewDoc.batch}
           docId={reviewDoc.doc_id}
-          isFirstDoc={Boolean(reviewNav.is_first_doc)}
-          isLastDoc={Boolean(reviewNav.is_last_doc)}
-          docPositionLabel={docPositionLabel}
-          onFirstDoc={goFirstDoc}
-          onPreviousDoc={goPreviousDoc}
-          onNextDoc={goNextDoc}
-          onLastDoc={goLastDoc}
+          isFirstDoc={
+            isFileView
+              ? fileDocIndex <= 0
+              : Boolean(reviewNav.is_first_doc)
+          }
+          isLastDoc={
+            isFileView
+              ? fileDocIndex >= fileDocCount - 1
+              : Boolean(reviewNav.is_last_doc)
+          }
+          docPositionLabel={
+            isFileView
+              ? fileDocIndex >= 0 && fileDocCount > 0
+                ? `Doc ${fileDocIndex + 1} of ${fileDocCount}`
+                : ""
+              : docPositionLabel
+          }
+          onFirstDoc={isFileView ? goFileFirstDoc : goFirstDoc}
+          onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
+          onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
+          onLastDoc={isFileView ? goFileLastDoc : goLastDoc}
         />
 
         {protocolMessage && (
@@ -483,8 +585,8 @@ function ReviewPageContent() {
                 fields={fieldsForCapture}
                 isFirstDoc={Boolean(reviewNav.is_first_doc)}
                 isLastDoc={Boolean(reviewNav.is_last_doc)}
-                onPreviousDoc={goPreviousDoc}
-                onNextDoc={goNextDoc}
+                onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
+                onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
                 onSaveComplete={handleSaveComplete}
               />
             )}

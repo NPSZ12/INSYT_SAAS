@@ -242,7 +242,133 @@ def resolve_text_blob_path(native_blob: str) -> str:
 
         return f"{base_path}/{doc_id}.txt"
 
+def normalize_doc_lookup(value: str) -> str:
+    clean = str(value or "").strip()
+    clean = clean.split("/")[-1]
+    clean = clean.rsplit(".", 1)[0]
+    return clean.replace("_", " ").lower()
 
+
+def project_base_path(client: str, project: str) -> str:
+    client = str(client or "").strip().strip("/")
+    project = str(project or "").strip().strip("/")
+
+    if client:
+        return f"{client}/{project}"
+
+    return project
+
+
+def load_review_document_by_doc_id(
+    workspace: str,
+    client: str,
+    project: str,
+    doc_id: str,
+):
+    container = get_container_client(workspace)
+    base_path = project_base_path(client, project)
+    requested = normalize_doc_lookup(doc_id)
+
+    project_variants = [
+        project,
+        project.replace(" ", "_"),
+    ]
+
+    base_paths = []
+
+    for project_variant in project_variants:
+        if client:
+            base_paths.append(f"{client}/{project_variant}")
+
+        base_paths.append(project_variant)
+
+    native_prefixes = [
+        f"{base_path}/source/native/"
+        for base_path in base_paths
+    ] + [
+        f"{base_path}/source/natives/"
+        for base_path in base_paths
+    ] + [
+        f"{base_path}/source/native_docs/"
+        for base_path in base_paths
+    ]
+
+    text_prefixes = [
+        f"{base_path}/source/text/"
+        for base_path in base_paths
+    ] + [
+        f"{base_path}/source/texts/"
+        for base_path in base_paths
+    ]
+
+    matched_native = ""
+    matched_doc_id = doc_id
+
+    for native_prefix in native_prefixes:
+        for blob in container.list_blobs(name_starts_with=native_prefix):
+            filename = blob.name.split("/")[-1]
+
+            if not filename or filename == ".keep":
+                continue
+
+            if normalize_doc_lookup(filename) == requested:
+                matched_native = blob.name
+                matched_doc_id = filename.rsplit(".", 1)[0]
+                break
+
+        if matched_native:
+            break
+
+
+    if not matched_native:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Document not found in source/native: {doc_id}",
+        )
+
+    matched_text = ""
+
+    for text_prefix in text_prefixes:
+        for blob in container.list_blobs(name_starts_with=text_prefix):
+            filename = blob.name.split("/")[-1]
+
+            if not filename or filename == ".keep":
+                continue
+
+            if normalize_doc_lookup(filename) == requested:
+                matched_text = blob.name
+                break
+
+        if matched_text:
+            break
+
+    text = ""
+
+    if matched_text:
+        text = (
+            container
+            .get_blob_client(matched_text)
+            .download_blob()
+            .readall()
+            .decode("utf-8", errors="replace")
+        )
+
+    native_url = get_workspace_blob_url(
+        workspace,
+        matched_native,
+    )
+
+    return {
+        "workspace": workspace,
+        "project": project.replace("_", " "),
+        "project_id": project,
+        "batch": "Direct Open",
+        "doc_id": matched_doc_id,
+        "blob_name": matched_text,
+        "text": text,
+        "native_url": native_url,
+        "native_blob": matched_native,
+    }
 
 def load_current_review_document(
     workspace: str,
@@ -251,6 +377,15 @@ def load_current_review_document(
     client: str = "",
     doc: str = "",
 ):
+    if doc:
+        return load_review_document_by_doc_id(
+            workspace=workspace,
+            client=client,
+            project=project,
+            doc_id=doc,
+        )
+
+    # existing batch-based logic continues below
     if workspace not in VALID_WORKSPACES:
         raise HTTPException(
             status_code=400,
@@ -382,8 +517,8 @@ def load_current_review_document(
 
 @router.get("/review/current")
 def get_current_review_document_compat(
-    project: str = "Project_Timber",
-    batch: str = "Batch_001",
+    project: str,
+    batch: str = "",
     client: str = "",
     doc: str = "",
 ):
@@ -407,7 +542,7 @@ def get_current_review_document_compat(
 def get_workspace_current_review_document(
     workspace: str,
     project: str,
-    batch: str,
+    batch: str = "",
     client: str = "",
     doc: str = "",
 ):
