@@ -40,6 +40,34 @@ type discoveryField = {
   notes?: string;
 };
 
+function normalizeDocLookup(value: string) {
+  return decodeURIComponent(value || "")
+    .trim()
+    .replaceAll("_", " ")
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase();
+}
+
+function getFileDocCandidates(item: any) {
+  const blobName = String(item.blob_path || item.name || "");
+  const fileName =
+    String(item.file_name || item.filename || item.name || "")
+      || blobName.split("/").pop()
+      || "";
+
+  return [
+    item.doc_id,
+    item.document_id,
+    item.id,
+    fileName,
+    fileName.replace(/\.[^.]+$/, ""),
+    blobName.split("/").pop() || "",
+    (blobName.split("/").pop() || "").replace(/\.[^.]+$/, ""),
+  ]
+    .filter(Boolean)
+    .map((value) => normalizeDocLookup(String(value)));
+}
+
 function ReviewPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -66,34 +94,18 @@ function ReviewPageContent() {
 
     if (docId && !batchId) {
       apiGet(
-        `/api/discovery/files?client=${encodeURIComponent(
+        `/api/review/current?client=${encodeURIComponent(
           clientId
         )}&project=${encodeURIComponent(
           projectId
-        )}&folder=${encodeURIComponent("source/native")}`
+        )}&doc=${encodeURIComponent(docId)}`
       )
-        .then((files: any[]) => {
-          const file = files.find(
-            (item) => item.doc_id === docId
-          );
-
-          if (!file) {
-            setError("Document not found in project source/native.");
-            return;
-          }
-
-          setReviewDoc({
-            project: projectId,
-            batch: "Direct Open",
-            doc_id: file.doc_id,
-            text: "",
-            native_url: "",
-            native_blob: file.blob_path,
-          } as ReviewDocument);
+        .then((response) => {
+          setReviewDoc(response);
         })
         .catch((error) => {
           console.error(error);
-          setError("Failed to open document directly.");
+          setError(String(error?.message || "Failed to open document directly."));
         })
         .finally(() => {
           setIsLoading(false);

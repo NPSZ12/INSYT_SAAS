@@ -28,6 +28,8 @@ type ReviewCapturePanelProps = {
   clientId?: string;
   isFirstDoc?: boolean;
   isLastDoc?: boolean;
+  hasLinkedEntities?: boolean;
+  initialDocumentCoding?: string;
   onPreviousDoc?: () => void;
   onNextDoc?: () => void;
   onSaveComplete?: () => void;
@@ -42,6 +44,8 @@ export default function ReviewCapturePanel({
   clientId = "",
   isFirstDoc = false,
   isLastDoc = false,
+  hasLinkedEntities = false,
+  initialDocumentCoding = "",
   onPreviousDoc,
   onNextDoc,
   onSaveComplete,
@@ -49,6 +53,7 @@ export default function ReviewCapturePanel({
   const [values, setValues] = useState<Record<string, string | boolean>>({});
 
   const [message, setMessage] = useState("");
+  const [localLinkedEntityAttached, setLocalLinkedEntityAttached] = useState(false);
 
   const [openSections, setOpenSections] =
     useState<Record<string, boolean>>({});
@@ -70,6 +75,26 @@ export default function ReviewCapturePanel({
 
     setOpenSections(initialOpenState);
   }, [fields]);
+
+  const forceResponsive =
+    initialDocumentCoding !== "Not Responsive" &&
+    (hasLinkedEntities || localLinkedEntityAttached);
+
+  useEffect(() => {
+    setLocalLinkedEntityAttached(false);
+  }, [docId]);
+
+  useEffect(() => {
+    if (forceResponsive) {
+      setDocumentCoding("Responsive");
+    }
+  }, [forceResponsive]);
+
+  useEffect(() => {
+    if (initialDocumentCoding) {
+      setDocumentCoding(initialDocumentCoding);
+    }
+  }, [docId, initialDocumentCoding]);
 
   function normalizeFieldType(field: CaptureField) {
     const typeText =
@@ -166,11 +191,13 @@ export default function ReviewCapturePanel({
     })
       .then(() => {
         setMessage("Entity linked.");
+        setLocalLinkedEntityAttached(true);
+        setDocumentCoding("Responsive");
         clearValues();
       })
       .catch(() => {
         setMessage(
-          "Entity linked locally, but backend save failed."
+          "Entity link failed. Please try again."
         );
       });
   }
@@ -180,13 +207,21 @@ export default function ReviewCapturePanel({
       return;
     }
 
+    const hasCapturedValues = Object.values(values).some((value) => {
+      if (value === null || value === undefined) return false;
+      return String(value).trim() !== "";
+    });
+
+    const valuesToSave =
+      documentCoding === "Not Responsive" && !hasCapturedValues ? {} : values;
+
     apiPost("/api/review/save-next", {
       workspace,
       client_id: clientId,
       project_id: projectId,
       batch_id: batchId,
       doc_id: docId,
-      values,
+      values: valuesToSave,
       document_coding: documentCoding,
       further_review_reason: furtherReviewReason,
     })
@@ -262,9 +297,15 @@ export default function ReviewCapturePanel({
                   type="radio"
                   name="documentCoding"
                   checked={documentCoding === option}
-                  onChange={() =>
-                    setDocumentCoding(option)
-                  }
+                  disabled={forceResponsive && option !== "Responsive"}
+                  onChange={() => {
+                    if (forceResponsive) {
+                      setDocumentCoding("Responsive");
+                      return;
+                    }
+
+                    setDocumentCoding(option);
+                  }}
                   className="accent-sky-600"
                 />
 

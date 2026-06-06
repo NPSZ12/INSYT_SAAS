@@ -13,6 +13,7 @@ import { apiGet } from "../../../lib/api";
 
 type ProjectFile = {
   doc_id: string;
+  coding?: string;
   file_name: string;
   extension: string;
   blob_path: string;
@@ -28,10 +29,12 @@ function FilesPageContent() {
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [docIdSearch, setDocIdSearch] = useState("");
+  const [codingSearch, setCodingSearch] = useState("");
   const [fileNameSearch, setFileNameSearch] = useState("");
   const [extensionSearch, setExtensionSearch] = useState("");
   const [metadataSearch, setMetadataSearch] = useState("");
-  
+  const [codingMap, setCodingMap] = useState<Record<string, string>>({});
+
   function openDocument(docId: string) {
     const storedUser =
       typeof window !== "undefined"
@@ -76,11 +79,42 @@ function FilesPageContent() {
       .catch(console.error);
   }, [clientId, projectId]);
 
+  useEffect(() => {
+    if (!projectId) return;
+
+    apiGet(
+      `/api/review/coding-map?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}&workspace=capture`
+    )
+      .then((response: Record<string, string>) => {
+        setCodingMap(response || {});
+      })
+      .catch(console.error);
+  }, [clientId, projectId]);
+
+  function getFileCoding(file: ProjectFile) {
+    const docId = file.doc_id || "";
+    const docIdWithoutExtension = docId.replace(/\.[^/.]+$/, "");
+
+    return (
+      codingMap[docId] ||
+      codingMap[docIdWithoutExtension] ||
+      file.coding ||
+      ""
+    );
+  }
+
   const filteredFiles = useMemo(() => {
     return files.filter((file) => {
       const docIdMatch = file.doc_id
         .toLowerCase()
         .includes(docIdSearch.toLowerCase());
+
+      const coding = getFileCoding(file);
+      const codingMatch = coding
+        .toLowerCase()
+        .includes(codingSearch.toLowerCase());
 
       const fileNameMatch = file.file_name
         .toLowerCase()
@@ -90,11 +124,7 @@ function FilesPageContent() {
         .toLowerCase()
         .includes(extensionSearch.toLowerCase());
 
-      const metadataText = [
-        file.blob_path,
-        file.size,
-        file.last_modified,
-      ]
+      const metadataText = [file.blob_path, file.size, file.last_modified]
         .join(" ")
         .toLowerCase();
 
@@ -104,6 +134,7 @@ function FilesPageContent() {
 
       return (
         docIdMatch &&
+        codingMatch &&
         fileNameMatch &&
         extensionMatch &&
         metadataMatch
@@ -111,7 +142,9 @@ function FilesPageContent() {
     });
   }, [
     files,
+    codingMap,
     docIdSearch,
+    codingSearch,
     fileNameSearch,
     extensionSearch,
     metadataSearch,
@@ -139,13 +172,22 @@ function FilesPageContent() {
         />
 
         <ContentCard title="File Search">
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-5 gap-4">
             <div>
               <FormLabel>Search Doc ID</FormLabel>
               <Input
                 value={docIdSearch}
                 onChange={setDocIdSearch}
                 placeholder="Doc ID"
+              />
+            </div>
+
+            <div>
+              <FormLabel>Search Coding</FormLabel>
+              <Input
+                value={codingSearch}
+                onChange={setCodingSearch}
+                placeholder="Responsive"
               />
             </div>
 
@@ -185,6 +227,7 @@ function FilesPageContent() {
                 <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
                   <tr>
                     <th className="p-3 text-left">Doc ID</th>
+                    <th className="p-3 text-left">Coding</th>
                     <th className="p-3 text-left">File Name</th>
                     <th className="p-3 text-left">Extension</th>
                     <th className="p-3 text-left">Blob Path</th>
@@ -207,6 +250,10 @@ function FilesPageContent() {
                         >
                           {file.doc_id}
                         </button>
+                      </td>
+
+                      <td className="p-3 text-slate-300 whitespace-nowrap">
+                        {getFileCoding(file)}
                       </td>
 
                       <td className="p-3 text-slate-300 whitespace-nowrap">
@@ -247,14 +294,3 @@ export default function FilesPage() {
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-
-
-
-

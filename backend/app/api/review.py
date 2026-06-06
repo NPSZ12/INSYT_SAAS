@@ -579,17 +579,23 @@ def save_capture(
     payload: CaptureSaveRequest,
     x_username: str = Header(default=""),
 ):
-    entity = {
-        "id": len(CAPTURED_ENTITIES) + 1,
-        "project_id": payload.project_id,
-        "batch_id": payload.batch_id,
-        "doc_id": payload.doc_id,
-        "captured_by": x_username,
-        "linked": True,
-        "values": payload.values,
-    }
+    has_captured_values = any(
+        value is not None and str(value).strip() != ""
+        for value in payload.values.values()
+    )
 
-    CAPTURED_ENTITIES.append(entity)
+    if has_captured_values:
+        entity = {
+            "id": len(CAPTURED_ENTITIES) + 1,
+            "project_id": payload.project_id,
+            "batch_id": payload.batch_id,
+            "doc_id": payload.doc_id,
+            "captured_by": x_username,
+            "linked": True,
+            "values": payload.values,
+        }
+
+        CAPTURED_ENTITIES.append(entity)
     
     container = get_container_client("capture")
 
@@ -626,6 +632,9 @@ def save_capture(
 
         batch["reviewed_doc_ids"] = reviewed_docs
         batch["completed_count"] = len(reviewed_docs)
+        coding_by_doc = batch.get("document_coding_by_doc", {})
+        coding_by_doc[payload.doc_id] = payload.document_coding
+        batch["document_coding_by_doc"] = coding_by_doc
         batch["last_reviewed_doc_id"] = payload.doc_id
         batch["last_reviewed_by"] = x_username
         batch["last_reviewed_at"] = datetime.now(
@@ -648,8 +657,46 @@ def save_capture(
 
 
 @router.post("/review/save-next")
-def save_and_next(payload: CaptureSaveRequest):
+def save_and_next(
+    payload: CaptureSaveRequest,
+    x_username: str = Header(default=""),
+):
+    save_capture(payload, x_username)
+
     return {
         "status": "saved_next",
         "message": f"Saved {payload.doc_id}. Next document ready.",
     }
+    
+@router.get("/review/coding-map")
+def get_review_coding_map(
+    project: str,
+    client: str = "",
+    workspace: str = "capture",
+):
+    container = get_container_client(workspace)
+
+    prefix = (
+        f"{client}/{project}/Batches/"
+        if client
+        else f"{project}/Batches/"
+    )
+
+    coding_map = {}
+
+    for blob in container.list_blobs(name_starts_with=prefix):
+        if not blob.name.endswith(".json"):
+            continue
+
+        batch = json.loads(
+            container
+            .get_blob_client(blob.name)
+            .download_blob()
+            .readall()
+            .decode("utf-8")
+        )
+
+        for doc_id, coding in batch.get("document_coding_by_doc", {}).items():
+            coding_map[doc_id] = coding
+
+    return coding_map

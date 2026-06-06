@@ -304,7 +304,7 @@ export default function CapturedEntitiesTable({
         workspace,
         clientId,
         projectId,
-        batchId,
+        "",
         docId
       )
     );

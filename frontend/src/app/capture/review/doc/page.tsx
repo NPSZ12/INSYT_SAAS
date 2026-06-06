@@ -95,6 +95,7 @@ function ReviewPageContent() {
   const [linkedEntities, setLinkedEntities] = useState<any[]>([]);
   const [fileDocIds, setFileDocIds] = useState<string[]>([]);
   const isFileView = Boolean(docId && !batchId);
+  const [savedDocumentCoding, setSavedDocumentCoding] = useState("");
 
   useEffect(() => {
     if (!projectId || (!batchId && !docId)) {
@@ -149,6 +150,31 @@ function ReviewPageContent() {
         setIsLoading(false);
       });
   }, [clientId, projectId, batchId, docId]);
+
+  useEffect(() => {
+    if (!projectId || !docId) {
+      setSavedDocumentCoding("");
+      return;
+    }
+
+    apiGet(
+      `/api/review/coding-map?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}&workspace=capture`
+    )
+      .then((codingMap: Record<string, string>) => {
+        const docIdWithoutExtension = docId.replace(/\.[^/.]+$/, "");
+
+        setSavedDocumentCoding(
+          codingMap?.[docId] ||
+            codingMap?.[docIdWithoutExtension] ||
+            ""
+        );
+      })
+      .catch(() => {
+        setSavedDocumentCoding("");
+      });
+  }, [clientId, projectId, docId]);
 
   useEffect(() => {
     if (!projectId || !isFileView) {
@@ -585,9 +611,11 @@ function ReviewPageContent() {
                 fields={fieldsForCapture}
                 isFirstDoc={Boolean(reviewNav.is_first_doc)}
                 isLastDoc={Boolean(reviewNav.is_last_doc)}
+                hasLinkedEntities={linkedEntities.some((entity) => entity.linked !== false)}
                 onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
                 onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
                 onSaveComplete={handleSaveComplete}
+                initialDocumentCoding={savedDocumentCoding}
               />
             )}
           </div>
