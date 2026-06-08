@@ -131,6 +131,37 @@ def entity_from_review_state(
             **linked_entity.get("values", {}),
         },
     }
+    
+def is_deleted_entity(
+    state: dict,
+    entity: dict,
+) -> bool:
+    entity_ucid = (
+        entity.get("ucid")
+        or entity.get("UCID")
+        or entity.get("values", {}).get("UCID")
+        or ""
+    )
+
+    entity_id = str(entity.get("id", ""))
+
+    for deleted in state.get("deleted_entities", []):
+        deleted_ucid = (
+            deleted.get("ucid")
+            or deleted.get("UCID")
+            or deleted.get("values", {}).get("UCID")
+            or ""
+        )
+
+        deleted_id = str(deleted.get("id", ""))
+
+        if entity_ucid and deleted_ucid and entity_ucid == deleted_ucid:
+            return True
+
+        if entity_id and deleted_id and entity_id == deleted_id:
+            return True
+
+    return False
 
 def load_latest_overlay_records(
     workspace: str,
@@ -179,7 +210,8 @@ class EntityDeleteRequest(BaseModel):
     client: str = ""
     project: str
     doc_id: str
-    ucid: str
+    ucid: str = ""
+    entity_id: str | int = ""
 
 
 @router.get("/")
@@ -258,6 +290,9 @@ def list_entities(
             state.get("linked_entities", [])
         ):
             if not linked_entity.get("linked", True):
+                continue
+
+            if is_deleted_entity(state, linked_entity):
                 continue
 
             matching_entities.append(
@@ -343,6 +378,9 @@ def list_document_entities(
         if not linked_entity.get("linked", True):
             continue
 
+        if is_deleted_entity(review_state, linked_entity):
+            continue
+
         manual_entities.append(
             entity_from_review_state(
                 review_state,
@@ -366,19 +404,24 @@ def list_document_entities(
         if normalize_doc_lookup(record_doc_id) != normalized_doc:
             continue
 
-        overlay_entities.append(
-            {
-                "id": f"overlay-{index}",
-                "project_id": project,
-                "batch_id": batch or "Overlay",
-                "doc_id": record_doc_id,
-                "captured_by": "Overlay Upload",
-                "linked": True,
-                "source": "overlay",
-                "xl_mapped": True,
-                "values": record.get("metadata", {}),
-            }
-        )
+        overlay_entity = {
+            "id": f"overlay-{index}",
+            "ucid": record.get("ucid", "") or record.get("metadata", {}).get("UCID", ""),
+            "UCID": record.get("ucid", "") or record.get("metadata", {}).get("UCID", ""),
+            "project_id": project,
+            "batch_id": batch or "Overlay",
+            "doc_id": record_doc_id,
+            "captured_by": "Overlay Upload",
+            "linked": True,
+            "source": "overlay",
+            "xl_mapped": True,
+            "values": record.get("metadata", {}),
+        }
+
+        if is_deleted_entity(review_state, overlay_entity):
+            continue
+
+        overlay_entities.append(overlay_entity)
 
     return manual_entities + overlay_entities
 
@@ -562,7 +605,16 @@ def delete_entity(
             or ""
         )
 
-        if entity_ucid != payload.ucid:
+        entity_id = str(entity.get("id", ""))
+        payload_entity_id = str(payload.entity_id or "")
+
+        if payload.ucid:
+            if entity_ucid != payload.ucid:
+                continue
+        elif payload_entity_id:
+            if entity_id != payload_entity_id:
+                continue
+        else:
             continue
 
         removed = linked_entities.pop(index)
@@ -604,6 +656,50 @@ def delete_entity(
         return {
             "status": "deleted",
             "entity": removed,
+            "deleted_blob": deleted_blob,
+        }
+
+    if payload.ucid or payload.entity_id:
+        deleted_record = {
+            "id": payload.entity_id,
+            "ucid": payload.ucid,
+            "UCID": payload.ucid,
+            "linked": False,
+            "source": "delete_marker",
+            "deleted_by": x_username,
+            "deleted_at": datetime.now(timezone.utc).isoformat(),
+            "workspace": payload.workspace,
+            "client": payload.client,
+            "project": payload.project,
+            "doc_id": payload.doc_id,
+        }
+
+        deleted_blob = save_deleted_entity_record(
+            workspace=payload.workspace,
+            client=payload.client,
+            project=payload.project,
+            doc_id=payload.doc_id,
+            entity=deleted_record,
+        )
+
+        state.setdefault("deleted_entities", []).append(
+            {
+                **deleted_record,
+                "deleted_blob": deleted_blob,
+            }
+        )
+
+        save_document_review_state(
+            workspace=payload.workspace,
+            client=payload.client,
+            project=payload.project,
+            doc_id=payload.doc_id,
+            state=state,
+        )
+
+        return {
+            "status": "deleted_marker_created",
+            "entity": deleted_record,
             "deleted_blob": deleted_blob,
         }
 
