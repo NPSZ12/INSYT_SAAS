@@ -3,8 +3,8 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-const WARNING_TIME = 10 * 60 * 1000;
-const LOGOUT_TIME = 15 * 60 * 1000;
+const WARNING_TIME = 15 * 60 * 1000;
+const LOGOUT_TIME = 20 * 60 * 1000;
 
 export default function SessionTimeout() {
   const router = useRouter();

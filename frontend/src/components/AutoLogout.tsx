@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const AUTO_LOGOUT_MS = 10 * 60 * 1000;
-const WARNING_MS = 5 * 60 * 1000;
+const AUTO_LOGOUT_MS = 20 * 60 * 1000;
+const WARNING_MS = 15 * 60 * 1000;
 
 export default function AutoLogout() {
   const logoutTimer = useRef<NodeJS.Timeout | null>(null);

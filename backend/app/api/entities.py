@@ -403,6 +403,46 @@ def save_document_review_state(
         json.dumps(state, indent=2),
         overwrite=True,
     )
+    
+def save_deleted_entity_record(
+    workspace: str,
+    client: str | None,
+    project: str,
+    doc_id: str,
+    entity: dict,
+):
+    container = get_container_client(workspace)
+    base_path = project_base_path(client, project)
+
+    ucid = (
+        entity.get("ucid")
+        or entity.get("UCID")
+        or "no_ucid"
+    )
+
+    timestamp = datetime.now(timezone.utc).strftime(
+        "%Y%m%d_%H%M%S_%f"
+    )
+
+    clean_doc_id = (
+        str(doc_id or "")
+        .strip()
+        .split("/")[-1]
+        .rsplit(".", 1)[0]
+    )
+
+    blob_name = (
+        f"{base_path}/Deleted Data/linked_entities/"
+        f"{clean_doc_id}_{ucid}_{timestamp}.json"
+    )
+
+    container.upload_blob(
+        name=blob_name,
+        data=json.dumps(entity, indent=2),
+        overwrite=True,
+    )
+
+    return blob_name
 
 @router.post("/update")
 def update_entity(
@@ -527,12 +567,29 @@ def delete_entity(
 
         removed = linked_entities.pop(index)
 
+        deleted_record = {
+            **removed,
+            "deleted_by": x_username,
+            "deleted_at": datetime.now(timezone.utc).isoformat(),
+            "workspace": payload.workspace,
+            "client": payload.client,
+            "project": payload.project,
+            "doc_id": payload.doc_id,
+        }
+
+        deleted_blob = save_deleted_entity_record(
+            workspace=payload.workspace,
+            client=payload.client,
+            project=payload.project,
+            doc_id=payload.doc_id,
+            entity=deleted_record,
+        )
+
         state["linked_entities"] = linked_entities
         state.setdefault("deleted_entities", []).append(
             {
-                **removed,
-                "deleted_by": x_username,
-                "deleted_at": datetime.now(timezone.utc).isoformat(),
+                **deleted_record,
+                "deleted_blob": deleted_blob,
             }
         )
 
@@ -547,6 +604,7 @@ def delete_entity(
         return {
             "status": "deleted",
             "entity": removed,
+            "deleted_blob": deleted_blob,
         }
 
     return {"status": "not_found"}
