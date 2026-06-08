@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Header
 from pydantic import BaseModel
+from datetime import datetime, timezone
 
 from app.services.project_store import CAPTURED_ENTITIES
 from app.services.protocol_service import load_protocol_fields
@@ -30,6 +31,106 @@ def normalize_doc_lookup(value: str) -> str:
     clean = clean.rsplit(".", 1)[0]
     return clean.replace("_", " ").lower()
 
+def get_document_review_blob_name(
+    client: str | None,
+    project: str,
+    doc_id: str,
+) -> str:
+    base_path = project_base_path(client, project)
+    clean_doc_id = str(doc_id or "").strip().split("/")[-1]
+
+    if "." in clean_doc_id:
+        clean_doc_id = clean_doc_id.rsplit(".", 1)[0]
+
+    return f"{base_path}/Review/documents/{clean_doc_id}.json"
+
+
+def load_document_review_state(
+    workspace: str,
+    client: str | None,
+    project: str,
+    doc_id: str,
+) -> dict:
+    container = get_container_client(workspace)
+
+    blob_name = get_document_review_blob_name(
+        client,
+        project,
+        doc_id,
+    )
+
+    blob_client = container.get_blob_client(blob_name)
+
+    if not blob_client.exists():
+        return {}
+
+    return json.loads(
+        blob_client.download_blob()
+        .readall()
+        .decode("utf-8")
+    )
+
+
+def list_project_document_review_states(
+    workspace: str,
+    client: str | None,
+    project: str,
+) -> list[dict[str, Any]]:
+    container = get_container_client(workspace)
+    base_path = project_base_path(client, project)
+    prefix = f"{base_path}/Review/documents/"
+
+    states = []
+
+    for blob in container.list_blobs(name_starts_with=prefix):
+        if not blob.name.endswith(".json"):
+            continue
+
+        states.append(
+            json.loads(
+                container
+                .get_blob_client(blob.name)
+                .download_blob()
+                .readall()
+                .decode("utf-8")
+            )
+        )
+
+    return states
+
+
+def entity_from_review_state(
+    state: dict,
+    linked_entity: dict,
+    index: int,
+) -> dict:
+    ucid = (
+        linked_entity.get("ucid")
+        or linked_entity.get("UCID")
+        or ""
+    )
+
+    return {
+        "id": linked_entity.get("id") or ucid or f"{state.get('doc_id', '')}-{index}",
+        "ucid": ucid,
+        "UCID": ucid,
+        "project_id": state.get("project_id", ""),
+        "batch_id": linked_entity.get(
+            "batch_id",
+            state.get("last_batch_id", ""),
+        ),
+        "doc_id": state.get("doc_id", ""),
+        "captured_by": linked_entity.get(
+            "linked_by",
+            state.get("last_reviewed_by", ""),
+        ),
+        "linked": linked_entity.get("linked", True),
+        "source": linked_entity.get("source", "manual"),
+        "values": {
+            "UCID": ucid,
+            **linked_entity.get("values", {}),
+        },
+    }
 
 def load_latest_overlay_records(
     workspace: str,
@@ -57,16 +158,28 @@ router = APIRouter(prefix="/api/entities", tags=["Captured Entities"])
 
 
 class EntityUpdateRequest(BaseModel):
-    entity_id: int
+    workspace: str = "capture"
+    client: str = ""
+    project: str
+    doc_id: str
+    ucid: str
     values: dict
 
 
 class EntityUnlinkRequest(BaseModel):
-    entity_id: int
+    workspace: str = "capture"
+    client: str = ""
+    project: str
+    doc_id: str
+    ucid: str
 
 
 class EntityDeleteRequest(BaseModel):
-    entity_id: int
+    workspace: str = "capture"
+    client: str = ""
+    project: str
+    doc_id: str
+    ucid: str
 
 
 @router.get("/")
@@ -87,23 +200,101 @@ def list_entities(
 
     headers = [
         header for header in headers
-        if header
+        if header and header.upper() != "UCID"
     ]
 
     normalized_view = "final" if view == "final" else "raw"
+    
+    if normalized_view == "final":
+        final_records = load_latest_overlay_records(
+            workspace=workspace,
+            client=client,
+            project=project,
+            overlay_view="final",
+        )
 
-    matching_entities = [
+        final_headers = []
+
+        for record in final_records:
+            metadata = record.get("metadata", {})
+
+            for key in metadata.keys():
+                if key and key not in final_headers:
+                    final_headers.append(key)
+
+        rows = []
+
+        for record in final_records:
+            row = {
+                "Doc ID": record.get("doc_id", ""),
+            }
+
+            metadata = record.get("metadata", {})
+
+            for header in final_headers:
+                value = metadata.get(header, "")
+
+                if isinstance(value, bool):
+                    row[header] = "Yes" if value else ""
+                else:
+                    row[header] = value
+
+            rows.append(row)
+
+        return {
+            "headers": ["Doc ID"] + final_headers,
+            "rows": rows,
+            "source": "final_overlay",
+        }
+
+    matching_entities = []
+
+    for state in list_project_document_review_states(
+        workspace=workspace,
+        client=client,
+        project=project,
+    ):
+        for index, linked_entity in enumerate(
+            state.get("linked_entities", [])
+        ):
+            if not linked_entity.get("linked", True):
+                continue
+
+            matching_entities.append(
+                entity_from_review_state(
+                    state,
+                    linked_entity,
+                    index,
+                )
+            )
+
+    matching_entities.extend(
         entity for entity in CAPTURED_ENTITIES
         if entity.get("project_id") == project
         and entity.get("linked", True)
         and (not batch or entity.get("batch_id") == batch)
         and entity.get("entity_view", "raw") == normalized_view
-    ]
+    )
+
+    captured_value_headers = []
+
+    for entity in matching_entities:
+        for key in entity.get("values", {}).keys():
+            if (
+                key
+                and key.upper() != "UCID"
+                and key not in headers
+                and key not in captured_value_headers
+            ):
+                captured_value_headers.append(key)
+
+    headers = headers + captured_value_headers
 
     rows = []
 
     for entity in matching_entities:
         row = {
+            "UCID": entity.get("ucid", "") or entity.get("UCID", ""),
             "Doc ID": entity.get("doc_id", ""),
         }
 
@@ -119,8 +310,8 @@ def list_entities(
 
         rows.append(row)
 
-    return {
-        "headers": ["Doc ID"] + headers,
+    return { 
+        "headers": ["UCID", "Doc ID"] + headers,
         "rows": rows,
     }
 
@@ -137,13 +328,28 @@ def list_document_entities(
 ):
     normalized_doc = normalize_doc_lookup(doc)
 
-    manual_entities = [
-        entity for entity in CAPTURED_ENTITIES
-        if entity.get("project_id") == project
-        and normalize_doc_lookup(entity.get("doc_id", "")) == normalized_doc
-        and entity.get("linked", True)
-        and (not batch or entity.get("batch_id") == batch)
-    ]
+    review_state = load_document_review_state(
+        workspace=workspace,
+        client=client,
+        project=project,
+        doc_id=doc,
+    )
+
+    manual_entities = []
+
+    for index, linked_entity in enumerate(
+        review_state.get("linked_entities", [])
+    ):
+        if not linked_entity.get("linked", True):
+            continue
+
+        manual_entities.append(
+            entity_from_review_state(
+                review_state,
+                linked_entity,
+                index,
+            )
+        )
 
     overlay_entities = []
 
@@ -176,20 +382,73 @@ def list_document_entities(
 
     return manual_entities + overlay_entities
 
+def save_document_review_state(
+    workspace: str,
+    client: str | None,
+    project: str,
+    doc_id: str,
+    state: dict,
+):
+    container = get_container_client(workspace)
+
+    blob_name = get_document_review_blob_name(
+        client,
+        project,
+        doc_id,
+    )
+
+    blob_client = container.get_blob_client(blob_name)
+
+    blob_client.upload_blob(
+        json.dumps(state, indent=2),
+        overwrite=True,
+    )
 
 @router.post("/update")
 def update_entity(
     payload: EntityUpdateRequest,
     x_username: str = Header(default=""),
 ):
-    for entity in CAPTURED_ENTITIES:
-        if entity.get("id") == payload.entity_id:
-            entity["values"] = payload.values
+    state = load_document_review_state(
+        workspace=payload.workspace,
+        client=payload.client,
+        project=payload.project,
+        doc_id=payload.doc_id,
+    )
 
-            return {
-                "status": "updated",
-                "entity": entity,
-            }
+    for index, entity in enumerate(state.get("linked_entities", [])):
+        entity_ucid = (
+            entity.get("ucid")
+            or entity.get("UCID")
+            or ""
+        )
+
+        if entity_ucid != payload.ucid:
+            continue
+
+        entity["values"] = payload.values
+        entity["linked"] = True
+        entity["updated_by"] = x_username
+        entity["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        state["linked_entities"][index] = entity
+
+        save_document_review_state(
+            workspace=payload.workspace,
+            client=payload.client,
+            project=payload.project,
+            doc_id=payload.doc_id,
+            state=state,
+        )
+
+        return {
+            "status": "updated",
+            "entity": entity_from_review_state(
+                state,
+                entity,
+                index,
+            ),
+        }
 
     return {"status": "not_found"}
 
@@ -199,14 +458,45 @@ def unlink_entity(
     payload: EntityUnlinkRequest,
     x_username: str = Header(default=""),
 ):
-    for entity in CAPTURED_ENTITIES:
-        if entity.get("id") == payload.entity_id:
-            entity["linked"] = False
+    state = load_document_review_state(
+        workspace=payload.workspace,
+        client=payload.client,
+        project=payload.project,
+        doc_id=payload.doc_id,
+    )
 
-            return {
-                "status": "unlinked",
-                "entity": entity,
-            }
+    for index, entity in enumerate(state.get("linked_entities", [])):
+        entity_ucid = (
+            entity.get("ucid")
+            or entity.get("UCID")
+            or ""
+        )
+
+        if entity_ucid != payload.ucid:
+            continue
+
+        entity["linked"] = False
+        entity["unlinked_by"] = x_username
+        entity["unlinked_at"] = datetime.now(timezone.utc).isoformat()
+
+        state["linked_entities"][index] = entity
+
+        save_document_review_state(
+            workspace=payload.workspace,
+            client=payload.client,
+            project=payload.project,
+            doc_id=payload.doc_id,
+            state=state,
+        )
+
+        return {
+            "status": "unlinked",
+            "entity": entity_from_review_state(
+                state,
+                entity,
+                index,
+            ),
+        }
 
     return {"status": "not_found"}
 
@@ -216,13 +506,47 @@ def delete_entity(
     payload: EntityDeleteRequest,
     x_username: str = Header(default=""),
 ):
-    for index, entity in enumerate(CAPTURED_ENTITIES):
-        if entity.get("id") == payload.entity_id:
-            removed = CAPTURED_ENTITIES.pop(index)
+    state = load_document_review_state(
+        workspace=payload.workspace,
+        client=payload.client,
+        project=payload.project,
+        doc_id=payload.doc_id,
+    )
 
-            return {
-                "status": "deleted",
-                "entity": removed,
+    linked_entities = state.get("linked_entities", [])
+
+    for index, entity in enumerate(linked_entities):
+        entity_ucid = (
+            entity.get("ucid")
+            or entity.get("UCID")
+            or ""
+        )
+
+        if entity_ucid != payload.ucid:
+            continue
+
+        removed = linked_entities.pop(index)
+
+        state["linked_entities"] = linked_entities
+        state.setdefault("deleted_entities", []).append(
+            {
+                **removed,
+                "deleted_by": x_username,
+                "deleted_at": datetime.now(timezone.utc).isoformat(),
             }
+        )
+
+        save_document_review_state(
+            workspace=payload.workspace,
+            client=payload.client,
+            project=payload.project,
+            doc_id=payload.doc_id,
+            state=state,
+        )
+
+        return {
+            "status": "deleted",
+            "entity": removed,
+        }
 
     return {"status": "not_found"}

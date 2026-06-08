@@ -33,6 +33,10 @@ type ReviewCapturePanelProps = {
   onPreviousDoc?: () => void;
   onNextDoc?: () => void;
   onSaveComplete?: () => void;
+  onLinkedEntitySaved?: () => void;
+  editingEntity?: any | null;
+  onEditComplete?: () => void;
+  onEditCancel?: () => void;
 };
 
 export default function ReviewCapturePanel({
@@ -49,6 +53,10 @@ export default function ReviewCapturePanel({
   onPreviousDoc,
   onNextDoc,
   onSaveComplete,
+  onLinkedEntitySaved,
+  editingEntity = null,
+  onEditComplete,
+  onEditCancel,
 }: ReviewCapturePanelProps) {
   const [values, setValues] = useState<Record<string, string | boolean>>({});
 
@@ -80,6 +88,8 @@ export default function ReviewCapturePanel({
     initialDocumentCoding !== "Not Responsive" &&
     (hasLinkedEntities || localLinkedEntityAttached);
 
+  const isBatchReview = Boolean(batchId);
+
   useEffect(() => {
     setLocalLinkedEntityAttached(false);
   }, [docId]);
@@ -95,6 +105,21 @@ export default function ReviewCapturePanel({
       setDocumentCoding(initialDocumentCoding);
     }
   }, [docId, initialDocumentCoding]);
+
+  useEffect(() => {
+    if (!editingEntity) return;
+
+    const incomingValues = editingEntity.values || {};
+
+    const cleanValues = Object.fromEntries(
+      Object.entries(incomingValues).filter(
+        ([key]) => key.toUpperCase() !== "UCID"
+      )
+    );
+
+    setValues(cleanValues as Record<string, string | boolean>);
+    setMessage(`Editing ${editingEntity.ucid || editingEntity.UCID || "linked entity"}.`);
+  }, [editingEntity]);
 
   function normalizeFieldType(field: CaptureField) {
     const typeText =
@@ -183,6 +208,7 @@ export default function ReviewCapturePanel({
     }
 
     apiPost("/api/review/save", {
+      workspace,
       client_id: clientId,
       project_id: projectId,
       batch_id: batchId,
@@ -194,11 +220,46 @@ export default function ReviewCapturePanel({
         setLocalLinkedEntityAttached(true);
         setDocumentCoding("Responsive");
         clearValues();
+        onLinkedEntitySaved?.();
       })
       .catch(() => {
         setMessage(
           "Entity link failed. Please try again."
         );
+      });
+  }
+
+  function handleUpdateLinkedEntity() {
+    if (!editingEntity) return;
+
+    const ucid =
+      editingEntity.ucid ||
+      editingEntity.UCID ||
+      editingEntity.values?.UCID ||
+      "";
+
+    if (!ucid) {
+      setMessage("Cannot update linked entity without UCID.");
+      return;
+    }
+
+    apiPost("/api/entities/update", {
+      workspace,
+      client: clientId,
+      project: projectId,
+      doc_id: docId,
+      ucid,
+      values,
+    })
+      .then(() => {
+        setMessage("Linked entity updated.");
+        setLocalLinkedEntityAttached(true);
+        setDocumentCoding("Responsive");
+        clearValues();
+        onEditComplete?.();
+      })
+      .catch(() => {
+        setMessage("Linked entity update failed.");
       });
   }
 
@@ -243,6 +304,41 @@ export default function ReviewCapturePanel({
       });
   }
 
+  function handleSaveUpdate() {
+    if (!validateDocumentCoding()) {
+      return;
+    }
+
+    const hasCapturedValues = Object.values(values).some((value) => {
+      if (value === null || value === undefined) return false;
+      return String(value).trim() !== "";
+    });
+
+    const valuesToSave =
+      documentCoding === "Not Responsive" && !hasCapturedValues ? {} : values;
+
+    apiPost("/api/review/save", {
+      workspace,
+      client_id: clientId,
+      project_id: projectId,
+      batch_id: batchId,
+      doc_id: docId,
+      values: valuesToSave,
+      document_coding: documentCoding,
+      further_review_reason: furtherReviewReason,
+    })
+      .then(() => {
+        setMessage("Document saved.");
+
+        setValues({});
+
+        onSaveComplete?.();
+      })
+      .catch(() => {
+        setMessage("Save / Update failed.");
+      });
+  }
+
   const groupedFields =
     fields.reduce<Record<string, CaptureField[]>>(
       (groups, field) => {
@@ -264,10 +360,20 @@ export default function ReviewCapturePanel({
       <div className="shrink-0 p-6 border-b border-slate-800 space-y-3">
         <Button
           fullWidth
-          onClick={handleSaveNext}
+          onClick={isBatchReview ? handleSaveNext : handleSaveUpdate}
         >
-          {isLastDoc ? "Save & Exit" : "Save & Next"}
+          {isBatchReview
+            ? isLastDoc
+              ? "Save & Exit"
+              : "Save & Next"
+            : "Save / Update"}
         </Button>
+
+        {message && (
+          <p className="text-sm font-medium text-emerald-400">
+            {message}
+          </p>
+        )}
 
         <h2 className="text-lg font-semibold text-white">
           Capture Panel
@@ -469,15 +575,23 @@ export default function ReviewCapturePanel({
       <div className="shrink-0 border-t border-slate-800 p-6 space-y-3">
         <Button
           fullWidth
-          onClick={handleLinkEntity}
+          onClick={editingEntity ? handleUpdateLinkedEntity : handleLinkEntity}
         >
-          Link Entity
+          {editingEntity ? "Update Link" : "Link Entity"}
         </Button>
 
-        {message && (
-          <p className="text-sm text-slate-400 mt-2">
-            {message}
-          </p>
+        {editingEntity && (
+          <Button
+            fullWidth
+            variant="secondary"
+            onClick={() => {
+              clearValues();
+              onEditCancel?.();
+              setMessage("");
+            }}
+          >
+            Cancel Edit
+          </Button>
         )}
       </div>
     </aside>

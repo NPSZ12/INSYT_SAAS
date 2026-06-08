@@ -11,6 +11,7 @@ from app.services.pdf_text_service import get_text_blob_path
 
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from azure.storage.blob import (
     generate_blob_sas,
@@ -258,6 +259,130 @@ def project_base_path(client: str, project: str) -> str:
 
     return project
 
+def get_document_review_blob_name(
+    client: str,
+    project_id: str,
+    doc_id: str,
+) -> str:
+    base_path = project_base_path(client, project_id)
+    clean_doc_id = str(doc_id or "").strip().split("/")[-1]
+
+    if "." in clean_doc_id:
+        clean_doc_id = clean_doc_id.rsplit(".", 1)[0]
+
+    return f"{base_path}/Review/documents/{clean_doc_id}.json"
+
+
+def load_document_review_state(
+    workspace: str,
+    client: str,
+    project_id: str,
+    doc_id: str,
+) -> dict:
+    container = get_container_client(workspace)
+
+    blob_name = get_document_review_blob_name(
+        client,
+        project_id,
+        doc_id,
+    )
+
+    blob_client = container.get_blob_client(blob_name)
+
+    if not blob_client.exists():
+        return {}
+
+    return json.loads(
+        blob_client.download_blob()
+        .readall()
+        .decode("utf-8")
+    )
+
+
+def save_document_review_state(
+    workspace: str,
+    client: str,
+    project_id: str,
+    batch_id: str,
+    doc_id: str,
+    document_coding: str,
+    further_review_reason: str,
+    values: dict,
+    reviewed_by: str,
+    action: str,
+) -> dict:
+    container = get_container_client(workspace)
+
+    blob_name = get_document_review_blob_name(
+        client,
+        project_id,
+        doc_id,
+    )
+
+    blob_client = container.get_blob_client(blob_name)
+
+    if blob_client.exists():
+        state = json.loads(
+            blob_client.download_blob()
+            .readall()
+            .decode("utf-8")
+        )
+    else:
+        state = {
+            "workspace": workspace,
+            "client_id": client,
+            "project_id": project_id,
+            "doc_id": doc_id,
+            "review_history": [],
+            "linked_entities": [],
+        }
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    if document_coding:
+        state["document_coding"] = document_coding
+
+    state["further_review_reason"] = further_review_reason or ""
+    state["last_batch_id"] = batch_id or ""
+    state["last_reviewed_by"] = reviewed_by
+    state["last_reviewed_at"] = now
+
+    has_values = any(
+        value is not None and str(value).strip() != ""
+        for value in values.values()
+    )
+
+    if has_values:
+        state["values"] = values
+
+        state.setdefault("linked_entities", []).append(
+            {
+                "ucid": f"UCID-{uuid4().hex}",
+                "batch_id": batch_id or "",
+                "linked_by": reviewed_by,
+                "linked_at": now,
+                "source": "manual_review",
+                "values": values,
+            }
+        )
+
+    state.setdefault("review_history", []).append(
+        {
+            "batch_id": batch_id or "",
+            "reviewed_by": reviewed_by,
+            "reviewed_at": now,
+            "action": action,
+            "document_coding": document_coding,
+            "further_review_reason": further_review_reason or "",
+        }
+    )
+
+    blob_client.upload_blob(
+        json.dumps(state, indent=2),
+        overwrite=True,
+    )
+
+    return state
 
 def load_review_document_by_doc_id(
     workspace: str,
@@ -357,6 +482,13 @@ def load_review_document_by_doc_id(
         workspace,
         matched_native,
     )
+    
+    review_state = load_document_review_state(
+        workspace=workspace,
+        client=client,
+        project_id=project,
+        doc_id=matched_doc_id,
+    )
 
     return {
         "workspace": workspace,
@@ -364,6 +496,9 @@ def load_review_document_by_doc_id(
         "project_id": project,
         "batch": "Direct Open",
         "doc_id": matched_doc_id,
+        "document_coding": review_state.get("document_coding", ""),
+        "further_review_reason": review_state.get("further_review_reason", ""),
+        "review_state": review_state,
         "blob_name": matched_text,
         "text": text,
         "native_url": native_url,
@@ -377,7 +512,7 @@ def load_current_review_document(
     client: str = "",
     doc: str = "",
 ):
-    if doc:
+    if doc and not batch:
         return load_review_document_by_doc_id(
             workspace=workspace,
             client=client,
@@ -488,6 +623,13 @@ def load_current_review_document(
         if current_index < len(batch_doc_ids) - 1
         else ""
     )
+    
+    review_state = load_document_review_state(
+        workspace=workspace,
+        client=client,
+        project_id=project_id,
+        doc_id=target_doc_id,
+    )
 
     return {
         "workspace": workspace,
@@ -495,6 +637,9 @@ def load_current_review_document(
         "project_id": project_id,
         "batch": batch,
         "doc_id": target_doc_id,
+        "document_coding": review_state.get("document_coding", ""),
+        "further_review_reason": review_state.get("further_review_reason", ""),
+        "review_state": review_state,
         "blob_name": text_blob_path,
         "fields": protocol_fields,
         "native_url": get_workspace_blob_url(workspace, native_blob),
@@ -563,9 +708,10 @@ def get_workspace_current_review_document(
 
 
 class CaptureSaveRequest(BaseModel):
+    workspace: str = "capture"
     client_id: str = ""
     project_id: str
-    batch_id: str
+    batch_id: str = ""
     doc_id: str
     values: dict = {}
     document_coding: str = ""
@@ -579,80 +725,78 @@ def save_capture(
     payload: CaptureSaveRequest,
     x_username: str = Header(default=""),
 ):
-    has_captured_values = any(
-        value is not None and str(value).strip() != ""
-        for value in payload.values.values()
+    workspace = (
+        payload.workspace
+        if payload.workspace in VALID_WORKSPACES
+        else "capture"
     )
 
-    if has_captured_values:
-        entity = {
-            "id": len(CAPTURED_ENTITIES) + 1,
-            "project_id": payload.project_id,
-            "batch_id": payload.batch_id,
-            "doc_id": payload.doc_id,
-            "captured_by": x_username,
-            "linked": True,
-            "values": payload.values,
-        }
+    state = save_document_review_state(
+        workspace=workspace,
+        client=payload.client_id,
+        project_id=payload.project_id,
+        batch_id=payload.batch_id,
+        doc_id=payload.doc_id,
+        document_coding=payload.document_coding,
+        further_review_reason=payload.further_review_reason,
+        values=payload.values,
+        reviewed_by=x_username,
+        action="save",
+    )
 
-        CAPTURED_ENTITIES.append(entity)
-    
-    container = get_container_client("capture")
 
-    if payload.client_id:
-        batch_blob = (
-            f"{payload.client_id}/"
-            f"{payload.project_id}/"
-            f"Batches/"
-            f"{payload.batch_id}.json"
-        )
-    else:
-        batch_blob = (
-            f"{payload.project_id}/"
-            f"Batches/"
-            f"{payload.batch_id}.json"
+    if payload.batch_id:
+        container = get_container_client(workspace)
+
+        batch_blob = get_batch_blob_name(
+            client=payload.client_id,
+            project_id=payload.project_id,
+            batch=payload.batch_id,
         )
 
-    blob_client = container.get_blob_client(batch_blob)
+        blob_client = container.get_blob_client(batch_blob)
 
-    if blob_client.exists():
-        batch = json.loads(
-            blob_client.download_blob()
-            .readall()
-            .decode("utf-8")
-        )
+        if blob_client.exists():
+            batch = json.loads(
+                blob_client.download_blob()
+                .readall()
+                .decode("utf-8")
+            )
 
-        reviewed_docs = batch.get(
-            "reviewed_doc_ids",
-            []
-        )
+            reviewed_docs = batch.get("reviewed_doc_ids", [])
 
-        if payload.doc_id not in reviewed_docs:
-            reviewed_docs.append(payload.doc_id)
+            if payload.doc_id not in reviewed_docs:
+                reviewed_docs.append(payload.doc_id)
 
-        batch["reviewed_doc_ids"] = reviewed_docs
-        batch["completed_count"] = len(reviewed_docs)
-        coding_by_doc = batch.get("document_coding_by_doc", {})
-        coding_by_doc[payload.doc_id] = payload.document_coding
-        batch["document_coding_by_doc"] = coding_by_doc
-        batch["last_reviewed_doc_id"] = payload.doc_id
-        batch["last_reviewed_by"] = x_username
-        batch["last_reviewed_at"] = datetime.now(
-            timezone.utc
-        ).isoformat()
+            batch["reviewed_doc_ids"] = reviewed_docs
+            batch["completed_count"] = len(reviewed_docs)
+            batch["last_reviewed_doc_id"] = payload.doc_id
+            batch["last_reviewed_by"] = x_username
+            batch["last_reviewed_at"] = datetime.now(
+                timezone.utc
+            ).isoformat()
 
-        if batch["completed_count"] >= batch.get("document_count", 0):
-            batch["status"] = "Completed"
+            batch_history = batch.get("review_history_by_doc", {})
+            batch_history[payload.doc_id] = {
+                "document_coding": payload.document_coding,
+                "reviewed_by": x_username,
+                "reviewed_at": batch["last_reviewed_at"],
+            }
+            batch["review_history_by_doc"] = batch_history
 
-        blob_client.upload_blob(
-            json.dumps(batch, indent=2),
-            overwrite=True,
-        )
+            if batch["completed_count"] >= batch.get("document_count", 0):
+                batch["status"] = "Completed"
+
+            blob_client.upload_blob(
+                json.dumps(batch, indent=2),
+                overwrite=True,
+            )
 
     return {
         "status": "saved",
         "doc_id": payload.doc_id,
         "values": payload.values,
+        "document_coding": state.get("document_coding", ""),
     }
 
 
@@ -676,19 +820,16 @@ def get_review_coding_map(
 ):
     container = get_container_client(workspace)
 
-    prefix = (
-        f"{client}/{project}/Batches/"
-        if client
-        else f"{project}/Batches/"
-    )
+    base_path = project_base_path(client, project)
+    document_prefix = f"{base_path}/Review/documents/"
 
     coding_map = {}
 
-    for blob in container.list_blobs(name_starts_with=prefix):
+    for blob in container.list_blobs(name_starts_with=document_prefix):
         if not blob.name.endswith(".json"):
             continue
 
-        batch = json.loads(
+        state = json.loads(
             container
             .get_blob_client(blob.name)
             .download_blob()
@@ -696,7 +837,10 @@ def get_review_coding_map(
             .decode("utf-8")
         )
 
-        for doc_id, coding in batch.get("document_coding_by_doc", {}).items():
+        doc_id = state.get("doc_id", "")
+        coding = state.get("document_coding", "")
+
+        if doc_id and coding:
             coding_map[doc_id] = coding
 
     return coding_map

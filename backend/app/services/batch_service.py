@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Literal
 import math
@@ -414,14 +415,54 @@ def create_project_batch(
         if blob.name.endswith(".json")
     ]
 
-    next_number = len(existing_batch_files) + 1
+    requested_batch_name = (
+        options.get("batch_name")
+        if options
+        else ""
+    )
+
+    requested_batch_name = str(requested_batch_name or "").strip()
+
+    if requested_batch_name:
+        prefix_match = re.match(r"^(.*?)(?:_\d+)?$", requested_batch_name)
+        batch_prefix_name = (
+            prefix_match.group(1).strip()
+            if prefix_match
+            else requested_batch_name
+        )
+    else:
+        batch_prefix_name = "Batch"
+
+    batch_prefix_name = (
+        batch_prefix_name
+        .replace("/", "_")
+        .replace("\\", "_")
+        .replace(" ", "_")
+    )
+
+    existing_numbers = []
+
+    for blob_name in existing_batch_files:
+        file_name = blob_name.split("/")[-1]
+        name_without_ext = file_name.rsplit(".", 1)[0]
+
+        match = re.match(
+            rf"^{re.escape(batch_prefix_name)}_(\d+)$",
+            name_without_ext,
+        )
+
+        if match:
+            existing_numbers.append(int(match.group(1)))
+
+    next_number = max(existing_numbers, default=0) + 1
+
     created_batches = []
 
     for chunk in batch_chunks:
         if not chunk:
             continue
 
-        batch_name = f"Batch_{next_number:03d}"
+        batch_name = f"{batch_prefix_name}_{next_number:03d}"
 
         batch = {
             "batch_name": batch_name,
@@ -516,19 +557,18 @@ def remove_docs_from_batch(
     workspace: Workspace,
     project_id: str,
     batch_name: str,
-    doc_ids: list[str],
+    doc_ids: list[str] | None = None,
     username: str = "admin",
     preserve_captured_data: bool = True,
+    client_id: str = "",
 ):
-    if not doc_ids:
-        raise HTTPException(
-            status_code=400,
-            detail="At least one doc_id is required.",
-        )
-
     container = get_container_client(workspace)
 
-    batch_blob_name = f"{project_id}/Batches/{batch_name}.json"
+    if client_id:
+        batch_blob_name = f"{client_id}/{project_id}/Batches/{batch_name}.json"
+    else:
+        batch_blob_name = f"{project_id}/Batches/{batch_name}.json"
+
     batch_blob = container.get_blob_client(batch_blob_name)
 
     if not batch_blob.exists():
@@ -537,11 +577,18 @@ def remove_docs_from_batch(
             detail=f"Batch not found: {batch_name}",
         )
 
-    data = batch_blob.download_blob().readall()
-    batch = json.loads(data.decode("utf-8"))
+    batch = json.loads(
+        batch_blob.download_blob()
+        .readall()
+        .decode("utf-8")
+    )
 
     existing_doc_ids = batch.get("doc_ids", [])
-    remove_set = set(doc_ids)
+
+    if doc_ids:
+        remove_set = set(doc_ids)
+    else:
+        remove_set = set(existing_doc_ids)
 
     remaining_doc_ids = [
         doc_id for doc_id in existing_doc_ids
@@ -556,26 +603,43 @@ def remove_docs_from_batch(
     if not removed_doc_ids:
         raise HTTPException(
             status_code=400,
-            detail="None of the provided doc_ids were found in this batch.",
+            detail="No documents were found to remove from this batch.",
         )
 
     batch["doc_ids"] = remaining_doc_ids
     batch["document_count"] = len(remaining_doc_ids)
     batch["batch_size"] = len(remaining_doc_ids)
+    batch["documents"] = str(len(remaining_doc_ids))
     batch["last_modified_by"] = username
     batch["last_modified_at"] = datetime.now(timezone.utc).isoformat()
+    batch["last_remove_preserve_data"] = preserve_captured_data
 
     if len(remaining_doc_ids) == 0:
         batch["status"] = "Empty"
+        batch["checked_out_by"] = None
 
     batch_blob.upload_blob(
-        data=json.dumps(batch, indent=2),
+        json.dumps(batch, indent=2),
         overwrite=True,
     )
+
+    if client_id:
+        audit_blob_name = (
+            f"{client_id}/{project_id}/Audit/Batches/"
+            f"{batch_name}_remove_docs_"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.json"
+        )
+    else:
+        audit_blob_name = (
+            f"{project_id}/Audit/Batches/"
+            f"{batch_name}_remove_docs_"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.json"
+        )
 
     audit_record = {
         "action": "remove_docs_from_batch",
         "workspace": workspace,
+        "client_id": client_id,
         "project_id": project_id,
         "batch_name": batch_name,
         "removed_doc_ids": removed_doc_ids,
@@ -584,12 +648,6 @@ def remove_docs_from_batch(
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
-    audit_blob_name = (
-        f"{project_id}/Audit/Batches/"
-        f"{batch_name}_remove_docs_"
-        f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.json"
-    )
-
     container.upload_blob(
         name=audit_blob_name,
         data=json.dumps(audit_record, indent=2),
@@ -597,8 +655,10 @@ def remove_docs_from_batch(
     )
 
     return {
-        "message": "Documents removed from batch.",
+        "status": "removed",
+        "message": f"Removed {len(removed_doc_ids)} document(s) from {batch_name}.",
         "batch": batch,
         "removed_doc_ids": removed_doc_ids,
+        "removed_doc_count": len(removed_doc_ids),
         "preserve_captured_data": preserve_captured_data,
     }

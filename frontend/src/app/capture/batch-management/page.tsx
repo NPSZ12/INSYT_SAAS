@@ -81,6 +81,7 @@ function BatchesPageContent() {
   const [confidencePreset, setConfidencePreset] = useState("95_5");
   const [statFormat, setStatFormat] = useState("Random Generator");
   const [statOtherFormat, setStatOtherFormat] = useState("");
+  const [expandedBatchGroups, setExpandedBatchGroups] = useState<Record<string, boolean>>({});
 
   
 
@@ -251,6 +252,47 @@ function BatchesPageContent() {
     );
   }
 
+  function removeBatchDocs(
+    batchId: string,
+    preserveData: boolean
+  ) {
+    if (!projectId) return;
+
+    const confirmed = window.confirm(
+      preserveData
+        ? "Remove these documents from the batch while preserving all saved document coding and linked entity data?"
+        : "Remove these documents from the batch only? Already-saved document-level data will not be deleted."
+    );
+
+    if (!confirmed) return;
+
+    apiPost(
+      `/api/capture/projects/${encodeURIComponent(
+        projectId
+      )}/batches/remove-docs?client=${encodeURIComponent(clientId)}`,
+      {
+        batch_name: batchId,
+        preserve_data: preserveData,
+        username: user?.username || "",
+      }
+    )
+      .then((response) => {
+        setMessage(
+          response.message ||
+            (preserveData
+              ? "Documents removed from batch and saved data preserved."
+              : "Documents removed from batch.")
+        );
+
+        loadBatches();
+        loadFiles();
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Failed to remove documents from batch.");
+      });
+  }
+
   function createReviewBatches() {
     if (!projectId) return;
 
@@ -263,6 +305,9 @@ function BatchesPageContent() {
       workflow_type: "standard",
       created_by: user?.username || "admin",
       search_folder_doc_ids: null,
+      options: {
+        batch_name: batchName || "Batch",
+      },
     })
       .then((response) => {
         setMessage(response.message || "Review batch created.");
@@ -285,6 +330,9 @@ function BatchesPageContent() {
       workflow_type: "standard",
       created_by: user?.username || "admin",
       search_folder_doc_ids: null,
+      options: {
+        batch_name: batchName || "QC",
+      },
     })
       .then((response) => {
         setMessage(response.message || "QC batch created.");
@@ -306,6 +354,9 @@ function BatchesPageContent() {
       workflow_type: "alt_workflow",
       created_by: user?.username || "admin",
       search_folder_doc_ids: [`folder:${selectedFolderId}`],
+      options: {
+        batch_name: batchName || "Alt",
+      },
     })
       .then((response) => {
         setMessage(response.message || "Alt batch created.");
@@ -376,6 +427,76 @@ function BatchesPageContent() {
     return 4;
   }
 
+  function getBatchGroupKey(batchName: string) {
+    const clean = String(batchName || "").trim();
+
+    const match = clean.match(/^(.*?_)\d+$/);
+
+    if (match) {
+      return match[1];
+    }
+
+    return clean || "Ungrouped";
+  }
+
+  function getBatchStatusBucket(status: string) {
+    const clean = String(status || "").toLowerCase();
+
+    if (clean === "available") return "available";
+    if (clean === "checked out" || clean === "in progress") return "inProgress";
+    if (clean === "completed") return "completed";
+
+    return "other";
+  }
+
+  function buildBatchGroups(groupBatches: Batch[]) {
+    const grouped: Record<string, Batch[]> = {};
+
+    groupBatches.forEach((batch) => {
+      const groupKey = getBatchGroupKey(
+        batch.batch_id || batch.name || ""
+      );
+
+      if (!grouped[groupKey]) {
+        grouped[groupKey] = [];
+      }
+
+      grouped[groupKey].push(batch);
+    });
+
+    return Object.entries(grouped)
+      .map(([groupKey, groupItems]) => {
+        const sortedItems = [...groupItems].sort(
+          (a, b) =>
+            getBatchNumber(a.batch_id) -
+            getBatchNumber(b.batch_id)
+        );
+
+        return {
+          groupKey,
+          batches: sortedItems,
+          total: sortedItems.length,
+          available: sortedItems.filter(
+            (batch) =>
+              getBatchStatusBucket(batch.status) === "available"
+          ).length,
+          inProgress: sortedItems.filter(
+            (batch) =>
+              getBatchStatusBucket(batch.status) === "inProgress"
+          ).length,
+          completed: sortedItems.filter(
+            (batch) =>
+              getBatchStatusBucket(batch.status) === "completed"
+          ).length,
+        };
+      })
+      .sort((a, b) =>
+        a.groupKey.localeCompare(b.groupKey, undefined, {
+          numeric: true,
+        })
+      );
+  }
+
   const filteredBatches = [...batches]
     .filter((batch) => {
       if (mode === "review") return batch.level === "1L";
@@ -418,6 +539,8 @@ function BatchesPageContent() {
         batch.checked_out_by || "—",
     };
   });
+
+  const batchGroups = buildBatchGroups(filteredBatches);
 
   return (
     <AppShell>
@@ -528,85 +651,17 @@ function BatchesPageContent() {
                   Review Batch Status
                 </h3>
 
-                <div className="max-h-[60vh] overflow-auto">
-                  <DataTable columns={batchColumns} data={batchRows} />
-                </div>
+                <BatchGroupDirectory
+                  batchGroups={batchGroups}
+                  expandedBatchGroups={expandedBatchGroups}
+                  setExpandedBatchGroups={setExpandedBatchGroups}
+                  checkoutBatch={checkoutBatch}
+                  openBatchReview={openBatchReview}
+                  removeBatchDocs={removeBatchDocs}
+                  showDocumentList
+                />
               </div>
             </div>
-
-            <div className="mt-8">
-              <h3 className="text-lg font-semibold mb-4">
-                Batch Document Management
-              </h3>
-
-              <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-auto max-h-[50vh]">
-                <table className="w-full text-xs table-auto">
-                  <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
-                    <tr>
-                      <th className="p-3 text-left">Batch</th>
-                      <th className="p-3 text-left">Level</th>
-                      <th className="p-3 text-left">Status</th>
-                      <th className="p-3 text-left">Documents</th>
-                      <th className="p-3 text-left">Actions</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {filteredBatches.map((batch) => (
-                      <tr
-                        key={batch.batch_id}
-                        className="border-t border-slate-800 align-top"
-                      >
-                        <td className="p-3 text-white">
-                          {batch.batch_id}
-                        </td>
-
-                        <td className="p-3 text-slate-300">
-                          {batch.level || "1L"}
-                        </td>
-
-                        <td className="p-3 text-slate-300">
-                          {batch.status}
-                        </td>
-
-                        <td className="p-3 text-slate-300 max-w-[400px] break-words">
-                          {(batch.doc_ids || []).join(", ")}
-                        </td>
-
-                        <td className="p-3">
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              variant="secondary"
-                              onClick={() => {
-                                console.log(
-                                  "TODO: Remove docs and preserve captured data",
-                                  batch.batch_id
-                                );
-                              }}
-                            >
-                              Remove Docs + Save Data
-                            </Button>
-
-                            <Button
-                              variant="danger"
-                              onClick={() => {
-                                console.log(
-                                  "TODO: Remove docs without preserving data",
-                                  batch.batch_id
-                                );
-                              }}
-                            >
-                              Remove Docs Without Saving
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
           </ContentCard>
         )}
 
@@ -843,6 +898,250 @@ function BatchCreateControls({
   );
 }
 
+function BatchGroupDirectory({
+  batchGroups,
+  expandedBatchGroups,
+  setExpandedBatchGroups,
+  checkoutBatch,
+  openBatchReview,
+  removeBatchDocs,
+  showDocumentList = false,
+}: {
+  batchGroups: {
+    groupKey: string;
+    batches: Batch[];
+    total: number;
+    available: number;
+    inProgress: number;
+    completed: number;
+  }[];
+  expandedBatchGroups: Record<string, boolean>;
+  setExpandedBatchGroups: React.Dispatch<
+    React.SetStateAction<Record<string, boolean>>
+  >;
+  checkoutBatch: (batchId: string) => void;
+  openBatchReview: (batch: Batch) => void;
+  removeBatchDocs?: (batchId: string, preserveData: boolean) => void;
+  showDocumentList?: boolean;
+}) {
+  return (
+    <div className="space-y-3 max-h-[60vh] overflow-auto">
+      {batchGroups.map((group) => {
+        const isExpanded =
+          expandedBatchGroups[group.groupKey] || false;
+
+        return (
+          <div
+            key={group.groupKey}
+            className="border border-slate-800 bg-slate-950 rounded-xl overflow-hidden"
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setExpandedBatchGroups((current) => ({
+                  ...current,
+                  [group.groupKey]: !isExpanded,
+                }))
+              }
+              className="w-full px-4 py-3 bg-slate-900 hover:bg-slate-800 text-left"
+            >
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <span className="text-white font-semibold">
+                  {isExpanded ? "▾" : "▸"} {group.groupKey}
+                </span>
+
+                <span className="text-slate-300">
+                  Total Batches: {group.total}
+                </span>
+
+                <span className="text-emerald-300">
+                  Available: {group.available}
+                </span>
+
+                <span className="text-sky-300">
+                  In Progress: {group.inProgress}
+                </span>
+
+                <span className="text-lime-300">
+                  Completed: {group.completed}
+                </span>
+              </div>
+            </button>
+
+            {isExpanded && (
+              <div className="border-t border-slate-800">
+                <div
+                  className="overflow-x-scroll border-b border-slate-800 bg-slate-950 h-4"
+                  onScroll={(event) => {
+                    const tableScroller =
+                      event.currentTarget.nextElementSibling as HTMLDivElement | null;
+
+                    if (tableScroller) {
+                      tableScroller.scrollLeft =
+                        event.currentTarget.scrollLeft;
+                    }
+                  }}
+                >
+                  <div className="min-w-[1200px] h-1" />
+                </div>
+
+                <div
+                  className="max-h-[56vh] overflow-auto"
+                  onScroll={(event) => {
+                    const topScroller =
+                      event.currentTarget.previousElementSibling as HTMLDivElement | null;
+
+                    if (topScroller) {
+                      topScroller.scrollLeft =
+                        event.currentTarget.scrollLeft;
+                    }
+                  }}
+                >
+                  <table className="min-w-[1200px] w-full text-xs">
+                    <thead className="bg-slate-900/70 text-slate-400">
+                      <tr>
+                        <th className="p-2 text-left">Name</th>
+                        <th className="p-2 text-left">Level</th>
+                        <th className="p-2 text-left">Status</th>
+                        <th className="p-2 text-left">Docs</th>
+                        <th className="p-2 text-left">Reviewed</th>
+                        <th className="p-2 text-left">Pending</th>
+
+                        {showDocumentList && (
+                          <th className="p-2 text-left">Documents</th>
+                        )}
+
+                        <th className="p-2 text-left">Checked Out By</th>
+                        <th className="p-2 text-left">Actions</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {group.batches.map((batch) => {
+                        const totalDocs =
+                          batch.document_count ||
+                          Number(batch.documents || 0);
+
+                        const reviewed =
+                          batch.completed_count || 0;
+
+                        const pending = Math.max(
+                          totalDocs - reviewed,
+                          0
+                        );
+
+                        return (
+                          <tr
+                            key={batch.batch_id}
+                            className="border-t border-slate-800 hover:bg-slate-900/60"
+                          >
+                            <td className="p-2 text-white whitespace-nowrap">
+                              {batch.batch_id}
+                            </td>
+
+                            <td className="p-2 text-slate-300 whitespace-nowrap">
+                              {batch.level || "1L"}
+                            </td>
+
+                            <td className="p-2 text-slate-300 whitespace-nowrap">
+                              <StatusBadge>{batch.status}</StatusBadge>
+                            </td>
+
+                            <td className="p-2 text-slate-300 whitespace-nowrap">
+                              {totalDocs}
+                            </td>
+
+                            <td className="p-2 text-slate-300 whitespace-nowrap">
+                              {reviewed}
+                            </td>
+
+                            <td className="p-2 text-slate-300 whitespace-nowrap">
+                              {pending}
+                            </td>
+
+                            {showDocumentList && (
+                              <td className="p-2 text-slate-300 max-w-[260px]">
+                                <div className="max-h-20 overflow-auto rounded border border-slate-800 bg-slate-900 p-2 text-[11px] leading-5">
+                                  {(batch.doc_ids || []).join(", ")}
+                                </div>
+                              </td>
+                            )}
+
+                            <td className="p-2 text-slate-300 whitespace-nowrap">
+                              {batch.checked_out_by || "—"}
+                            </td>
+
+                            <td className="p-2 align-top min-w-[220px]">
+                              <div className="flex flex-col gap-2">
+                                {batch.status === "Available" && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      checkoutBatch(batch.batch_id)
+                                    }
+                                    className="rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 transition"
+                                  >
+                                    Check Out
+                                  </button>
+                                )}
+
+                                {batch.status === "Checked Out" && (
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() =>
+                                      openBatchReview(batch)
+                                    }
+                                  >
+                                    Open Review
+                                  </Button>
+                                )}
+
+                                {batch.status === "Completed" && (
+                                  <Button variant="secondary">
+                                    Completed
+                                  </Button>
+                                )}
+
+                                {removeBatchDocs && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        removeBatchDocs(batch.batch_id, true)
+                                      }
+                                      className="rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 hover:text-orange-200 transition"
+                                    >
+                                      Remove Docs + Save Data
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        removeBatchDocs(batch.batch_id, false)
+                                      }
+                                      className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 hover:text-red-200 transition"
+                                    >
+                                      Remove Docs Without Saving
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ReviewerBatches({
   clientId,
   projectId,
@@ -858,6 +1157,81 @@ function ReviewerBatches({
   checkoutBatch: (batchId: string) => void;
   openBatchReview: (batch: Batch) => void;
 }) {
+  
+  const [expandedBatchGroups, setExpandedBatchGroups] =
+  useState<Record<string, boolean>>({});
+
+  function getBatchGroupKey(batchName: string) {
+    const clean = String(batchName || "").trim();
+    const match = clean.match(/^(.*?_)\d+$/);
+
+    if (match) {
+      return match[1];
+    }
+
+    return clean || "Ungrouped";
+  }
+
+  function getBatchNumber(batchName: string) {
+    const match = String(batchName || "").match(/(\d+)/);
+    return match ? Number(match[1]) : 999999;
+  }
+
+  function getBatchStatusBucket(status: string) {
+    const clean = String(status || "").toLowerCase();
+
+    if (clean === "available") return "available";
+    if (clean === "checked out" || clean === "in progress") return "inProgress";
+    if (clean === "completed") return "completed";
+
+    return "other";
+  }
+
+  const batchGroups = Object.entries(
+    batches.reduce<Record<string, Batch[]>>((groups, batch) => {
+      const groupKey = getBatchGroupKey(
+        batch.batch_id || batch.name || ""
+      );
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+      }
+
+      groups[groupKey].push(batch);
+      return groups;
+    }, {})
+  )
+    .map(([groupKey, groupItems]) => {
+      const sortedItems = [...groupItems].sort(
+        (a, b) =>
+          getBatchNumber(a.batch_id) -
+          getBatchNumber(b.batch_id)
+      );
+
+      return {
+        groupKey,
+        batches: sortedItems,
+        total: sortedItems.length,
+        available: sortedItems.filter(
+          (batch) =>
+            getBatchStatusBucket(batch.status) === "available"
+        ).length,
+        inProgress: sortedItems.filter(
+          (batch) =>
+            getBatchStatusBucket(batch.status) === "inProgress"
+        ).length,
+        completed: sortedItems.filter(
+          (batch) =>
+            getBatchStatusBucket(batch.status) === "completed"
+        ).length,
+      };
+    })
+    .sort((a, b) =>
+      a.groupKey.localeCompare(b.groupKey, undefined, {
+        numeric: true,
+      })
+    );
+  
   return (
     <AppShell>
       <PageContainer>
@@ -872,106 +1246,14 @@ function ReviewerBatches({
           </p>
         )}
 
-        <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-auto max-h-[75vh]">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
-              <tr>
-                <th className="p-2 text-left">Name</th>
-                <th className="p-2 text-left">Level</th>
-                <th className="p-2 text-left">Status</th>
-                <th className="p-2 text-left">Docs</th>
-                <th className="p-2 text-left">Reviewed</th>
-                <th className="p-2 text-left">Pending</th>
-                <th className="p-2 text-left">Workflow</th>
-                <th className="p-2 text-left">Checked Out By</th>
-                <th className="p-2 text-left">Actions</th>
-              </tr>
-            </thead>
+        <BatchGroupDirectory
+          batchGroups={batchGroups}
+          expandedBatchGroups={expandedBatchGroups}
+          setExpandedBatchGroups={setExpandedBatchGroups}
+          checkoutBatch={checkoutBatch}
+          openBatchReview={openBatchReview}
+        />
 
-            <tbody>
-              {batches.map((batch) => {
-                const totalDocs =
-                  batch.document_count ||
-                  Number(batch.documents || 0);
-
-                const reviewed =
-                  batch.completed_count || 0;
-
-                const pending = Math.max(
-                  totalDocs - reviewed,
-                  0
-                );
-
-                return (
-                  <tr
-                    key={batch.batch_id}
-                    className="border-t border-slate-800 hover:bg-slate-900/60"
-                  >
-                    <td className="p-2 text-white whitespace-nowrap">
-                      {batch.name}
-                    </td>
-
-                    <td className="p-2 text-slate-300 whitespace-nowrap">
-                      {batch.level || "1L"}
-                    </td>
-
-                    <td className="p-2 text-slate-300 whitespace-nowrap">
-                      <StatusBadge>{batch.status}</StatusBadge>
-                    </td>
-
-                    <td className="p-2 text-slate-300 whitespace-nowrap">
-                      {totalDocs}
-                    </td>
-
-                    <td className="p-2 text-slate-300 whitespace-nowrap">
-                      {reviewed}
-                    </td>
-
-                    <td className="p-2 text-slate-300 whitespace-nowrap">
-                      {pending}
-                    </td>
-
-                    <td className="p-2 text-slate-300 whitespace-nowrap">
-                      {batch.workflow_type || "standard"}
-                    </td>
-
-                    <td className="p-2 text-slate-300 whitespace-nowrap">
-                      {batch.checked_out_by || "—"}
-                    </td>
-
-                    <td className="p-2 whitespace-nowrap">
-                      {batch.status === "Available" && (
-                        <Button
-                          onClick={() =>
-                            checkoutBatch(batch.batch_id)
-                          }
-                        >
-                          Check Out
-                        </Button>
-                      )}
-
-                      {batch.status === "Checked Out" && (
-                        <Button
-                          fullWidth
-                          variant="secondary"
-                          onClick={() => openBatchReview(batch)}
-                        >
-                          Open Review
-                        </Button>
-                      )}
-
-                      {batch.status === "Completed" && (
-                        <Button variant="secondary">
-                          Completed
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
       </PageContainer>
     </AppShell>
   );
@@ -984,14 +1266,3 @@ export default function BatchesPage() {
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-
-
-
-

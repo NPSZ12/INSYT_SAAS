@@ -19,11 +19,14 @@ class CreateBatchRequest(BaseModel):
     workflow_type: str = "standard"
     created_by: str = "admin"
     search_folder_doc_ids: list[str] | None = None
+    options: dict | None = None
+
     
-class RemoveDocsRequest(BaseModel):
+class BatchRemoveDocsRequest(BaseModel):
     batch_name: str
-    doc_ids: list[str]
+    doc_ids: list[str] = []
     username: str = "admin"
+    preserve_data: bool = True
 
 
 @router.get("/projects/{project_id}/batches")
@@ -61,6 +64,7 @@ def create_capture_batch(
             workflow_type=payload.workflow_type,
             created_by=payload.created_by,
             search_folder_doc_ids=payload.search_folder_doc_ids,
+            options=payload.options,
         )
 
     except HTTPException:
@@ -72,10 +76,12 @@ def create_capture_batch(
             detail=f"Unable to create capture batch: {type(e).__name__}: {e}",
         )
         
+
 @router.post("/projects/{project_id}/batches/remove-docs")
-def remove_docs_from_capture_batch_save_data(
+def remove_docs_from_capture_batch(
     project_id: str,
-    payload: RemoveDocsRequest,
+    payload: BatchRemoveDocsRequest,
+    client: str = "",
 ):
     try:
         return remove_docs_from_batch(
@@ -84,7 +90,8 @@ def remove_docs_from_capture_batch_save_data(
             batch_name=payload.batch_name,
             doc_ids=payload.doc_ids,
             username=payload.username,
-            preserve_captured_data=True,
+            preserve_captured_data=payload.preserve_data,
+            client_id=client,
         )
 
     except HTTPException:
@@ -94,29 +101,4 @@ def remove_docs_from_capture_batch_save_data(
         raise HTTPException(
             status_code=500,
             detail=f"Unable to remove docs from capture batch: {type(e).__name__}: {e}",
-        )
-
-
-@router.post("/projects/{project_id}/batches/remove-docs-no-save")
-def remove_docs_from_capture_batch_no_save(
-    project_id: str,
-    payload: RemoveDocsRequest,
-):
-    try:
-        return remove_docs_from_batch(
-            workspace="capture",
-            project_id=project_id,
-            batch_name=payload.batch_name,
-            doc_ids=payload.doc_ids,
-            username=payload.username,
-            preserve_captured_data=False,
-        )
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unable to remove docs without saving: {type(e).__name__}: {e}",
         )

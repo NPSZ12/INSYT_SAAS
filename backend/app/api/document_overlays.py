@@ -2,6 +2,7 @@ import csv
 import io
 import json
 from datetime import datetime, timezone
+from uuid import uuid4
 from typing import Any
 
 import pandas as pd
@@ -35,6 +36,13 @@ DOC_ID_FIELD_CANDIDATES = [
     "insyt_doc_id",
 ]
 
+UCID_FIELD_CANDIDATES = [
+    "UCID",
+    "ucid",
+    "Unique Capture ID",
+    "unique_capture_id",
+    "unique capture id",
+]
 
 def clean_path(value: str | None) -> str:
     return (value or "").strip().strip("/")
@@ -100,6 +108,42 @@ def detect_doc_id_field(headers: list[str]) -> str | None:
 
     return None
 
+def detect_ucid_field(headers: list[str]) -> str | None:
+    normalized_map = {
+        normalize_header(header): header
+        for header in headers
+    }
+
+    for candidate in UCID_FIELD_CANDIDATES:
+        normalized_candidate = normalize_header(candidate)
+
+        if normalized_candidate in normalized_map:
+            return normalized_map[normalized_candidate]
+
+    return None
+
+
+def generate_ucid() -> str:
+    return f"UCID-{uuid4().hex}"
+
+
+def get_or_create_ucid(
+    row: dict[str, Any],
+    headers: list[str],
+    overlay_view: str,
+) -> str:
+    ucid_field = detect_ucid_field(headers)
+
+    if ucid_field:
+        existing_ucid = str(row.get(ucid_field, "")).strip()
+
+        if existing_ucid:
+            return existing_ucid
+
+    if overlay_view == "raw":
+        return generate_ucid()
+
+    return ""
 
 def parse_csv_overlay(content: bytes) -> list[dict[str, Any]]:
     text = content.decode("utf-8-sig", errors="replace")
@@ -378,7 +422,9 @@ def build_overlay_blob_paths(
 def build_overlay_records(
     rows: list[dict[str, Any]],
     doc_id_field: str,
+    overlay_view: str,
 ) -> tuple[list[dict[str, Any]], int]:
+    headers = list(rows[0].keys()) if rows else []
     records = []
     missing_doc_id_count = 0
 
@@ -389,10 +435,21 @@ def build_overlay_records(
             missing_doc_id_count += 1
             continue
 
+        metadata = dict(row)
+        ucid = get_or_create_ucid(
+            row=metadata,
+            headers=headers,
+            overlay_view=overlay_view,
+        )
+
+        if ucid:
+            metadata["UCID"] = ucid
+
         records.append(
             {
+                "ucid": ucid,
                 "doc_id": doc_id,
-                "metadata": row,
+                "metadata": metadata,
             }
         )
 
@@ -517,10 +574,21 @@ async def preview_document_overlay(
     for row in rows[:50]:
         doc_id = str(row.get(selected_doc_id_field, "")).strip()
 
+        metadata = dict(row)
+        ucid = get_or_create_ucid(
+            row=metadata,
+            headers=headers,
+            overlay_view=overlay_view,
+        )
+
+        if ucid:
+            metadata["UCID"] = ucid
+
         preview_rows.append(
             {
+                "ucid": ucid,
                 "doc_id": doc_id,
-                "metadata": row,
+                "metadata": metadata,
             }
         )
 
@@ -609,13 +677,25 @@ async def commit_document_overlay(
             missing_doc_id_count += 1
             continue
 
+        metadata = {
+            header: row.get(header, "")
+            for header in committed_headers
+        }
+
+        ucid = get_or_create_ucid(
+            row=row,
+            headers=headers,
+            overlay_view=overlay_view,
+        )
+
+        if ucid:
+            metadata["UCID"] = ucid
+
         overlay_records.append(
             {
+                "ucid": ucid,
                 "doc_id": doc_id,
-                "metadata": {
-                    header: row.get(header, "")
-                    for header in committed_headers
-                },
+                "metadata": metadata,
             }
         )
 

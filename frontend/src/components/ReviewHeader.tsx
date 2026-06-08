@@ -21,8 +21,6 @@ export default function ReviewHeader({
   project,
   batch,
   docId,
-  isFirstDoc = false,
-  isLastDoc = false,
   docPositionLabel = "",
   currentDocIndex,
   batchDocCount,
@@ -31,58 +29,45 @@ export default function ReviewHeader({
   onNextDoc,
   onLastDoc,
 }: ReviewHeaderProps) {
-  return (
-    <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between">
-      <div>
-        
+  const positionLabel =
+    docPositionLabel ||
+    (
+      typeof currentDocIndex === "number" &&
+      typeof batchDocCount === "number" &&
+      currentDocIndex >= 0 &&
+      batchDocCount > 0
+        ? `Doc ${currentDocIndex + 1} of ${batchDocCount}`
+        : "Doc - of -"
+    );
 
-        <p className="text-xs text-slate-400">
+  return (
+    <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-xs text-slate-400 truncate">
           {project} / {batch} / {docId}
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
-        {!isFirstDoc && (
-          <Button
-            variant="secondary"
-            onClick={onFirstDoc}
-          >
-            First Doc
-          </Button>
-        )}
+      <div className="flex items-center gap-3 shrink-0">
+        <Button variant="secondary" onClick={onFirstDoc}>
+          First Doc
+        </Button>
 
-        {!isFirstDoc && (
-          <Button
-            variant="secondary"
-            onClick={onPreviousDoc}
-          >
-            Previous Doc
-          </Button>
-        )}
+        <Button variant="secondary" onClick={onPreviousDoc}>
+          Previous Doc
+        </Button>
 
-        {docPositionLabel && (
-          <span className="text-sm text-slate-300 whitespace-nowrap">
-            {docPositionLabel}
-          </span>
-        )}
+        <span className="min-w-28 text-center text-sm text-slate-300 whitespace-nowrap">
+          {positionLabel}
+        </span>
 
-        {!isLastDoc && (
-          <Button
-            variant="secondary"
-            onClick={onNextDoc}
-          >
-            Next Doc
-          </Button>
-        )}
+        <Button variant="secondary" onClick={onNextDoc}>
+          Next Doc
+        </Button>
 
-        {!isLastDoc && (
-          <Button
-            variant="secondary"
-            onClick={onLastDoc}
-          >
-            Last Doc
-          </Button>
-        )}
+        <Button variant="secondary" onClick={onLastDoc}>
+          Last Doc
+        </Button>
       </div>
     </header>
   );

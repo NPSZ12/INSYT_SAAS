@@ -44,6 +44,8 @@ function BatchesPageContent() {
     useState<"review" | "qc" | "alt" | "statqc">("review");
   
   const [message, setMessage] = useState("");
+  const [expandedBatchGroups, setExpandedBatchGroups] =
+    useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
@@ -173,6 +175,66 @@ function BatchesPageContent() {
 
   const totalBatchCount = modeBatches.length;
 
+  function getBatchGroupKey(batchName: string) {
+    const clean = String(batchName || "").trim();
+    const match = clean.match(/^(.*?_)\d+$/);
+
+    if (match) {
+      return match[1];
+    }
+
+    return clean || "Ungrouped";
+  }
+
+  function getBatchStatusBucket(status: string) {
+    const clean = String(status || "").toLowerCase();
+
+    if (clean === "available") return "available";
+    if (clean === "checked out" || clean === "in progress") {
+      return "inProgress";
+    }
+    if (clean === "completed") return "completed";
+
+    return "other";
+  }
+
+  const batchGroups = Object.entries(
+    modeBatches.reduce<Record<string, Batch[]>>((groups, batch) => {
+      const groupKey = getBatchGroupKey(batch.name || batch.batch_id);
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+      }
+
+      groups[groupKey].push(batch);
+      return groups;
+    }, {})
+  )
+    .map(([groupKey, groupItems]) => {
+      const sortedItems = [...groupItems].sort(
+        (a, b) => getBatchNumber(a.name) - getBatchNumber(b.name)
+      );
+
+      return {
+        groupKey,
+        batches: sortedItems,
+        total: sortedItems.length,
+        available: sortedItems.filter(
+          (batch) => getBatchStatusBucket(batch.status) === "available"
+        ).length,
+        inProgress: sortedItems.filter(
+          (batch) => getBatchStatusBucket(batch.status) === "inProgress"
+        ).length,
+        completed: sortedItems.filter(
+          (batch) => getBatchStatusBucket(batch.status) === "completed"
+        ).length,
+      };
+    })
+    .sort((a, b) =>
+      a.groupKey.localeCompare(b.groupKey, undefined, {
+        numeric: true,
+      })
+    );
 
   function checkoutBatch(batchId: string) {
     if (!projectId || !user) return;
@@ -440,143 +502,192 @@ function BatchesPageContent() {
                       No batches found for this category.
                     </p>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {modeBatches.map((batch) => {
-                        const totalDocs = batch.document_count || 0;
-                        const reviewed = batch.completed_count || 0;
-                        const pending = Math.max(totalDocs - reviewed, 0);
+                    <div className="space-y-3">
+                      {batchGroups.map((group) => {
+                        const isExpanded =
+                          expandedBatchGroups[group.groupKey] || false;
 
                         return (
                           <div
-                            key={batch.batch_id}
-                            className="bg-slate-950 border border-slate-800 rounded-xl p-4 min-h-[190px]"
+                            key={group.groupKey}
+                            className="border border-slate-800 bg-slate-950 rounded-xl overflow-hidden"
                           >
-                            <div className="flex items-start justify-between gap-3 mb-4">
-                              <div>
-                                <h3 className="text-white font-bold text-lg">
-                                  {batch.name}
-                                </h3>
-
-                                <p className="text-xs text-slate-400">
-                                  {batch.level || "1L"} • {batch.workflow_type || "standard"}
-                                </p>
-                              </div>
-
-                              <StatusBadge>{batch.status}</StatusBadge>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-2 text-center mb-4">
-                              <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
-                                <p className="text-[10px] text-slate-500 uppercase">
-                                  Docs
-                                </p>
-                                <p className="text-white font-semibold">
-                                  {totalDocs}
-                                </p>
-                              </div>
-
-                              <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
-                                <p className="text-[10px] text-slate-500 uppercase">
-                                  Reviewed
-                                </p>
-                                <p className="text-white font-semibold">
-                                  {reviewed}
-                                </p>
-                              </div>
-
-                              <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
-                                <p className="text-[10px] text-slate-500 uppercase">
-                                  Pending
-                                </p>
-                                <p className="text-white font-semibold">
-                                  {pending}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="text-xs text-slate-400 mb-4 space-y-1">
-                              <p>
-                                Checked Out By:{" "}
-                                <span className="text-slate-200">
-                                  {batch.checked_out_by || "—"}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedBatchGroups((current) => ({
+                                  ...current,
+                                  [group.groupKey]: !isExpanded,
+                                }))
+                              }
+                              className="w-full px-4 py-3 bg-slate-900 hover:bg-slate-800 text-left"
+                            >
+                              <div className="flex flex-wrap items-center gap-4 text-sm">
+                                <span className="text-white font-semibold">
+                                  {isExpanded ? "▾" : "▸"} {group.groupKey}
                                 </span>
-                              </p>
 
-                              <p>
-                                Date Checked Out:{" "}
-                                <span className="text-slate-200">
-                                  {batch.checked_out_at || "—"}
+                                <span className="text-slate-300">
+                                  Total Batches: {group.total}
                                 </span>
-                              </p>
-                            </div>
 
-                            <div>
-                              {batch.status === "Available" && (
-                                <Button
-                                  fullWidth
-                                  onClick={() => checkoutBatch(batch.batch_id)}
-                                >
-                                  Check Out
-                                </Button>
-                              )}
+                                <span className="text-emerald-300">
+                                  Available: {group.available}
+                                </span>
 
-                              {canOpenBatch(batch) && (
-                                <div className="space-y-2">
-                                  <Button
-                                    fullWidth
-                                    variant="secondary"
-                                    onClick={() =>
-                                      router.push(
-                                        `/capture/review?client=${encodeURIComponent(
-                                          clientId
-                                        )}&project=${encodeURIComponent(
-                                          projectId
-                                        )}&batch=${encodeURIComponent(
-                                          batch.batch_id
-                                        )}`
-                                      )
-                                    }
-                                  >
-                                    Open Review
-                                  </Button>
+                                <span className="text-sky-300">
+                                  In Progress: {group.inProgress}
+                                </span>
 
-                                  {batch.checked_out_by === user?.username && (
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <Button
-                                        fullWidth
-                                        onClick={() => completeBatch(batch.batch_id)}
-                                      >
-                                        Completed
-                                      </Button>
+                                <span className="text-lime-300">
+                                  Completed: {group.completed}
+                                </span>
+                              </div>
+                            </button>
 
-                                      <Button
-                                        fullWidth
-                                        variant="secondary"
-                                        onClick={() => markBatchAvailable(batch.batch_id)}
-                                      >
-                                        Mark Available
-                                      </Button>
+                            {isExpanded && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-4">
+                                {group.batches.map((batch) => {
+                                  const totalDocs = batch.document_count || 0;
+                                  const reviewed = batch.completed_count || 0;
+                                  const pending = Math.max(totalDocs - reviewed, 0);
+
+                                  return (
+                                    <div
+                                      key={batch.batch_id}
+                                      className="bg-slate-950 border border-slate-800 rounded-xl p-4 min-h-[190px]"
+                                    >
+                                      <div className="flex items-start justify-between gap-3 mb-4">
+                                        <div>
+                                          <h3 className="text-white font-bold text-lg">
+                                            {batch.name}
+                                          </h3>
+
+                                          <p className="text-xs text-slate-400">
+                                            {batch.level || "1L"} • {batch.workflow_type || "standard"}
+                                          </p>
+                                        </div>
+
+                                        <StatusBadge>{batch.status}</StatusBadge>
+                                      </div>
+
+                                      <div className="grid grid-cols-3 gap-2 text-center mb-4">
+                                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                                          <p className="text-[10px] text-slate-500 uppercase">
+                                            Docs
+                                          </p>
+                                          <p className="text-white font-semibold">
+                                            {totalDocs}
+                                          </p>
+                                        </div>
+
+                                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                                          <p className="text-[10px] text-slate-500 uppercase">
+                                            Reviewed
+                                          </p>
+                                          <p className="text-white font-semibold">
+                                            {reviewed}
+                                          </p>
+                                        </div>
+
+                                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                                          <p className="text-[10px] text-slate-500 uppercase">
+                                            Pending
+                                          </p>
+                                          <p className="text-white font-semibold">
+                                            {pending}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="text-xs text-slate-400 mb-4 space-y-1">
+                                        <p>
+                                          Checked Out By:{" "}
+                                          <span className="text-slate-200">
+                                            {batch.checked_out_by || "—"}
+                                          </span>
+                                        </p>
+
+                                        <p>
+                                          Date Checked Out:{" "}
+                                          <span className="text-slate-200">
+                                            {batch.checked_out_at || "—"}
+                                          </span>
+                                        </p>
+                                      </div>
+
+                                      <div>
+                                        {batch.status === "Available" && (
+                                          <Button
+                                            fullWidth
+                                            onClick={() => checkoutBatch(batch.batch_id)}
+                                          >
+                                            Check Out
+                                          </Button>
+                                        )}
+
+                                        {canOpenBatch(batch) && (
+                                          <div className="space-y-2">
+                                            <Button
+                                              fullWidth
+                                              variant="secondary"
+                                              onClick={() =>
+                                                router.push(
+                                                  `/capture/review?client=${encodeURIComponent(
+                                                    clientId
+                                                  )}&project=${encodeURIComponent(
+                                                    projectId
+                                                  )}&batch=${encodeURIComponent(
+                                                    batch.batch_id
+                                                  )}`
+                                                )
+                                              }
+                                            >
+                                              Open Review
+                                            </Button>
+
+                                            {batch.checked_out_by === user?.username && (
+                                              <div className="grid grid-cols-2 gap-2">
+                                                <Button
+                                                  fullWidth
+                                                  onClick={() => completeBatch(batch.batch_id)}
+                                                >
+                                                  Completed
+                                                </Button>
+
+                                                <Button
+                                                  fullWidth
+                                                  variant="secondary"
+                                                  onClick={() => markBatchAvailable(batch.batch_id)}
+                                                >
+                                                  Mark Available
+                                                </Button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {batch.status === "Checked Out" && canReassignBatch() && (
+                                          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
+                                            <p className="text-xs text-slate-400 mb-2">
+                                              Leadership Reassignment
+                                            </p>
+
+                                            <Button
+                                              fullWidth
+                                              variant="secondary"
+                                              onClick={() => markBatchAvailable(batch.batch_id)}
+                                            >
+                                              Reassign to Available
+                                            </Button>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {batch.status === "Checked Out" && canReassignBatch() && (
-                                <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
-                                  <p className="text-xs text-slate-400 mb-2">
-                                    Leadership Reassignment
-                                  </p>
-
-                                  <Button
-                                    fullWidth
-                                    variant="secondary"
-                                    onClick={() => markBatchAvailable(batch.batch_id)}
-                                  >
-                                    Reassign to Available
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         );
                       })}

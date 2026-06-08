@@ -9,7 +9,9 @@ type CaptureField = {
 };
 
 type LinkedEntity = {
-  id: number;
+  id: number | string;
+  ucid?: string;
+  UCID?: string;
   docId: string;
   linked: boolean;
   values: Record<string, string | boolean>;
@@ -19,8 +21,8 @@ type LinkedEntitiesStripProps = {
   fields: CaptureField[];
   linkedEntities: LinkedEntity[];
   onEdit: (entity: LinkedEntity) => void;
-  onUnlink: (entityId: number) => void;
-  onDelete: (entityId: number) => void;
+  onUnlink: (entityId: number | string) => void;
+  onDelete: (entityId: number | string) => void;
 };
 
 export default function LinkedEntitiesStrip({
@@ -63,6 +65,10 @@ export default function LinkedEntitiesStrip({
                     {field.label}
                   </th>
                 ))}
+
+                <th className="p-3 text-left whitespace-nowrap border-l border-slate-800">
+                  UCID
+                </th>
               </tr>
             </thead>
 
@@ -77,7 +83,7 @@ export default function LinkedEntitiesStrip({
                       <button
                         type="button"
                         onClick={() => onEdit(entity)}
-                        className="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                        className="rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 transition"
                       >
                         Edit
                       </button>
@@ -85,7 +91,7 @@ export default function LinkedEntitiesStrip({
                       <button
                         type="button"
                         onClick={() => onUnlink(entity.id)}
-                        className="text-xs px-2 py-1 rounded bg-yellow-700 hover:bg-yellow-600 text-white"
+                        className="rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 hover:text-orange-200 transition"
                       >
                         Unlink
                       </button>
@@ -93,7 +99,7 @@ export default function LinkedEntitiesStrip({
                       <button
                         type="button"
                         onClick={() => onDelete(entity.id)}
-                        className="text-xs px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-white"
+                        className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 hover:text-red-200 transition"
                       >
                         Delete
                       </button>
@@ -126,6 +132,11 @@ export default function LinkedEntitiesStrip({
                       </td>
                     );
                   })}
+
+                  <td className="p-3 text-slate-400 border-l border-slate-800 whitespace-nowrap">
+                    {entity.ucid || entity.UCID || entity.values.UCID || ""}
+                  </td>
+
                 </tr>
               ))}
             </tbody>

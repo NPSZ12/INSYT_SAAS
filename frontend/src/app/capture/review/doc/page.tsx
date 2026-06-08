@@ -47,6 +47,9 @@ type ReviewDocumentWithNav = ReviewDocument & {
   batch_doc_ids?: string[];
   is_first_doc?: boolean;
   is_last_doc?: boolean;
+  document_coding?: string;
+  further_review_reason?: string;
+  review_state?: Record<string, any>;
 };
 
 function normalizeDocLookup(value: string) {
@@ -89,10 +92,11 @@ function ReviewPageContent() {
 
   const [error, setError] = useState("");
   const [protocolMessage, setProtocolMessage] = useState("");
-  const [reviewDoc, setReviewDoc] = useState<ReviewDocument | null>(null);
+  const [reviewDoc, setReviewDoc] = useState<ReviewDocumentWithNav | null>(null);
   const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [linkedEntities, setLinkedEntities] = useState<any[]>([]);
+  const [editingEntity, setEditingEntity] = useState<any | null>(null);
   const [fileDocIds, setFileDocIds] = useState<string[]>([]);
   const isFileView = Boolean(docId && !batchId);
   const [savedDocumentCoding, setSavedDocumentCoding] = useState("");
@@ -199,7 +203,7 @@ function ReviewPageContent() {
       .catch(console.error);
   }, [clientId, projectId, isFileView]);
   
-  useEffect(() => {
+  function loadLinkedEntities() {
     if (!projectId || !reviewDoc?.doc_id) return;
 
     apiGet(
@@ -217,6 +221,7 @@ function ReviewPageContent() {
         setLinkedEntities(
           entities.map((entity: any, index: number) => ({
             id: entity.id ?? index + 1,
+            ucid: entity.ucid || entity.UCID || "",
             docId: entity.doc_id,
             linked: entity.linked ?? true,
             values: entity.values || {},
@@ -224,8 +229,13 @@ function ReviewPageContent() {
         );
       })
       .catch(console.error);
+  }
+
+  useEffect(() => {
+    loadLinkedEntities();
   }, [clientId, projectId, batchId, reviewDoc?.doc_id]);
-  
+
+
   useEffect(() => {
     if (!projectId) {
       return;
@@ -407,6 +417,11 @@ function ReviewPageContent() {
     const batchDocIds = getBatchDocIds();
     const firstDocId = batchDocIds[0] || "";
 
+    console.log("GO FIRST DOC", {
+      batchDocIds,
+      firstDocId,
+    });
+
     if (!firstDocId) return;
 
     router.push(buildReviewDocUrl(firstDocId));
@@ -415,6 +430,11 @@ function ReviewPageContent() {
   function goLastDoc() {
     const batchDocIds = getBatchDocIds();
     const lastDocId = batchDocIds[batchDocIds.length - 1] || "";
+
+    console.log("GO LAST DOC", {
+      batchDocIds,
+      lastDocId,
+    });
 
     if (!lastDocId) return;
 
@@ -442,6 +462,13 @@ function ReviewPageContent() {
           : ""
       );
 
+    console.log("GO PREVIOUS DOC", {
+      batchDocIds,
+      currentIndex,
+      previousDocId,
+      reviewNav,
+    });
+
     if (!previousDocId) return;
 
     router.push(buildReviewDocUrl(previousDocId));
@@ -459,6 +486,13 @@ function ReviewPageContent() {
           ? batchDocIds[currentIndex + 1]
           : ""
       );
+
+    console.log("GO NEXT DOC", {
+      batchDocIds,
+      currentIndex,
+      nextDocId,
+      reviewNav,
+    });
 
     if (!nextDocId) return;
 
@@ -522,10 +556,18 @@ function ReviewPageContent() {
   }
 
   function editLinkedEntity(entity: any) {
-    console.log("Edit linked entity", entity);
+    setEditingEntity(entity);
   }
 
-  function unlinkEntity(entityId: number) {
+  function getEntityId(entityOrId: any) {
+    return typeof entityOrId === "object"
+      ? entityOrId.id
+      : entityOrId;
+  }
+
+  function unlinkEntity(entityOrId: any) {
+    const entityId = getEntityId(entityOrId);
+
     setLinkedEntities((current) =>
       current.map((entity) =>
         entity.id === entityId
@@ -535,7 +577,9 @@ function ReviewPageContent() {
     );
   }
 
-  function deleteEntity(entityId: number) {
+  function deleteEntity(entityOrId: any) {
+    const entityId = getEntityId(entityOrId);
+
     const confirmed = window.confirm(
       "Confirm Deletion: This will permanently remove this linked entity from the project. Continue?"
     );
@@ -571,6 +615,8 @@ function ReviewPageContent() {
                 : ""
               : docPositionLabel
           }
+          currentDocIndex={isFileView ? fileDocIndex : currentDocIndex}
+          batchDocCount={isFileView ? fileDocCount : batchDocCount}
           onFirstDoc={isFileView ? goFileFirstDoc : goFirstDoc}
           onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
           onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
@@ -615,7 +661,14 @@ function ReviewPageContent() {
                 onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
                 onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
                 onSaveComplete={handleSaveComplete}
-                initialDocumentCoding={savedDocumentCoding}
+                onLinkedEntitySaved={loadLinkedEntities}
+                editingEntity={editingEntity}
+                onEditComplete={() => {
+                  setEditingEntity(null);
+                  loadLinkedEntities();
+                }}
+                onEditCancel={() => setEditingEntity(null)}
+                initialDocumentCoding={reviewDoc.document_coding || savedDocumentCoding || ""}
               />
             )}
           </div>
