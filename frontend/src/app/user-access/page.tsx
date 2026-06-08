@@ -116,7 +116,7 @@ function UserAccessPageContent() {
   }
 
   function loadUsers() {
-    apiGet("/api/users")
+    apiGet("/api/users/")
       .then((response: any) => {
         setUsers(
           Array.isArray(response)

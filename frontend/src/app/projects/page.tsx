@@ -229,7 +229,7 @@ function ProjectsPageContent() {
       <PageContainer>
         <PageHeader
           title="Projects"
-          subtitle="Select a client and active INSYT Summaries project."
+          subtitle="Select a client and active INSYT project."
         />
 
         <ContentCard title="Select Client">

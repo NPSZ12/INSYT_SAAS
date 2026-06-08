@@ -12,7 +12,7 @@ from app.services.entra_service import invite_external_user
 from app.services.security import hash_password, require_admin
 
 
-router = APIRouter(prefix="/api/users", tags=["Users"])
+router = APIRouter(prefix="/api/users/", tags=["Users"])
 
 
 class UserCreateRequest(BaseModel):

@@ -62,7 +62,7 @@ export default function UserAccessPage() {
   });
 
   function loadData() {
-    apiGet("/api/users")
+    apiGet("/api/users/")
       .then((response: any) => {
         setUsers(
           Array.isArray(response)
