@@ -34,6 +34,15 @@ class ManualEntryRequest(BaseModel):
     hours: float = 0
     notes: str = ""
     edited_by: str | None = None
+    
+class ReviewHoursClockRequest(BaseModel):
+    workspace: str
+    client_id: str
+    project_id: str
+    username: str
+    display_name: str | None = None
+    role: str | None = None
+    date: str
 
 
 def get_entries_blob_name(client_id: str, project_id: str):
@@ -361,7 +370,148 @@ def review_hours(
         "week_end": selected_sunday.isoformat(),
         "rows": rows,
     }
+    
+@router.post("/review-hours/login")
+def review_hours_login(payload: ReviewHoursClockRequest):
+    if not payload.username:
+        raise HTTPException(
+            status_code=400,
+            detail="Username is required.",
+        )
 
+    try:
+        parse_date(payload.date)
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Date must be in YYYY-MM-DD format.",
+        )
+
+    entries = load_entries(
+        workspace=payload.workspace,
+        client_id=payload.client_id,
+        project_id=payload.project_id,
+    )
+
+    open_entry = next(
+        (
+            entry for entry in reversed(entries)
+            if entry.get("username") == payload.username
+            and entry.get("date") == payload.date
+            and not entry.get("logout_at")
+        ),
+        None,
+    )
+
+    if open_entry:
+        return {
+            "status": "already_logged_in",
+            "message": "User is already logged in for this date.",
+            "entry": open_entry,
+        }
+
+    now = now_utc()
+
+    entry = {
+        "entry_id": str(uuid.uuid4()),
+        "workspace": payload.workspace,
+        "client_id": payload.client_id,
+        "project_id": payload.project_id,
+        "username": payload.username,
+        "display_name": payload.display_name or payload.username,
+        "role": payload.role or "",
+        "date": payload.date,
+        "login": now.strftime("%H:%M"),
+        "logout": "",
+        "login_at": now.isoformat(),
+        "logout_at": "",
+        "break_minutes": 0,
+        "hours": 0,
+        "notes": "",
+        "source": "review_hours_login",
+        "created_at": now.isoformat(),
+        "edited_by": "",
+        "edited_at": "",
+    }
+
+    entries.append(entry)
+
+    save_entries(
+        workspace=payload.workspace,
+        client_id=payload.client_id,
+        project_id=payload.project_id,
+        entries=entries,
+    )
+
+    return {
+        "status": "logged_in",
+        "message": "Review hours login recorded.",
+        "entry": entry,
+    }
+
+@router.post("/review-hours/logout")
+def review_hours_logout(payload: ReviewHoursClockRequest):
+    if not payload.username:
+        raise HTTPException(
+            status_code=400,
+            detail="Username is required.",
+        )
+
+    try:
+        parse_date(payload.date)
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Date must be in YYYY-MM-DD format.",
+        )
+
+    entries = load_entries(
+        workspace=payload.workspace,
+        client_id=payload.client_id,
+        project_id=payload.project_id,
+    )
+
+    now = now_utc()
+
+    for entry in reversed(entries):
+        if (
+            entry.get("username") == payload.username
+            and entry.get("date") == payload.date
+            and not entry.get("logout_at")
+        ):
+            entry["logout"] = now.strftime("%H:%M")
+            entry["logout_at"] = now.isoformat()
+            entry["hours"] = calculate_hours(
+                entry.get("login_at", ""),
+                entry.get("logout_at", ""),
+                int(entry.get("break_minutes") or 0),
+            )
+
+            entry["display_name"] = (
+                entry.get("display_name")
+                or payload.display_name
+                or payload.username
+            )
+            entry["role"] = entry.get("role") or payload.role or ""
+            entry["source"] = entry.get("source") or "review_hours_login"
+
+            save_entries(
+                workspace=payload.workspace,
+                client_id=payload.client_id,
+                project_id=payload.project_id,
+                entries=entries,
+            )
+
+            return {
+                "status": "logged_out",
+                "message": "Review hours logout recorded.",
+                "entry": entry,
+            }
+
+    raise HTTPException(
+        status_code=400,
+        detail="No active review-hours login found for this user and date.",
+    )
 
 @router.post("/review-hours/edit")
 def edit_review_hours(payload: ManualEntryRequest):
