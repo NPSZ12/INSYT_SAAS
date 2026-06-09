@@ -42,6 +42,11 @@ function BatchesPageContent() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [mode, setMode] =
     useState<"review" | "qc" | "alt" | "statqc">("review");
+
+  const [checkoutWarning, setCheckoutWarning] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
   
   const [message, setMessage] = useState("");
   const [expandedBatchGroups, setExpandedBatchGroups] =
@@ -253,8 +258,34 @@ function BatchesPageContent() {
         loadBatches();
       })
       .catch((error) => {
-        console.error(error);
-        setMessage("Batch checkout failed.");
+        console.error("Checkout failed:", error);
+
+        const rawMessage = String(error?.message || "");
+
+        let warningMessage =
+          "You already have a batch checked out. Complete or release your current batch before checking out another batch.";
+
+        try {
+          const jsonStart = rawMessage.indexOf("{");
+
+          if (jsonStart >= 0) {
+            const parsed = JSON.parse(rawMessage.slice(jsonStart));
+            const detail = parsed?.detail;
+
+            if (detail?.message) {
+              warningMessage = detail.message;
+            }
+          }
+        } catch {
+          // Use default warning message.
+        }
+
+        setCheckoutWarning({
+          title: "Batch Already Checked Out",
+          message: warningMessage,
+        });
+
+        setMessage("");
       });
   }
 
@@ -694,6 +725,39 @@ function BatchesPageContent() {
                     </div>
                   )}
                 </ContentCard>
+        {checkoutWarning && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-6">
+            <div className="w-full max-w-lg rounded-3xl border-2 border-amber-500 bg-slate-950 p-8 shadow-2xl">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 text-2xl font-bold text-slate-950">
+                  !
+                </div>
+
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {checkoutWarning.title}
+                  </h2>
+
+                  <p className="text-sm text-slate-400">
+                    Checkout restriction
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                <p className="whitespace-pre-wrap text-base leading-7 text-slate-100">
+                  {checkoutWarning.message}
+                </p>
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={() => setCheckoutWarning(null)}>
+                  OK
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </PageContainer>
     </AppShell>
   );

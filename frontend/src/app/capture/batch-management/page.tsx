@@ -231,7 +231,6 @@ function BatchesPageContent() {
 
       if (jsonStart >= 0) {
         const parsed = JSON.parse(rawMessage.slice(jsonStart));
-
         const detail = parsed?.detail;
 
         if (detail?.code === "ACTIVE_BATCH_ALREADY_CHECKED_OUT") {
@@ -246,7 +245,7 @@ function BatchesPageContent() {
         }
       }
     } catch {
-      // Fall through to string checks below.
+      // Continue to fallback checks.
     }
 
     if (
@@ -286,10 +285,14 @@ function BatchesPageContent() {
       .catch((error) => {
         console.error("Checkout failed:", error);
 
+        const warningMessage = getCheckoutErrorMessage(error);
+
         setCheckoutWarning({
           title: "Batch Already Checked Out",
-          message: getCheckoutErrorMessage(error),
+          message: warningMessage,
         });
+
+        setMessage("");
       });
   }
 
@@ -1463,17 +1466,31 @@ function ReviewerBatches({
         />
 
         {checkoutWarning && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-6">
-            <div className="w-full max-w-md rounded-2xl border border-amber-500 bg-slate-950 p-6 shadow-2xl">
-              <h2 className="text-xl font-semibold text-white">
-                {checkoutWarning.title}
-              </h2>
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-6">
+            <div className="w-full max-w-lg rounded-3xl border-2 border-amber-500 bg-slate-950 p-8 shadow-2xl">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 text-2xl font-bold text-slate-950">
+                  !
+                </div>
 
-              <p className="mt-3 text-sm leading-6 text-slate-300">
-                {checkoutWarning.message}
-              </p>
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {checkoutWarning.title}
+                  </h2>
 
-              <div className="mt-6 flex justify-end">
+                  <p className="text-sm text-slate-400">
+                    Checkout restriction
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                <p className="whitespace-pre-wrap text-base leading-7 text-slate-100">
+                  {checkoutWarning.message}
+                </p>
+              </div>
+
+              <div className="flex justify-end">
                 <Button onClick={() => setCheckoutWarning(null)}>
                   OK
                 </Button>
