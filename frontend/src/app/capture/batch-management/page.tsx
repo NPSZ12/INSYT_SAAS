@@ -85,6 +85,11 @@ function BatchesPageContent() {
   const [customQcPercent, setCustomQcPercent] =
     useState("");
   const [message, setMessage] = useState("");
+  const [checkoutWarning, setCheckoutWarning] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
+
   const [docResponse, setDocResponse] = useState("Responsive");
   const [confidencePreset, setConfidencePreset] = useState("95_5");
   const [statFormat, setStatFormat] = useState("Random Generator");
@@ -218,6 +223,21 @@ function BatchesPageContent() {
       });
   }
   
+  function getCheckoutErrorMessage(error: any) {
+    const message = String(error?.message || "");
+
+    if (
+      message.includes("ACTIVE_BATCH_ALREADY_CHECKED_OUT") ||
+      message.includes("already have a batch checked out") ||
+      message.includes("409")
+    ) {
+      return (
+        "You already have a batch checked out. Complete or release your current batch before checking out another batch."
+      );
+    }
+
+    return message || "Unable to check out batch.";
+  }
   
   function checkoutBatch(batchId: string) {
     if (!projectId || !user) return;
@@ -229,15 +249,21 @@ function BatchesPageContent() {
       {
         batch_name: batchId,
         username: user.username,
+        role: user.role,
       }
     )
       .then((response) => {
         setMessage(response.message || "Batch checked out.");
+        setCheckoutWarning(null);
         loadBatches();
       })
       .catch((error) => {
-        console.error(error);
-        setMessage("Batch checkout failed.");
+        console.error("Checkout failed:", error);
+
+        setCheckoutWarning({
+          title: "Batch Already Checked Out",
+          message: getCheckoutErrorMessage(error),
+        });
       });
   }
 
@@ -429,6 +455,9 @@ function BatchesPageContent() {
         message={message}
         checkoutBatch={checkoutBatch}
         openBatchReview={openBatchReview}
+        user={user}
+        checkoutWarning={checkoutWarning}
+        setCheckoutWarning={setCheckoutWarning}
       />
     );
   }
@@ -715,6 +744,7 @@ function BatchesPageContent() {
                   openBatchReview={openBatchReview}
                   removeBatchDocs={removeBatchDocs}
                   showDocumentList
+                  user={user}
                 />
               </div>
             </div>
@@ -899,6 +929,26 @@ function BatchesPageContent() {
           </ContentCard>
         )}
 
+        {checkoutWarning && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-6">
+            <div className="w-full max-w-md rounded-2xl border border-amber-500 bg-slate-950 p-6 shadow-2xl">
+              <h2 className="text-xl font-semibold text-white">
+                {checkoutWarning.title}
+              </h2>
+
+              <p className="mt-3 text-sm leading-6 text-slate-300">
+                {checkoutWarning.message}
+              </p>
+
+              <div className="mt-6 flex justify-end">
+                <Button onClick={() => setCheckoutWarning(null)}>
+                  OK
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </PageContainer>
     </AppShell>
   );
@@ -1003,6 +1053,7 @@ function BatchGroupDirectory({
   openBatchReview,
   removeBatchDocs,
   showDocumentList = false,
+  user,
 }: {
   batchGroups: {
     groupKey: string;
@@ -1020,7 +1071,20 @@ function BatchGroupDirectory({
   openBatchReview: (batch: Batch) => void;
   removeBatchDocs?: (batchId: string, preserveData: boolean) => void;
   showDocumentList?: boolean;
+  user?: StoredUser | null;
 }) {
+  const qcAndUpRoles = [
+    "QC",
+    "TL",
+    "RM",
+    "CDS Admin",
+    "INSYT Admin",
+  ];
+
+  function canOpenAnyBatch(role?: string) {
+    return qcAndUpRoles.includes(role || "");
+  }
+
   return (
     <div className="space-y-3 max-h-[60vh] overflow-auto">
       {batchGroups.map((group) => {
@@ -1182,7 +1246,13 @@ function BatchGroupDirectory({
                                   </button>
                                 )}
 
-                                {batch.status === "Checked Out" && (
+                                {(
+                                  canOpenAnyBatch(user?.role) ||
+                                  (
+                                    batch.status === "Checked Out" &&
+                                    batch.checked_out_by === user?.username
+                                  )
+                                ) && (
                                   <Button
                                     variant="secondary"
                                     onClick={() =>
@@ -1246,6 +1316,9 @@ function ReviewerBatches({
   message,
   checkoutBatch,
   openBatchReview,
+  user,
+  checkoutWarning,
+  setCheckoutWarning,
 }: {
   clientId: string;
   projectId: string;
@@ -1253,6 +1326,17 @@ function ReviewerBatches({
   message: string;
   checkoutBatch: (batchId: string) => void;
   openBatchReview: (batch: Batch) => void;
+  user: StoredUser | null;
+  checkoutWarning: {
+    title: string;
+    message: string;
+  } | null;
+  setCheckoutWarning: React.Dispatch<
+    React.SetStateAction<{
+      title: string;
+      message: string;
+    } | null>
+  >;
 }) {
   
   const [expandedBatchGroups, setExpandedBatchGroups] =
@@ -1349,7 +1433,28 @@ function ReviewerBatches({
           setExpandedBatchGroups={setExpandedBatchGroups}
           checkoutBatch={checkoutBatch}
           openBatchReview={openBatchReview}
+          user={user}
         />
+
+        {checkoutWarning && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-6">
+            <div className="w-full max-w-md rounded-2xl border border-amber-500 bg-slate-950 p-6 shadow-2xl">
+              <h2 className="text-xl font-semibold text-white">
+                {checkoutWarning.title}
+              </h2>
+
+              <p className="mt-3 text-sm leading-6 text-slate-300">
+                {checkoutWarning.message}
+              </p>
+
+              <div className="mt-6 flex justify-end">
+                <Button onClick={() => setCheckoutWarning(null)}>
+                  OK
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </PageContainer>
     </AppShell>
