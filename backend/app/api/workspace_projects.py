@@ -1,5 +1,6 @@
 import json
 import re
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -12,8 +13,15 @@ router = APIRouter(prefix="/api", tags=["workspace-projects"])
 
 
 class CreateProjectRequest(BaseModel):
-    project_name: str
+    project_name: str | None = None
+    project_id: str | None = None
+
     client_name: str | None = None
+    client: str | None = None
+
+    client_uuid: str | None = None
+    project_uuid: str | None = None
+
     protocol_template: str | None = None
     protocol_fields: list[dict] = []
 
@@ -124,20 +132,39 @@ def create_workspace_project(
     try:
         container = get_container_client(workspace)
 
-        project_name = normalize_project_name(payload.project_name)
-        if not payload.client_name:
+        incoming_project_name = (
+            payload.project_name or payload.project_id or ""
+        )
+
+        incoming_client_name = (
+            payload.client_name or payload.client or ""
+        )
+
+        if not incoming_client_name:
             raise HTTPException(
                 status_code=400,
                 detail="Client name is required.",
             )
 
-        client_name = normalize_project_name(payload.client_name)
+        if not incoming_project_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Project name is required.",
+            )
+
+        project_name = normalize_project_name(incoming_project_name)
+        client_name = normalize_project_name(incoming_client_name)
+
+        client_uuid = payload.client_uuid or str(uuid.uuid4())
+        project_uuid = payload.project_uuid or str(uuid.uuid4())
 
         project_root = f"{client_name}/{project_name}"
 
         metadata = {
+            "project_uuid": project_uuid,
+            "client_uuid": client_uuid,
             "project_name": project_name,
-            "client_name": payload.client_name or "",
+            "client_name": client_name,
             "workspace": workspace,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -211,7 +238,12 @@ def create_workspace_project(
 
         return {
             "message": f"Project created: {client_name}/{project_name}",
-            "project": metadata,
+            "workspace": workspace,
+            "client": client_name,
+            "client_uuid": client_uuid,
+            "project": project_name,
+            "project_uuid": project_uuid,
+            "project_metadata": metadata,
         }
 
     except HTTPException:
