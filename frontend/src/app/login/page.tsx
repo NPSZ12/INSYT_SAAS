@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { clearInsytSession, storeInsytSession } from "../../lib/session";
 
 import Button from "../../components/Button";
 import Input from "../../components/Input";
@@ -25,21 +26,24 @@ function LoginPageContent() {
   const [showAdminLogin, setShowAdminLogin] = useState(false);
 
   function finishLogin(response: any) {
-    localStorage.setItem(
-      "insyt_access_token",
-      response.access_token
-    );
+    const token =
+      response.access_token ||
+      response.token;
 
-    localStorage.setItem(
-      "insyt_user",
-      JSON.stringify(response.user)
-    );
+    if (!token) {
+      setErrorMessage("Login did not return a token.");
+      return;
+    }
+
+    storeInsytSession(token, response.user);
 
     window.location.href = nextPath;
   }
 
   function handleMicrosoftLogin() {
     setErrorMessage("");
+
+    clearInsytSession();
 
     const postLoginRedirect = encodeURIComponent("/auth/entra/callback");
 
@@ -60,6 +64,8 @@ function LoginPageContent() {
   function handleLogin() {
     setErrorMessage("");
 
+    clearInsytSession();
+
     apiPost("/api/auth/login", {
       username,
       password,
@@ -78,15 +84,16 @@ function LoginPageContent() {
         }
 
         if (response.status === "mfa_setup_required") {
-          localStorage.setItem(
-            "insyt_access_token",
-            response.access_token
-          );
+          const token =
+            response.access_token ||
+            response.token;
 
-          localStorage.setItem(
-            "insyt_user",
-            JSON.stringify(response.user)
-          );
+          if (!token) {
+            setErrorMessage("Login did not return a token.");
+            return;
+          }
+
+          storeInsytSession(token, response.user);
 
           window.location.href = "/mfa/setup";
           return;
