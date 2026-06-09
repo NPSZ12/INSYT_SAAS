@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import Button from "./Button";
-import { apiGet, apiPost } from "../lib/api";
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.insyt360.com";
 
 type StoredUser = {
   username: string;
@@ -54,30 +56,64 @@ export default function UrgentMessageOverlay() {
     const storedUser = localStorage.getItem("insyt_user");
 
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch {
+        localStorage.removeItem("insyt_user");
+      }
     }
   }, []);
 
-  function loadUrgentMessages() {
+  async function loadUrgentMessages() {
     if (!workspace || !clientId || !projectId || !user) return;
 
-    apiGet(
-      `/api/messages/urgent?workspace=${encodeURIComponent(
-        workspace
-      )}&client=${encodeURIComponent(
-        clientId
-      )}&project=${encodeURIComponent(
-        projectId
-      )}&username=${encodeURIComponent(
-        user.username
-      )}&role=${encodeURIComponent(user.role || "")}`
-    )
-      .then((response) => {
-        setUrgentMessages(response.messages || []);
-      })
-      .catch((error) => {
-        console.error("Failed to load urgent messages:", error);
-      });
+    const token = localStorage.getItem("insyt_token");
+
+    if (!token) {
+      setUrgentMessages([]);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/messages/urgent?workspace=${encodeURIComponent(
+          workspace
+        )}&client=${encodeURIComponent(
+          clientId
+        )}&project=${encodeURIComponent(
+          projectId
+        )}&username=${encodeURIComponent(
+          user.username
+        )}&role=${encodeURIComponent(user.role || "")}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.status === 401 || response.status === 403) {
+        console.warn(
+          "Urgent messages unavailable for this user/session:",
+          response.status
+        );
+        setUrgentMessages([]);
+        return;
+      }
+
+      if (!response.ok) {
+        console.warn("Failed to load urgent messages:", response.status);
+        setUrgentMessages([]);
+        return;
+      }
+
+      const data = await response.json();
+      setUrgentMessages(data.messages || []);
+    } catch (error) {
+      console.warn("Failed to load urgent messages:", error);
+      setUrgentMessages([]);
+    }
   }
 
   useEffect(() => {
@@ -88,27 +124,57 @@ export default function UrgentMessageOverlay() {
     return () => window.clearInterval(timer);
   }, [workspace, clientId, projectId, user]);
 
-  function acknowledge() {
+  async function acknowledge() {
     if (!activeMessage || !user) return;
 
-    apiPost("/api/messages/urgent/acknowledge", {
-      workspace,
-      client_id: clientId,
-      project_id: projectId,
-      message_id: activeMessage.message_id,
-      username: user.username,
-      display_name: user.display_name || user.username,
-    })
-      .then(() => {
-        setUrgentMessages((current) =>
-          current.filter(
-            (item) => item.message_id !== activeMessage.message_id
-          )
+    const token = localStorage.getItem("insyt_token");
+
+    if (!token) return;
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/messages/urgent/acknowledge`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            workspace,
+            client_id: clientId,
+            project_id: projectId,
+            message_id: activeMessage.message_id,
+            username: user.username,
+            display_name: user.display_name || user.username,
+          }),
+        }
+      );
+
+      if (response.status === 401 || response.status === 403) {
+        console.warn(
+          "Unable to acknowledge urgent message:",
+          response.status
         );
-      })
-      .catch((error) => {
-        console.error("Failed to acknowledge urgent message:", error);
-      });
+        return;
+      }
+
+      if (!response.ok) {
+        console.warn(
+          "Failed to acknowledge urgent message:",
+          response.status
+        );
+        return;
+      }
+
+      setUrgentMessages((current) =>
+        current.filter(
+          (item) => item.message_id !== activeMessage.message_id
+        )
+      );
+    } catch (error) {
+      console.warn("Failed to acknowledge urgent message:", error);
+    }
   }
 
   if (!activeMessage) return null;
