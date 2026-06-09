@@ -12,7 +12,7 @@ import PageHeader from "../../../../components/PageHeader";
 import ContentCard from "../../../../components/ContentCard";
 import LinkedEntitiesStrip from "../../../../components/LinkedEntitiesStrip";
 
-import { apiGet } from "../../../../lib/api";
+import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
 
@@ -568,27 +568,74 @@ function ReviewPageContent() {
   function unlinkEntity(entityOrId: any) {
     const entityId = getEntityId(entityOrId);
 
-    setLinkedEntities((current) =>
-      current.map((entity) =>
-        entity.id === entityId
-          ? { ...entity, linked: false }
-          : entity
-      )
-    );
+    const entity =
+      typeof entityOrId === "object"
+        ? entityOrId
+        : linkedEntities.find((item) => item.id === entityId);
+
+    if (!entity) return;
+
+    apiPost("/api/entities/unlink", {
+      workspace: "capture",
+      client: clientId,
+      project: projectId,
+      batch: batchId,
+      doc_id: reviewDoc?.doc_id || docId,
+      entity_id: String(entity.id || ""),
+      ucid: entity.ucid || entity.UCID || entity.values?.UCID || "",
+    })
+      .then(() => {
+        setLinkedEntities((current) =>
+          current.map((item) =>
+            item.id === entityId
+              ? { ...item, linked: false }
+              : item
+          )
+        );
+
+        loadLinkedEntities();
+      })
+      .catch((error) => {
+        console.error("Failed to unlink linked entity:", error);
+        alert("Unable to unlink linked entity. Please try again.");
+      });
   }
 
   function deleteEntity(entityOrId: any) {
     const entityId = getEntityId(entityOrId);
 
+    const entity =
+      typeof entityOrId === "object"
+        ? entityOrId
+        : linkedEntities.find((item) => item.id === entityId);
+
     const confirmed = window.confirm(
       "Confirm Deletion: This will permanently remove this linked entity from the project. Continue?"
     );
 
-    if (!confirmed) return;
+    if (!confirmed || !entity) return;
 
-    setLinkedEntities((current) =>
-      current.filter((entity) => entity.id !== entityId)
-    );
+    apiPost("/api/entities/delete", {
+      workspace: "capture",
+      client: clientId,
+      project: projectId,
+      batch: batchId,
+      doc_id: reviewDoc?.doc_id || docId,
+      entity_id: String(entity.id || ""),
+      ucid: entity.ucid || entity.UCID || entity.values?.UCID || "",
+      entity,
+    })
+      .then(() => {
+        setLinkedEntities((current) =>
+          current.filter((item) => item.id !== entityId)
+        );
+
+        loadLinkedEntities();
+      })
+      .catch((error) => {
+        console.error("Failed to delete linked entity:", error);
+        alert("Unable to delete linked entity. Please try again.");
+      });
   }
 
   return (
