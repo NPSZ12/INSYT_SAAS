@@ -89,7 +89,16 @@ export default function EntraCallbackPage() {
 
         const loginData = await loginResponse.json();
 
-        localStorage.setItem("insyt_token", loginData.token);
+        const token =
+          loginData.access_token ||
+          loginData.token;
+
+        if (!token) {
+          throw new Error("INSYT login did not return a token.");
+        }
+
+        localStorage.setItem("insyt_token", token);
+        localStorage.setItem("insyt_access_token", token);
         localStorage.setItem("insyt_user", JSON.stringify(loginData.user));
 
         window.location.href = "/launcher";
