@@ -84,6 +84,84 @@ function formatDisplayDate(dateString: string) {
   });
 }
 
+function formatMMDDYYYY(dateString: string) {
+  const date = new Date(`${dateString}T00:00:00`);
+
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const yyyy = String(date.getFullYear());
+
+  return `${mm}${dd}${yyyy}`;
+}
+
+function formatTimeDisplay(value?: string) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function getWeekDays(weekStart: string) {
+  const monday = new Date(`${weekStart}T00:00:00`);
+
+  return [
+    { key: "mon", label: "Mon", field: "mon_hours", date: formatDate(monday) },
+    { key: "tue", label: "Tues", field: "tue_hours", date: formatDate(addDays(monday, 1)) },
+    { key: "wed", label: "Wed", field: "wed_hours", date: formatDate(addDays(monday, 2)) },
+    { key: "thu", label: "Thurs", field: "thu_hours", date: formatDate(addDays(monday, 3)) },
+    { key: "fri", label: "Fri", field: "fri_hours", date: formatDate(addDays(monday, 4)) },
+    { key: "sat", label: "Sat", field: "sat_hours", date: formatDate(addDays(monday, 5)) },
+    { key: "sun", label: "Sun", field: "sun_hours", date: formatDate(addDays(monday, 6)) },
+  ];
+}
+
+function getDayHours(row: ReviewHoursRow, field: string) {
+  return Number((row as any)[field] || 0);
+}
+
+function getDayDetails(row: ReviewHoursRow, date: string) {
+  return (row.details || []).filter((item) => item.date === date);
+}
+
+function getDayTotal(row: ReviewHoursRow, date: string, field: string) {
+  const detailTotal = getDayDetails(row, date).reduce(
+    (total, item) => total + Number(item.hours || 0),
+    0
+  );
+
+  if (detailTotal > 0) return detailTotal;
+
+  return getDayHours(row, field);
+}
+
+function getLatestLogin(row: ReviewHoursRow, date: string) {
+  const details = getDayDetails(row, date).filter((item) => item.login);
+  return details[details.length - 1]?.login || "";
+}
+
+function getLatestLogout(row: ReviewHoursRow, date: string) {
+  const details = getDayDetails(row, date).filter((item) => item.logout);
+  return details[details.length - 1]?.logout || "";
+}
+
+function isReviewerLoggedInForDate(row: ReviewHoursRow, date: string) {
+  const details = getDayDetails(row, date);
+
+  if (details.length === 0) return false;
+
+  const latest = details[details.length - 1];
+
+  return Boolean(latest.login && !latest.logout);
+}
+
 function buildWeekOptions(count = 26) {
   const currentMonday = getMonday(new Date());
 
@@ -113,6 +191,7 @@ function ReviewHoursPageContent() {
   const [rows, setRows] = useState<ReviewHoursRow[]>([]);
   const [message, setMessage] = useState("");
   const [weekStart, setWeekStart] = useState(formatDate(getMonday(new Date())));
+  const [activeTab, setActiveTab] = useState("weekly");
   const [selectedReviewer, setSelectedReviewer] =
     useState<ReviewHoursRow | null>(null);
 
@@ -125,6 +204,8 @@ function ReviewHoursPageContent() {
   const [editNotes, setEditNotes] = useState("");
 
   const weekOptions = buildWeekOptions(52);
+  const weekDays = getWeekDays(weekStart);
+  const activeDay = weekDays.find((day) => day.key === activeTab);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
@@ -155,6 +236,50 @@ function ReviewHoursPageContent() {
       .catch((error) => {
         console.error(error);
         setMessage("Failed to load review hours.");
+      });
+  }
+
+  function logInForDay(date: string) {
+    if (!user) return;
+
+    apiPost("/api/timesheet/review-hours/login", {
+      workspace,
+      client_id: client,
+      project_id: project,
+      username: user.username,
+      display_name: user.display_name || user.username,
+      role: user.role || "1L",
+      date,
+    })
+      .then(() => {
+        setMessage("Logged in.");
+        loadRows();
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Failed to log in.");
+      });
+  }
+
+  function logOutForDay(date: string) {
+    if (!user) return;
+
+    apiPost("/api/timesheet/review-hours/logout", {
+      workspace,
+      client_id: client,
+      project_id: project,
+      username: user.username,
+      display_name: user.display_name || user.username,
+      role: user.role || "1L",
+      date,
+    })
+      .then(() => {
+        setMessage("Logged out.");
+        loadRows();
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Failed to log out.");
       });
   }
 
@@ -217,7 +342,7 @@ function ReviewHoursPageContent() {
           </p>
         )}
 
-        <ContentCard title="Weekly Review Hours">
+        <ContentCard title="Review Hours">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
             <div className="min-w-[320px]">
               <label className="block text-sm text-slate-400 mb-2">
@@ -228,6 +353,7 @@ function ReviewHoursPageContent() {
                 value={weekStart}
                 onChange={(event) => {
                   setWeekStart(event.target.value);
+                  setActiveTab("weekly");
                   setSelectedReviewer(null);
                   setEditRow(null);
                 }}
@@ -248,96 +374,191 @@ function ReviewHoursPageContent() {
             </div>
           </div>
 
-          <div className="overflow-auto rounded-xl border border-slate-800">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-900 text-slate-400">
-                <tr>
-                  <th className="p-3 text-left">Reviewer Name</th>
-                  <th className="p-3 text-right">Mon hrs</th>
-                  <th className="p-3 text-right">Tues hrs</th>
-                  <th className="p-3 text-right">Wed hrs</th>
-                  <th className="p-3 text-right">Thurs hrs</th>
-                  <th className="p-3 text-right">Fri hrs</th>
-                  <th className="p-3 text-right">Sat hrs</th>
-                  <th className="p-3 text-right">Sun hrs</th>
-                  <th className="p-3 text-right">Week Total</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
+          <div className="mb-6 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab("weekly")}
+              className={
+                activeTab === "weekly"
+                  ? "rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+              }
+            >
+              Weekly Totals
+            </button>
 
-              <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={`${row.username}-${row.role}`}
-                    className="border-t border-slate-800"
-                  >
-                    <td className="p-3 text-white">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedReviewer(row)}
-                        className="text-left hover:text-sky-400"
-                      >
+            {weekDays.map((day) => (
+              <button
+                key={day.key}
+                type="button"
+                onClick={() => setActiveTab(day.key)}
+                className={
+                  activeTab === day.key
+                    ? "rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white"
+                    : "rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                }
+              >
+                {day.label} {formatMMDDYYYY(day.date)}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === "weekly" && (
+            <div className="overflow-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-900 text-slate-400">
+                  <tr>
+                    <th className="p-3 text-left">Reviewer Name</th>
+                    {weekDays.map((day) => (
+                      <th key={day.key} className="p-3 text-right">
+                        {day.label}
+                      </th>
+                    ))}
+                    <th className="p-3 text-right">Week Total</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {rows.map((row) => (
+                    <tr
+                      key={`${row.username}-${row.role}`}
+                      className="border-t border-slate-800"
+                    >
+                      <td className="p-3 text-white">
                         <div>{row.display_name || row.username}</div>
                         <div className="text-xs text-slate-500">
                           {row.username} • {row.role || "—"}
                         </div>
-                      </button>
-                    </td>
+                      </td>
 
-                    <td className="p-3 text-right text-slate-300">
-                      {Number(row.mon_hours || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-right text-slate-300">
-                      {Number(row.tue_hours || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-right text-slate-300">
-                      {Number(row.wed_hours || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-right text-slate-300">
-                      {Number(row.thu_hours || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-right text-slate-300">
-                      {Number(row.fri_hours || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-right text-slate-300">
-                      {Number(row.sat_hours || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-right text-slate-300">
-                      {Number(row.sun_hours || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-right font-semibold text-white">
-                      {Number(row.week_total || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="secondary"
-                          onClick={() => setSelectedReviewer(row)}
+                      {weekDays.map((day) => (
+                        <td
+                          key={day.key}
+                          className="p-3 text-right text-slate-300"
                         >
-                          Details
-                        </Button>
+                          {getDayTotal(row, day.date, day.field).toFixed(2)}
+                        </td>
+                      ))}
 
-                        <Button onClick={() => openEdit(row)}>
-                          Edit
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="p-3 text-right font-semibold text-white">
+                        {Number(row.week_total || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
 
-                {rows.length === 0 && (
+                  {rows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        className="p-6 text-center text-slate-500"
+                      >
+                        No review hours found for this week.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeDay && (
+            <div className="overflow-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-900 text-slate-400">
                   <tr>
-                    <td
-                      colSpan={10}
-                      className="p-6 text-center text-slate-500"
-                    >
-                      No review hours found for this week.
-                    </td>
+                    <th className="p-3 text-left">Reviewer Name</th>
+                    <th className="p-3 text-left">Status</th>
+                    <th className="p-3 text-left">First Login</th>
+                    <th className="p-3 text-left">Last Logout</th>
+                    <th className="p-3 text-right">Day Total</th>
+                    <th className="p-3 text-right">Action</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+
+                <tbody>
+                  {rows.map((row) => {
+                    const isCurrentUser = row.username === user?.username;
+                    const isLoggedIn = isReviewerLoggedInForDate(
+                      row,
+                      activeDay.date
+                    );
+
+                    return (
+                      <tr
+                        key={`${activeDay.date}-${row.username}`}
+                        className="border-t border-slate-800"
+                      >
+                        <td className="p-3 text-white">
+                          <div>{row.display_name || row.username}</div>
+                          <div className="text-xs text-slate-500">
+                            {row.username} • {row.role || "—"}
+                          </div>
+                        </td>
+
+                        <td className="p-3 text-slate-300">
+                          {isLoggedIn ? (
+                            <span className="text-lime-300">Logged In</span>
+                          ) : (
+                            <span className="text-slate-400">Logged Out</span>
+                          )}
+                        </td>
+
+                        <td className="p-3 text-slate-300">
+                          {formatTimeDisplay(
+                            getLatestLogin(row, activeDay.date)
+                          )}
+                        </td>
+
+                        <td className="p-3 text-slate-300">
+                          {formatTimeDisplay(
+                            getLatestLogout(row, activeDay.date)
+                          )}
+                        </td>
+
+                        <td className="p-3 text-right font-semibold text-white">
+                          {getDayTotal(
+                            row,
+                            activeDay.date,
+                            activeDay.field
+                          ).toFixed(2)}
+                        </td>
+
+                        <td className="p-3 text-right">
+                          {isCurrentUser ? (
+                            isLoggedIn ? (
+                              <Button
+                                variant="secondary"
+                                onClick={() => logOutForDay(activeDay.date)}
+                              >
+                                Log Out
+                              </Button>
+                            ) : (
+                              <Button onClick={() => logInForDay(activeDay.date)}>
+                                Log In
+                              </Button>
+                            )
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {rows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="p-6 text-center text-slate-500"
+                      >
+                        No reviewers found for this day.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </ContentCard>
 
         {selectedReviewer && (

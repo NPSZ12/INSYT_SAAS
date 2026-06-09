@@ -3,10 +3,13 @@ import uuid
 from datetime import datetime, date, timezone, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.services.batch_service import get_container_client
+from app.database.connection import get_db
+from app.models.user import User
 
 
 router = APIRouter(prefix="/api/timesheet", tags=["Timesheet"])
@@ -131,6 +134,122 @@ def calculate_hours(login_iso: str, logout_iso: str, break_minutes: int):
 
     return max(round(total_hours, 2), 0)
 
+def safe_json_list(value: str):
+    try:
+        parsed = json.loads(value or "[]")
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def normalize_access_value(value: str):
+    return str(value or "").strip().lower()
+
+
+def user_has_project_access(
+    user: User,
+    workspace: str,
+    client_id: str,
+    project_id: str,
+):
+    workspace_access = safe_json_list(user.workspace_access)
+    client_access = safe_json_list(user.client_access)
+    project_access = safe_json_list(user.project_access)
+
+    clean_workspace = normalize_access_value(workspace)
+    clean_client = normalize_access_value(client_id)
+    clean_project = normalize_access_value(project_id)
+    clean_project_path = normalize_access_value(
+        f"{client_id}/{project_id}"
+    )
+
+    has_workspace = (
+        "ALL" in workspace_access
+        or workspace in workspace_access
+        or clean_workspace in [
+            normalize_access_value(item)
+            for item in workspace_access
+        ]
+    )
+
+    has_client = (
+        "ALL" in client_access
+        or client_id in client_access
+        or clean_client in [
+            normalize_access_value(item)
+            for item in client_access
+        ]
+    )
+
+    has_project = (
+        "ALL" in project_access
+        or project_id in project_access
+        or f"{client_id}/{project_id}" in project_access
+        or clean_project in [
+            normalize_access_value(item)
+            for item in project_access
+        ]
+        or clean_project_path in [
+            normalize_access_value(item)
+            for item in project_access
+        ]
+    )
+
+    return has_workspace and has_client and has_project
+
+
+def make_empty_review_hours_row(user: User):
+    return {
+        "username": user.username,
+        "display_name": user.display_name or user.username,
+        "role": user.role or "",
+        "mon_hours": 0,
+        "tue_hours": 0,
+        "wed_hours": 0,
+        "thu_hours": 0,
+        "fri_hours": 0,
+        "sat_hours": 0,
+        "sun_hours": 0,
+        "week_total": 0,
+        "details": [],
+    }
+
+
+def load_project_1l_reviewers(
+    db: Session,
+    workspace: str,
+    client_id: str,
+    project_id: str,
+):
+    users = (
+        db.query(User)
+        .filter(User.status == "Active")
+        .all()
+    )
+
+    reviewers = []
+
+    for user in users:
+        role = str(user.role or "").strip()
+
+        if role not in ["1L", "1L Reviewer"]:
+            continue
+
+        if user_has_project_access(
+            user=user,
+            workspace=workspace,
+            client_id=client_id,
+            project_id=project_id,
+        ):
+            reviewers.append(user)
+
+    reviewers.sort(
+        key=lambda item: (
+            item.display_name or item.username or ""
+        ).lower()
+    )
+
+    return reviewers
 
 @router.get("/")
 def list_time(
@@ -284,6 +403,7 @@ def review_hours(
     client: str = Query(...),
     project: str = Query(...),
     week_start: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
 ):
     entries = load_entries(
         workspace=workspace,
@@ -310,6 +430,18 @@ def review_hours(
     ]
 
     grouped: dict[str, dict] = {}
+
+    assigned_reviewers = load_project_1l_reviewers(
+        db=db,
+        workspace=workspace,
+        client_id=client,
+        project_id=project,
+    )
+
+    for reviewer in assigned_reviewers:
+        grouped[reviewer.username] = make_empty_review_hours_row(
+            reviewer
+        )
 
     for entry in entries:
         entry_date_raw = entry.get("date")
