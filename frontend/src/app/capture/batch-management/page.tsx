@@ -224,23 +224,49 @@ function BatchesPageContent() {
   }
   
   function getCheckoutErrorMessage(error: any) {
-    const message = String(error?.message || "");
+    const rawMessage = String(error?.message || "");
+
+    try {
+      const jsonStart = rawMessage.indexOf("{");
+
+      if (jsonStart >= 0) {
+        const parsed = JSON.parse(rawMessage.slice(jsonStart));
+
+        const detail = parsed?.detail;
+
+        if (detail?.code === "ACTIVE_BATCH_ALREADY_CHECKED_OUT") {
+          return (
+            detail.message ||
+            "You already have a batch checked out. Complete or release your current batch before checking out another batch."
+          );
+        }
+
+        if (typeof detail === "string") {
+          return detail;
+        }
+      }
+    } catch {
+      // Fall through to string checks below.
+    }
 
     if (
-      message.includes("ACTIVE_BATCH_ALREADY_CHECKED_OUT") ||
-      message.includes("already have a batch checked out") ||
-      message.includes("409")
+      rawMessage.includes("ACTIVE_BATCH_ALREADY_CHECKED_OUT") ||
+      rawMessage.includes("already have a batch checked out") ||
+      rawMessage.includes("409")
     ) {
       return (
         "You already have a batch checked out. Complete or release your current batch before checking out another batch."
       );
     }
 
-    return message || "Unable to check out batch.";
+    return rawMessage || "Unable to check out batch.";
   }
   
   function checkoutBatch(batchId: string) {
     if (!projectId || !user) return;
+
+    setMessage("");
+    setCheckoutWarning(null);
 
     apiPost(
       `/api/capture/projects/${encodeURIComponent(
