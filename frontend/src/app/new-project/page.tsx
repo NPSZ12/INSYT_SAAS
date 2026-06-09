@@ -22,11 +22,20 @@ type ProtocolTemplateField = {
   notes: string;
 };
 
+type RegistryClient = {
+  client_uuid: string;
+  client_name: string;
+  normalized_name?: string;
+  workspaces?: string[];
+};
+
 export default function NewProjectPage() {
   const [workspace, setWorkspace] = useState("capture");
   const [projectName, setProjectName] = useState("");
   const [clients, setClients] = useState<string[]>([]);
+  const [registryClients, setRegistryClients] = useState<RegistryClient[]>([]);
   const [selectedClient, setSelectedClient] = useState("");
+  const [selectedClientUuid, setSelectedClientUuid] = useState("");
   const [newClientName, setNewClientName] = useState("");
   const [message, setMessage] = useState("");
 
@@ -45,6 +54,17 @@ export default function NewProjectPage() {
 
   const [overlayView, setOverlayView] =
     useState<"raw" | "final">("raw");
+
+  function loadRegistryClients() {
+    apiGet("/api/workspace-registry/clients")
+      .then((response) => {
+        setRegistryClients(response.clients || []);
+      })
+      .catch((error) => {
+        console.error("Failed to load registered clients:", error);
+        setRegistryClients([]);
+      });
+  }
 
   function loadProjects(clientOverride?: string) {
     const client = clientOverride ?? selectedClient;
@@ -93,6 +113,10 @@ export default function NewProjectPage() {
   }
 
   useEffect(() => {
+    loadRegistryClients();
+  }, []);
+
+  useEffect(() => {
     apiGet(`/api/${workspace}/clients`)
       .then((response) => {
         const loadedClients = response.clients || [];
@@ -129,9 +153,15 @@ export default function NewProjectPage() {
   }, [workspace, selectedClient]);
 
   function createProject() {
-    const client = selectedClient || newClientName;
+    const selectedRegistryClient = registryClients.find(
+      (client) => client.client_uuid === selectedClientUuid
+    );
 
-    if (!client.trim()) {
+    const clientName =
+      selectedRegistryClient?.client_name ||
+      newClientName;
+
+    if (!clientName.trim()) {
       setMessage("Client name is required.");
       return;
     }
@@ -141,21 +171,24 @@ export default function NewProjectPage() {
       return;
     }
 
-    apiPost(`/api/${workspace}/projects/create`, {
-      project_id: projectName,
-      client,
+    apiPost("/api/workspace-registry/projects/create", {
+      client_uuid: selectedRegistryClient?.client_uuid || "",
+      client_name: clientName,
+      workspace,
+      project_name: projectName,
     })
-      .then(() => {
-        setMessage(`Created ${client}/${projectName} in ${workspace}.`);
+      .then((response) => {
+        setMessage(
+          `Created ${response.client}/${response.project} in ${response.workspace}. Client UUID: ${response.client_uuid}. Project UUID: ${response.project_uuid}.`
+        );
 
         setProjectName("");
         setNewClientName("");
+        setSelectedClientUuid(response.client_uuid || "");
+        setSelectedClient(response.client || clientName);
 
-        if (!selectedClient) {
-          setSelectedClient(client);
-        }
-
-        loadProjects(client);
+        loadRegistryClients();
+        loadProjects(response.client || clientName);
       })
       .catch((error) => {
         console.error(error);
@@ -367,7 +400,7 @@ export default function NewProjectPage() {
         <ContentCard title="Create Azure Project">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
-              <FormLabel>Workspace</FormLabel>
+              <FormLabel>Target Workspace</FormLabel>
 
               <Select value={workspace} onChange={setWorkspace}>
                 <option value="capture">INSYT Capture</option>
@@ -380,17 +413,30 @@ export default function NewProjectPage() {
               <FormLabel>Existing Client</FormLabel>
 
               <Select
-                value={selectedClient}
+                value={selectedClientUuid}
                 onChange={(value) => {
-                  setSelectedClient(value);
-                  if (value) setNewClientName("");
+                  setSelectedClientUuid(value);
+
+                  const selected = registryClients.find(
+                    (client) => client.client_uuid === value
+                  );
+
+                  if (selected) {
+                    setSelectedClient(selected.client_name);
+                    setNewClientName("");
+                  } else {
+                    setSelectedClient("");
+                  }
                 }}
               >
                 <option value="">Select existing client...</option>
 
-                {clients.map((client) => (
-                  <option key={client} value={client}>
-                    {client.replaceAll("_", " ")}
+                {registryClients.map((client) => (
+                  <option key={client.client_uuid} value={client.client_uuid}>
+                    {client.client_name.replaceAll("_", " ")}
+                    {client.workspaces?.length
+                      ? ` (${client.workspaces.join(", ")})`
+                      : ""}
                   </option>
                 ))}
               </Select>
@@ -403,7 +449,11 @@ export default function NewProjectPage() {
                 value={newClientName}
                 onChange={(value) => {
                   setNewClientName(value);
-                  if (value) setSelectedClient("");
+
+                  if (value) {
+                    setSelectedClient("");
+                    setSelectedClientUuid("");
+                  }
                 }}
                 placeholder="Example: NLCP"
               />
