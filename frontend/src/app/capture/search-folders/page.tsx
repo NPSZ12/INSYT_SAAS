@@ -39,6 +39,7 @@ type SearchHit = {
 function SearchFoldersPageContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
 
   const [folders, setFolders] = useState<SearchFolder[]>([]);
   const [folderName, setFolderName] = useState("");
@@ -98,6 +99,8 @@ function SearchFoldersPageContent() {
 
     apiPost("/api/search-folders/create", {
       project_id: projectId,
+      client_id: clientId,
+      workspace: "capture",
       folder_name: folderName,
       search_type: searchType,
       search_terms: terms,
@@ -175,16 +178,25 @@ function SearchFoldersPageContent() {
                 <option value="text">Text Search</option>
                 <option value="regex">Regex Search</option>
                 <option value="boolean">Boolean Search</option>
+                <option value="coding">Coding Search</option>
               </Select>
             </div>
 
-            <FormLabel>Search Terms / Regex Patterns</FormLabel>
+            <FormLabel>
+              {searchType === "coding"
+                ? "Document Coding Values"
+                : "Search Terms / Regex Patterns"}
+            </FormLabel>
             <div className="mb-6">
               <TextArea
                 rows={8}
                 value={searchTerms}
                 onChange={setSearchTerms}
-                placeholder={"One term or regex per line"}
+                placeholder={
+                  searchType === "coding"
+                    ? "One coding value per line, e.g. Not Responsive"
+                    : "One term or regex per line"
+                }
               />
             </div>
 
@@ -262,6 +274,29 @@ function SearchFoldersPageContent() {
                 <p>
                   Best for names, related concepts, proximity review, inclusion/exclusion
                   searches, and defensible supplemental review batches.
+                </p>
+              </div>
+            )}
+
+            {searchType === "coding" && (
+              <div className="space-y-3 text-slate-400 text-sm">
+                <p>
+                  <span className="text-white font-semibold">Coding Search</span> creates
+                  a search folder from saved document coding values.
+                </p>
+
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
+                  <p className="text-white mb-2">Examples:</p>
+                  <p>Not Responsive</p>
+                  <p>Responsive</p>
+                  <p>Tech Issue</p>
+                  <p>Foreign Language</p>
+                  <p>Password Protected</p>
+                  <p>Needs Further Review</p>
+                </div>
+
+                <p>
+                  Best for creating QC or supplemental batches based on saved review coding.
                 </p>
               </div>
             )}

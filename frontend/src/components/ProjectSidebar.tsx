@@ -201,33 +201,18 @@ export default function ProjectSidebar() {
 
 
   const projectQuery = clientId
-    ? `?client=${encodedClientId}&project=${encodedProjectId}${
-        selectedBatch
-          ? `&batch=${encodeURIComponent(
-              selectedBatch
-            )}`
-          : ""
-      }`
-    : `?project=${encodedProjectId}${
-        selectedBatch
-          ? `&batch=${encodeURIComponent(
-              selectedBatch
-            )}`
-          : ""
-      }`;
-
-  const reviewBatch =
-    selectedBatch || currentUserBatch;
+    ? `?client=${encodedClientId}&project=${encodedProjectId}`
+    : `?project=${encodedProjectId}`;
 
   const reviewQuery = clientId
     ? `?client=${encodedClientId}&project=${encodedProjectId}${
-        reviewBatch
-          ? `&batch=${encodeURIComponent(reviewBatch)}`
+        currentUserBatch
+          ? `&batch=${encodeURIComponent(currentUserBatch)}`
           : ""
       }`
     : `?project=${encodedProjectId}${
-        reviewBatch
-          ? `&batch=${encodeURIComponent(reviewBatch)}`
+        currentUserBatch
+          ? `&batch=${encodeURIComponent(currentUserBatch)}`
           : ""
       }`;
 

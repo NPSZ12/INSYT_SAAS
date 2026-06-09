@@ -17,6 +17,12 @@ type BatchFile = {
   status: string;
 };
 
+type StoredUser = {
+  username: string;
+  display_name: string;
+  role: string;
+};
+
 function ReviewBatchLandingPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -26,9 +32,30 @@ function ReviewBatchLandingPageContent() {
   const batchId = searchParams.get("batch") || "";
 
   const [files, setFiles] = useState<BatchFile[]>([]);
+  const [user, setUser] = useState<StoredUser | null>(null);
+  const [batchAllowed, setBatchAllowed] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!projectId || !batchId) return;
+    const storedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("insyt_user")
+        : null;
+
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!projectId || !batchId || !user) {
+      setFiles([]);
+      setBatchAllowed(false);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
 
     apiGet(
       `/api/capture/projects/${encodeURIComponent(
@@ -47,6 +74,25 @@ function ReviewBatchLandingPageContent() {
           }
         );
 
+        const checkedOutBy =
+          selectedBatch?.checked_out_by || "";
+
+        const status =
+          String(selectedBatch?.status || "")
+            .toLowerCase()
+            .replaceAll("_", " ");
+
+        const isAllowed =
+          status === "checked out" &&
+          checkedOutBy === user.username;
+
+        if (!isAllowed) {
+          setFiles([]);
+          setBatchAllowed(false);
+          setIsLoading(false);
+          return;
+        }
+
         const docIds = selectedBatch?.doc_ids || [];
 
         const batchFiles = docIds.map((docId: string) => ({
@@ -56,20 +102,24 @@ function ReviewBatchLandingPageContent() {
         }));
 
         setFiles(batchFiles);
+        setBatchAllowed(true);
+        setIsLoading(false);
       })
       .catch((error) => {
         console.error(error);
         setFiles([]);
+        setBatchAllowed(false);
+        setIsLoading(false);
       });
-  }, [clientId, projectId, batchId]);
+  }, [clientId, projectId, batchId, user]);
 
-  if (!projectId || !batchId) {
+  if (!projectId || !batchId || (!isLoading && !batchAllowed)) {
     return (
       <AppShell>
         <PageContainer>
           <PageHeader
             title="No Batch Selected"
-            subtitle="Please select a batch before starting review."
+            subtitle="Please select a checked-out batch before starting review."
           />
         </PageContainer>
       </AppShell>

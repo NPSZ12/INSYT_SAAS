@@ -72,6 +72,9 @@ export default function ReviewCapturePanel({
   const [furtherReviewReason, setFurtherReviewReason] =
     useState("");
 
+  const [qcCoding, setQcCoding] = useState("");
+  const [qcQuestions, setQcQuestions] = useState("");
+
   useEffect(() => {
     const initialOpenState: Record<string, boolean> = {};
 
@@ -89,6 +92,9 @@ export default function ReviewCapturePanel({
     (hasLinkedEntities || localLinkedEntityAttached);
 
   const isBatchReview = Boolean(batchId);
+
+  const isQcBatch =
+    String(batchId || "").startsWith("QC_");
 
   useEffect(() => {
     setLocalLinkedEntityAttached(false);
@@ -181,6 +187,18 @@ export default function ReviewCapturePanel({
       setMessage(
         "Further Review reason is required."
       );
+
+      return false;
+    }
+
+    if (isQcBatch && !qcCoding) {
+      setMessage("QC Coding selection is required.");
+
+      return false;
+    }
+
+    if (isQcBatch && qcCoding === "QC-NFR" && !qcQuestions.trim()) {
+      setMessage("QC-NFR questions are required.");
 
       return false;
     }
@@ -285,6 +303,8 @@ export default function ReviewCapturePanel({
       values: valuesToSave,
       document_coding: documentCoding,
       further_review_reason: furtherReviewReason,
+      qc_coding: isQcBatch ? qcCoding : "",
+      qc_questions: isQcBatch ? qcQuestions : "",
     })
       .then(() => {
         setMessage(
@@ -296,6 +316,8 @@ export default function ReviewCapturePanel({
         setValues({});
         setDocumentCoding("");
         setFurtherReviewReason("");
+        setQcCoding("");
+        setQcQuestions("");
 
         onSaveComplete?.();
       })
@@ -326,11 +348,15 @@ export default function ReviewCapturePanel({
       values: valuesToSave,
       document_coding: documentCoding,
       further_review_reason: furtherReviewReason,
+      qc_coding: isQcBatch ? qcCoding : "",
+      qc_questions: isQcBatch ? qcQuestions : "",
     })
       .then(() => {
         setMessage("Document saved.");
 
         setValues({});
+        setQcCoding("");
+        setQcQuestions("");
 
         onSaveComplete?.();
       })
@@ -373,6 +399,48 @@ export default function ReviewCapturePanel({
           <p className="text-sm font-medium text-emerald-400">
             {message}
           </p>
+        )}
+
+        {isQcBatch && (
+          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+            <h3 className="text-sm font-semibold text-white mb-3">
+              QC Coding
+            </h3>
+
+            <div className="space-y-2">
+              {[
+                "QC - No Change",
+                "QC - Change",
+                "QC-NFR",
+              ].map((option) => (
+                <label
+                  key={option}
+                  className="flex items-center gap-3 text-sm text-slate-300"
+                >
+                  <input
+                    type="radio"
+                    name="qcCoding"
+                    checked={qcCoding === option}
+                    onChange={() => setQcCoding(option)}
+                    className="accent-sky-600"
+                  />
+
+                  <span>{option}</span>
+                </label>
+              ))}
+            </div>
+
+            {qcCoding === "QC-NFR" && (
+              <div className="mt-4">
+                <FormLabel>QC Questions</FormLabel>
+                <TextArea
+                  rows={3}
+                  value={qcQuestions}
+                  onChange={setQcQuestions}
+                />
+              </div>
+            )}
+          </div>
         )}
 
         <h2 className="text-lg font-semibold text-white">

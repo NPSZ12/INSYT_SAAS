@@ -1,71 +1,113 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
-import { apiPost } from "../../../../lib/api";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.insyt360.com";
 
-function EntraCallbackContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+function getClaim(claims: any[], names: string[]) {
+  return claims?.find((claim: any) =>
+    names.includes(String(claim.typ || claim.name || "").toLowerCase())
+  )?.val;
+}
 
-  const [message, setMessage] = useState(
-    "Completing Microsoft sign in..."
-  );
+function extractEmailFromAuthMe(meData: any) {
+  // Azure App Service Easy Auth usually returns an array:
+  // [{ provider_name, user_id, user_claims, user_claims... }]
+  if (Array.isArray(meData)) {
+    const identity = meData[0];
+    const claims = identity?.user_claims || identity?.claims || [];
 
-  useEffect(() => {
-    const code = searchParams.get("code");
-    const error = searchParams.get("error");
+    return (
+      identity?.user_id ||
+      getClaim(claims, [
+        "preferred_username",
+        "email",
+        "emails",
+        "upn",
+        "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+        "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn",
+      ])
+    );
+  }
 
-    if (error) {
-      setMessage("Microsoft sign in failed.");
-      return;
-    }
-
-    if (!code) {
-      setMessage("Missing Microsoft authorization code.");
-      return;
-    }
-
-    apiPost("/api/auth/entra/callback", { code })
-      .then((response) => {
-        localStorage.setItem(
-          "insyt_access_token",
-          response.access_token
-        );
-
-        localStorage.setItem(
-          "insyt_user",
-          JSON.stringify(response.user)
-        );
-
-        window.location.href = "/launcher";
-      })
-      .catch((error) => {
-        console.error(error);
-        setMessage("Unable to complete Microsoft sign in.");
-      });
-  }, [searchParams, router]);
+  // Static Web Apps-style shape, just in case
+  const principal = meData?.clientPrincipal;
+  const claims = principal?.claims || [];
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
-      <div className="w-full max-w-md bg-slate-900 p-8 rounded-2xl shadow-xl border border-slate-800 text-center">
-        <h1 className="text-2xl font-bold mb-4">
-          INSYT360
-        </h1>
-
-        <p className="text-slate-400">
-          {message}
-        </p>
-      </div>
-    </main>
+    principal?.userDetails ||
+    getClaim(claims, [
+      "preferred_username",
+      "email",
+      "emails",
+      "upn",
+      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn",
+    ])
   );
 }
 
 export default function EntraCallbackPage() {
+  const [message, setMessage] = useState("Completing secure login...");
+
+  useEffect(() => {
+    async function completeLogin() {
+      try {
+        const meResponse = await fetch("/.auth/me", {
+          credentials: "include",
+        });
+
+        if (!meResponse.ok) {
+          throw new Error("Unable to read Microsoft Entra session.");
+        }
+
+        const meData = await meResponse.json();
+        console.log("Easy Auth /.auth/me:", meData);
+
+        const email = extractEmailFromAuthMe(meData);
+
+        if (!email) {
+          throw new Error("Microsoft Entra login did not return an email.");
+        }
+
+        const loginResponse = await fetch(`${API_BASE}/api/auth/entra-login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            email,
+          }),
+        });
+
+        if (!loginResponse.ok) {
+          const errorText = await loginResponse.text();
+          throw new Error(errorText || "INSYT Entra login failed.");
+        }
+
+        const loginData = await loginResponse.json();
+
+        localStorage.setItem("insyt_token", loginData.token);
+        localStorage.setItem("insyt_user", JSON.stringify(loginData.user));
+
+        window.location.href = "/launcher";
+      } catch (error: any) {
+        console.error("Secure login failed:", error);
+        setMessage(error.message || "Secure login failed.");
+      }
+    }
+
+    completeLogin();
+  }, []);
+
   return (
-    <Suspense fallback={<div>Completing sign in...</div>}>
-      <EntraCallbackContent />
-    </Suspense>
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
+        <h1 className="text-xl font-semibold">INSYT Secure Login</h1>
+        <p className="mt-3 text-sm text-slate-300">{message}</p>
+      </div>
+    </div>
   );
 }

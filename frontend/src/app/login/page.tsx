@@ -41,8 +41,7 @@ function LoginPageContent() {
   function handleMicrosoftLogin() {
     setErrorMessage("");
 
-    const postLoginRedirect =
-      encodeURIComponent(nextPath || "/launcher");
+    const postLoginRedirect = encodeURIComponent("/auth/entra/callback");
 
     const isLocal =
       window.location.hostname === "localhost" ||

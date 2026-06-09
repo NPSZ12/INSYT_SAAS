@@ -76,6 +76,14 @@ function BatchesPageContent() {
   const [customDocsPerBatch, setCustomDocsPerBatch] = useState("");
   const [level, setLevel] = useState("1L");
   const [selectedFolderId, setSelectedFolderId] = useState("");
+  const [selectedQcSourceBatchId, setSelectedQcSourceBatchId] =
+    useState("");
+
+  const [qcSampleMode, setQcSampleMode] =
+    useState("10");
+
+  const [customQcPercent, setCustomQcPercent] =
+    useState("");
   const [message, setMessage] = useState("");
   const [docResponse, setDocResponse] = useState("Responsive");
   const [confidencePreset, setConfidencePreset] = useState("95_5");
@@ -318,28 +326,60 @@ function BatchesPageContent() {
       .catch(() => setMessage("Review batch creation failed."));
   }
 
-  function createQCBatches() {
-    if (!projectId) return;
+  function getQcBatchNamePrefix() {
+    if (!selectedQcSourceBatchId) {
+      return batchName || "QC";
+    }
 
-    apiPost(`/api/capture/projects/${encodeURIComponent(projectId)}/batches/create?client=${encodeURIComponent(clientId)}`, {
-      batch_size:
-        docsPerBatch === "Custom"
-          ? Number(customDocsPerBatch)
-          : Number(docsPerBatch),
-      level: "QC",
-      workflow_type: "standard",
-      created_by: user?.username || "admin",
-      search_folder_doc_ids: null,
-      options: {
-        batch_name: batchName || "QC",
-      },
-    })
+    return `QC_${selectedQcSourceBatchId}`;
+  }
+
+  function createQCBatches() {
+    if (!projectId || !selectedQcSourceBatchId) {
+      setMessage("Select a 1L batch for QC sampling first.");
+      return;
+    }
+
+    const qcPercent =
+      qcSampleMode === "custom"
+        ? Number(customQcPercent)
+        : Number(qcSampleMode);
+
+    if (!qcPercent || qcPercent <= 0 || qcPercent > 100) {
+      setMessage("Enter a QC sample percentage between 1 and 100.");
+      return;
+    }
+
+    apiPost(
+      `/api/capture/projects/${encodeURIComponent(
+        projectId
+      )}/batches/create?client=${encodeURIComponent(clientId)}`,
+      {
+        batch_size: 1,
+        level: "QC",
+        workflow_type: "qc_sample",
+        created_by: user?.username || "admin",
+        search_folder_doc_ids: null,
+        options: {
+          batch_name: getQcBatchNamePrefix(),
+          source_batch_id: selectedQcSourceBatchId,
+          qc_sampling: true,
+          qc_sample_percentage: qcPercent,
+        },
+      }
+    )
       .then((response) => {
-        setMessage(response.message || "QC batch created.");
+        setMessage(response.message || "QC sample batch created.");
         setBatchName("");
+        setSelectedQcSourceBatchId("");
+        setQcSampleMode("10");
+        setCustomQcPercent("");
         loadBatches();
       })
-      .catch(() => setMessage("QC batch creation failed."));
+      .catch((error) => {
+        console.error(error);
+        setMessage("QC sample batch creation failed.");
+      });
   }
 
   function createAltBatch() {
@@ -513,6 +553,22 @@ function BatchesPageContent() {
       return getBatchNumber(a.batch_id) - getBatchNumber(b.batch_id);
     });
 
+  const eligibleQcSourceBatches = batches.filter((batch) => {
+    const status = String(batch.status || "")
+      .toLowerCase()
+      .replaceAll("_", " ");
+
+    return (
+      batch.level === "1L" &&
+      (
+        status === "checked out" ||
+        status === "in progress" ||
+        status === "completed"
+      ) &&
+      (batch.doc_ids || []).length > 0
+    );
+  });
+
   const batchRows = filteredBatches.map((batch) => {
     const totalDocs =
       batch.document_count || 0;
@@ -666,24 +722,65 @@ function BatchesPageContent() {
         )}
 
         {mode === "qc" && (
-          <ContentCard title="Create QC Batches">
-            <BatchCreateControls
-              batchName={batchName}
-              setBatchName={setBatchName}
-              docsPerBatch={docsPerBatch}
-              setDocsPerBatch={setDocsPerBatch}
-              customDocsPerBatch={customDocsPerBatch}
-              setCustomDocsPerBatch={setCustomDocsPerBatch}
-              level={level}
-              setLevel={setLevel}
-              onCreate={createQCBatches}
-              buttonLabel="Create QC Batches"
-            />
+          <ContentCard title="Create QC Batch from 1L Batch">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              <div>
+                <FormLabel>Batch Name Prefix</FormLabel>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-200 min-h-[46px] flex items-center">
+                  {getQcBatchNamePrefix()}
+                </div>
+              </div>
+
+              <div>
+                <FormLabel>1L Batch</FormLabel>
+                <Select
+                  value={selectedQcSourceBatchId}
+                  onChange={setSelectedQcSourceBatchId}
+                >
+                  <option value="">Select 1L Batch</option>
+
+                  {eligibleQcSourceBatches.map((batch) => (
+                    <option key={batch.batch_id} value={batch.batch_id}>
+                      {batch.batch_id} - {batch.status} ({batch.doc_ids?.length || 0} docs)
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div>
+                <FormLabel>QC Sample</FormLabel>
+                <Select
+                  value={qcSampleMode}
+                  onChange={setQcSampleMode}
+                >
+                  <option value="10">Random 10%</option>
+                  <option value="15">Random 15%</option>
+                  <option value="20">Random 20%</option>
+                  <option value="custom">Random Custom</option>
+                </Select>
+              </div>
+
+              {qcSampleMode === "custom" && (
+                <div>
+                  <FormLabel>Custom Percentage</FormLabel>
+                  <Input
+                    value={customQcPercent}
+                    onChange={setCustomQcPercent}
+                    placeholder="Example: 25"
+                  />
+                </div>
+              )}
+
+              <Button fullWidth onClick={createQCBatches}>
+                Create QC Batch
+              </Button>
+            </div>
 
             <div className="mt-8">
               <h3 className="text-lg font-semibold mb-4">
-                Reviewed Batches Available for QC
+                QC Batch Status
               </h3>
+
               <DataTable columns={batchColumns} data={batchRows} />
             </div>
           </ContentCard>
