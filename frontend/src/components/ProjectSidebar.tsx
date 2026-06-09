@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   ChevronLeft,
   ChevronRight,
+  HardDriveUpload,
 } from "lucide-react";
 
 type NavItem = {
@@ -268,6 +269,7 @@ export default function ProjectSidebar() {
 
     return [
       "Batch Management",
+      "Processing Center",
       "Search Folders",
       "Files",
       "QC Review",
@@ -292,6 +294,11 @@ export default function ProjectSidebar() {
       label: "Files",
       href: `${workspaceBase}/files${projectQuery}`,
       icon: FileText,
+    },
+    {
+      label: "Processing Center",
+      href: `${workspaceBase}/processing-center${projectQuery}`,
+      icon: HardDriveUpload,
     },
     {
       label: "Batches",

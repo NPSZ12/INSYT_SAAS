@@ -46,6 +46,7 @@ from app.api.admin_clients import router as admin_clients_router
 from app.api import capture_review_batches
 from app.api import discovery_review_batches
 from app.api import summaries_review_batches
+from app.api import processing_center
 
 
 from app.api import document_overlays
@@ -226,6 +227,7 @@ app.include_router(document_overlays.router)
 app.include_router(capture_review_batches.router)
 app.include_router(discovery_review_batches.router)
 app.include_router(summaries_review_batches.router)
+app.include_router(processing_center.router)
 
 
 
