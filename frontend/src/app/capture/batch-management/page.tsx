@@ -1102,6 +1102,9 @@ function BatchGroupDirectory({
   showDocumentList?: boolean;
   user?: StoredUser | null;
 }) {
+  const [expandedStatusGroups, setExpandedStatusGroups] =
+    useState<Record<string, boolean>>({});
+
   const qcAndUpRoles = [
     "QC",
     "TL",
@@ -1112,6 +1115,32 @@ function BatchGroupDirectory({
 
   function canOpenAnyBatch(role?: string) {
     return qcAndUpRoles.includes(role || "");
+  }
+
+  function getBatchStatusBucketForMenu(status: string) {
+    const clean = String(status || "")
+      .toLowerCase()
+      .replaceAll("_", " ");
+
+    if (clean === "available") return "available";
+
+    if (
+      clean === "checked out" ||
+      clean === "in progress"
+    ) {
+      return "inProgress";
+    }
+
+    if (clean === "completed") return "completed";
+
+    return "other";
+  }
+
+  function getStatusSectionKey(
+    groupKey: string,
+    sectionKey: string
+  ) {
+    return `${groupKey}::${sectionKey}`;
   }
 
   return (
@@ -1159,176 +1188,285 @@ function BatchGroupDirectory({
             </button>
 
             {isExpanded && (
-              <div className="border-t border-slate-800">
-                <div
-                  className="overflow-x-scroll border-b border-slate-800 bg-slate-950 h-4"
-                  onScroll={(event) => {
-                    const tableScroller =
-                      event.currentTarget.nextElementSibling as HTMLDivElement | null;
+              <div className="border-t border-slate-800 bg-slate-950">
+                {[
+                  {
+                    key: "available",
+                    label: "Available Batches",
+                    count: group.available,
+                    batches: group.batches.filter(
+                      (batch) =>
+                        getBatchStatusBucketForMenu(batch.status) ===
+                        "available"
+                    ),
+                    defaultOpen: true,
+                  },
+                  {
+                    key: "inProgress",
+                    label: "In Progress",
+                    count: group.inProgress,
+                    batches: group.batches.filter(
+                      (batch) =>
+                        getBatchStatusBucketForMenu(batch.status) ===
+                        "inProgress"
+                    ),
+                    defaultOpen: false,
+                  },
+                  {
+                    key: "completed",
+                    label: "Completed",
+                    count: group.completed,
+                    batches: group.batches.filter(
+                      (batch) =>
+                        getBatchStatusBucketForMenu(batch.status) ===
+                        "completed"
+                    ),
+                    defaultOpen: false,
+                  },
+                ].map((section) => {
+                  const sectionStateKey = getStatusSectionKey(
+                    group.groupKey,
+                    section.key
+                  );
 
-                    if (tableScroller) {
-                      tableScroller.scrollLeft =
-                        event.currentTarget.scrollLeft;
-                    }
-                  }}
-                >
-                  <div className="min-w-[1200px] h-1" />
-                </div>
+                  const isSectionExpanded =
+                    expandedStatusGroups[sectionStateKey] ??
+                    section.defaultOpen;
 
-                <div
-                  className="max-h-[56vh] overflow-auto"
-                  onScroll={(event) => {
-                    const topScroller =
-                      event.currentTarget.previousElementSibling as HTMLDivElement | null;
+                  return (
+                    <div
+                      key={section.key}
+                      className="border-t border-slate-800"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedStatusGroups((current) => ({
+                            ...current,
+                            [sectionStateKey]: !isSectionExpanded,
+                          }))
+                        }
+                        className="w-full px-4 py-3 bg-slate-900/80 hover:bg-slate-800 text-left"
+                      >
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="text-white font-semibold">
+                            {isSectionExpanded ? "▾" : "▸"}{" "}
+                            {section.label}
+                          </span>
 
-                    if (topScroller) {
-                      topScroller.scrollLeft =
-                        event.currentTarget.scrollLeft;
-                    }
-                  }}
-                >
-                  <table className="min-w-[1200px] w-full text-xs">
-                    <thead className="bg-slate-900/70 text-slate-400">
-                      <tr>
-                        <th className="p-2 text-left">Name</th>
-                        <th className="p-2 text-left">Level</th>
-                        <th className="p-2 text-left">Status</th>
-                        <th className="p-2 text-left">Docs</th>
-                        <th className="p-2 text-left">Reviewed</th>
-                        <th className="p-2 text-left">Pending</th>
+                          <span className="text-slate-400">
+                            {section.count} batch
+                            {section.count === 1 ? "" : "es"}
+                          </span>
+                        </div>
+                      </button>
 
-                        {showDocumentList && (
-                          <th className="p-2 text-left">Documents</th>
-                        )}
+                      {isSectionExpanded && (
+                        <div className="border-t border-slate-800">
+                          {section.batches.length === 0 ? (
+                            <div className="px-4 py-4 text-sm text-slate-500">
+                              No batches in this section.
+                            </div>
+                          ) : (
+                            <>
+                              <div
+                                className="overflow-x-scroll border-b border-slate-800 bg-slate-950 h-4"
+                                onScroll={(event) => {
+                                  const tableScroller =
+                                    event.currentTarget
+                                      .nextElementSibling as HTMLDivElement | null;
 
-                        <th className="p-2 text-left">Checked Out By</th>
-                        <th className="p-2 text-left">Actions</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {group.batches.map((batch) => {
-                        const totalDocs =
-                          batch.document_count ||
-                          Number(batch.documents || 0);
-
-                        const reviewed =
-                          batch.completed_count || 0;
-
-                        const pending = Math.max(
-                          totalDocs - reviewed,
-                          0
-                        );
-
-                        return (
-                          <tr
-                            key={batch.batch_id}
-                            className="border-t border-slate-800 hover:bg-slate-900/60"
-                          >
-                            <td className="p-2 text-white whitespace-nowrap">
-                              {batch.batch_id}
-                            </td>
-
-                            <td className="p-2 text-slate-300 whitespace-nowrap">
-                              {batch.level || "1L"}
-                            </td>
-
-                            <td className="p-2 text-slate-300 whitespace-nowrap">
-                              <StatusBadge>{batch.status}</StatusBadge>
-                            </td>
-
-                            <td className="p-2 text-slate-300 whitespace-nowrap">
-                              {totalDocs}
-                            </td>
-
-                            <td className="p-2 text-slate-300 whitespace-nowrap">
-                              {reviewed}
-                            </td>
-
-                            <td className="p-2 text-slate-300 whitespace-nowrap">
-                              {pending}
-                            </td>
-
-                            {showDocumentList && (
-                              <td className="p-2 text-slate-300 max-w-[260px]">
-                                <div className="max-h-20 overflow-auto rounded border border-slate-800 bg-slate-900 p-2 text-[11px] leading-5">
-                                  {(batch.doc_ids || []).join(", ")}
-                                </div>
-                              </td>
-                            )}
-
-                            <td className="p-2 text-slate-300 whitespace-nowrap">
-                              {batch.checked_out_by || "—"}
-                            </td>
-
-                            <td className="p-2 align-top min-w-[220px]">
-                              <div className="flex flex-col gap-2">
-                                {batch.status === "Available" && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      checkoutBatch(batch.batch_id)
-                                    }
-                                    className="rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 transition"
-                                  >
-                                    Check Out
-                                  </button>
-                                )}
-
-                                {(
-                                  canOpenAnyBatch(user?.role) ||
-                                  (
-                                    batch.status === "Checked Out" &&
-                                    batch.checked_out_by === user?.username
-                                  )
-                                ) && (
-                                  <Button
-                                    variant="secondary"
-                                    onClick={() =>
-                                      openBatchReview(batch)
-                                    }
-                                  >
-                                    Open Review
-                                  </Button>
-                                )}
-
-                                {batch.status === "Completed" && (
-                                  <Button variant="secondary">
-                                    Completed
-                                  </Button>
-                                )}
-
-                                {removeBatchDocs && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        removeBatchDocs(batch.batch_id, true)
-                                      }
-                                      className="rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 hover:text-orange-200 transition"
-                                    >
-                                      Remove Docs + Save Data
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        removeBatchDocs(batch.batch_id, false)
-                                      }
-                                      className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 hover:text-red-200 transition"
-                                    >
-                                      Remove Docs Without Saving
-                                    </button>
-                                  </>
-                                )}
+                                  if (tableScroller) {
+                                    tableScroller.scrollLeft =
+                                      event.currentTarget.scrollLeft;
+                                  }
+                                }}
+                              >
+                                <div className="min-w-[1200px] h-1" />
                               </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+
+                              <div
+                                className="max-h-[56vh] overflow-auto"
+                                onScroll={(event) => {
+                                  const topScroller =
+                                    event.currentTarget
+                                      .previousElementSibling as HTMLDivElement | null;
+
+                                  if (topScroller) {
+                                    topScroller.scrollLeft =
+                                      event.currentTarget.scrollLeft;
+                                  }
+                                }}
+                              >
+                                <table className="min-w-[1200px] w-full text-xs">
+                                  <thead className="bg-slate-900/70 text-slate-400">
+                                    <tr>
+                                      <th className="p-2 text-left">Name</th>
+                                      <th className="p-2 text-left">Level</th>
+                                      <th className="p-2 text-left">Status</th>
+                                      <th className="p-2 text-left">Docs</th>
+                                      <th className="p-2 text-left">Reviewed</th>
+                                      <th className="p-2 text-left">Pending</th>
+
+                                      {showDocumentList && (
+                                        <th className="p-2 text-left">
+                                          Documents
+                                        </th>
+                                      )}
+
+                                      <th className="p-2 text-left">
+                                        Checked Out By
+                                      </th>
+                                      <th className="p-2 text-left">
+                                        Actions
+                                      </th>
+                                    </tr>
+                                  </thead>
+
+                                  <tbody>
+                                    {section.batches.map((batch) => {
+                                      const totalDocs =
+                                        batch.document_count ||
+                                        Number(batch.documents || 0);
+
+                                      const reviewed =
+                                        batch.completed_count || 0;
+
+                                      const pending = Math.max(
+                                        totalDocs - reviewed,
+                                        0
+                                      );
+
+                                      return (
+                                        <tr
+                                          key={batch.batch_id}
+                                          className="border-t border-slate-800 hover:bg-slate-900/60"
+                                        >
+                                          <td className="p-2 text-white whitespace-nowrap">
+                                            {batch.batch_id}
+                                          </td>
+
+                                          <td className="p-2 text-slate-300 whitespace-nowrap">
+                                            {batch.level || "1L"}
+                                          </td>
+
+                                          <td className="p-2 text-slate-300 whitespace-nowrap">
+                                            <StatusBadge>
+                                              {batch.status}
+                                            </StatusBadge>
+                                          </td>
+
+                                          <td className="p-2 text-slate-300 whitespace-nowrap">
+                                            {totalDocs}
+                                          </td>
+
+                                          <td className="p-2 text-slate-300 whitespace-nowrap">
+                                            {reviewed}
+                                          </td>
+
+                                          <td className="p-2 text-slate-300 whitespace-nowrap">
+                                            {pending}
+                                          </td>
+
+                                          {showDocumentList && (
+                                            <td className="p-2 text-slate-300 max-w-[260px]">
+                                              <div className="max-h-20 overflow-auto rounded border border-slate-800 bg-slate-900 p-2 text-[11px] leading-5">
+                                                {(batch.doc_ids || []).join(
+                                                  ", "
+                                                )}
+                                              </div>
+                                            </td>
+                                          )}
+
+                                          <td className="p-2 text-slate-300 whitespace-nowrap">
+                                            {batch.checked_out_by || "—"}
+                                          </td>
+
+                                          <td className="p-2 align-top min-w-[220px]">
+                                            <div className="flex flex-col gap-2">
+                                              {batch.status === "Available" && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    checkoutBatch(
+                                                      batch.batch_id
+                                                    )
+                                                  }
+                                                  className="rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 transition"
+                                                >
+                                                  Check Out
+                                                </button>
+                                              )}
+
+                                              {(
+                                                canOpenAnyBatch(user?.role) ||
+                                                (
+                                                  batch.status ===
+                                                    "Checked Out" &&
+                                                  batch.checked_out_by ===
+                                                    user?.username
+                                                )
+                                              ) && (
+                                                <Button
+                                                  variant="secondary"
+                                                  onClick={() =>
+                                                    openBatchReview(batch)
+                                                  }
+                                                >
+                                                  Open Review
+                                                </Button>
+                                              )}
+
+                                              {batch.status === "Completed" && (
+                                                <Button variant="secondary">
+                                                  Completed
+                                                </Button>
+                                              )}
+
+                                              {removeBatchDocs && (
+                                                <>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      removeBatchDocs(
+                                                        batch.batch_id,
+                                                        true
+                                                      )
+                                                    }
+                                                    className="rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 hover:text-orange-200 transition"
+                                                  >
+                                                    Remove Docs + Save Data
+                                                  </button>
+
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      removeBatchDocs(
+                                                        batch.batch_id,
+                                                        false
+                                                      )
+                                                    }
+                                                    className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 hover:text-red-200 transition"
+                                                  >
+                                                    Remove Docs Without Saving
+                                                  </button>
+                                                </>
+                                              )}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
