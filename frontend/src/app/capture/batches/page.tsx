@@ -52,6 +52,9 @@ function BatchesPageContent() {
   const [expandedBatchGroups, setExpandedBatchGroups] =
     useState<Record<string, boolean>>({});
 
+  const [expandedStatusGroups, setExpandedStatusGroups] =
+    useState<Record<string, boolean>>({});
+
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
 
@@ -203,6 +206,13 @@ function BatchesPageContent() {
     return "other";
   }
 
+  function getStatusSectionKey(
+    groupKey: string,
+    sectionKey: string
+  ) {
+    return `${groupKey}::${sectionKey}`;
+  }
+
   const batchGroups = Object.entries(
     modeBatches.reduce<Record<string, Batch[]>>((groups, batch) => {
       const groupKey = getBatchGroupKey(batch.name || batch.batch_id);
@@ -338,6 +348,7 @@ function BatchesPageContent() {
     const role = user?.role || "";
 
     return [
+      "QC",
       "TL",
       "RM",
       "Admin",
@@ -577,143 +588,245 @@ function BatchesPageContent() {
                             </button>
 
                             {isExpanded && (
-                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-4">
-                                {group.batches.map((batch) => {
-                                  const totalDocs = batch.document_count || 0;
-                                  const reviewed = batch.completed_count || 0;
-                                  const pending = Math.max(totalDocs - reviewed, 0);
+                              <div className="border-t border-slate-800 bg-slate-950">
+                                {[
+                                  {
+                                    key: "available",
+                                    label: "Available Batches",
+                                    count: group.available,
+                                    batches: group.batches.filter(
+                                      (batch) =>
+                                        getBatchStatusBucket(batch.status) === "available"
+                                    ),
+                                    defaultOpen: true,
+                                  },
+                                  {
+                                    key: "inProgress",
+                                    label: "In Progress",
+                                    count: group.inProgress,
+                                    batches: group.batches.filter(
+                                      (batch) =>
+                                        getBatchStatusBucket(batch.status) === "inProgress"
+                                    ),
+                                    defaultOpen: false,
+                                  },
+                                  {
+                                    key: "completed",
+                                    label: "Completed",
+                                    count: group.completed,
+                                    batches: group.batches.filter(
+                                      (batch) =>
+                                        getBatchStatusBucket(batch.status) === "completed"
+                                    ),
+                                    defaultOpen: false,
+                                  },
+                                ].map((section) => {
+                                  const sectionStateKey = getStatusSectionKey(
+                                    group.groupKey,
+                                    section.key
+                                  );
+
+                                  const isSectionExpanded =
+                                    expandedStatusGroups[sectionStateKey] ??
+                                    section.defaultOpen;
 
                                   return (
                                     <div
-                                      key={batch.batch_id}
-                                      className="bg-slate-950 border border-slate-800 rounded-xl p-4 min-h-[190px]"
+                                      key={section.key}
+                                      className="border-t border-slate-800"
                                     >
-                                      <div className="flex items-start justify-between gap-3 mb-4">
-                                        <div>
-                                          <h3 className="text-white font-bold text-lg">
-                                            {batch.name}
-                                          </h3>
-
-                                          <p className="text-xs text-slate-400">
-                                            {batch.level || "1L"} • {batch.workflow_type || "standard"}
-                                          </p>
-                                        </div>
-
-                                        <StatusBadge>{batch.status}</StatusBadge>
-                                      </div>
-
-                                      <div className="grid grid-cols-3 gap-2 text-center mb-4">
-                                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
-                                          <p className="text-[10px] text-slate-500 uppercase">
-                                            Docs
-                                          </p>
-                                          <p className="text-white font-semibold">
-                                            {totalDocs}
-                                          </p>
-                                        </div>
-
-                                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
-                                          <p className="text-[10px] text-slate-500 uppercase">
-                                            Reviewed
-                                          </p>
-                                          <p className="text-white font-semibold">
-                                            {reviewed}
-                                          </p>
-                                        </div>
-
-                                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
-                                          <p className="text-[10px] text-slate-500 uppercase">
-                                            Pending
-                                          </p>
-                                          <p className="text-white font-semibold">
-                                            {pending}
-                                          </p>
-                                        </div>
-                                      </div>
-
-                                      <div className="text-xs text-slate-400 mb-4 space-y-1">
-                                        <p>
-                                          Checked Out By:{" "}
-                                          <span className="text-slate-200">
-                                            {batch.checked_out_by || "—"}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedStatusGroups((current) => ({
+                                            ...current,
+                                            [sectionStateKey]: !isSectionExpanded,
+                                          }))
+                                        }
+                                        className="w-full px-4 py-3 bg-slate-900/80 hover:bg-slate-800 text-left"
+                                      >
+                                        <div className="flex items-center gap-4 text-sm">
+                                          <span className="text-white font-semibold">
+                                            {isSectionExpanded ? "▾" : "▸"}{" "}
+                                            {section.label}
                                           </span>
-                                        </p>
 
-                                        <p>
-                                          Date Checked Out:{" "}
-                                          <span className="text-slate-200">
-                                            {batch.checked_out_at || "—"}
+                                          <span className="text-slate-400">
+                                            {section.count} batch
+                                            {section.count === 1 ? "" : "es"}
                                           </span>
-                                        </p>
-                                      </div>
+                                        </div>
+                                      </button>
 
-                                      <div>
-                                        {batch.status === "Available" && (
-                                          <Button
-                                            fullWidth
-                                            onClick={() => checkoutBatch(batch.batch_id)}
-                                          >
-                                            Check Out
-                                          </Button>
-                                        )}
+                                      {isSectionExpanded && (
+                                        <div className="p-4">
+                                          {section.batches.length === 0 ? (
+                                            <div className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-4 text-sm text-slate-500">
+                                              No batches in this section.
+                                            </div>
+                                          ) : (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                              {section.batches.map((batch) => {
+                                                const totalDocs = batch.document_count || 0;
+                                                const reviewed = batch.completed_count || 0;
+                                                const pending = Math.max(
+                                                  totalDocs - reviewed,
+                                                  0
+                                                );
 
-                                        {canOpenBatch(batch) && (
-                                          <div className="space-y-2">
-                                            <Button
-                                              fullWidth
-                                              variant="secondary"
-                                              onClick={() =>
-                                                router.push(
-                                                  `/capture/review?client=${encodeURIComponent(
-                                                    clientId
-                                                  )}&project=${encodeURIComponent(
-                                                    projectId
-                                                  )}&batch=${encodeURIComponent(
-                                                    batch.batch_id
-                                                  )}`
-                                                )
-                                              }
-                                            >
-                                              Open Review
-                                            </Button>
+                                                return (
+                                                  <div
+                                                    key={batch.batch_id}
+                                                    className="bg-slate-950 border border-slate-800 rounded-xl p-4 min-h-[190px]"
+                                                  >
+                                                    <div className="flex items-start justify-between gap-3 mb-4">
+                                                      <div>
+                                                        <h3 className="text-white font-bold text-lg">
+                                                          {batch.name}
+                                                        </h3>
 
-                                            {batch.checked_out_by === user?.username && (
-                                              <div className="grid grid-cols-2 gap-2">
-                                                <Button
-                                                  fullWidth
-                                                  onClick={() => completeBatch(batch.batch_id)}
-                                                >
-                                                  Completed
-                                                </Button>
+                                                        <p className="text-xs text-slate-400">
+                                                          {batch.level || "1L"} •{" "}
+                                                          {batch.workflow_type || "standard"}
+                                                        </p>
+                                                      </div>
 
-                                                <Button
-                                                  fullWidth
-                                                  variant="secondary"
-                                                  onClick={() => markBatchAvailable(batch.batch_id)}
-                                                >
-                                                  Mark Available
-                                                </Button>
-                                              </div>
-                                            )}
-                                          </div>
-                                        )}
+                                                      <StatusBadge>{batch.status}</StatusBadge>
+                                                    </div>
 
-                                        {batch.status === "Checked Out" && canReassignBatch() && (
-                                          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
-                                            <p className="text-xs text-slate-400 mb-2">
-                                              Leadership Reassignment
-                                            </p>
+                                                    <div className="grid grid-cols-3 gap-2 text-center mb-4">
+                                                      <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                                                        <p className="text-[10px] text-slate-500 uppercase">
+                                                          Docs
+                                                        </p>
+                                                        <p className="text-white font-semibold">
+                                                          {totalDocs}
+                                                        </p>
+                                                      </div>
 
-                                            <Button
-                                              fullWidth
-                                              variant="secondary"
-                                              onClick={() => markBatchAvailable(batch.batch_id)}
-                                            >
-                                              Reassign to Available
-                                            </Button>
-                                          </div>
-                                        )}
-                                      </div>
+                                                      <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                                                        <p className="text-[10px] text-slate-500 uppercase">
+                                                          Reviewed
+                                                        </p>
+                                                        <p className="text-white font-semibold">
+                                                          {reviewed}
+                                                        </p>
+                                                      </div>
+
+                                                      <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
+                                                        <p className="text-[10px] text-slate-500 uppercase">
+                                                          Pending
+                                                        </p>
+                                                        <p className="text-white font-semibold">
+                                                          {pending}
+                                                        </p>
+                                                      </div>
+                                                    </div>
+
+                                                    <div className="text-xs text-slate-400 mb-4 space-y-1">
+                                                      <p>
+                                                        Checked Out By:{" "}
+                                                        <span className="text-slate-200">
+                                                          {batch.checked_out_by || "—"}
+                                                        </span>
+                                                      </p>
+
+                                                      <p>
+                                                        Date Checked Out:{" "}
+                                                        <span className="text-slate-200">
+                                                          {batch.checked_out_at || "—"}
+                                                        </span>
+                                                      </p>
+                                                    </div>
+
+                                                    <div>
+                                                      {batch.status === "Available" && (
+                                                        <Button
+                                                          fullWidth
+                                                          onClick={() =>
+                                                            checkoutBatch(batch.batch_id)
+                                                          }
+                                                        >
+                                                          Check Out
+                                                        </Button>
+                                                      )}
+
+                                                      {canOpenBatch(batch) && (
+                                                        <div className="space-y-2">
+                                                          <Button
+                                                            fullWidth
+                                                            variant="secondary"
+                                                            onClick={() =>
+                                                              router.push(
+                                                                `/capture/review?client=${encodeURIComponent(
+                                                                  clientId
+                                                                )}&project=${encodeURIComponent(
+                                                                  projectId
+                                                                )}&batch=${encodeURIComponent(
+                                                                  batch.batch_id
+                                                                )}`
+                                                              )
+                                                            }
+                                                          >
+                                                            Open Review
+                                                          </Button>
+
+                                                          {batch.checked_out_by ===
+                                                            user?.username && (
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                              <Button
+                                                                fullWidth
+                                                                onClick={() =>
+                                                                  completeBatch(batch.batch_id)
+                                                                }
+                                                              >
+                                                                Completed
+                                                              </Button>
+
+                                                              <Button
+                                                                fullWidth
+                                                                variant="secondary"
+                                                                onClick={() =>
+                                                                  markBatchAvailable(
+                                                                    batch.batch_id
+                                                                  )
+                                                                }
+                                                              >
+                                                                Mark Available
+                                                              </Button>
+                                                            </div>
+                                                          )}
+                                                        </div>
+                                                      )}
+
+                                                      {batch.status === "Checked Out" &&
+                                                        canReassignBatch() && (
+                                                          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
+                                                            <p className="text-xs text-slate-400 mb-2">
+                                                              Leadership Reassignment
+                                                            </p>
+
+                                                            <Button
+                                                              fullWidth
+                                                              variant="secondary"
+                                                              onClick={() =>
+                                                                markBatchAvailable(
+                                                                  batch.batch_id
+                                                                )
+                                                              }
+                                                            >
+                                                              Reassign to Available
+                                                            </Button>
+                                                          </div>
+                                                        )}
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })}
