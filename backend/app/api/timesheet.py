@@ -251,6 +251,163 @@ def load_project_1l_reviewers(
 
     return reviewers
 
+def get_role_bucket(role: str):
+    clean = str(role or "").strip()
+
+    if clean in ["1L", "1L Reviewer"]:
+        return "one_l"
+
+    if clean == "QC":
+        return "qc"
+
+    if clean == "TL":
+        return "tl"
+
+    if clean == "RM":
+        return "rm"
+
+    return "other"
+
+
+def make_empty_project_hours_row(
+    workspace: str,
+    client_id: str,
+    project_id: str,
+):
+    return {
+        "workspace": workspace,
+        "client_id": client_id,
+        "project_id": project_id,
+
+        "project_total": 0,
+        "one_l_project_total": 0,
+        "qc_project_total": 0,
+        "tl_project_total": 0,
+        "rm_project_total": 0,
+
+        "weekly_totals": {},
+    }
+
+
+def make_empty_weekly_hours_row(week_ending: str):
+    return {
+        "week_ending": week_ending,
+        "project_weekly_total": 0,
+        "one_l_weekly_total": 0,
+        "qc_weekly_total": 0,
+        "tl_weekly_total": 0,
+        "rm_weekly_total": 0,
+    }
+
+
+def add_hours_to_project_row(
+    row: dict,
+    role: str,
+    hours: float,
+):
+    row["project_total"] += hours
+
+    bucket = get_role_bucket(role)
+
+    if bucket == "one_l":
+        row["one_l_project_total"] += hours
+    elif bucket == "qc":
+        row["qc_project_total"] += hours
+    elif bucket == "tl":
+        row["tl_project_total"] += hours
+    elif bucket == "rm":
+        row["rm_project_total"] += hours
+
+
+def add_hours_to_weekly_row(
+    row: dict,
+    role: str,
+    hours: float,
+):
+    row["project_weekly_total"] += hours
+
+    bucket = get_role_bucket(role)
+
+    if bucket == "one_l":
+        row["one_l_weekly_total"] += hours
+    elif bucket == "qc":
+        row["qc_weekly_total"] += hours
+    elif bucket == "tl":
+        row["tl_weekly_total"] += hours
+    elif bucket == "rm":
+        row["rm_weekly_total"] += hours
+
+
+def get_week_ending_for_entry_date(entry_date: date):
+    week_monday = monday_for(entry_date)
+    week_sunday = sunday_for(week_monday)
+
+    return week_sunday.isoformat()
+
+
+def parse_review_hours_blob_path(blob_name: str):
+    parts = blob_name.split("/")
+
+    if len(parts) < 4:
+        return None
+
+    if parts[-2] != "ReviewHours":
+        return None
+
+    if parts[-1] != "time_entries.json":
+        return None
+
+    client_id = parts[-4]
+    project_id = parts[-3]
+
+    return {
+        "client_id": client_id,
+        "project_id": project_id,
+    }
+
+
+def round_project_hours_row(row: dict):
+    row["project_total"] = round(float(row["project_total"] or 0), 2)
+    row["one_l_project_total"] = round(float(row["one_l_project_total"] or 0), 2)
+    row["qc_project_total"] = round(float(row["qc_project_total"] or 0), 2)
+    row["tl_project_total"] = round(float(row["tl_project_total"] or 0), 2)
+    row["rm_project_total"] = round(float(row["rm_project_total"] or 0), 2)
+
+    weekly_rows = []
+
+    for week_row in row["weekly_totals"].values():
+        week_row["project_weekly_total"] = round(
+            float(week_row["project_weekly_total"] or 0),
+            2,
+        )
+        week_row["one_l_weekly_total"] = round(
+            float(week_row["one_l_weekly_total"] or 0),
+            2,
+        )
+        week_row["qc_weekly_total"] = round(
+            float(week_row["qc_weekly_total"] or 0),
+            2,
+        )
+        week_row["tl_weekly_total"] = round(
+            float(week_row["tl_weekly_total"] or 0),
+            2,
+        )
+        week_row["rm_weekly_total"] = round(
+            float(week_row["rm_weekly_total"] or 0),
+            2,
+        )
+
+        weekly_rows.append(week_row)
+
+    weekly_rows.sort(
+        key=lambda item: item.get("week_ending") or "",
+        reverse=True,
+    )
+
+    row["weekly_totals"] = weekly_rows
+
+    return row
+
 @router.get("/")
 def list_time(
     workspace: str = Query(...),
@@ -272,6 +429,117 @@ def list_time(
         if entry.get("username") == current_user
     ]
 
+@router.get("/project-hours-summary")
+def project_hours_summary(
+    workspace: str = Query(...),
+    client: str = Query(default=""),
+    project: str = Query(default=""),
+):
+    container = get_container_client(workspace)
+
+    rows_by_project: dict[str, dict] = {}
+    all_week_endings = set()
+
+    for blob in container.list_blobs():
+        blob_name = blob.name
+
+        if not blob_name.endswith("/ReviewHours/time_entries.json"):
+            continue
+
+        parsed_path = parse_review_hours_blob_path(blob_name)
+
+        if not parsed_path:
+            continue
+
+        client_id = parsed_path["client_id"]
+        project_id = parsed_path["project_id"]
+
+        if client and client_id != client:
+            continue
+
+        if project and project_id != project:
+            continue
+
+        blob_client = container.get_blob_client(blob_name)
+
+        try:
+            data = blob_client.download_blob().readall()
+            entries = json.loads(data.decode("utf-8"))
+        except Exception:
+            entries = []
+
+        if not isinstance(entries, list):
+            entries = []
+
+        row_key = f"{client_id}/{project_id}"
+
+        if row_key not in rows_by_project:
+            rows_by_project[row_key] = make_empty_project_hours_row(
+                workspace=workspace,
+                client_id=client_id,
+                project_id=project_id,
+            )
+
+        row = rows_by_project[row_key]
+
+        for entry in entries:
+            hours = float(entry.get("hours") or 0)
+
+            if hours <= 0:
+                continue
+
+            role = entry.get("role") or ""
+            entry_date_raw = entry.get("date") or ""
+
+            try:
+                entry_date = parse_date(entry_date_raw)
+            except Exception:
+                continue
+
+            week_ending = get_week_ending_for_entry_date(entry_date)
+            all_week_endings.add(week_ending)
+
+            add_hours_to_project_row(
+                row=row,
+                role=role,
+                hours=hours,
+            )
+
+            if week_ending not in row["weekly_totals"]:
+                row["weekly_totals"][week_ending] = (
+                    make_empty_weekly_hours_row(week_ending)
+                )
+
+            add_hours_to_weekly_row(
+                row=row["weekly_totals"][week_ending],
+                role=role,
+                hours=hours,
+            )
+
+    rows = [
+        round_project_hours_row(row)
+        for row in rows_by_project.values()
+    ]
+
+    rows.sort(
+        key=lambda item: (
+            item.get("client_id") or "",
+            item.get("project_id") or "",
+        )
+    )
+
+    week_endings = sorted(
+        list(all_week_endings),
+        reverse=True,
+    )
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "week_endings": week_endings,
+        "rows": rows,
+    }
 
 @router.post("/clock-in")
 def clock_in(

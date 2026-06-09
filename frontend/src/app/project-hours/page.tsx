@@ -1,19 +1,36 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { Fragment, Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
 import PageContainer from "../../components/PageContainer";
 import PageHeader from "../../components/PageHeader";
 import ContentCard from "../../components/ContentCard";
+import Button from "../../components/Button";
 import { apiGet } from "../../lib/api";
 
-type HoursRow = {
-  client: string;
+type WeeklyTotal = {
+  week_ending: string;
+  project_weekly_total: number;
+  one_l_weekly_total: number;
+  qc_weekly_total: number;
+  tl_weekly_total: number;
+  rm_weekly_total: number;
+};
+
+type ProjectHoursRow = {
   workspace: string;
-  project: string;
-  role: string;
-  total_hours: number;
+  client_id: string;
+  project_id: string;
+
+  project_total: number;
+  one_l_project_total: number;
+  qc_project_total: number;
+  tl_project_total: number;
+  rm_project_total: number;
+
+  weekly_totals: WeeklyTotal[];
 };
 
 function prettyWorkspace(workspace: string) {
@@ -22,207 +39,333 @@ function prettyWorkspace(workspace: string) {
   if (workspace === "summaries") return "INSYT Summaries";
   if (workspace === "development") return "INSYT Development";
 
-  return workspace || "Unknown Workspace";
+  return workspace || "Workspace";
 }
 
-export default function ProjectHoursPage() {
-  const [rows, setRows] = useState<HoursRow[]>([]);
-  const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
-  const [expandedWorkspaces, setExpandedWorkspaces] = useState<Record<string, boolean>>({});
-  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
-  const [message, setMessage] = useState("");
+function formatHours(value: number) {
+  return Number(value || 0).toFixed(2);
+}
 
-  useEffect(() => {
-    apiGet("/api/admin/project-hours-overview")
+function formatWeekEnding(value: string) {
+  if (!value) return "—";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  return date.toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+}
+
+function getDefaultWeekEnding(row: ProjectHoursRow) {
+  return row.weekly_totals?.[0]?.week_ending || "";
+}
+
+function ProjectHoursPageContent() {
+  const searchParams = useSearchParams();
+
+  const workspace =
+    searchParams.get("workspace") || "capture";
+
+  const [rows, setRows] = useState<ProjectHoursRow[]>([]);
+  const [message, setMessage] = useState("");
+  const [expandedRows, setExpandedRows] =
+    useState<Record<string, boolean>>({});
+  const [selectedWeekByProject, setSelectedWeekByProject] =
+    useState<Record<string, string>>({});
+
+  function getRowKey(row: ProjectHoursRow) {
+    return `${row.client_id}/${row.project_id}`;
+  }
+
+  function loadProjectHours() {
+    setMessage("");
+
+    apiGet(
+      `/api/timesheet/project-hours-summary?workspace=${encodeURIComponent(
+        workspace
+      )}`
+    )
       .then((response: any) => {
-        setRows(response.rows || []);
+        const incomingRows = response.rows || [];
+
+        setRows(incomingRows);
+
+        setSelectedWeekByProject((current) => {
+          const next = { ...current };
+
+          incomingRows.forEach((row: ProjectHoursRow) => {
+            const rowKey = getRowKey(row);
+
+            if (!next[rowKey]) {
+              next[rowKey] = getDefaultWeekEnding(row);
+            }
+          });
+
+          return next;
+        });
       })
       .catch((error) => {
         console.error(error);
         setMessage("Failed to load project hours.");
       });
-  }, []);
+  }
 
-  const grouped = rows.reduce((acc: any, row) => {
-    acc[row.client] ??= {};
-    acc[row.client][row.workspace] ??= {};
-    acc[row.client][row.workspace][row.project] ??= [];
-    acc[row.client][row.workspace][row.project].push(row);
-    return acc;
-  }, {});
-
-  const clients = Object.keys(grouped).sort();
+  useEffect(() => {
+    loadProjectHours();
+  }, [workspace]);
 
   return (
     <AppShell>
       <PageContainer>
         <PageHeader
           title="Project Hours"
-          subtitle="Total project hours by client, workspace, project, and role."
+          subtitle={`${prettyWorkspace(
+            workspace
+          )} aggregate project-level review hours.`}
         />
 
         {message && (
-          <p className="mb-6 text-sm text-red-400">
+          <p className="mb-6 text-sm text-sky-400">
             {message}
           </p>
         )}
 
-        <ContentCard title="Project Hours Overview">
+        <ContentCard title="Project Hour Totals">
+          <div className="mb-5 flex justify-end">
+            <Button onClick={loadProjectHours}>
+              Refresh
+            </Button>
+          </div>
+
           <div className="overflow-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
-              <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
+              <thead className="bg-slate-900 text-slate-400">
                 <tr>
                   <th className="p-3 text-left">Client</th>
-                  <th className="p-3 text-left">Workspace</th>
                   <th className="p-3 text-left">Project</th>
-                  <th className="p-3 text-left">Role</th>
-                  <th className="p-3 text-right">Total Hours</th>
+                  <th className="p-3 text-right">Project Total</th>
+                  <th className="p-3 text-right">1L Project Total</th>
+                  <th className="p-3 text-right">QC Project Total</th>
+                  <th className="p-3 text-right">TL Project Total</th>
+                  <th className="p-3 text-right">RM Project Total</th>
+                  <th className="p-3 text-right">Details</th>
                 </tr>
               </thead>
 
               <tbody>
-                {clients.map((client) => {
-                  const clientOpen = Boolean(expandedClients[client]);
-                  const workspaces = Object.keys(grouped[client]).sort();
+                {rows.map((row) => {
+                  const rowKey = getRowKey(row);
+                  const isExpanded = expandedRows[rowKey] || false;
+
+                  const selectedWeekEnding =
+                    selectedWeekByProject[rowKey] ||
+                    getDefaultWeekEnding(row);
+
+                  const selectedWeeklyTotal =
+                    (row.weekly_totals || []).find(
+                      (item) =>
+                        item.week_ending === selectedWeekEnding
+                    );
 
                   return (
-                    <React.Fragment key={client}>
-                      <tr className="border-t border-slate-800 bg-slate-950/80">
-                        <td className="p-3 text-white font-semibold">
-                          <button
-                            type="button"
+                    <Fragment key={rowKey}>
+                      <tr
+                        key={rowKey}
+                        className="border-t border-slate-800"
+                      >
+                        <td className="p-3 text-white">
+                          {row.client_id}
+                        </td>
+
+                        <td className="p-3 text-white">
+                          {row.project_id}
+                        </td>
+
+                        <td className="p-3 text-right font-semibold text-white">
+                          {formatHours(row.project_total)}
+                        </td>
+
+                        <td className="p-3 text-right text-slate-300">
+                          {formatHours(row.one_l_project_total)}
+                        </td>
+
+                        <td className="p-3 text-right text-slate-300">
+                          {formatHours(row.qc_project_total)}
+                        </td>
+
+                        <td className="p-3 text-right text-slate-300">
+                          {formatHours(row.tl_project_total)}
+                        </td>
+
+                        <td className="p-3 text-right text-slate-300">
+                          {formatHours(row.rm_project_total)}
+                        </td>
+
+                        <td className="p-3 text-right">
+                          <Button
+                            variant="secondary"
                             onClick={() =>
-                              setExpandedClients((current) => ({
+                              setExpandedRows((current) => ({
                                 ...current,
-                                [client]: !current[client],
+                                [rowKey]: !isExpanded,
                               }))
                             }
-                            className="hover:text-sky-300"
                           >
-                            {clientOpen ? "▼" : "▶"} {client}
-                          </button>
+                            {isExpanded ? "Hide" : "Expand"}
+                          </Button>
                         </td>
-
-                        <td className="p-3 text-slate-500">
-                          {workspaces.length} workspace(s)
-                        </td>
-                        <td className="p-3 text-slate-500">—</td>
-                        <td className="p-3 text-slate-500">—</td>
-                        <td className="p-3 text-right text-slate-500">—</td>
                       </tr>
 
-                      {clientOpen &&
-                        workspaces.map((workspace) => {
-                          const workspaceKey = `${client}/${workspace}`;
-                          const workspaceOpen = Boolean(
-                            expandedWorkspaces[workspaceKey]
-                          );
-                          const projects = Object.keys(
-                            grouped[client][workspace]
-                          ).sort();
+                      {isExpanded && (
+                        <tr
+                          key={`${rowKey}-expanded`}
+                          className="border-t border-slate-800 bg-slate-950"
+                        >
+                          <td colSpan={8} className="p-4">
+                            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                              <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-base font-semibold text-white">
+                                    Weekly Project Hours
+                                  </h3>
 
-                          return (
-                            <React.Fragment key={workspaceKey}>
-                              <tr className="border-t border-slate-800 bg-slate-900/60">
-                                <td className="p-3" />
-                                <td className="p-3 text-slate-100 font-medium">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setExpandedWorkspaces((current) => ({
-                                        ...current,
-                                        [workspaceKey]: !current[workspaceKey],
-                                      }))
+                                  <p className="mt-1 text-xs text-slate-400">
+                                    Select a week ending to view aggregate weekly totals.
+                                  </p>
+                                </div>
+
+                                <div className="min-w-[260px]">
+                                  <label className="mb-2 block text-xs text-slate-400">
+                                    Week Ending
+                                  </label>
+
+                                  <select
+                                    value={selectedWeekEnding}
+                                    onChange={(event) =>
+                                      setSelectedWeekByProject(
+                                        (current) => ({
+                                          ...current,
+                                          [rowKey]: event.target.value,
+                                        })
+                                      )
                                     }
-                                    className="hover:text-sky-300"
+                                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-sky-500"
                                   >
-                                    {workspaceOpen ? "▼" : "▶"}{" "}
-                                    {prettyWorkspace(workspace)}
-                                  </button>
-                                </td>
-                                <td className="p-3 text-slate-500">
-                                  {projects.length} project(s)
-                                </td>
-                                <td className="p-3 text-slate-500">—</td>
-                                <td className="p-3 text-right text-slate-500">—</td>
-                              </tr>
+                                    {(row.weekly_totals || []).map(
+                                      (week) => (
+                                        <option
+                                          key={week.week_ending}
+                                          value={week.week_ending}
+                                        >
+                                          Week Ending{" "}
+                                          {formatWeekEnding(
+                                            week.week_ending
+                                          )}
+                                        </option>
+                                      )
+                                    )}
 
-                              {workspaceOpen &&
-                                projects.map((project) => {
-                                  const projectKey = `${client}/${workspace}/${project}`;
-                                  const projectOpen = Boolean(
-                                    expandedProjects[projectKey]
-                                  );
-                                  const roleRows =
-                                    grouped[client][workspace][project];
+                                    {(row.weekly_totals || []).length ===
+                                      0 && (
+                                      <option value="">
+                                        No weekly hours
+                                      </option>
+                                    )}
+                                  </select>
+                                </div>
+                              </div>
 
-                                  const projectTotal = roleRows.reduce(
-                                    (sum: number, row: HoursRow) =>
-                                      sum + Number(row.total_hours || 0),
-                                    0
-                                  );
+                              <div className="overflow-auto rounded-xl border border-slate-800">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-slate-950 text-slate-400">
+                                    <tr>
+                                      <th className="p-3 text-left">
+                                        Week Ending
+                                      </th>
+                                      <th className="p-3 text-right">
+                                        Project Weekly Total
+                                      </th>
+                                      <th className="p-3 text-right">
+                                        1L Weekly Total
+                                      </th>
+                                      <th className="p-3 text-right">
+                                        QC Weekly Total
+                                      </th>
+                                      <th className="p-3 text-right">
+                                        TL Weekly Total
+                                      </th>
+                                      <th className="p-3 text-right">
+                                        RM Weekly Total
+                                      </th>
+                                    </tr>
+                                  </thead>
 
-                                  return (
-                                    <React.Fragment key={projectKey}>
-                                      <tr className="border-t border-slate-800 bg-slate-950/40">
-                                        <td className="p-3" />
-                                        <td className="p-3" />
-                                        <td className="p-3 text-slate-100">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setExpandedProjects((current) => ({
-                                                ...current,
-                                                [projectKey]: !current[projectKey],
-                                              }))
-                                            }
-                                            className="hover:text-sky-300"
-                                          >
-                                            {projectOpen ? "▼" : "▶"}{" "}
-                                            {project.replaceAll("_", " ")}
-                                          </button>
+                                  <tbody>
+                                    {selectedWeeklyTotal ? (
+                                      <tr className="border-t border-slate-800">
+                                        <td className="p-3 text-white">
+                                          {formatWeekEnding(
+                                            selectedWeeklyTotal.week_ending
+                                          )}
                                         </td>
-                                        <td className="p-3 text-slate-500">
-                                          {roleRows.length} role(s)
+
+                                        <td className="p-3 text-right font-semibold text-white">
+                                          {formatHours(
+                                            selectedWeeklyTotal.project_weekly_total
+                                          )}
                                         </td>
-                                        <td className="p-3 text-right text-slate-300 font-semibold">
-                                          {projectTotal.toFixed(2)}
+
+                                        <td className="p-3 text-right text-slate-300">
+                                          {formatHours(
+                                            selectedWeeklyTotal.one_l_weekly_total
+                                          )}
+                                        </td>
+
+                                        <td className="p-3 text-right text-slate-300">
+                                          {formatHours(
+                                            selectedWeeklyTotal.qc_weekly_total
+                                          )}
+                                        </td>
+
+                                        <td className="p-3 text-right text-slate-300">
+                                          {formatHours(
+                                            selectedWeeklyTotal.tl_weekly_total
+                                          )}
+                                        </td>
+
+                                        <td className="p-3 text-right text-slate-300">
+                                          {formatHours(
+                                            selectedWeeklyTotal.rm_weekly_total
+                                          )}
                                         </td>
                                       </tr>
-
-                                      {projectOpen &&
-                                        roleRows.map((roleRow: HoursRow) => (
-                                          <tr
-                                            key={`${projectKey}/${roleRow.role}`}
-                                            className="border-t border-slate-800"
-                                          >
-                                            <td className="p-3" />
-                                            <td className="p-3" />
-                                            <td className="p-3" />
-                                            <td className="p-3 text-white">
-                                              {roleRow.role}
-                                            </td>
-                                            <td className="p-3 text-right text-slate-300">
-                                              {Number(
-                                                roleRow.total_hours || 0
-                                              ).toFixed(2)}
-                                            </td>
-                                          </tr>
-                                        ))}
-                                    </React.Fragment>
-                                  );
-                                })}
-                            </React.Fragment>
-                          );
-                        })}
-                    </React.Fragment>
+                                    ) : (
+                                      <tr>
+                                        <td
+                                          colSpan={6}
+                                          className="p-6 text-center text-slate-500"
+                                        >
+                                          No weekly totals found for this project.
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
 
-                {clients.length === 0 && (
+                {rows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={8}
                       className="p-6 text-center text-slate-500"
                     >
                       No project hours found.
@@ -235,5 +378,13 @@ export default function ProjectHoursPage() {
         </ContentCard>
       </PageContainer>
     </AppShell>
+  );
+}
+
+export default function ProjectHoursPage() {
+  return (
+    <Suspense fallback={<div>Loading project hours...</div>}>
+      <ProjectHoursPageContent />
+    </Suspense>
   );
 }
