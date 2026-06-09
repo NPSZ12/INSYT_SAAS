@@ -216,6 +216,53 @@ export default function ProjectSidebar() {
           : ""
       }`;
 
+  async function refreshAndOpenReview() {
+    if (!projectId) return;
+
+    let latestBatch = "";
+    const refreshToken = Date.now();
+
+    try {
+      if (user?.username) {
+        const response = await apiGet(
+          `/api/${workspaceName}/projects/${encodeURIComponent(
+            projectId
+          )}/batches?client=${encodeURIComponent(clientId)}`
+        );
+
+        const checkedOutBatch = (response.batches || []).find(
+          (batch: any) =>
+            String(batch.status || "").toLowerCase() === "checked out" &&
+            batch.checked_out_by === user.username
+        );
+
+        latestBatch =
+          checkedOutBatch?.batch_name ||
+          checkedOutBatch?.batch_id ||
+          checkedOutBatch?.name ||
+          "";
+
+        setCurrentUserBatch(latestBatch);
+      }
+    } catch (error) {
+      console.error("Failed to refresh current user batch:", error);
+    }
+
+    const query = clientId
+      ? `?client=${encodedClientId}&project=${encodedProjectId}${
+          latestBatch
+            ? `&batch=${encodeURIComponent(latestBatch)}`
+            : ""
+        }&refresh=${refreshToken}`
+      : `?project=${encodedProjectId}${
+          latestBatch
+            ? `&batch=${encodeURIComponent(latestBatch)}`
+            : ""
+        }&refresh=${refreshToken}`;
+
+    router.push(`${workspaceBase}/review${query}`);
+  }
+
   function isHiddenFor1L(label: string) {
     if (user?.role !== "1L") return false;
 
@@ -381,24 +428,44 @@ export default function ProjectSidebar() {
 
             const Icon = item.icon;
 
+            const linkClass = active
+              ? `flex items-center ${
+                  collapsed
+                    ? "justify-center px-2"
+                    : "gap-3 px-3"
+                } py-2.5 rounded-xl bg-teal-600 text-white`
+              : `flex items-center ${
+                  collapsed
+                    ? "justify-center px-2"
+                    : "gap-3 px-3"
+                } py-2.5 rounded-xl hover:bg-slate-800 text-slate-300`;
+
+            if (item.label === "Review") {
+              return (
+                <button
+                  key={item.href}
+                  type="button"
+                  title={item.label}
+                  onClick={refreshAndOpenReview}
+                  className={`${linkClass} w-full text-left`}
+                >
+                  <Icon size={18} />
+
+                  {!collapsed && (
+                    <span className="insyt-workspace text-sm">
+                      {item.label}
+                    </span>
+                  )}
+                </button>
+              );
+            }
+
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 title={item.label}
-                className={
-                  active
-                    ? `flex items-center ${
-                        collapsed
-                          ? "justify-center px-2"
-                          : "gap-3 px-3"
-                      } py-2.5 rounded-xl bg-teal-600 text-white`
-                    : `flex items-center ${
-                        collapsed
-                          ? "justify-center px-2"
-                          : "gap-3 px-3"
-                      } py-2.5 rounded-xl hover:bg-slate-800 text-slate-300`
-                }
+                className={linkClass}
               >
                 <Icon size={18} />
 
