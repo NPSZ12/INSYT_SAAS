@@ -190,7 +190,7 @@ def build_project_metadata(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     
-@router.get("/workspace-registry/clients")
+@router.get("/registry/workspace-clients")
 def list_registered_clients():
     clients = load_registry_list(CLIENT_REGISTRY_BLOB)
 
@@ -337,7 +337,7 @@ def list_workspace_client_projects(
         "projects": sorted(projects),
     }
     
-@router.post("/workspace-registry/projects/create")
+@router.post("/registry/workspace-projects/create")
 def create_registered_workspace_project(
     payload: RegistryCreateProjectRequest,
 ):

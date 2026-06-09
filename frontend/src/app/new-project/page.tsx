@@ -56,7 +56,7 @@ export default function NewProjectPage() {
     useState<"raw" | "final">("raw");
 
   function loadRegistryClients() {
-    apiGet("/api/workspace-registry/clients")
+    apiGet("/api/registry/workspace-clients")
       .then((response) => {
         setRegistryClients(response.clients || []);
       })
@@ -171,7 +171,7 @@ export default function NewProjectPage() {
       return;
     }
 
-    apiPost("/api/workspace-registry/projects/create", {
+    apiPost("/api/registry/workspace-projects/create", {
       client_uuid: selectedRegistryClient?.client_uuid || "",
       client_name: clientName,
       workspace,
