@@ -43,6 +43,9 @@ class BootstrapAdminRequest(BaseModel):
 
 class MfaConfirmRequest(BaseModel):
     code: str
+    
+class EntraLoginRequest(BaseModel):
+    email: str
 
 
 def safe_json_list(value: str):
@@ -378,6 +381,128 @@ def disable_mfa(
         "user": serialize_user(user),
     }
 
+@router.post("/entra-login")
+def entra_login(
+    payload: EntraLoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    email = (payload.email or "").strip().lower()
+
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing Entra email.",
+        )
+
+    user = (
+        db.query(User)
+        .filter(User.email.ilike(email))
+        .first()
+    )
+
+    if not user:
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            request=request,
+            target_type="user",
+            target_id=email,
+            details={
+                "reason": "user_not_found",
+                "email": email,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This email address has not been provisioned in INSYT. "
+                "Please contact your INSYT administrator."
+            ),
+        )
+
+    if user.status != "Active":
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "inactive_user",
+                "email": email,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail="User account is not active.",
+        )
+
+    if user.role == "INSYT Admin":
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "admin_must_use_local_mfa",
+                "email": email,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail="INSYT Admins must use local INSYT login with MFA.",
+        )
+
+    if user.auth_provider != "entra":
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "user_not_configured_for_entra",
+                "email": email,
+                "auth_provider": user.auth_provider,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail="This user is not configured for Microsoft Entra login.",
+        )
+
+    token = create_user_token(user)
+
+    write_audit_log(
+        db=db,
+        action="ENTRA_LOGIN_SUCCESS",
+        actor=user,
+        request=request,
+        target_type="user",
+        target_id=user.username,
+        details={
+            "provider": "entra",
+            "email": email,
+        },
+    )
+
+    return {
+        "status": "success",
+        "user": serialize_user(user),
+        "access_token": token,
+        "token": token,
+        "token_type": "bearer",
+    }
+
 @router.get("/entra/start")
 def entra_start():
     client_id = os.getenv("ENTRA_CLIENT_ID")
@@ -490,16 +615,17 @@ def entra_callback(
             detail="User account is not active.",
         )
 
-    if user.auth_provider != "entra":
-        if user.role == "INSYT Admin":
-            raise HTTPException(
-                status_code=403,
-                detail="INSYT Admins must use local INSYT login with MFA.",
-            )
+    if user.role == "INSYT Admin":
+        raise HTTPException(
+            status_code=403,
+            detail="INSYT Admins must use local INSYT login with MFA.",
+        )
 
-        user.auth_provider = "entra"
-        db.commit()
-        db.refresh(user)
+    if user.auth_provider != "entra":
+        raise HTTPException(
+            status_code=403,
+            detail="This user is not configured for Microsoft Entra login.",
+        )
 
     token = create_user_token(user)
 
