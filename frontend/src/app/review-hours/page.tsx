@@ -131,6 +131,32 @@ function getDayDetails(row: ReviewHoursRow, date: string) {
   return (row.details || []).filter((item) => item.date === date);
 }
 
+function getTodayDateString() {
+  return formatDate(new Date());
+}
+
+function isQcAndUp(role?: string) {
+  return [
+    "QC",
+    "TL",
+    "RM",
+    "INSYT Admin",
+    "CDS Admin",
+  ].includes(role || "");
+}
+
+function isCurrentlyLoggedIn(row: ReviewHoursRow) {
+  const openEntry = (row.details || []).find(
+    (item) => item.login && !item.logout
+  );
+
+  return Boolean(openEntry);
+}
+
+function getCurrentStatusLabel(row: ReviewHoursRow) {
+  return isCurrentlyLoggedIn(row) ? "Logged In" : "Logged Out";
+}
+
 function getDayTotal(row: ReviewHoursRow, date: string, field: string) {
   const detailTotal = getDayDetails(row, date).reduce(
     (total, item) => total + Number(item.hours || 0),
@@ -192,8 +218,8 @@ function ReviewHoursPageContent() {
   const [message, setMessage] = useState("");
   const [weekStart, setWeekStart] = useState(formatDate(getMonday(new Date())));
   const [activeTab, setActiveTab] = useState("weekly");
-  const [selectedReviewer, setSelectedReviewer] =
-    useState<ReviewHoursRow | null>(null);
+  const [unlockedDates, setUnlockedDates] = useState<Record<string, boolean>>({});
+  const [selectedReviewer, setSelectedReviewer] = useState<ReviewHoursRow | null>(null);
 
   const [editRow, setEditRow] = useState<ReviewHoursRow | null>(null);
   const [editDate, setEditDate] = useState(weekStart);
@@ -206,6 +232,19 @@ function ReviewHoursPageContent() {
   const weekOptions = buildWeekOptions(52);
   const weekDays = getWeekDays(weekStart);
   const activeDay = weekDays.find((day) => day.key === activeTab);
+
+  const todayDate = getTodayDateString();
+  const canUnlockDates = isQcAndUp(user?.role);
+
+  const activeDayIsToday =
+    Boolean(activeDay) && activeDay?.date === todayDate;
+
+  const activeDayIsUnlocked =
+    Boolean(activeDay) &&
+    (
+      activeDayIsToday ||
+      Boolean(unlockedDates[activeDay!.date])
+    );
 
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
@@ -281,6 +320,15 @@ function ReviewHoursPageContent() {
         console.error(error);
         setMessage("Failed to log out.");
       });
+  }
+
+  function toggleDateLock(date: string) {
+    if (!canUnlockDates) return;
+
+    setUnlockedDates((current) => ({
+      ...current,
+      [date]: !current[date],
+    }));
   }
 
   useEffect(() => {
@@ -409,11 +457,14 @@ function ReviewHoursPageContent() {
                 <thead className="bg-slate-900 text-slate-400">
                   <tr>
                     <th className="p-3 text-left">Reviewer Name</th>
+                    <th className="p-3 text-left">Current</th>
+
                     {weekDays.map((day) => (
                       <th key={day.key} className="p-3 text-right">
                         {day.label}
                       </th>
                     ))}
+
                     <th className="p-3 text-right">Week Total</th>
                   </tr>
                 </thead>
@@ -429,6 +480,18 @@ function ReviewHoursPageContent() {
                         <div className="text-xs text-slate-500">
                           {row.username} • {row.role || "—"}
                         </div>
+                      </td>
+
+                      <td className="p-3">
+                        {isCurrentlyLoggedIn(row) ? (
+                          <span className="rounded-full bg-lime-500/10 px-3 py-1 text-xs font-semibold text-lime-300">
+                            Logged In
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-400">
+                            Logged Out
+                          </span>
+                        )}
                       </td>
 
                       {weekDays.map((day) => (
@@ -449,7 +512,7 @@ function ReviewHoursPageContent() {
                   {rows.length === 0 && (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="p-6 text-center text-slate-500"
                       >
                         No review hours found for this week.
@@ -462,102 +525,189 @@ function ReviewHoursPageContent() {
           )}
 
           {activeDay && (
-            <div className="overflow-auto rounded-xl border border-slate-800">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-900 text-slate-400">
-                  <tr>
-                    <th className="p-3 text-left">Reviewer Name</th>
-                    <th className="p-3 text-left">Status</th>
-                    <th className="p-3 text-left">First Login</th>
-                    <th className="p-3 text-left">Last Logout</th>
-                    <th className="p-3 text-right">Day Total</th>
-                    <th className="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
+            <>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                <div>
+                  <div className="text-sm font-semibold text-white">
+                    {activeDay.label} {formatMMDDYYYY(activeDay.date)}
+                  </div>
 
-                <tbody>
-                  {rows.map((row) => {
-                    const isCurrentUser = row.username === user?.username;
-                    const isLoggedIn = isReviewerLoggedInForDate(
-                      row,
-                      activeDay.date
-                    );
+                  <div className="mt-1 text-xs text-slate-400">
+                    {activeDayIsUnlocked
+                      ? activeDayIsToday
+                        ? "Unlocked automatically because this date is today."
+                        : "Unlocked by authorized QC/leadership for corrections."
+                      : "Locked because this date is not today."}
+                  </div>
+                </div>
 
-                    return (
-                      <tr
-                        key={`${activeDay.date}-${row.username}`}
-                        className="border-t border-slate-800"
-                      >
-                        <td className="p-3 text-white">
-                          <div>{row.display_name || row.username}</div>
-                          <div className="text-xs text-slate-500">
-                            {row.username} • {row.role || "—"}
-                          </div>
-                        </td>
+                <div className="flex items-center gap-3">
+                  <span
+                    className={
+                      activeDayIsUnlocked
+                        ? "rounded-full bg-lime-500/10 px-3 py-1 text-xs font-semibold text-lime-300"
+                        : "rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300"
+                    }
+                  >
+                    {activeDayIsUnlocked ? "Unlocked" : "Locked"}
+                  </span>
 
-                        <td className="p-3 text-slate-300">
-                          {isLoggedIn ? (
-                            <span className="text-lime-300">Logged In</span>
-                          ) : (
-                            <span className="text-slate-400">Logged Out</span>
-                          )}
-                        </td>
+                  {!activeDayIsToday && canUnlockDates && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => toggleDateLock(activeDay.date)}
+                    >
+                      {unlockedDates[activeDay.date]
+                        ? "Lock Date"
+                        : "Unlock Date"}
+                    </Button>
+                  )}
+                </div>
+              </div>
 
-                        <td className="p-3 text-slate-300">
-                          {formatTimeDisplay(
-                            getLatestLogin(row, activeDay.date)
-                          )}
-                        </td>
+              <div className="overflow-auto rounded-xl border border-slate-800">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-900 text-slate-400">
+                    <tr>
+                      <th className="p-3 text-left">Reviewer Name</th>
+                      <th className="p-3 text-left">Current</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">First Login</th>
+                      <th className="p-3 text-left">Last Logout</th>
+                      <th className="p-3 text-right">Day Total</th>
+                      <th className="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
 
-                        <td className="p-3 text-slate-300">
-                          {formatTimeDisplay(
-                            getLatestLogout(row, activeDay.date)
-                          )}
-                        </td>
+                  <tbody>
+                    {rows.map((row) => {
+                      const isCurrentUser =
+                        row.username === user?.username;
 
-                        <td className="p-3 text-right font-semibold text-white">
-                          {getDayTotal(
-                            row,
-                            activeDay.date,
-                            activeDay.field
-                          ).toFixed(2)}
-                        </td>
+                      const isLoggedIn = isReviewerLoggedInForDate(
+                        row,
+                        activeDay.date
+                      );
 
-                        <td className="p-3 text-right">
-                          {isCurrentUser ? (
-                            isLoggedIn ? (
+                      return (
+                        <tr
+                          key={`${activeDay.date}-${row.username}`}
+                          className="border-t border-slate-800"
+                        >
+                          <td className="p-3 text-white">
+                            <div>{row.display_name || row.username}</div>
+                            <div className="text-xs text-slate-500">
+                              {row.username} • {row.role || "—"}
+                            </div>
+                          </td>
+
+                          <td className="p-3">
+                            {isCurrentlyLoggedIn(row) ? (
+                              <span className="rounded-full bg-lime-500/10 px-3 py-1 text-xs font-semibold text-lime-300">
+                                Logged In
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-400">
+                                Logged Out
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="p-3 text-slate-300">
+                            {isLoggedIn ? (
+                              <span className="text-lime-300">
+                                Logged In
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">
+                                Logged Out
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="p-3 text-slate-300">
+                            {formatTimeDisplay(
+                              getLatestLogin(row, activeDay.date)
+                            )}
+                          </td>
+
+                          <td className="p-3 text-slate-300">
+                            {formatTimeDisplay(
+                              getLatestLogout(row, activeDay.date)
+                            )}
+                          </td>
+
+                          <td className="p-3 text-right font-semibold text-white">
+                            {getDayTotal(
+                              row,
+                              activeDay.date,
+                              activeDay.field
+                            ).toFixed(2)}
+                          </td>
+
+                          <td className="p-3 text-right">
+                            {isCurrentUser ? (
+                              activeDayIsUnlocked ? (
+                                isLoggedIn ? (
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() =>
+                                      logOutForDay(activeDay.date)
+                                    }
+                                  >
+                                    Log Out
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    onClick={() =>
+                                      logInForDay(activeDay.date)
+                                    }
+                                  >
+                                    Log In
+                                  </Button>
+                                )
+                              ) : (
+                                <span className="text-amber-300 text-xs font-semibold">
+                                  Locked
+                                </span>
+                              )
+                            ) : canUnlockDates && activeDayIsUnlocked ? (
                               <Button
                                 variant="secondary"
-                                onClick={() => logOutForDay(activeDay.date)}
+                                onClick={() => {
+                                  setEditRow(row);
+                                  setEditDate(activeDay.date);
+                                  setEditHours("");
+                                  setEditLogin("");
+                                  setEditLogout("");
+                                  setEditBreakMinutes("0");
+                                  setEditNotes("");
+                                }}
                               >
-                                Log Out
+                                Edit
                               </Button>
                             ) : (
-                              <Button onClick={() => logInForDay(activeDay.date)}>
-                                Log In
-                              </Button>
-                            )
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
+                              <span className="text-slate-600">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {rows.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={7}
+                          className="p-6 text-center text-slate-500"
+                        >
+                          No reviewers found for this day.
                         </td>
                       </tr>
-                    );
-                  })}
-
-                  {rows.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="p-6 text-center text-slate-500"
-                      >
-                        No reviewers found for this day.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </ContentCard>
 
