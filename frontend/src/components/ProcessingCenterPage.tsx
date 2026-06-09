@@ -20,7 +20,10 @@ type ProcessingFile = {
   id?: string;
   doc_id?: string;
   file_name: string;
+  extension?: string;
   status: string;
+  viewer_type?: string;
+  preview_available?: boolean;
   uploaded_at?: string;
   started_at?: string;
   processed_at?: string;
@@ -31,6 +34,8 @@ type ProcessingFile = {
   processed_text_path?: string;
   final_native_path?: string;
   final_text_path?: string;
+  preview_pdf_path?: string;
+  preview_html_path?: string;
   text_length?: number;
   error?: string;
 };
@@ -335,17 +340,22 @@ export default function ProcessingCenterPage({
             </Button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-800 text-sm">
+          <div className="max-w-full overflow-x-auto rounded-xl border border-slate-800">
+            <table className="min-w-[1600px] divide-y divide-slate-800 text-sm">
               <thead>
                 <tr className="text-left text-slate-400">
-                  <th className="px-3 py-3 font-medium">File</th>
-                  <th className="px-3 py-3 font-medium">Doc ID</th>
-                  <th className="px-3 py-3 font-medium">Status</th>
-                  <th className="px-3 py-3 font-medium">Text Length</th>
-                  <th className="px-3 py-3 font-medium">Processed</th>
-                  <th className="px-3 py-3 font-medium">Final Text Path</th>
-                  <th className="px-3 py-3 font-medium">Error</th>
+                  <th className="w-64 px-3 py-3 font-medium">File</th>
+                  <th className="w-56 px-3 py-3 font-medium">Doc ID</th>
+                  <th className="w-32 px-3 py-3 font-medium">Extension</th>
+                  <th className="w-36 px-3 py-3 font-medium">Status</th>
+                  <th className="w-48 px-3 py-3 font-medium">Viewer Type</th>
+                  <th className="w-40 px-3 py-3 font-medium">Preview Available</th>
+                  <th className="w-32 px-3 py-3 font-medium">Text Length</th>
+                  <th className="w-56 px-3 py-3 font-medium">Processed</th>
+                  <th className="w-[320px] px-3 py-3 font-medium">Final Text Path</th>
+                  <th className="w-[320px] px-3 py-3 font-medium">Preview PDF Path</th>
+                  <th className="w-[320px] px-3 py-3 font-medium">Preview HTML Path</th>
+                  <th className="w-[260px] px-3 py-3 font-medium">Error</th>
                 </tr>
               </thead>
 
@@ -353,7 +363,7 @@ export default function ProcessingCenterPage({
                 {files.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={12}
                       className="px-3 py-8 text-center text-slate-400"
                     >
                       No files have been uploaded to the Processing Center yet.
@@ -370,6 +380,10 @@ export default function ProcessingCenterPage({
                         {file.doc_id || "—"}
                       </td>
 
+                      <td className="px-3 py-3 text-slate-300">
+                        {file.extension || "—"}
+                      </td>
+
                       <td className="px-3 py-3">
                         <span
                           className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${getStatusBadgeClass(
@@ -378,6 +392,14 @@ export default function ProcessingCenterPage({
                         >
                           {file.status || "Unknown"}
                         </span>
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {file.viewer_type || "—"}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {file.preview_available ? "Yes" : "No"}
                       </td>
 
                       <td className="px-3 py-3 text-slate-300">
@@ -390,11 +412,19 @@ export default function ProcessingCenterPage({
                         {formatDate(file.processed_at)}
                       </td>
 
-                      <td className="max-w-xs truncate px-3 py-3 text-slate-400">
+                      <td className="max-w-[320px] truncate px-3 py-3 text-slate-400">
                         {file.final_text_path || "—"}
                       </td>
 
-                      <td className="max-w-xs truncate px-3 py-3 text-red-300">
+                      <td className="max-w-[320px] truncate px-3 py-3 text-slate-400">
+                        {file.preview_pdf_path || "—"}
+                      </td>
+
+                      <td className="max-w-[320px] truncate px-3 py-3 text-slate-400">
+                        {file.preview_html_path || "—"}
+                      </td>
+
+                      <td className="max-w-[260px] truncate px-3 py-3 text-red-300">
                         {file.error || "—"}
                       </td>
                     </tr>

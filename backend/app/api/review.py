@@ -112,13 +112,106 @@ SUPPORTED_REVIEW_EXTENSIONS = (
     ".pdf",
     ".txt",
     ".docx",
+    ".doc",
+    ".rtf",
+    ".odt",
     ".xlsx",
     ".xls",
     ".xlsm",
     ".csv",
     ".dat",
     ".json",
+    ".xml",
+    ".html",
+    ".htm",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".webp",
+    ".tif",
+    ".tiff",
+    ".ppt",
+    ".pptx",
+    ".msg",
+    ".eml",
 )
+
+
+def get_extension(file_name: str) -> str:
+    if "." not in str(file_name or ""):
+        return ""
+
+    return "." + str(file_name).rsplit(".", 1)[-1].lower().strip()
+
+
+def determine_viewer_type(file_name: str, text_exists: bool = False) -> str:
+    extension = get_extension(file_name)
+
+    if extension == ".pdf":
+        return "pdf"
+
+    if extension in [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".tif",
+        ".tiff",
+    ]:
+        return "image"
+
+    if extension in [
+        ".txt",
+        ".csv",
+        ".log",
+        ".json",
+        ".xml",
+        ".html",
+        ".htm",
+        ".dat",
+    ]:
+        return "text"
+
+    if extension in [
+        ".doc",
+        ".docx",
+        ".rtf",
+        ".odt",
+        ".xls",
+        ".xlsx",
+        ".xlsm",
+        ".ppt",
+        ".pptx",
+    ]:
+        return "needs_preview_conversion"
+
+    if extension in [".msg", ".eml"]:
+        return "email"
+
+    if text_exists:
+        return "text"
+
+    return "unsupported"
+
+
+def source_preview_pdf_path(native_blob: str, doc_id: str) -> str:
+    if "/source/native/" in native_blob:
+        base = native_blob.split("/source/native/")[0]
+        return f"{base}/source/preview/{doc_id}.pdf"
+
+    return ""
+
+
+def source_preview_html_path(native_blob: str, doc_id: str) -> str:
+    if "/source/native/" in native_blob:
+        base = native_blob.split("/source/native/")[0]
+        return f"{base}/source/preview/{doc_id}.html"
+
+    return ""
 
 
 def normalize_doc_id(value: str) -> str:
@@ -307,9 +400,11 @@ def save_document_review_state(
     doc_id: str,
     document_coding: str,
     further_review_reason: str,
-    values: dict,
-    reviewed_by: str,
-    action: str,
+    qc_coding: str = "",
+    qc_questions: str = "",
+    values: dict = {},
+    reviewed_by: str = "",
+    action: str = "save",
 ) -> dict:
     container = get_container_client(workspace)
 
@@ -343,6 +438,8 @@ def save_document_review_state(
         state["document_coding"] = document_coding
 
     state["further_review_reason"] = further_review_reason or ""
+    state["qc_coding"] = qc_coding or ""
+    state["qc_questions"] = qc_questions or ""
     state["last_batch_id"] = batch_id or ""
     state["last_reviewed_by"] = reviewed_by
     state["last_reviewed_at"] = now
@@ -374,6 +471,8 @@ def save_document_review_state(
             "action": action,
             "document_coding": document_coding,
             "further_review_reason": further_review_reason or "",
+            "qc_coding": qc_coding or "",
+            "qc_questions": qc_questions or "",
         }
     )
 
@@ -682,6 +781,141 @@ def get_current_review_document_compat(
             detail=f"Review load failed: {type(e).__name__}: {e}",
         )
 
+@router.get("/{workspace}/review/preview")
+def get_workspace_review_preview(
+    workspace: str,
+    project: str,
+    client: str = "",
+    doc: str = "",
+):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid workspace.",
+        )
+
+    if not project:
+        raise HTTPException(
+            status_code=400,
+            detail="Project is required.",
+        )
+
+    if not doc:
+        raise HTTPException(
+            status_code=400,
+            detail="Document id is required.",
+        )
+
+    document = load_review_document_by_doc_id(
+        workspace=workspace,
+        client=client,
+        project=project,
+        doc_id=doc,
+    )
+
+    native_blob = document.get("native_blob", "")
+    text_blob = document.get("blob_name", "")
+    doc_id = document.get("doc_id", doc)
+
+    file_name = native_blob.split("/")[-1] if native_blob else doc_id
+    extension = get_extension(file_name)
+
+    text_exists = bool(text_blob)
+    viewer_type = determine_viewer_type(
+        file_name=file_name,
+        text_exists=text_exists,
+    )
+
+    preview_pdf = source_preview_pdf_path(native_blob, doc_id)
+    preview_html = source_preview_html_path(native_blob, doc_id)
+
+    preview_pdf_url = ""
+    preview_html_url = ""
+
+    container = get_container_client(workspace)
+
+    if preview_pdf:
+        preview_pdf_blob = container.get_blob_client(preview_pdf)
+
+        if preview_pdf_blob.exists():
+            preview_pdf_url = get_workspace_blob_url(
+                workspace,
+                preview_pdf,
+            )
+
+    if preview_html:
+        preview_html_blob = container.get_blob_client(preview_html)
+
+        if preview_html_blob.exists():
+            preview_html_url = get_workspace_blob_url(
+                workspace,
+                preview_html,
+            )
+
+    native_url = document.get("native_url", "")
+
+    text_url = (
+        get_workspace_blob_url(workspace, text_blob)
+        if text_blob
+        else ""
+    )
+
+    if not text_url and extension in [".txt", ".csv", ".json", ".xml", ".html", ".htm", ".dat"]:
+        text_url = native_url
+
+    if preview_pdf_url:
+        viewer_type = "pdf"
+        viewer_url = preview_pdf_url
+        preview_available = True
+
+    elif preview_html_url:
+        viewer_type = "html"
+        viewer_url = preview_html_url
+        preview_available = True
+
+    elif viewer_type == "pdf":
+        viewer_url = native_url
+        preview_available = bool(native_url)
+
+    elif viewer_type == "image":
+        viewer_url = native_url
+        preview_available = bool(native_url)
+
+    elif viewer_type == "text":
+        viewer_url = text_url or native_url
+        preview_available = bool(viewer_url)
+
+    elif viewer_type == "email":
+        viewer_url = text_url or native_url
+        preview_available = bool(viewer_url)
+
+    elif viewer_type == "needs_preview_conversion":
+        viewer_url = text_url or native_url
+        preview_available = bool(viewer_url)
+
+    else:
+        viewer_url = text_url or native_url
+        preview_available = bool(viewer_url)
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "doc_id": doc_id,
+        "file_name": file_name,
+        "extension": extension,
+        "viewer_type": viewer_type,
+        "preview_available": preview_available,
+        "viewer_url": viewer_url,
+        "native_url": native_url,
+        "text_url": text_url,
+        "native_path": native_blob,
+        "text_path": text_blob,
+        "preview_pdf_path": preview_pdf,
+        "preview_html_path": preview_html,
+        "preview_pdf_url": preview_pdf_url,
+        "preview_html_url": preview_html_url,
+    }
 
 @router.get("/{workspace}/review/current")
 def get_workspace_current_review_document(
@@ -716,6 +950,8 @@ class CaptureSaveRequest(BaseModel):
     values: dict = {}
     document_coding: str = ""
     further_review_reason: str = ""
+    qc_coding: str = ""
+    qc_questions: str = ""
     discovery_tags: dict = {}
     discovery_notes: dict = {}
 
@@ -739,6 +975,8 @@ def save_capture(
         doc_id=payload.doc_id,
         document_coding=payload.document_coding,
         further_review_reason=payload.further_review_reason,
+        qc_coding=payload.qc_coding,
+        qc_questions=payload.qc_questions,
         values=payload.values,
         reviewed_by=x_username,
         action="save",
@@ -779,6 +1017,9 @@ def save_capture(
             batch_history = batch.get("review_history_by_doc", {})
             batch_history[payload.doc_id] = {
                 "document_coding": payload.document_coding,
+                "further_review_reason": payload.further_review_reason,
+                "qc_coding": payload.qc_coding,
+                "qc_questions": payload.qc_questions,
                 "reviewed_by": x_username,
                 "reviewed_at": batch["last_reviewed_at"],
             }
@@ -797,6 +1038,8 @@ def save_capture(
         "doc_id": payload.doc_id,
         "values": payload.values,
         "document_coding": state.get("document_coding", ""),
+        "qc_coding": state.get("qc_coding", ""),
+        "qc_questions": state.get("qc_questions", ""),
     }
 
 

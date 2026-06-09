@@ -116,6 +116,74 @@ def get_doc_id(file_name: str) -> str:
     base = file_name.rsplit(".", 1)[0]
     return base.strip()
 
+def get_extension(file_name: str) -> str:
+    if "." not in file_name:
+        return ""
+
+    return "." + file_name.rsplit(".", 1)[-1].lower().strip()
+
+
+def preview_pdf_path(client: str, project_id: str, doc_id: str) -> str:
+    client = clean_path_part(client)
+    project_id = clean_path_part(project_id)
+    return f"{client}/{project_id}/source/preview/{doc_id}.pdf"
+
+
+def preview_html_path(client: str, project_id: str, doc_id: str) -> str:
+    client = clean_path_part(client)
+    project_id = clean_path_part(project_id)
+    return f"{client}/{project_id}/source/preview/{doc_id}.html"
+
+
+def determine_viewer_type(file_name: str, extracted_text: str = "") -> str:
+    extension = get_extension(file_name)
+
+    if extension == ".pdf":
+        return "pdf"
+
+    if extension in [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".tif",
+        ".tiff",
+    ]:
+        return "image"
+
+    if extension in [
+        ".txt",
+        ".csv",
+        ".log",
+        ".json",
+        ".xml",
+        ".html",
+        ".htm",
+    ]:
+        return "text"
+
+    if extension in [
+        ".doc",
+        ".docx",
+        ".rtf",
+        ".odt",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
+    ]:
+        return "needs_preview_conversion"
+
+    if extension in [".msg", ".eml"]:
+        return "email"
+
+    if extracted_text:
+        return "text"
+
+    return "unsupported"
+
 
 def read_json_blob(container_client, blob_path: str, fallback: Any):
     blob_client = container_client.get_blob_client(blob_path)
@@ -279,13 +347,17 @@ async def upload_processing_file(
         overwrite=True,
     )
 
+    doc_id = get_doc_id(file_name)
+    extension = get_extension(file_name)
+
     update_manifest_item(
         container,
         client,
         project_id,
         file_name,
         {
-            "doc_id": get_doc_id(file_name),
+            "doc_id": doc_id,
+            "extension": extension,
             "status": "Uploaded",
             "uploaded_at": now_iso(),
             "upload_path": destination,
@@ -294,6 +366,10 @@ async def upload_processing_file(
             "processed_text_path": "",
             "final_native_path": "",
             "final_text_path": "",
+            "preview_pdf_path": preview_pdf_path(client, project_id, doc_id),
+            "preview_html_path": preview_html_path(client, project_id, doc_id),
+            "viewer_type": determine_viewer_type(file_name),
+            "preview_available": False,
             "error": "",
         },
     )
@@ -403,9 +479,25 @@ def start_processing(
                 overwrite=True,
             )
 
+            extension = get_extension(file_name)
+            viewer_type = determine_viewer_type(file_name, extracted_text)
+
+            preview_pdf = preview_pdf_path(
+                payload.client,
+                payload.project_id,
+                doc_id,
+            )
+
+            preview_html = preview_html_path(
+                payload.client,
+                payload.project_id,
+                doc_id,
+            )
+
             metadata = {
                 "doc_id": doc_id,
                 "file_name": file_name,
+                "extension": extension,
                 "workspace": workspace,
                 "client": payload.client,
                 "project_id": payload.project_id,
@@ -416,6 +508,10 @@ def start_processing(
                 "processed_text_path": processed_text,
                 "final_native_path": final_native,
                 "final_text_path": final_text,
+                "preview_pdf_path": preview_pdf,
+                "preview_html_path": preview_html,
+                "viewer_type": viewer_type,
+                "preview_available": viewer_type in ["pdf", "image", "text", "email"],
                 "text_length": len(extracted_text or ""),
             }
 
@@ -458,7 +554,10 @@ def start_processing(
                 file_name,
                 {
                     "doc_id": doc_id,
+                    "extension": get_extension(file_name),
                     "status": "Error",
+                    "viewer_type": "unsupported",
+                    "preview_available": False,
                     "error": message,
                     "error_path": error_destination,
                     "failed_at": now_iso(),
