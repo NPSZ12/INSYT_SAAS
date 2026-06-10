@@ -205,7 +205,7 @@ def is_ocr_candidate(file_name: str) -> bool:
 def extract_text_with_document_intelligence(
     local_file_path: str,
     file_name: str,
-) -> str:
+) -> dict:
     endpoint = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "").strip()
     key = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "").strip()
 
@@ -228,6 +228,7 @@ def extract_text_with_document_intelligence(
     result = poller.result()
 
     text_parts = []
+    page_count = len(result.pages or [])
 
     for page in result.pages or []:
         page_number = getattr(page, "page_number", "")
@@ -246,7 +247,36 @@ def extract_text_with_document_intelligence(
     if not extracted and getattr(result, "content", ""):
         extracted = result.content.strip()
 
-    return extracted
+    text_length = len(extracted or "")
+
+    if text_length == 0:
+        quality = "No Text"
+        confidence_score = 0
+        warning = "OCR completed but no text was extracted."
+    elif page_count > 0 and text_length / page_count < 50:
+        quality = "Low"
+        confidence_score = 40
+        warning = "OCR completed with low text yield."
+    elif page_count > 0 and text_length / page_count < 250:
+        quality = "Medium"
+        confidence_score = 70
+        warning = ""
+    else:
+        quality = "High"
+        confidence_score = 90
+        warning = ""
+
+    return {
+        "text": extracted,
+        "ocr_status": "Completed",
+        "ocr_applied": True,
+        "ocr_engine": "azure_document_intelligence_read",
+        "ocr_page_count": page_count,
+        "ocr_text_length": text_length,
+        "ocr_confidence_score": confidence_score,
+        "ocr_quality": quality,
+        "ocr_warning": warning,
+    }
 
 def read_json_blob(container_client, blob_path: str, fallback: Any):
     blob_client = container_client.get_blob_client(blob_path)
@@ -291,7 +321,7 @@ def delete_blob_if_exists(container_client, blob_path: str):
         blob_client.delete_blob()
 
 
-def extract_text_basic(local_file_path: str, file_name: str) -> str:
+def extract_text_basic(local_file_path: str, file_name: str) -> dict:
     """
     Processing Center extraction layer.
 
@@ -307,6 +337,18 @@ def extract_text_basic(local_file_path: str, file_name: str) -> str:
     """
 
     lower = file_name.lower()
+
+    default = {
+        "text": "",
+        "ocr_status": "Not Required",
+        "ocr_applied": False,
+        "ocr_engine": "",
+        "ocr_page_count": 0,
+        "ocr_text_length": 0,
+        "ocr_confidence_score": None,
+        "ocr_quality": "",
+        "ocr_warning": "",
+    }
 
     if lower.endswith((
         ".txt",
@@ -324,7 +366,13 @@ def extract_text_basic(local_file_path: str, file_name: str) -> str:
             encoding="utf-8",
             errors="ignore",
         ) as f:
-            return f.read()
+            text = f.read()
+
+        return {
+            **default,
+            "text": text,
+            "ocr_text_length": len(text or ""),
+        }
 
     if is_ocr_candidate(file_name):
         return extract_text_with_document_intelligence(
@@ -332,7 +380,7 @@ def extract_text_basic(local_file_path: str, file_name: str) -> str:
             file_name,
         )
 
-    return ""
+    return default
 
 
 def update_manifest_item(
@@ -514,7 +562,8 @@ def start_processing(
                         .readall()
                     )
 
-                extracted_text = extract_text_basic(local_file_path, file_name)
+                extraction_result = extract_text_basic(local_file_path, file_name)
+                extracted_text = extraction_result.get("text", "")
 
             processed_native = processed_native_path(
                 payload.client,
@@ -560,7 +609,6 @@ def start_processing(
             )
 
             extension = get_extension(file_name)
-            ocr_applied = is_ocr_candidate(file_name)
             viewer_type = determine_viewer_type(file_name, extracted_text)
 
             preview_pdf = preview_pdf_path(
@@ -593,8 +641,14 @@ def start_processing(
                 "preview_html_path": preview_html,
                 "viewer_type": viewer_type,
                 "preview_available": viewer_type in ["pdf", "image", "text", "email"],
-                "ocr_applied": ocr_applied,
-                "ocr_engine": "azure_document_intelligence_read" if ocr_applied else "",
+                "ocr_status": extraction_result.get("ocr_status", ""),
+                "ocr_applied": extraction_result.get("ocr_applied", False),
+                "ocr_engine": extraction_result.get("ocr_engine", ""),
+                "ocr_page_count": extraction_result.get("ocr_page_count", 0),
+                "ocr_text_length": extraction_result.get("ocr_text_length", len(extracted_text or "")),
+                "ocr_confidence_score": extraction_result.get("ocr_confidence_score"),
+                "ocr_quality": extraction_result.get("ocr_quality", ""),
+                "ocr_warning": extraction_result.get("ocr_warning", ""),
                 "text_length": len(extracted_text or ""),
             }
 
@@ -642,6 +696,14 @@ def start_processing(
                     "viewer_type": "unsupported",
                     "preview_available": False,
                     "error": message,
+                    "ocr_status": "Failed" if is_ocr_candidate(file_name) else "Not Required",
+                    "ocr_applied": is_ocr_candidate(file_name),
+                    "ocr_engine": "azure_document_intelligence_read" if is_ocr_candidate(file_name) else "",
+                    "ocr_page_count": 0,
+                    "ocr_text_length": 0,
+                    "ocr_confidence_score": 0 if is_ocr_candidate(file_name) else None,
+                    "ocr_quality": "Failed" if is_ocr_candidate(file_name) else "",
+                    "ocr_warning": message if is_ocr_candidate(file_name) else "",
                     "error_path": error_destination,
                     "failed_at": now_iso(),
                 },

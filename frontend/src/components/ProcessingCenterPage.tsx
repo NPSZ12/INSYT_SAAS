@@ -39,6 +39,12 @@ type ProcessingFile = {
   text_length?: number;
   ocr_applied?: boolean;
   ocr_engine?: string;
+  ocr_status?: string;
+  ocr_page_count?: number;
+  ocr_text_length?: number;
+  ocr_confidence_score?: number | null;
+  ocr_quality?: string;
+  ocr_warning?: string;
   error?: string;
 };
 
@@ -354,6 +360,11 @@ export default function ProcessingCenterPage({
                   <th className="w-40 px-3 py-3 font-medium">Preview Available</th>
                   <th className="w-36 px-3 py-3 font-medium">OCR Applied</th>
                   <th className="w-72 px-3 py-3 font-medium">OCR Engine</th>
+                  <th className="w-36 px-3 py-3 font-medium">OCR Status</th>
+                  <th className="w-36 px-3 py-3 font-medium">OCR Pages</th>
+                  <th className="w-40 px-3 py-3 font-medium">OCR Confidence</th>
+                  <th className="w-36 px-3 py-3 font-medium">OCR Quality</th>
+                  <th className="w-[320px] px-3 py-3 font-medium">OCR Warning</th>
                   <th className="w-32 px-3 py-3 font-medium">Text Length</th>
                   <th className="w-56 px-3 py-3 font-medium">Processed</th>
                   <th className="w-[320px] px-3 py-3 font-medium">Final Text Path</th>
@@ -367,7 +378,7 @@ export default function ProcessingCenterPage({
                 {files.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={14}
+                      colSpan={19}
                       className="px-3 py-8 text-center text-slate-400"
                     >
                       No files have been uploaded to the Processing Center yet.
@@ -412,6 +423,30 @@ export default function ProcessingCenterPage({
 
                       <td className="px-3 py-3 text-slate-300">
                         {file.ocr_engine || "—"}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {file.ocr_status || "—"}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {typeof file.ocr_page_count === "number"
+                          ? file.ocr_page_count
+                          : "—"}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {typeof file.ocr_confidence_score === "number"
+                          ? `${file.ocr_confidence_score}%`
+                          : "—"}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {file.ocr_quality || "—"}
+                      </td>
+
+                      <td className="max-w-[320px] truncate px-3 py-3 text-amber-300">
+                        {file.ocr_warning || "—"}
                       </td>
 
                       <td className="px-3 py-3 text-slate-300">
