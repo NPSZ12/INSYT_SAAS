@@ -44,6 +44,7 @@ UCID_FIELD_CANDIDATES = [
     "unique capture id",
 ]
 
+
 def clean_path(value: str | None) -> str:
     return (value or "").strip().strip("/")
 
@@ -93,6 +94,43 @@ def unique_values(values: list[str]) -> list[str]:
 
     return output
 
+def normalize_doc_id(value: str | None) -> str:
+    clean = str(value or "").strip()
+
+    if clean.lower().endswith(".pdf"):
+        clean = clean[:-4]
+
+    return clean.strip()
+
+
+def split_final_doc_ids(value: str | None) -> list[str]:
+    if not value:
+        return []
+
+    return [
+        doc_id
+        for doc_id in [
+            normalize_doc_id(item)
+            for item in str(value).split(";")
+        ]
+        if doc_id
+    ]
+
+
+def flatten_final_doc_ids(
+    rows: list[dict[str, Any]],
+    selected_doc_id_field: str,
+) -> list[str]:
+    doc_ids = []
+
+    for row in rows:
+        doc_ids.extend(
+            split_final_doc_ids(
+                row.get(selected_doc_id_field, "")
+            )
+        )
+
+    return doc_ids
 
 def detect_doc_id_field(headers: list[str]) -> str | None:
     normalized_map = {
@@ -460,45 +498,88 @@ def build_overlay_validation(
     rows: list[dict[str, Any]],
     selected_doc_id_field: str,
     project_doc_ids: set[str],
+    overlay_view: str = "raw",
 ):
     duplicate_doc_ids = set()
     seen_doc_ids = set()
     overlay_doc_ids = set()
+    all_final_doc_ids = []
 
     for row in rows:
-        doc_id = str(row.get(selected_doc_id_field, "")).strip()
+        if overlay_view == "final":
+            row_doc_ids = split_final_doc_ids(
+                row.get(selected_doc_id_field, "")
+            )
 
-        if not doc_id:
-            continue
+            
+            all_final_doc_ids.extend(row_doc_ids)
 
-        if doc_id in seen_doc_ids:
-            duplicate_doc_ids.add(doc_id)
+        else:
+            doc_id = normalize_doc_id(
+                row.get(selected_doc_id_field, "")
+            )
+            row_doc_ids = [doc_id] if doc_id else []
 
-        seen_doc_ids.add(doc_id)
-        overlay_doc_ids.add(doc_id)
+        for doc_id in row_doc_ids:
+            if not doc_id:
+                continue
 
-    matched_doc_ids = overlay_doc_ids.intersection(project_doc_ids)
+            if overlay_view != "final" and doc_id in seen_doc_ids:
+                duplicate_doc_ids.add(doc_id)
+
+            seen_doc_ids.add(doc_id)
+            overlay_doc_ids.add(doc_id)
+
+    normalized_project_doc_ids = {
+        normalize_doc_id(doc_id)
+        for doc_id in project_doc_ids
+        if normalize_doc_id(doc_id)
+    }
+
+    matched_doc_ids = overlay_doc_ids.intersection(
+        normalized_project_doc_ids
+    )
 
     unmatched_overlay_doc_ids = (
-        overlay_doc_ids.difference(project_doc_ids)
-        if project_doc_ids
+        overlay_doc_ids.difference(normalized_project_doc_ids)
+        if normalized_project_doc_ids
         else set()
     )
 
     missing_overlay_doc_ids = (
-        project_doc_ids.difference(overlay_doc_ids)
-        if project_doc_ids
+        normalized_project_doc_ids.difference(overlay_doc_ids)
+        if normalized_project_doc_ids
         else set()
     )
 
+    repeated_final_source_doc_ids = []
+
+    if overlay_view == "final":
+        final_seen = set()
+        final_repeated = set()
+
+        for doc_id in all_final_doc_ids:
+            if doc_id in final_seen:
+                final_repeated.add(doc_id)
+
+            final_seen.add(doc_id)
+
+        repeated_final_source_doc_ids = sorted(
+            list(final_repeated)
+        )
+
     return {
-        "project_file_count": len(project_doc_ids),
+        "project_file_count": len(normalized_project_doc_ids),
         "overlay_doc_id_count": len(overlay_doc_ids),
         "matched_doc_id_count": len(matched_doc_ids),
         "unmatched_overlay_doc_id_count": len(unmatched_overlay_doc_ids),
         "missing_overlay_doc_id_count": len(missing_overlay_doc_ids),
         "duplicate_doc_id_count": len(duplicate_doc_ids),
         "duplicate_doc_ids_sample": sorted(list(duplicate_doc_ids))[:25],
+        "repeated_final_source_doc_id_count": len(
+            repeated_final_source_doc_ids
+        ),
+        "repeated_final_source_doc_ids_sample": repeated_final_source_doc_ids[:25],
         "unmatched_overlay_doc_ids_sample": sorted(list(unmatched_overlay_doc_ids))[:25],
         "missing_overlay_doc_ids_sample": sorted(list(missing_overlay_doc_ids))[:25],
     }
@@ -556,6 +637,17 @@ async def preview_document_overlay(
         protocol_headers=protocol_headers,
     )
 
+    if overlay_view == "final":
+        header_validation = {
+            **header_validation,
+            "headers_match_exactly": True,
+            "missing_protocol_headers": [],
+            "extra_upload_headers": [],
+            "final_header_validation_note": (
+                "Final overlays preserve uploaded deliverable headers and "
+                "are not required to match the project protocol exactly."
+            ),
+        }
 
     project_doc_ids = list_project_doc_ids(
         workspace=workspace,
@@ -567,14 +659,35 @@ async def preview_document_overlay(
         rows=rows,
         selected_doc_id_field=selected_doc_id_field,
         project_doc_ids=project_doc_ids,
+        overlay_view=overlay_view,
     )
 
     preview_rows = []
 
-    for row in rows[:50]:
-        doc_id = str(row.get(selected_doc_id_field, "")).strip()
-
+    for index, row in enumerate(rows[:50]):
         metadata = dict(row)
+
+        if overlay_view == "final":
+            doc_ids = split_final_doc_ids(
+                row.get(selected_doc_id_field, "")
+            )
+
+            preview_rows.append(
+                {
+                    "ucid": "",
+                    "final_entity_id": f"final-{index + 1:06d}",
+                    "doc_id": ";".join(doc_ids),
+                    "doc_ids": doc_ids,
+                    "metadata": metadata,
+                }
+            )
+
+            continue
+
+        doc_id = normalize_doc_id(
+            row.get(selected_doc_id_field, "")
+        )
+
         ucid = get_or_create_ucid(
             row=metadata,
             headers=headers,
@@ -591,6 +704,15 @@ async def preview_document_overlay(
                 "metadata": metadata,
             }
         )
+        
+    final_doc_ids = (
+        flatten_final_doc_ids(
+            rows=rows,
+            selected_doc_id_field=selected_doc_id_field,
+        )
+        if overlay_view == "final"
+        else []
+    )
 
     return {
         "workspace": workspace,
@@ -600,6 +722,10 @@ async def preview_document_overlay(
         "filename": file.filename,
         "row_count": len(rows),
         "detected_doc_id_field": selected_doc_id_field,
+        "final_entity_count": len(rows) if overlay_view == "final" else 0,
+        "expanded_doc_id_count": len(final_doc_ids),
+        "unique_expanded_doc_id_count": len(set(final_doc_ids)),
+        "expanded_doc_ids_sample": sorted(set(final_doc_ids))[:25],
         "headers": headers,
         "protocol_blob": protocol_blob,
         "protocol_header_count": len(protocol_headers),
@@ -662,25 +788,63 @@ async def commit_document_overlay(
         protocol_headers=protocol_headers,
     )
 
-    committed_headers = [
-        header for header in header_validation["expected_headers"]
-        if header in headers and header != "Doc ID"
-    ]
+    if overlay_view == "final":
+        header_validation = {
+            **header_validation,
+            "headers_match_exactly": True,
+            "missing_protocol_headers": [],
+            "extra_upload_headers": [],
+            "final_header_validation_note": (
+                "Final overlays preserve uploaded deliverable headers and "
+                "are not required to match the project protocol exactly."
+            ),
+        }
+
+    if overlay_view == "final":
+        committed_headers = headers
+    else:
+        committed_headers = [
+            header for header in header_validation["expected_headers"]
+            if header in headers and header != "Doc ID"
+        ]
 
     overlay_records = []
     missing_doc_id_count = 0
 
-    for row in rows:
-        doc_id = str(row.get(selected_doc_id_field, "")).strip()
-
-        if not doc_id:
-            missing_doc_id_count += 1
-            continue
-
+    for index, row in enumerate(rows):
         metadata = {
             header: row.get(header, "")
             for header in committed_headers
         }
+
+        if overlay_view == "final":
+            doc_ids = split_final_doc_ids(
+                row.get(selected_doc_id_field, "")
+            )
+
+            if not doc_ids:
+                missing_doc_id_count += 1
+                continue
+
+            overlay_records.append(
+                {
+                    "ucid": "",
+                    "final_entity_id": f"final-{index + 1:06d}",
+                    "doc_id": ";".join(doc_ids),
+                    "doc_ids": doc_ids,
+                    "metadata": metadata,
+                }
+            )
+
+            continue
+
+        doc_id = normalize_doc_id(
+            row.get(selected_doc_id_field, "")
+        )
+
+        if not doc_id:
+            missing_doc_id_count += 1
+            continue
 
         ucid = get_or_create_ucid(
             row=row,
@@ -709,6 +873,16 @@ async def commit_document_overlay(
         rows=rows,
         selected_doc_id_field=selected_doc_id_field,
         project_doc_ids=project_doc_ids,
+        overlay_view=overlay_view,
+    )
+    
+    final_doc_ids = (
+        flatten_final_doc_ids(
+            rows=rows,
+            selected_doc_id_field=selected_doc_id_field,
+        )
+        if overlay_view == "final"
+        else []
     )
 
     overlay_payload = {
@@ -720,6 +894,9 @@ async def commit_document_overlay(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "doc_id_field": selected_doc_id_field,
         "row_count": len(rows),
+        "final_entity_count": len(rows) if overlay_view == "final" else 0,
+        "expanded_doc_id_count": len(final_doc_ids),
+        "unique_expanded_doc_id_count": len(set(final_doc_ids)),
         "committed_record_count": len(overlay_records),
         "missing_doc_id_count": missing_doc_id_count,
         "upload_headers": headers,
@@ -779,6 +956,9 @@ async def commit_document_overlay(
         "latest_overlay_path": latest_path,
         "doc_id_field": selected_doc_id_field,
         "row_count": len(rows),
+        "final_entity_count": len(rows) if overlay_view == "final" else 0,
+        "expanded_doc_id_count": len(final_doc_ids),
+        "unique_expanded_doc_id_count": len(set(final_doc_ids)),
         "committed_record_count": len(overlay_records),
         "missing_doc_id_count": missing_doc_id_count,
         "headers_match_exactly": header_validation["headers_match_exactly"],

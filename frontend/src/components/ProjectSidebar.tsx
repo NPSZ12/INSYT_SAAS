@@ -27,6 +27,7 @@ import {
   ChevronLeft,
   ChevronRight,
   HardDriveUpload,
+  UploadCloud,
 } from "lucide-react";
 
 type NavItem = {
@@ -205,6 +206,11 @@ export default function ProjectSidebar() {
     ? `?client=${encodedClientId}&project=${encodedProjectId}`
     : `?project=${encodedProjectId}`;
 
+  const overlaysQuery =
+    `?workspace=${encodeURIComponent(workspaceName)}` +
+    `&client=${encodedClientId}` +
+    `&project=${encodedProjectId}`;
+
   const reviewQuery = clientId
     ? `?client=${encodedClientId}&project=${encodedProjectId}${
         currentUserBatch
@@ -270,6 +276,7 @@ export default function ProjectSidebar() {
     return [
       "Batch Management",
       "Processing Center",
+      "Overlays / Final Deliverables",
       "Search Folders",
       "Files",
       "QC Review",
@@ -299,6 +306,11 @@ export default function ProjectSidebar() {
       label: "Processing Center",
       href: `${workspaceBase}/processing-center${projectQuery}`,
       icon: HardDriveUpload,
+    },
+    {
+      label: "Overlays / Final Deliverables",
+      href: `/project-management/upload-overlay${overlaysQuery}`,
+      icon: UploadCloud,
     },
     {
       label: "Batches",

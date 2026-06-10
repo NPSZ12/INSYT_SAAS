@@ -38,6 +38,13 @@ type ProtocolResponse = {
   };
 };
 
+type SortDirection = "asc" | "desc";
+
+type SortState = {
+  header: string;
+  direction: SortDirection;
+} | null;
+
 type CapturedEntitiesTableProps = {
   workspace: Workspace;
   title?: string;
@@ -89,6 +96,45 @@ function getProtocolColumns(response: ProtocolResponse): ProtocolColumn[] {
     .filter((column) => column.header);
 }
 
+function splitFinalDocIds(value: any): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  }
+
+  return String(value || "")
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getCellValue(row: Record<string, any>, header: string) {
+  return String(row?.[header] ?? "");
+}
+
+function compareValues(a: string, b: string) {
+  const cleanA = a.trim();
+  const cleanB = b.trim();
+
+  const numberA = Number(cleanA);
+  const numberB = Number(cleanB);
+
+  if (
+    cleanA !== "" &&
+    cleanB !== "" &&
+    !Number.isNaN(numberA) &&
+    !Number.isNaN(numberB)
+  ) {
+    return numberA - numberB;
+  }
+
+  return cleanA.localeCompare(cleanB, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function buildReviewHref(
   workspace: Workspace,
   clientId: string,
@@ -136,11 +182,19 @@ export default function CapturedEntitiesTable({
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  const [columnFilters, setColumnFilters] =
+    useState<Record<string, string>>({});
+
+  const [sortState, setSortState] =
+    useState<SortState>(null);
+
   useEffect(() => {
     if (!projectId) return;
 
     setIsLoading(true);
     setMessage("");
+    setColumnFilters({});
+    setSortState(null);
     setProtocolColumns([]);
     setEntityData({
       headers: [],
@@ -217,6 +271,8 @@ export default function CapturedEntitiesTable({
           const overlayRows = (overlay.records || []).map(
             (record: any) => ({
               "Doc ID": record.doc_id,
+              doc_ids: record.doc_ids || [],
+              final_entity_id: record.final_entity_id || "",
               ...(record.metadata || {}),
             })
           );
@@ -264,6 +320,35 @@ export default function CapturedEntitiesTable({
     ]);
   }, [protocolColumns, entityData.headers]);
 
+  const visibleRows = useMemo(() => {
+    const filteredRows = entityData.rows.filter((row) => {
+      return headers.every((header) => {
+        const filterValue = columnFilters[header];
+
+        if (!filterValue) {
+          return true;
+        }
+
+        const cellValue = getCellValue(row, header).toLowerCase();
+
+        return cellValue.includes(filterValue.toLowerCase());
+      });
+    });
+
+    if (!sortState) {
+      return filteredRows;
+    }
+
+    return [...filteredRows].sort((a, b) => {
+      const aValue = getCellValue(a, sortState.header);
+      const bValue = getCellValue(b, sortState.header);
+
+      const result = compareValues(aValue, bValue);
+
+      return sortState.direction === "asc" ? result : -result;
+    });
+  }, [entityData.rows, headers, columnFilters, sortState]);
+
   const headerGroups = useMemo(() => {
     const groupByHeader = new Map<string, string>();
 
@@ -298,7 +383,29 @@ export default function CapturedEntitiesTable({
     return groups;
   }, [headers, protocolColumns, entityData.headers]);
 
+  function toggleSort(header: string) {
+    setSortState((current) => {
+      if (!current || current.header !== header) {
+        return {
+          header,
+          direction: "asc",
+        };
+      }
+
+      if (current.direction === "asc") {
+        return {
+          header,
+          direction: "desc",
+        };
+      }
+
+      return null;
+    });
+  }
+
   function openDocument(docId: string) {
+    if (!docId) return;
+
     router.push(
       buildReviewHref(
         workspace,
@@ -309,6 +416,52 @@ export default function CapturedEntitiesTable({
       )
     );
   }
+
+  function getFinalEntityDisplayName(row: Record<string, any>) {
+  return (
+    row["Full Name"] ||
+    row["Entity Name"] ||
+    row["Name"] ||
+    [
+      row["First Name"],
+      row["First Name\n(or Initial)"],
+      row["Middle Name"],
+      row["Middle(or Initial) - If Present"],
+      row["Last Name"],
+      row["Last Name (FULL)"],
+    ]
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
+function openFinalSourceDocs(row: Record<string, any>) {
+  const docIds = splitFinalDocIds(
+    row.doc_ids?.length > 0
+      ? row.doc_ids
+      : row["Doc ID"]
+  );
+
+  if (docIds.length === 0) {
+    setMessage("No source Doc IDs were found for this Final entity.");
+    return;
+  }
+
+  const capturedEntity = getFinalEntityDisplayName(row);
+
+  const params = new URLSearchParams();
+
+  if (clientId) params.set("client", clientId);
+  if (projectId) params.set("project", projectId);
+  if (capturedEntity) params.set("entity", capturedEntity);
+
+  params.set("docIds", docIds.join(";"));
+  params.set("startDoc", docIds[0]);
+  params.set("source", "final");
+
+  router.push(`/${workspace}/entities/final-viewer?${params.toString()}`);
+}
 
   if (!projectId) {
     return (
@@ -347,7 +500,7 @@ export default function CapturedEntitiesTable({
             </p>
 
             <p className="text-xs text-slate-500">
-              Rows: {entityData.rows.length} | Headers: {headers.length}
+              Rows: {visibleRows.length} of {entityData.rows.length} | Headers: {headers.length}
             </p>
           </div>
 
@@ -397,23 +550,66 @@ export default function CapturedEntitiesTable({
                 </tr>
 
                 <tr>
+                  {headers.map((header, index) => {
+                    const isSorted = sortState?.header === header;
+
+                    return (
+                      <th
+                        key={header}
+                        className={
+                          index === 0
+                            ? "p-3 text-left sticky left-0 bg-slate-900 z-10 whitespace-nowrap"
+                            : "p-3 text-left border-l border-slate-800 whitespace-nowrap"
+                        }
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleSort(header)}
+                          className="flex items-center gap-1 text-left hover:text-sky-300"
+                          title={`Sort by ${header}`}
+                        >
+                          <span>{header}</span>
+                          <span className="text-[10px] text-slate-500">
+                            {isSorted
+                              ? sortState?.direction === "asc"
+                                ? "▲"
+                                : "▼"
+                              : "↕"}
+                          </span>
+                        </button>
+                      </th>
+                    );
+                  })}
+                </tr>
+
+                <tr>
                   {headers.map((header, index) => (
                     <th
-                      key={header}
+                      key={`${header}-filter`}
                       className={
                         index === 0
-                          ? "p-3 text-left sticky left-0 bg-slate-900 z-10 whitespace-nowrap"
-                          : "p-3 text-left border-l border-slate-800 whitespace-nowrap"
+                          ? "p-2 sticky left-0 bg-slate-900 z-10 whitespace-nowrap"
+                          : "p-2 border-l border-slate-800 whitespace-nowrap"
                       }
                     >
-                      {header}
+                      <input
+                        value={columnFilters[header] || ""}
+                        onChange={(event) =>
+                          setColumnFilters((current) => ({
+                            ...current,
+                            [header]: event.target.value,
+                          }))
+                        }
+                        placeholder="Search..."
+                        className="w-full min-w-[120px] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-100 placeholder:text-slate-600"
+                      />
                     </th>
                   ))}
                 </tr>
               </thead>
 
               <tbody>
-                {entityData.rows.length === 0 ? (
+                {visibleRows.length === 0 ? (
                   <tr>
                     <td
                       colSpan={Math.max(headers.length, 1)}
@@ -421,11 +617,13 @@ export default function CapturedEntitiesTable({
                     >
                       {isLoading
                         ? "Loading captured entities..."
-                        : "No captured entities found yet. Protocol headers are ready for incoming review data."}
+                        : entityData.rows.length === 0
+                          ? "No captured entities found yet. Protocol headers are ready for incoming review data."
+                          : "No rows match the current filters."}
                     </td>
                   </tr>
                 ) : (
-                  entityData.rows.map((row, rowIndex) => (
+                  visibleRows.map((row, rowIndex) => (
                     <tr
                       key={rowIndex}
                       className="border-t border-slate-800"
@@ -434,6 +632,17 @@ export default function CapturedEntitiesTable({
                         const value = row[header] || "";
 
                         if (header === "Doc ID") {
+                          const finalDocIds = splitFinalDocIds(
+                            row.doc_ids?.length > 0
+                              ? row.doc_ids
+                              : value
+                          );
+
+                          const displayValue =
+                            entityView === "final" && finalDocIds.length > 0
+                              ? finalDocIds.join("; ")
+                              : value || "Open Doc";
+
                           return (
                             <td
                               key={header}
@@ -441,9 +650,18 @@ export default function CapturedEntitiesTable({
                             >
                               <button
                                 className="text-sky-400 hover:text-sky-300 underline"
-                                onClick={() => openDocument(value)}
+                                onClick={() =>
+                                  entityView === "final"
+                                    ? openFinalSourceDocs(row)
+                                    : openDocument(value)
+                                }
+                                title={
+                                  entityView === "final"
+                                    ? finalDocIds.join("; ")
+                                    : value
+                                }
                               >
-                                {value || "Open Doc"}
+                                {displayValue || "Open Doc"}
                               </button>
                             </td>
                           );

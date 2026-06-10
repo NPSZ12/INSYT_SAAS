@@ -80,6 +80,13 @@ function getFileDocCandidates(item: any) {
     .map((value) => normalizeDocLookup(String(value)));
 }
 
+function splitDocSet(value: string) {
+  return String(value || "")
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function ReviewPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -89,6 +96,14 @@ function ReviewPageContent() {
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
   const docId = searchParams.get("doc") || "";
+
+  const docSetParam = searchParams.get("docSet") || "";
+  const sourceParam = searchParams.get("source") || "";
+
+  const finalSourceDocIds = splitDocSet(docSetParam);
+
+  const isFinalSourceView =
+    sourceParam === "final" && finalSourceDocIds.length > 0;
 
   const [error, setError] = useState("");
   const [protocolMessage, setProtocolMessage] = useState("");
@@ -186,6 +201,11 @@ function ReviewPageContent() {
       return;
     }
 
+    if (isFinalSourceView) {
+      setFileDocIds(finalSourceDocIds);
+      return;
+    }
+
     apiGet(
       `/api/capture/files?client=${encodeURIComponent(
         clientId
@@ -201,7 +221,13 @@ function ReviewPageContent() {
         setFileDocIds(docIds);
       })
       .catch(console.error);
-  }, [clientId, projectId, isFileView]);
+  }, [
+    clientId,
+    projectId,
+    isFileView,
+    isFinalSourceView,
+    docSetParam,
+  ]);
   
   function loadLinkedEntities() {
     if (!projectId || !reviewDoc?.doc_id) return;
@@ -395,12 +421,18 @@ function ReviewPageContent() {
   };
 
   function buildReviewDocUrl(targetDocId: string) {
-    const params = new URLSearchParams({
-      client: clientId,
-      project: projectId,
-      batch: batchId,
-      doc: targetDocId,
-    });
+    const params = new URLSearchParams();
+
+    if (clientId) params.set("client", clientId);
+    if (projectId) params.set("project", projectId);
+    if (targetDocId) params.set("doc", targetDocId);
+
+    if (isFinalSourceView) {
+      params.set("source", "final");
+      params.set("docSet", finalSourceDocIds.join(";"));
+    } else if (batchId) {
+      params.set("batch", batchId);
+    }
 
     return `/capture/review/doc?${params.toString()}`;
   }
@@ -505,10 +537,45 @@ function ReviewPageContent() {
       project: projectId,
     });
 
+    if (isFinalSourceView) {
+      params.set("view", "final");
+      router.push(`/capture/captured-entities?${params.toString()}`);
+      return;
+    }
+
     router.push(`/capture/batch-management?${params.toString()}`);
   }
 
+  function returnToFinalLanding() {
+    const params = new URLSearchParams();
+
+    if (clientId) params.set("client", clientId);
+    if (projectId) params.set("project", projectId);
+
+    params.set("docIds", finalSourceDocIds.join(";"));
+    params.set("startDoc", finalSourceDocIds[0] || docId);
+    params.set("source", "final");
+
+    const entityName = searchParams.get("entity") || "";
+
+    if (entityName) {
+      params.set("entity", entityName);
+    }
+
+    router.push(`/capture/entities/final-viewer?${params.toString()}`);
+  }
+
   function handleSaveComplete() {
+    if (isFileView) {
+      if (fileDocIndex >= fileDocCount - 1) {
+        exitReview();
+        return;
+      }
+
+      goFileNextDoc();
+      return;
+    }
+
     if (reviewNav.is_last_doc) {
       exitReview();
       return;
@@ -525,14 +592,30 @@ function ReviewPageContent() {
 
   const fileDocCount = fileDocIds.length;
 
+  const effectiveIsFirstDoc = isFileView
+    ? fileDocIndex <= 0
+    : Boolean(reviewNav.is_first_doc);
+
+  const effectiveIsLastDoc = isFileView
+    ? fileDocIndex >= fileDocCount - 1
+    : Boolean(reviewNav.is_last_doc);
+
+  const effectiveDocPositionLabel = isFileView
+    ? fileDocIndex >= 0 && fileDocCount > 0
+      ? `Doc ${fileDocIndex + 1} of ${fileDocCount}`
+      : ""
+    : docPositionLabel;
+
+  const effectiveCurrentDocIndex = isFileView
+    ? fileDocIndex
+    : currentDocIndex;
+
+  const effectiveDocCount = isFileView
+    ? fileDocCount
+    : batchDocCount;
+
   function openFileViewDoc(nextDocId: string) {
-    const params = new URLSearchParams();
-
-    if (clientId) params.set("client", clientId);
-    if (projectId) params.set("project", projectId);
-    if (nextDocId) params.set("doc", nextDocId);
-
-    router.push(`/capture/review/doc?${params.toString()}`);
+    router.push(buildReviewDocUrl(nextDocId));
   }
 
   function goFileFirstDoc() {
@@ -643,27 +726,19 @@ function ReviewPageContent() {
       <div className="min-h-screen flex flex-col text-white">
         <ReviewHeader
           project={reviewDoc.project}
-          batch={isFileView ? "File View" : reviewDoc.batch}
+          batch={
+            isFinalSourceView
+              ? "Final Source Set"
+              : isFileView
+                ? "File View"
+                : reviewDoc.batch
+          }
           docId={reviewDoc.doc_id}
-          isFirstDoc={
-            isFileView
-              ? fileDocIndex <= 0
-              : Boolean(reviewNav.is_first_doc)
-          }
-          isLastDoc={
-            isFileView
-              ? fileDocIndex >= fileDocCount - 1
-              : Boolean(reviewNav.is_last_doc)
-          }
-          docPositionLabel={
-            isFileView
-              ? fileDocIndex >= 0 && fileDocCount > 0
-                ? `Doc ${fileDocIndex + 1} of ${fileDocCount}`
-                : ""
-              : docPositionLabel
-          }
-          currentDocIndex={isFileView ? fileDocIndex : currentDocIndex}
-          batchDocCount={isFileView ? fileDocCount : batchDocCount}
+          isFirstDoc={effectiveIsFirstDoc}
+          isLastDoc={effectiveIsLastDoc}
+          docPositionLabel={effectiveDocPositionLabel}
+          currentDocIndex={effectiveCurrentDocIndex}
+          batchDocCount={effectiveDocCount}
           onFirstDoc={isFileView ? goFileFirstDoc : goFirstDoc}
           onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
           onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
@@ -677,6 +752,28 @@ function ReviewPageContent() {
         )}
 
         <section className="flex-1 flex flex-col gap-4 p-4 overflow-hidden">
+          {isFinalSourceView && (
+            <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  Final Source Review
+                </p>
+
+                <p className="text-xs text-slate-400">
+                  Reviewing a restricted source-document set from the selected Final entity.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={returnToFinalLanding}
+                className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+              >
+                Return to Landing
+              </button>
+            </div>
+          )}
+
           <div className="flex-1 grid grid-cols-3 gap-4 min-h-0">
             <ReviewDocumentPane
               text={reviewDoc.text}
@@ -702,8 +799,8 @@ function ReviewPageContent() {
                 batchId={batchId}
                 docId={reviewDoc.doc_id}
                 fields={fieldsForCapture}
-                isFirstDoc={Boolean(reviewNav.is_first_doc)}
-                isLastDoc={Boolean(reviewNav.is_last_doc)}
+                isFirstDoc={effectiveIsFirstDoc}
+                isLastDoc={effectiveIsLastDoc}
                 hasLinkedEntities={linkedEntities.some((entity) => entity.linked !== false)}
                 onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
                 onNextDoc={isFileView ? goFileNextDoc : goNextDoc}

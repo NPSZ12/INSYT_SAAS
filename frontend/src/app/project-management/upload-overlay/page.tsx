@@ -21,6 +21,14 @@ const WORKSPACES: { value: Workspace; label: string }[] = [
   { value: "summaries", label: "Summaries" },
 ];
 
+function getOverlayViewLabel(overlayView: OverlayView) {
+  if (overlayView === "final") {
+    return "Final Deliverable";
+  }
+
+  return "Raw Capture Overlay";
+}
+
 function toNameList(data: any): string[] {
   const rows =
     data?.clients ||
@@ -118,7 +126,7 @@ function UploadOverlayPageContent() {
 
   async function previewOverlay() {
     if (!selectedFile) {
-      setError("Please select a DAT, CSV, or JSON overlay file.");
+      setError("Please select a DAT, CSV, or JSON file.");
       return;
     }
 
@@ -239,9 +247,21 @@ function UploadOverlayPageContent() {
         );
       }
 
-      alert(
-        `Overlay imported successfully.\n\n${data.committed_record_count} records imported.`
-      );
+      if (overlayView === "final") {
+        alert(
+          [
+            "Final deliverable imported successfully.",
+            "",
+            `${data.final_entity_count || data.committed_record_count} final entities imported.`,
+            `${data.expanded_doc_id_count || 0} source Doc ID references detected.`,
+            `${data.unique_expanded_doc_id_count || 0} unique source Doc IDs detected.`,
+          ].join("\n")
+        );
+      } else {
+        alert(
+          `Raw overlay imported successfully.\n\n${data.committed_record_count} records imported.`
+        );
+      }
 
       loadOverlayHistory();
     } catch (err: any) {
@@ -299,7 +319,7 @@ function UploadOverlayPageContent() {
       <PageContainer>
         <PageHeader
           title="Document Overlays"
-          subtitle="Upload DAT, CSV, or JSON overlay files, validate protocol headers, and link records by Doc ID."
+          subtitle="Upload Raw overlays or Final deliverables for a selected workspace, client, and project."
         />
 
         <ContentCard title="Overlay Target">
@@ -376,13 +396,15 @@ function UploadOverlayPageContent() {
 
               <select
                 value={overlayView}
-                onChange={(event) =>
-                  setOverlayView(event.target.value as OverlayView)
-                }
+                onChange={(event) => {
+                  setOverlayView(event.target.value as OverlayView);
+                  setPreviewData(null);
+                  setError("");
+                }}
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
               >
-                <option value="raw">Raw</option>
-                <option value="final">Final</option>
+                <option value="raw">Raw Capture Overlay</option>
+                <option value="final">Final Deliverable</option>
               </select>
             </div>
           </div>
@@ -390,6 +412,13 @@ function UploadOverlayPageContent() {
 
         <ContentCard title="Upload Overlay">
           <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Selected upload type:{" "}
+              <span className="font-semibold text-slate-800">
+                {getOverlayViewLabel(overlayView)}
+              </span>
+            </p>
+
             <p className="text-sm text-slate-600">
               Selected path:{" "}
               {clientId && projectId
@@ -433,14 +462,20 @@ function UploadOverlayPageContent() {
 
             <div className="flex gap-2">
               <Button onClick={previewOverlay}>
-                {loading ? "Working..." : "Preview Overlay"}
+                {loading
+                  ? "Working..."
+                  : overlayView === "final"
+                    ? "Preview Final Deliverable"
+                    : "Preview Raw Overlay"}
               </Button>
 
               {previewData && (
                 <Button onClick={() => commitOverlay()}>
-                  {previewData?.headers_match_exactly === false
-                    ? "Proceed with Commit"
-                    : "Commit Overlay"}
+                  {overlayView === "final"
+                    ? "Commit Final Deliverable"
+                    : previewData?.headers_match_exactly === false
+                      ? "Proceed with Commit"
+                      : "Commit Raw Overlay"}
                 </Button>
               )}
             </div>
@@ -448,25 +483,70 @@ function UploadOverlayPageContent() {
         </ContentCard>
 
         {previewData && (
-          <ContentCard title="Overlay Summary">
+          <ContentCard title={`${getOverlayViewLabel(overlayView)} Summary`}>
             <div className="grid grid-cols-1 gap-3 text-sm text-slate-700 md:grid-cols-2">
               <p>Filename: {previewData.filename}</p>
               <p>Rows: {previewData.row_count}</p>
               <p>Doc ID Field: {previewData.detected_doc_id_field}</p>
-              <p>Duplicate Doc IDs: {previewData.duplicate_doc_id_count}</p>
-              <p>Protocol Headers: {previewData.protocol_header_count}</p>
-              <p>
-                Headers Match:{" "}
-                {previewData.headers_match_exactly ? "Yes" : "No"}
-              </p>
-              <p>Matched Doc IDs: {previewData.matched_doc_id_count}</p>
-              <p>
-                Unmatched Overlay Doc IDs:{" "}
-                {previewData.unmatched_overlay_doc_id_count}
-              </p>
+
+              {overlayView === "final" ? (
+                <>
+                  <p>Final Entities: {previewData.final_entity_count}</p>
+                  <p>
+                    Source Doc ID References:{" "}
+                    {previewData.expanded_doc_id_count}
+                  </p>
+                  <p>
+                    Unique Source Doc IDs:{" "}
+                    {previewData.unique_expanded_doc_id_count}
+                  </p>
+                  <p>
+                    Repeated Source Doc IDs:{" "}
+                    {previewData.repeated_final_source_doc_id_count || 0}
+                  </p>
+                  <p>Matched Source Docs: {previewData.matched_doc_id_count}</p>
+                  <p>
+                    Unmatched Source Docs:{" "}
+                    {previewData.unmatched_overlay_doc_id_count}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>Duplicate Doc IDs: {previewData.duplicate_doc_id_count}</p>
+                  <p>Protocol Headers: {previewData.protocol_header_count}</p>
+                  <p>
+                    Headers Match:{" "}
+                    {previewData.headers_match_exactly ? "Yes" : "No"}
+                  </p>
+                  <p>Matched Doc IDs: {previewData.matched_doc_id_count}</p>
+                  <p>
+                    Unmatched Overlay Doc IDs:{" "}
+                    {previewData.unmatched_overlay_doc_id_count}
+                  </p>
+                </>
+              )}
             </div>
 
-            {!previewData.headers_match_exactly && (
+            {overlayView === "final" && previewData.final_header_validation_note && (
+              <p className="mt-4 rounded-xl border border-cyan-800 bg-cyan-950/40 p-3 text-sm text-cyan-100">
+                {previewData.final_header_validation_note}
+              </p>
+            )}
+
+            {overlayView === "final" &&
+              previewData.expanded_doc_ids_sample?.length > 0 && (
+                <div className="mt-4 text-sm">
+                  <p className="mb-2 font-semibold text-slate-700">
+                    Sample Source Doc IDs
+                  </p>
+
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-100">
+                    {previewData.expanded_doc_ids_sample.join("\n")}
+                  </pre>
+                </div>
+              )}
+
+            {overlayView !== "final" && !previewData.headers_match_exactly && (
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="font-semibold text-red-600 mb-2">
@@ -534,10 +614,10 @@ function UploadOverlayPageContent() {
           </ContentCard>
         )}
 
-        <ContentCard title="Overlay History">
+        <ContentCard title={`${getOverlayViewLabel(overlayView)} History`}>
           {overlayHistory.length === 0 ? (
             <p className="text-sm text-slate-600">
-              No overlays loaded yet.
+              No files loaded yet for this upload type.
             </p>
           ) : (
             <div className="overflow-auto">
