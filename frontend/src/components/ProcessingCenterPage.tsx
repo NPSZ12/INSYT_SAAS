@@ -422,44 +422,66 @@ export default function ProcessingCenterPage({
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <input
-                type="file"
-                onChange={(event) =>
-                  setSelectedFile(event.target.files?.[0] || null)
-                }
-                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
-              />
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <input
+                  id="processing-center-file-input"
+                  type="file"
+                  className="hidden"
+                  onChange={(event) =>
+                    setSelectedFile(event.target.files?.[0] || null)
+                  }
+                />
 
-              <Button
-                onClick={() => {
-                  if (!selectedFile || isUploading) return;
-                  uploadFile();
-                }}
-              >
-                {isUploading ? "Uploading..." : "Upload"}
-              </Button>
+                <label
+                  htmlFor="processing-center-file-input"
+                  className="inline-flex h-10 min-w-[210px] cursor-pointer items-center justify-center whitespace-nowrap rounded-full border border-emerald-400/60 bg-emerald-500/15 px-5 text-sm font-semibold text-emerald-200 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+                >
+                  Choose File
+                </label>
 
-              <Button
-                onClick={() => {
-                  if (isProcessing) return;
-                  startProcessing();
-                }}
-              >
-                {isProcessing ? "Processing..." : "Start Processing"}
-              </Button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedFile || isUploading) return;
+                    uploadFile();
+                  }}
+                  disabled={!selectedFile || isUploading}
+                  className="inline-flex h-10 min-w-[110px] items-center justify-center whitespace-nowrap rounded-full border border-sky-400/60 bg-sky-500/15 px-5 text-sm font-semibold text-sky-200 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isUploading ? "Uploading..." : "Upload"}
+                </button>
 
-              <Button
-                onClick={() => {
-                  if (isStartingBackgroundJob) return;
-                  startBackgroundProcessingJob();
-                }}
-              >
-                {isStartingBackgroundJob
-                  ? "Queuing..."
-                  : "Start Background Job"}
-              </Button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isProcessing) return;
+                    startProcessing();
+                  }}
+                  disabled={isProcessing}
+                  className="inline-flex h-10 min-w-[160px] items-center justify-center whitespace-nowrap rounded-full border border-violet-400/60 bg-violet-500/15 px-5 text-sm font-semibold text-violet-200 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isProcessing ? "Processing..." : "Start Processing"}
+                </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isStartingBackgroundJob) return;
+                    startBackgroundProcessingJob();
+                  }}
+                  disabled={isStartingBackgroundJob}
+                  className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-amber-400/60 bg-amber-500/15 px-5 text-sm font-semibold text-amber-200 shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isStartingBackgroundJob
+                    ? "Queuing..."
+                    : "Start Background Job"}
+                </button>
+              </div>
+
+              <div className="min-h-5 max-w-[720px] truncate pl-1 text-xs leading-5 text-slate-500">
+                {selectedFile ? selectedFile.name : "No file selected"}
+              </div>
             </div>
           </div>
 
@@ -481,14 +503,17 @@ export default function ProcessingCenterPage({
               </div>
             </div>
 
-            <Button
+            <button
+              type="button"
               onClick={() => {
                 if (isLoadingJobs) return;
                 loadJobs();
               }}
+              disabled={isLoadingJobs}
+              className="inline-flex h-10 min-w-[140px] items-center justify-center whitespace-nowrap rounded-full border border-sky-400/60 bg-sky-500/15 px-5 text-sm font-semibold text-sky-200 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isLoadingJobs ? "Refreshing..." : "Refresh Jobs"}
-            </Button>
+            </button>
           </div>
 
           <div className="max-w-full overflow-x-auto rounded-xl border border-slate-800">
@@ -592,14 +617,17 @@ export default function ProcessingCenterPage({
               </div>
             </div>
 
-            <Button
+            <button
+              type="button"
               onClick={() => {
                 if (isLoading) return;
                 loadManifest();
               }}
+              disabled={isLoading}
+              className="inline-flex h-10 min-w-[110px] items-center justify-center whitespace-nowrap rounded-full border border-sky-400/60 bg-sky-500/15 px-5 text-sm font-semibold text-sky-200 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isLoading ? "Refreshing..." : "Refresh"}
-            </Button>
+            </button>
           </div>
 
           <div className="max-w-full overflow-x-auto rounded-xl border border-slate-800">

@@ -8,6 +8,9 @@ import PageContainer from "./PageContainer";
 import PageHeader from "./PageHeader";
 import ContentCard from "./ContentCard";
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
 type Workspace = "capture" | "discovery" | "summaries";
 
 type FinalEntitySourceViewerProps = {
@@ -38,6 +41,8 @@ export default function FinalEntitySourceViewer({
 
   const [selectedDocIds, setSelectedDocIds] =
     useState<string[]>(docIds);
+
+  const [isExporting, setIsExporting] = useState(false);
 
   function isSelected(docId: string) {
     return selectedDocIds.includes(docId);
@@ -94,6 +99,70 @@ export default function FinalEntitySourceViewer({
 
   function openAllDocs() {
     openReviewForDocs(docIds);
+  }
+
+  async function exportSelectedDocs() {
+    const cleanDocIds = selectedDocIds
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+
+    if (cleanDocIds.length === 0) {
+      alert("Select at least one source document to export.");
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/entities/export-source-docs`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            workspace,
+            client: clientId,
+            project: projectId,
+            entity: capturedEntity,
+            doc_ids: cleanDocIds,
+            include_native: true,
+            include_text: true,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Export failed.");
+      }
+
+      const blob = await response.blob();
+
+      const safeEntity =
+        capturedEntity
+          .replace(/[^a-z0-9_\- ]/gi, "")
+          .trim()
+          .replaceAll(" ", "_") || "final_entity";
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `${safeEntity}_source_docs.zip`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message || "Export failed.");
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   if (!projectId || docIds.length === 0) {
@@ -195,11 +264,11 @@ export default function FinalEntitySourceViewer({
 
             <button
               type="button"
-              disabled
-              className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-semibold text-white opacity-50"
-              title="Export backend will be added later."
+              onClick={exportSelectedDocs}
+              disabled={isExporting || selectedDocIds.length === 0}
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Export Selected
+              {isExporting ? "Exporting..." : "Export Selected"}
             </button>
           </div>
 

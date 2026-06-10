@@ -99,6 +99,7 @@ function ReviewPageContent() {
 
   const docSetParam = searchParams.get("docSet") || "";
   const sourceParam = searchParams.get("source") || "";
+  const entityParam = searchParams.get("entity") || "";
 
   const finalSourceDocIds = splitDocSet(docSetParam);
 
@@ -430,6 +431,10 @@ function ReviewPageContent() {
     if (isFinalSourceView) {
       params.set("source", "final");
       params.set("docSet", finalSourceDocIds.join(";"));
+
+      if (entityParam) {
+        params.set("entity", entityParam);
+      }
     } else if (batchId) {
       params.set("batch", batchId);
     }
@@ -551,16 +556,11 @@ function ReviewPageContent() {
 
     if (clientId) params.set("client", clientId);
     if (projectId) params.set("project", projectId);
+    if (entityParam) params.set("entity", entityParam);
 
     params.set("docIds", finalSourceDocIds.join(";"));
     params.set("startDoc", finalSourceDocIds[0] || docId);
     params.set("source", "final");
-
-    const entityName = searchParams.get("entity") || "";
-
-    if (entityName) {
-      params.set("entity", entityName);
-    }
 
     router.push(`/capture/entities/final-viewer?${params.toString()}`);
   }

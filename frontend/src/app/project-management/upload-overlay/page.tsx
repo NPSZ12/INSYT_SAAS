@@ -442,7 +442,7 @@ function UploadOverlayPageContent() {
 
               <label
                 htmlFor="overlay-file-input"
-                className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-slate-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-600"
+                className="inline-flex h-10 min-w-[170px] cursor-pointer items-center justify-center whitespace-nowrap rounded-full border border-emerald-400/60 bg-emerald-500/15 px-5 text-sm font-semibold text-emerald-200 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-950"
               >
                 Select File
               </label>
@@ -460,23 +460,33 @@ function UploadOverlayPageContent() {
               </p>
             )}
 
-            <div className="flex gap-2">
-              <Button onClick={previewOverlay}>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={previewOverlay}
+                disabled={loading}
+                className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-sky-400/60 bg-sky-500/15 px-5 text-sm font-semibold text-sky-200 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 {loading
                   ? "Working..."
                   : overlayView === "final"
                     ? "Preview Final Deliverable"
                     : "Preview Raw Overlay"}
-              </Button>
+              </button>
 
               {previewData && (
-                <Button onClick={() => commitOverlay()}>
+                <button
+                  type="button"
+                  onClick={() => commitOverlay()}
+                  disabled={loading}
+                  className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-violet-400/60 bg-violet-500/15 px-5 text-sm font-semibold text-violet-200 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
                   {overlayView === "final"
                     ? "Commit Final Deliverable"
                     : previewData?.headers_match_exactly === false
                       ? "Proceed with Commit"
                       : "Commit Raw Overlay"}
-                </Button>
+                </button>
               )}
             </div>
           </div>
