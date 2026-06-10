@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from azure.storage.blob import BlobServiceClient
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.core.credentials import AzureKeyCredential
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -184,6 +187,66 @@ def determine_viewer_type(file_name: str, extracted_text: str = "") -> str:
 
     return "unsupported"
 
+def is_ocr_candidate(file_name: str) -> bool:
+    extension = get_extension(file_name)
+
+    return extension in [
+        ".pdf",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".bmp",
+        ".tif",
+        ".tiff",
+        ".webp",
+    ]
+
+
+def extract_text_with_document_intelligence(
+    local_file_path: str,
+    file_name: str,
+) -> str:
+    endpoint = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "").strip()
+    key = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "").strip()
+
+    if not endpoint or not key:
+        raise RuntimeError(
+            "Azure Document Intelligence endpoint/key are not configured."
+        )
+
+    client = DocumentIntelligenceClient(
+        endpoint=endpoint,
+        credential=AzureKeyCredential(key),
+    )
+
+    with open(local_file_path, "rb") as file:
+        poller = client.begin_analyze_document(
+            model_id="prebuilt-read",
+            body=file,
+        )
+
+    result = poller.result()
+
+    text_parts = []
+
+    for page in result.pages or []:
+        page_number = getattr(page, "page_number", "")
+
+        if page_number:
+            text_parts.append(f"\n\n--- Page {page_number} ---\n")
+
+        for line in page.lines or []:
+            content = getattr(line, "content", "")
+
+            if content:
+                text_parts.append(content)
+
+    extracted = "\n".join(text_parts).strip()
+
+    if not extracted and getattr(result, "content", ""):
+        extracted = result.content.strip()
+
+    return extracted
 
 def read_json_blob(container_client, blob_path: str, fallback: Any):
     blob_client = container_client.get_blob_client(blob_path)
@@ -230,27 +293,44 @@ def delete_blob_if_exists(container_client, blob_path: str):
 
 def extract_text_basic(local_file_path: str, file_name: str) -> str:
     """
-    Placeholder extractor.
+    Processing Center extraction layer.
 
-    This gives us a working Processing Center now.
-    Later we can replace this with:
-    - Azure AI Document Intelligence OCR
-    - Tika
-    - PyMuPDF
-    - python-docx
-    - msg/email extraction
+    Phase 1:
+    - Direct text extraction for text-like files
+    - Azure Document Intelligence OCR for PDFs/images
+
+    Later phases:
+    - Office document conversion
+    - MSG/EML parsing
     - family/attachment expansion
+    - OCR confidence/page metadata
     """
 
     lower = file_name.lower()
 
-    if lower.endswith(".txt"):
-        with open(local_file_path, "r", encoding="utf-8", errors="ignore") as f:
+    if lower.endswith((
+        ".txt",
+        ".csv",
+        ".log",
+        ".json",
+        ".xml",
+        ".html",
+        ".htm",
+        ".dat",
+    )):
+        with open(
+            local_file_path,
+            "r",
+            encoding="utf-8",
+            errors="ignore",
+        ) as f:
             return f.read()
 
-    if lower.endswith(".csv"):
-        with open(local_file_path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
+    if is_ocr_candidate(file_name):
+        return extract_text_with_document_intelligence(
+            local_file_path,
+            file_name,
+        )
 
     return ""
 
@@ -480,6 +560,7 @@ def start_processing(
             )
 
             extension = get_extension(file_name)
+            ocr_applied = is_ocr_candidate(file_name)
             viewer_type = determine_viewer_type(file_name, extracted_text)
 
             preview_pdf = preview_pdf_path(
@@ -512,6 +593,8 @@ def start_processing(
                 "preview_html_path": preview_html,
                 "viewer_type": viewer_type,
                 "preview_available": viewer_type in ["pdf", "image", "text", "email"],
+                "ocr_applied": ocr_applied,
+                "ocr_engine": "azure_document_intelligence_read" if ocr_applied else "",
                 "text_length": len(extracted_text or ""),
             }
 

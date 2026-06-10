@@ -37,6 +37,8 @@ type ProcessingFile = {
   preview_pdf_path?: string;
   preview_html_path?: string;
   text_length?: number;
+  ocr_applied?: boolean;
+  ocr_engine?: string;
   error?: string;
 };
 
@@ -350,6 +352,8 @@ export default function ProcessingCenterPage({
                   <th className="w-36 px-3 py-3 font-medium">Status</th>
                   <th className="w-48 px-3 py-3 font-medium">Viewer Type</th>
                   <th className="w-40 px-3 py-3 font-medium">Preview Available</th>
+                  <th className="w-36 px-3 py-3 font-medium">OCR Applied</th>
+                  <th className="w-72 px-3 py-3 font-medium">OCR Engine</th>
                   <th className="w-32 px-3 py-3 font-medium">Text Length</th>
                   <th className="w-56 px-3 py-3 font-medium">Processed</th>
                   <th className="w-[320px] px-3 py-3 font-medium">Final Text Path</th>
@@ -363,7 +367,7 @@ export default function ProcessingCenterPage({
                 {files.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={12}
+                      colSpan={14}
                       className="px-3 py-8 text-center text-slate-400"
                     >
                       No files have been uploaded to the Processing Center yet.
@@ -400,6 +404,14 @@ export default function ProcessingCenterPage({
 
                       <td className="px-3 py-3 text-slate-300">
                         {file.preview_available ? "Yes" : "No"}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {file.ocr_applied ? "Yes" : "No"}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {file.ocr_engine || "—"}
                       </td>
 
                       <td className="px-3 py-3 text-slate-300">
