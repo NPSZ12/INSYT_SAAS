@@ -250,6 +250,33 @@ def calculate_statistical_sample_size(
 
     return math.ceil(corrected_n)
 
+def load_project_batch(
+    workspace: Workspace,
+    project_id: str,
+    batch_name: str,
+    client_id: str = "",
+):
+    container = get_container_client(workspace)
+
+    if client_id:
+        batch_blob_name = f"{client_id}/{project_id}/Batches/{batch_name}.json"
+    else:
+        batch_blob_name = f"{project_id}/Batches/{batch_name}.json"
+
+    blob_client = container.get_blob_client(batch_blob_name)
+
+    if not blob_client.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source batch not found: {batch_name}",
+        )
+
+    return json.loads(
+        blob_client.download_blob()
+        .readall()
+        .decode("utf-8")
+    )
+
 def create_project_batch(
     workspace: Workspace,
     project_id: str,
@@ -272,8 +299,86 @@ def create_project_batch(
             status_code=400,
             detail="Level must be one of: 1L, QC, ALT Workflow.",
         )
+        
+    options = options or {}
 
-    if level == "ALT Workflow":
+    if (
+        level == "QC"
+        and options.get("qc_sampling")
+        and options.get("source_batch_id")
+    ):
+        source_batch_id = str(
+            options.get("source_batch_id") or ""
+        ).strip()
+
+        source_batch = load_project_batch(
+            workspace=workspace,
+            project_id=project_id,
+            batch_name=source_batch_id,
+            client_id=client_id,
+        )
+
+        source_status = str(
+            source_batch.get("status", "")
+        ).lower().replace("_", " ")
+
+        if source_batch.get("level") != "1L":
+            raise HTTPException(
+                status_code=400,
+                detail="QC sampling source must be a 1L batch.",
+            )
+
+        if source_status not in [
+            "checked out",
+            "in progress",
+            "completed",
+        ]:
+            raise HTTPException(
+                status_code=400,
+                detail="QC sampling source must be In Progress or Completed.",
+            )
+
+        source_doc_ids = [
+            str(doc_id).strip()
+            for doc_id in source_batch.get("doc_ids", [])
+            if str(doc_id).strip()
+        ]
+
+        if not source_doc_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected source batch has no documents.",
+            )
+
+        qc_percent = float(
+            options.get("qc_sample_percentage", 10)
+        )
+
+        if qc_percent <= 0 or qc_percent > 100:
+            raise HTTPException(
+                status_code=400,
+                detail="QC sample percentage must be between 1 and 100.",
+            )
+
+        sample_size = max(
+            1,
+            math.ceil(len(source_doc_ids) * (qc_percent / 100)),
+        )
+
+        sample_size = min(sample_size, len(source_doc_ids))
+
+        eligible_doc_ids = random.sample(
+            source_doc_ids,
+            sample_size,
+        )
+
+        batch_size = sample_size
+
+        options["qc_source_batch_id"] = source_batch_id
+        options["qc_source_document_count"] = len(source_doc_ids)
+        options["qc_sample_size"] = sample_size
+
+    elif level == "ALT Workflow":
         if not search_folder_doc_ids:
             raise HTTPException(
                 status_code=400,
@@ -471,6 +576,11 @@ def create_project_batch(
             "client_id": client_id,
             "level": level,
             "workflow_type": workflow_type,
+            "options": options,
+            "source_batch_id": options.get("qc_source_batch_id", ""),
+            "qc_sample_percentage": options.get("qc_sample_percentage", ""),
+            "qc_source_document_count": options.get("qc_source_document_count", 0),
+            "qc_sample_size": options.get("qc_sample_size", 0),
             "status": "Available",
             "batch_size": batch_size,
             "document_count": len(chunk),
