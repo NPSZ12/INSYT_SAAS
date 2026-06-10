@@ -111,15 +111,39 @@ export default function FinalEntitySourceViewer({
       return;
     }
 
+    const approved = window.confirm(
+      [
+        "Confirm Export",
+        "",
+        `Captured Entity: ${capturedEntity || "Unknown Entity"}`,
+        `Project: ${projectId}`,
+        `Selected Source Docs: ${cleanDocIds.length}`,
+        "",
+        "This will export the selected source documents into a ZIP package.",
+        "",
+        "Continue?",
+      ].join("\n")
+    );
+
+    if (!approved) {
+      return;
+    }
+
     setIsExporting(true);
 
     try {
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem("insyt_token")
+          : "";
+
       const response = await fetch(
         `${API_BASE_URL}/api/entities/export-source-docs`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
             workspace,
@@ -249,7 +273,7 @@ export default function FinalEntitySourceViewer({
             <button
               type="button"
               onClick={openSelectedDocs}
-              className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+              className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-sky-400/60 bg-sky-500/15 px-5 text-sm font-semibold text-sky-200 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white"
             >
               Open Review for Selected
             </button>
@@ -257,7 +281,7 @@ export default function FinalEntitySourceViewer({
             <button
               type="button"
               onClick={openAllDocs}
-              className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500"
+              className="inline-flex h-10 min-w-[170px] items-center justify-center whitespace-nowrap rounded-full border border-emerald-400/60 bg-emerald-500/15 px-5 text-sm font-semibold text-emerald-200 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white"
             >
               Open Review for All
             </button>
@@ -266,7 +290,7 @@ export default function FinalEntitySourceViewer({
               type="button"
               onClick={exportSelectedDocs}
               disabled={isExporting || selectedDocIds.length === 0}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-10 min-w-[150px] items-center justify-center whitespace-nowrap rounded-full border border-blue-500/70 bg-blue-950/70 px-5 text-sm font-semibold text-blue-100 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isExporting ? "Exporting..." : "Export Selected"}
             </button>
