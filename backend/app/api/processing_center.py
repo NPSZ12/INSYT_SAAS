@@ -6,9 +6,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from azure.storage.blob import BlobServiceClient
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import ResourceExistsError
+from azure.storage.blob import BlobServiceClient
+from azure.storage.queue import QueueClient
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -29,6 +31,12 @@ class ProcessingFilePayload(BaseModel):
     client: str
     project_id: str
     file_name: str
+    
+class StartProcessingJobPayload(BaseModel):
+    client: str
+    project_id: str
+    job_type: str = "processing"
+    requested_by: str = ""
 
 
 def get_container_name(workspace: str) -> str:
@@ -114,6 +122,39 @@ def errors_path(client: str, project_id: str, file_name: str) -> str:
 def manifest_path(client: str, project_id: str) -> str:
     return f"{processing_base_path(client, project_id)}/manifest.json"
 
+def processing_jobs_base_path(client: str, project_id: str) -> str:
+    return f"{processing_base_path(client, project_id)}/jobs"
+
+
+def processing_job_path(client: str, project_id: str, job_id: str) -> str:
+    return f"{processing_jobs_base_path(client, project_id)}/{job_id}.json"
+
+
+def get_processing_queue_client() -> QueueClient:
+    conn = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+
+    if not conn:
+        raise HTTPException(
+            status_code=500,
+            detail="AZURE_STORAGE_CONNECTION_STRING is not configured",
+        )
+
+    queue_name = os.getenv(
+        "AZURE_PROCESSING_QUEUE_NAME",
+        "insyt-processing-jobs",
+    )
+
+    queue_client = QueueClient.from_connection_string(
+        conn_str=conn,
+        queue_name=queue_name,
+    )
+
+    try:
+        queue_client.create_queue()
+    except ResourceExistsError:
+        pass
+
+    return queue_client
 
 def get_doc_id(file_name: str) -> str:
     base = file_name.rsplit(".", 1)[0]
@@ -723,3 +764,262 @@ def start_processing(
         "processed": processed,
         "errors": errors,
     }
+    
+@router.post("/jobs/start")
+def start_processing_job(
+    workspace: str,
+    payload: StartProcessingJobPayload,
+):
+    try:
+        container_name = get_container_name(workspace)
+        service = get_blob_service_client()
+        container = service.get_container_client(container_name)
+
+        job_id = str(uuid.uuid4())
+        now = now_iso()
+
+        base = processing_base_path(payload.client, payload.project_id)
+        uploads_prefix = f"{base}/uploads/"
+
+        upload_files = []
+
+        for blob in container.list_blobs(name_starts_with=uploads_prefix):
+            file_name = blob.name.split("/")[-1]
+
+            if file_name:
+                upload_files.append(
+                    {
+                        "file_name": file_name,
+                        "upload_path": blob.name,
+                        "status": "Queued",
+                    }
+                )
+                
+        if not upload_files:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "No uploaded files are waiting for background processing.",
+                    "uploads_prefix": uploads_prefix,
+                    "client": payload.client,
+                    "project_id": payload.project_id,
+                },
+            )
+
+        job = {
+            "job_id": job_id,
+            "workspace": workspace,
+            "client": payload.client,
+            "project_id": payload.project_id,
+            "job_type": payload.job_type or "processing",
+            "status": "Queued",
+            "requested_by": payload.requested_by or "",
+            "total_files": len(upload_files),
+            "queued_files": len(upload_files),
+            "processed_files": 0,
+            "error_files": 0,
+            "created_at": now,
+            "started_at": "",
+            "completed_at": "",
+            "last_updated_at": now,
+            "files": upload_files,
+            "message": "Processing job queued.",
+        }
+
+        job_blob_path = processing_job_path(
+            payload.client,
+            payload.project_id,
+            job_id,
+        )
+
+        write_json_blob(container, job_blob_path, job)
+
+        queue_client = get_processing_queue_client()
+
+        queue_message = {
+            "job_id": job_id,
+            "workspace": workspace,
+            "client": payload.client,
+            "project_id": payload.project_id,
+            "job_blob_path": job_blob_path,
+            "job_type": payload.job_type or "processing",
+        }
+
+        queue_client.send_message(json.dumps(queue_message))
+
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "status": "Queued",
+            "total_files": len(upload_files),
+            "job_blob_path": job_blob_path,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to start processing job.",
+                "workspace": workspace,
+                "client": payload.client,
+                "project_id": payload.project_id,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
+    
+@router.get("/jobs")
+def list_processing_jobs(
+    workspace: str,
+    client: str,
+    project_id: str,
+):
+    try:
+        container_name = get_container_name(workspace)
+        service = get_blob_service_client()
+        container = service.get_container_client(container_name)
+
+        jobs_prefix = processing_jobs_base_path(
+            client,
+            project_id,
+        ) + "/"
+
+        jobs = []
+
+        for blob in container.list_blobs(name_starts_with=jobs_prefix):
+            if not blob.name.endswith(".json"):
+                continue
+
+            try:
+                job = read_json_blob(
+                    container,
+                    blob.name,
+                    None,
+                )
+
+                if job:
+                    job_files = job.get("files", []) or []
+
+                    file_names = [
+                        str(item.get("file_name", ""))
+                        for item in job_files
+                        if str(item.get("file_name", "")).strip()
+                    ]
+
+                    latest_file_name = file_names[0] if file_names else ""
+
+                    jobs.append(
+                        {
+                            "job_id": job.get("job_id", ""),
+                            "workspace": job.get("workspace", workspace),
+                            "client": job.get("client", client),
+                            "project_id": job.get("project_id", project_id),
+                            "job_type": job.get("job_type", ""),
+                            "status": job.get("status", ""),
+                            "requested_by": job.get("requested_by", ""),
+                            "total_files": job.get("total_files", 0),
+                            "queued_files": job.get("queued_files", 0),
+                            "processed_files": job.get("processed_files", 0),
+                            "error_files": job.get("error_files", 0),
+                            "created_at": job.get("created_at", ""),
+                            "started_at": job.get("started_at", ""),
+                            "completed_at": job.get("completed_at", ""),
+                            "last_updated_at": job.get("last_updated_at", ""),
+                            "message": job.get("message", ""),
+                            "job_blob_path": blob.name,
+                            "latest_file_name": latest_file_name,
+                            "file_names": file_names,
+                            "files": job_files,
+                        }
+                    )
+
+            except Exception:
+                continue
+
+        jobs.sort(
+            key=lambda item: item.get("created_at", ""),
+            reverse=True,
+        )
+
+        return {
+            "workspace": workspace,
+            "client": client,
+            "project_id": project_id,
+            "jobs": jobs,
+            "job_count": len(jobs),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to list processing jobs.",
+                "workspace": workspace,
+                "client": client,
+                "project_id": project_id,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
+    
+@router.get("/jobs/{job_id}")
+def get_processing_job(
+    workspace: str,
+    job_id: str,
+    client: str,
+    project_id: str,
+):
+    try:
+        container_name = get_container_name(workspace)
+        service = get_blob_service_client()
+        container = service.get_container_client(container_name)
+
+        job_blob_path = processing_job_path(
+            client,
+            project_id,
+            job_id,
+        )
+
+        blob_client = container.get_blob_client(job_blob_path)
+
+        if not blob_client.exists():
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": "Processing job not found.",
+                    "job_id": job_id,
+                    "job_blob_path": job_blob_path,
+                    "client": client,
+                    "project_id": project_id,
+                },
+            )
+
+        raw = (
+            blob_client.download_blob()
+            .readall()
+            .decode("utf-8")
+        )
+
+        return json.loads(raw)
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to load processing job.",
+                "job_id": job_id,
+                "client": client,
+                "project_id": project_id,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )

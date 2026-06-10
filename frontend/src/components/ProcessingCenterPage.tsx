@@ -48,6 +48,44 @@ type ProcessingFile = {
   error?: string;
 };
 
+type ProcessingJob = {
+  job_id: string;
+  workspace: string;
+  client: string;
+  project_id: string;
+  job_type: string;
+  status: string;
+  requested_by?: string;
+  total_files: number;
+  queued_files: number;
+  processed_files: number;
+  error_files: number;
+  created_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  last_updated_at?: string;
+  message?: string;
+  job_blob_path?: string;
+  latest_file_name?: string;
+  file_names?: string[];
+  files?: {
+    file_name?: string;
+    status?: string;
+    upload_path?: string;
+    final_native_path?: string;
+    final_text_path?: string;
+    error?: string;
+  }[];
+};
+
+type JobsResponse = {
+  workspace: string;
+  client: string;
+  project_id: string;
+  jobs: ProcessingJob[];
+  job_count: number;
+};
+
 type ManifestResponse = {
   client: string;
   project_id: string;
@@ -78,6 +116,32 @@ function getStatusBadgeClass(status: string) {
   }
 
   if (clean === "error") {
+    return "bg-red-500/15 text-red-300 border-red-500/30";
+  }
+
+  return "bg-slate-500/15 text-slate-300 border-slate-500/30";
+}
+
+function getJobStatusBadgeClass(status: string) {
+  const clean = String(status || "").toLowerCase();
+
+  if (clean === "completed") {
+    return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+  }
+
+  if (clean === "running") {
+    return "bg-sky-500/15 text-sky-300 border-sky-500/30";
+  }
+
+  if (clean === "queued") {
+    return "bg-amber-500/15 text-amber-300 border-amber-500/30";
+  }
+
+  if (clean === "completed with errors") {
+    return "bg-orange-500/15 text-orange-300 border-orange-500/30";
+  }
+
+  if (clean === "failed") {
     return "bg-red-500/15 text-red-300 border-red-500/30";
   }
 
@@ -122,6 +186,12 @@ export default function ProcessingCenterPage({
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const [jobs, setJobs] = useState<ProcessingJob[]>([]);
+  const [isLoadingJobs, setIsLoadingJobs] = useState(false);
+  const [isStartingBackgroundJob, setIsStartingBackgroundJob] =
+    useState(false);
+
   const [message, setMessage] = useState("");
 
   const files = manifest?.files || [];
@@ -164,6 +234,27 @@ export default function ProcessingCenterPage({
       setIsLoading(false);
     }
   }
+
+  async function loadJobs() {
+  if (!clientId || !projectId) return;
+
+  setIsLoadingJobs(true);
+
+  try {
+    const data: JobsResponse = await apiGet(
+      `/api/${workspace}/processing-center/jobs?client=${encodeURIComponent(
+        clientId
+      )}&project_id=${encodeURIComponent(projectId)}`
+    );
+
+    setJobs(data.jobs || []);
+  } catch (error) {
+    console.error(error);
+    setMessage("Unable to load processing jobs.");
+  } finally {
+    setIsLoadingJobs(false);
+  }
+}
 
   async function uploadFile() {
     if (!clientId || !projectId || !selectedFile) return;
@@ -226,8 +317,48 @@ export default function ProcessingCenterPage({
     }
   }
 
+  async function startBackgroundProcessingJob() {
+  if (!clientId || !projectId) return;
+
+  setIsStartingBackgroundJob(true);
+  setMessage("");
+
+  try {
+    const storedUser = localStorage.getItem("insyt_user");
+    const user = storedUser ? JSON.parse(storedUser) : null;
+
+    const response = await apiPost(
+      `/api/${workspace}/processing-center/jobs/start`,
+      {
+        client: clientId,
+        project_id: projectId,
+        job_type: "processing",
+        requested_by:
+          user?.display_name ||
+          user?.username ||
+          "Unknown",
+      }
+    );
+
+    setMessage(
+      `Background processing job queued: ${response.job_id}`
+    );
+
+    await loadJobs();
+    await loadManifest();
+  } catch (error) {
+    console.error(error);
+    setMessage(
+      "Unable to start background processing job. Make sure at least one uploaded file is waiting in Processing Center."
+    );
+  } finally {
+    setIsStartingBackgroundJob(false);
+  }
+}
+
   useEffect(() => {
     loadManifest();
+    loadJobs();
   }, [clientId, projectId, workspace]);
 
   return (
@@ -317,6 +448,18 @@ export default function ProcessingCenterPage({
               >
                 {isProcessing ? "Processing..." : "Start Processing"}
               </Button>
+
+              <Button
+                onClick={() => {
+                  if (isStartingBackgroundJob) return;
+                  startBackgroundProcessingJob();
+                }}
+              >
+                {isStartingBackgroundJob
+                  ? "Queuing..."
+                  : "Start Background Job"}
+              </Button>
+
             </div>
           </div>
 
@@ -325,6 +468,117 @@ export default function ProcessingCenterPage({
               {message}
             </div>
           ) : null}
+        </ContentCard>
+
+        <ContentCard>
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <div className="text-lg font-semibold text-white">
+                Processing Jobs
+              </div>
+              <div className="mt-1 text-sm text-slate-400">
+                Background processing queue and job history for this project.
+              </div>
+            </div>
+
+            <Button
+              onClick={() => {
+                if (isLoadingJobs) return;
+                loadJobs();
+              }}
+            >
+              {isLoadingJobs ? "Refreshing..." : "Refresh Jobs"}
+            </Button>
+          </div>
+
+          <div className="max-w-full overflow-x-auto rounded-xl border border-slate-800">
+            <table className="min-w-[1500px] divide-y divide-slate-800 text-sm">
+              <thead>
+                <tr className="text-left text-slate-400">
+                  <th className="w-72 px-3 py-3 font-medium">Job ID</th>
+                  <th className="w-[320px] px-3 py-3 font-medium">File</th>
+                  <th className="w-36 px-3 py-3 font-medium">Status</th>
+                  <th className="w-32 px-3 py-3 font-medium">Total</th>
+                  <th className="w-32 px-3 py-3 font-medium">Processed</th>
+                  <th className="w-32 px-3 py-3 font-medium">Errors</th>
+                  <th className="w-48 px-3 py-3 font-medium">Requested By</th>
+                  <th className="w-56 px-3 py-3 font-medium">Created</th>
+                  <th className="w-56 px-3 py-3 font-medium">Started</th>
+                  <th className="w-56 px-3 py-3 font-medium">Completed</th>
+                  <th className="w-[420px] px-3 py-3 font-medium">Message</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-800">
+                {jobs.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={11}
+                      className="px-3 py-8 text-center text-slate-400"
+                    >
+                      No processing jobs have been created for this project yet.
+                    </td>
+                  </tr>
+                ) : (
+                  jobs.map((job) => (
+                    <tr key={job.job_id}>
+                      <td className="px-3 py-3 font-mono text-xs text-slate-300">
+                        {job.job_id}
+                      </td>
+
+                      <td className="max-w-[320px] truncate px-3 py-3 text-slate-300">
+                        {job.latest_file_name ||
+                          job.file_names?.join(", ") ||
+                          (job.total_files === 0 ? "No pending files" : "—")}
+                      </td>
+
+                      <td className="px-3 py-3">
+                        <span
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${getJobStatusBadgeClass(
+                            job.status
+                          )}`}
+                        >
+                          {job.status || "Unknown"}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {job.total_files ?? 0}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {job.processed_files ?? 0}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {job.error_files ?? 0}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {job.requested_by || "—"}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {formatDate(job.created_at)}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {formatDate(job.started_at)}
+                      </td>
+
+                      <td className="px-3 py-3 text-slate-300">
+                        {formatDate(job.completed_at)}
+                      </td>
+
+                      <td className="max-w-[420px] truncate px-3 py-3 text-slate-400">
+                        {job.message || "—"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </ContentCard>
 
         <ContentCard>
