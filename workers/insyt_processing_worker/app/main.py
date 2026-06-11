@@ -47,7 +47,7 @@ from app.api import capture_review_batches
 from app.api import discovery_review_batches
 from app.api import summaries_review_batches
 from app.api import processing_center
-from app.api import reviewer_hours
+
 
 from app.api import document_overlays
 
@@ -228,7 +228,6 @@ app.include_router(capture_review_batches.router)
 app.include_router(discovery_review_batches.router)
 app.include_router(summaries_review_batches.router)
 app.include_router(processing_center.router)
-app.include_router(reviewer_hours.router)
 
 
 
