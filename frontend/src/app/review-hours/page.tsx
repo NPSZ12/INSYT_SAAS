@@ -21,6 +21,9 @@ type TimeEntryDetail = {
   source?: string;
   edited_by?: string;
   edited_at?: string;
+  logout_reason?: string;
+  inactive_minutes_deducted?: number;
+  actual_logout_event_at?: string;
 };
 
 type ReviewHoursRow = {
@@ -145,6 +148,32 @@ function isQcAndUp(role?: string) {
   ].includes(role || "");
 }
 
+function isAdminOnly(role?: string) {
+  return ["INSYT Admin", "CDS Admin"].includes(role || "");
+}
+
+function getInactivityLogoutEntries(rows: ReviewHoursRow[]) {
+  return rows
+    .flatMap((row) =>
+      (row.details || [])
+        .filter(
+          (item) =>
+            item.logout_reason === "inactivity_timeout" ||
+            item.source === "inactivity_timeout"
+        )
+        .map((item) => ({
+          row,
+          item,
+        }))
+    )
+    .sort((a, b) => {
+      const aTime = getEntryTimestamp(a.item);
+      const bTime = getEntryTimestamp(b.item);
+
+      return bTime - aTime;
+    });
+}
+
 function getEntryTimestamp(item: TimeEntryDetail) {
   const value = item.logout || item.login;
 
@@ -261,6 +290,7 @@ function ReviewHoursPageContent() {
 
   const todayDate = getTodayDateString();
   const canUnlockDates = isQcAndUp(user?.role);
+  const inactivityLogoutEntries = getInactivityLogoutEntries(rows); 
 
   const activeDayIsToday =
     Boolean(activeDay) && activeDay?.date === todayDate;
@@ -753,6 +783,87 @@ function ReviewHoursPageContent() {
               </div>
             </>
           )}
+
+          {isAdminOnly(user?.role) && (
+            <div className="mt-8 rounded-xl border border-slate-800 bg-slate-950">
+              <div className="border-b border-slate-800 px-4 py-3">
+                <h3 className="text-sm font-semibold text-white">
+                  Inactivity Auto Logouts
+                </h3>
+                <p className="mt-1 text-xs text-slate-400">
+                  Admin-only tracker showing reviewers automatically logged out due to inactivity for the selected week.
+                </p>
+              </div>
+
+              <div className="overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-900 text-slate-400">
+                    <tr>
+                      <th className="p-3 text-left">Reviewer</th>
+                      <th className="p-3 text-left">Date</th>
+                      <th className="p-3 text-left">Login</th>
+                      <th className="p-3 text-left">Recorded Logout</th>
+                      <th className="p-3 text-left">Actual Auto Logout Event</th>
+                      <th className="p-3 text-right">Inactive Deducted</th>
+                      <th className="p-3 text-right">Hours</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {inactivityLogoutEntries.map(({ row, item }) => (
+                      <tr
+                        key={`${row.username}-${item.entry_id || item.date}-${item.login}-${item.logout}`}
+                        className="border-t border-slate-800"
+                      >
+                        <td className="p-3 text-white">
+                          <div>{row.display_name || row.username}</div>
+                          <div className="text-xs text-slate-500">
+                            {row.username} • {row.role || "—"}
+                          </div>
+                        </td>
+
+                        <td className="p-3 text-slate-300">
+                          {item.date || "—"}
+                        </td>
+
+                        <td className="p-3 text-slate-300">
+                          {formatTimeDisplay(item.login)}
+                        </td>
+
+                        <td className="p-3 text-slate-300">
+                          {formatTimeDisplay(item.logout)}
+                        </td>
+
+                        <td className="p-3 text-slate-300">
+                          {formatTimeDisplay(item.actual_logout_event_at)}
+                        </td>
+
+                        <td className="p-3 text-right text-amber-300">
+                          {Number(item.inactive_minutes_deducted || 0)} min
+                        </td>
+
+                        <td className="p-3 text-right text-white">
+                          {Number(item.hours || 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {inactivityLogoutEntries.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={7}
+                          className="p-6 text-center text-slate-500"
+                        >
+                          No inactivity auto logouts found for this selected week.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
         </ContentCard>
 
         {selectedReviewer && (
