@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Header, HTTPException
+import io
+import os
+import re
+import zipfile
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from datetime import datetime, timezone
 
 from app.services.project_store import CAPTURED_ENTITIES
 from app.services.protocol_service import load_protocol_fields
 
 import csv
-import io
 import json
-import zipfile
 from typing import Any
 
 from app.services.batch_service import get_container_client
@@ -283,6 +286,39 @@ def build_source_docs_csv(
 
     return output.getvalue().encode("utf-8-sig")
 
+def build_filtered_source_docs_csv(
+    payload: "FilteredSourceDocsZipRequest",
+    exported_rows: list[dict[str, Any]],
+) -> bytes:
+    output = io.StringIO()
+
+    fieldnames = [
+        "Project",
+        "Doc ID",
+        "Native Exported",
+        "Text Exported",
+        "Native Blob",
+        "Text Blob",
+        "Status",
+    ]
+
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for row in exported_rows:
+        writer.writerow(
+            {
+                "Project": payload.project,
+                "Doc ID": row.get("doc_id", ""),
+                "Native Exported": "Yes" if row.get("native_exported") else "",
+                "Text Exported": "Yes" if row.get("text_exported") else "",
+                "Native Blob": row.get("native_blob", ""),
+                "Text Blob": row.get("text_blob", ""),
+                "Status": row.get("status", ""),
+            }
+        )
+
+    return output.getvalue().encode("utf-8-sig")
 
 router = APIRouter(prefix="/api/entities", tags=["Captured Entities"])
 
@@ -319,6 +355,15 @@ class EntitySourceDocsExportRequest(BaseModel):
     entity: str = ""
     entity_uid: str = ""
     doc_ids: list[str]
+    include_native: bool = True
+    include_text: bool = True
+    
+class FilteredSourceDocsZipRequest(BaseModel):
+    workspace: str = "capture"
+    client: str = ""
+    project: str
+    doc_ids: list[str]
+    zip_label: str = "Filtered_Source_Documents"
     include_native: bool = True
     include_text: bool = True
 
@@ -651,6 +696,152 @@ def export_source_docs(
     )
 
     filename = f"{safe_export_id}_source_docs.zip"
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    }
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers=headers,
+    )
+    
+@router.post("/export-source-docs-zip")
+def export_source_docs_zip(
+    payload: FilteredSourceDocsZipRequest,
+):
+    if not payload.project:
+        raise HTTPException(
+            status_code=400,
+            detail="Project is required.",
+        )
+
+    clean_doc_ids = [
+        str(doc_id or "").strip()
+        for doc_id in payload.doc_ids
+        if str(doc_id or "").strip()
+    ]
+
+    # Preserve order while deduping.
+    clean_doc_ids = list(dict.fromkeys(clean_doc_ids))
+
+    if not clean_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one Doc ID is required.",
+        )
+
+    zip_buffer = io.BytesIO()
+    exported_rows = []
+    used_zip_names = set()
+
+    def add_blob_to_zip(
+        zip_file: zipfile.ZipFile,
+        blob_name: str,
+        folder_name: str,
+    ):
+        blob_bytes = read_blob_bytes(
+            workspace=payload.workspace,
+            blob_name=blob_name,
+        )
+
+        filename = blob_name.split("/")[-1]
+        zip_name = f"{folder_name}/{filename}"
+
+        if zip_name in used_zip_names:
+            stem, extension = os.path.splitext(filename)
+            counter = 2
+
+            while zip_name in used_zip_names:
+                zip_name = f"{folder_name}/{stem}_{counter}{extension}"
+                counter += 1
+
+        used_zip_names.add(zip_name)
+        zip_file.writestr(zip_name, blob_bytes)
+
+    with zipfile.ZipFile(
+        zip_buffer,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as zip_file:
+        for doc_id in clean_doc_ids:
+            native_blob = ""
+            text_blob = ""
+            native_exported = False
+            text_exported = False
+            status_parts = []
+
+            if payload.include_native:
+                native_blob = find_blob_for_doc_id(
+                    workspace=payload.workspace,
+                    client=payload.client,
+                    project=payload.project,
+                    doc_id=doc_id,
+                    folder="source/native",
+                )
+
+                if native_blob:
+                    add_blob_to_zip(
+                        zip_file=zip_file,
+                        blob_name=native_blob,
+                        folder_name="native",
+                    )
+
+                    native_exported = True
+                    status_parts.append("native exported")
+                else:
+                    status_parts.append("native missing")
+
+            if payload.include_text:
+                text_blob = find_blob_for_doc_id(
+                    workspace=payload.workspace,
+                    client=payload.client,
+                    project=payload.project,
+                    doc_id=doc_id,
+                    folder="source/text",
+                )
+
+                if text_blob:
+                    add_blob_to_zip(
+                        zip_file=zip_file,
+                        blob_name=text_blob,
+                        folder_name="text",
+                    )
+
+                    text_exported = True
+                    status_parts.append("text exported")
+                else:
+                    status_parts.append("text missing")
+
+            exported_rows.append(
+                {
+                    "doc_id": doc_id,
+                    "native_blob": native_blob,
+                    "text_blob": text_blob,
+                    "native_exported": native_exported,
+                    "text_exported": text_exported,
+                    "status": "; ".join(status_parts),
+                }
+            )
+
+        zip_file.writestr(
+            "filtered_source_docs_export.csv",
+            build_filtered_source_docs_csv(
+                payload=payload,
+                exported_rows=exported_rows,
+            ),
+        )
+
+    zip_buffer.seek(0)
+
+    safe_label = safe_export_name(
+        payload.zip_label,
+        fallback="Filtered_Source_Documents",
+    )
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"{safe_label}_{timestamp}.zip"
 
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"'
