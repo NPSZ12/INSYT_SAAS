@@ -99,6 +99,10 @@ function UserAccessPageContent() {
     useState<Record<string, boolean>>({});
 
   const [message, setMessage] = useState("");
+  const [showUserWarningModal, setShowUserWarningModal] =
+    useState(false);
+  const [userWarningTitle, setUserWarningTitle] = useState("");
+  const [userWarningMessage, setUserWarningMessage] = useState("");
 
   const [form, setForm] = useState<UserAccessForm>(
     makeEmptyForm(defaultWorkspace)
@@ -220,6 +224,33 @@ function UserAccessPageContent() {
     });
   }
 
+  function getErrorMessage(error: any) {
+    const rawMessage =
+      error?.detail ||
+      error?.message ||
+      error?.response?.data?.detail ||
+      "Unable to save user.";
+
+    const jsonMatch = String(rawMessage).match(/\{.*\}$/);
+
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return parsed?.detail || rawMessage;
+      } catch {
+        return rawMessage;
+      }
+    }
+
+    return rawMessage;
+  }
+
+  function showUserWarning(title: string, message: string) {
+    setUserWarningTitle(title);
+    setUserWarningMessage(message);
+    setShowUserWarningModal(true);
+  }
+
   function createUser() {
     if (!form.username.trim()) {
       setMessage("Username is required.");
@@ -253,9 +284,23 @@ function UserAccessPageContent() {
         loadUsers();
       })
       .catch((error) => {
+        const errorMessage = getErrorMessage(error);
+
+        if (
+          errorMessage.includes("Duplicate Email Detected") ||
+          errorMessage.includes("Duplicate Username Detected")
+        ) {
+          setMessage("");
+          showUserWarning("Duplicate User Detected", errorMessage);
+          return;
+        }
+
         console.error(error);
-        setMessage(
-          "Save User Access failed. Check backend /api/users/create."
+
+        showUserWarning(
+          "User Save Failed",
+          errorMessage ||
+            "Save User Access failed. Check backend /api/users/create."
         );
       });
   }
@@ -287,8 +332,23 @@ function UserAccessPageContent() {
         loadUsers();
       })
       .catch((error) => {
+        const errorMessage = getErrorMessage(error);
+
+        if (
+          errorMessage.includes("Duplicate Email Detected") ||
+          errorMessage.includes("Duplicate Username Detected")
+        ) {
+          setMessage("");
+          showUserWarning("Duplicate User Detected", errorMessage);
+          return;
+        }
+
         console.error(error);
-        setMessage("Update User Access failed.");
+
+        showUserWarning(
+          "User Update Failed",
+          errorMessage || "Update User Access failed."
+        );
       });
   }
 
@@ -730,6 +790,30 @@ function UserAccessPageContent() {
           </ContentCard>
         </div>
       </PageContainer>
+
+      {showUserWarningModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <h2 className="text-lg font-semibold text-white">
+              {userWarningTitle}
+            </h2>
+
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              {userWarningMessage}
+            </p>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowUserWarningModal(false)}
+                className="rounded-full bg-sky-500 px-5 py-2 text-sm font-semibold text-white hover:bg-sky-400"
+              >
+                Acknowledge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

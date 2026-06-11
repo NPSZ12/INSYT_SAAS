@@ -395,11 +395,71 @@ def entra_login(
             detail="Missing Entra email.",
         )
 
-    user = (
+    matching_users = (
         db.query(User)
         .filter(User.email.ilike(email))
-        .first()
+        .all()
     )
+
+    if len(matching_users) > 1:
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            request=request,
+            target_type="user",
+            target_id=email,
+            details={
+                "reason": "duplicate_email_detected",
+                "email": email,
+                "matching_user_count": len(matching_users),
+                "matching_users": [
+                    {
+                        "username": candidate.username,
+                        "email": candidate.email,
+                        "status": candidate.status,
+                        "auth_provider": candidate.auth_provider,
+                    }
+                    for candidate in matching_users
+                ],
+            },
+        )
+
+        raise HTTPException(
+            status_code=409,
+            detail="Duplicate Email Detected, Contact an INSYT Admin for Assistance.",
+        )
+
+    user = matching_users[0] if matching_users else None
+
+    if len(matching_users) > 1:
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            request=request,
+            target_type="user",
+            target_id=email,
+            details={
+                "reason": "duplicate_email_detected",
+                "email": email,
+                "matching_user_count": len(matching_users),
+                "matching_users": [
+                    {
+                        "username": candidate.username,
+                        "email": candidate.email,
+                        "status": candidate.status,
+                        "auth_provider": candidate.auth_provider,
+                    }
+                    for candidate in matching_users
+                ],
+            },
+        )
+
+        raise HTTPException(
+            status_code=409,
+            detail="Duplicate Email Detected, Contact an INSYT Admin for Assistance.",
+        )
+
+    user = matching_users[0] if matching_users else None
 
     if not user:
         write_audit_log(
@@ -600,11 +660,19 @@ def entra_callback(
             detail="Entra profile did not include an email.",
         )
 
-    user = (
+    matching_users = (
         db.query(User)
         .filter(User.email.ilike(email))
-        .first()
+        .all()
     )
+
+    if len(matching_users) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Duplicate Email Detected, Contact an INSYT Admin for Assistance.",
+        )
+
+    user = matching_users[0] if matching_users else None
 
     if not user:
         raise HTTPException(

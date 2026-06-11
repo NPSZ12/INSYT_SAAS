@@ -14,6 +14,14 @@ from app.services.security import hash_password, require_admin
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
+DUPLICATE_USERNAME_MESSAGE = (
+    "Duplicate Username Detected, Contact an INSYT Admin for Assistance."
+)
+
+DUPLICATE_EMAIL_MESSAGE = (
+    "Duplicate Email Detected, Contact an INSYT Admin for Assistance."
+)
+
 
 class UserCreateRequest(BaseModel):
     username: str
@@ -92,17 +100,98 @@ def create_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    existing = (
+    username = (payload.username or "").strip()
+    email = (payload.email or "").strip().lower()
+    auth_provider = str(payload.auth_provider or "entra").strip().lower()
+
+    existing_username_user = (
         db.query(User)
-        .filter(User.username == payload.username)
+        .filter(User.username.ilike(username))
         .first()
     )
 
-    if existing:
-        return {
-            "status": "duplicate_user",
-            "message": "A user with this username already exists.",
-        }
+    if existing_username_user:
+        write_audit_log(
+            db=db,
+            action="USER_CREATE_FAILED",
+            actor=admin,
+            request=request,
+            target_type="user",
+            target_id=username,
+            details={
+                "reason": "duplicate_username_detected",
+                "username": username,
+                "existing_username": existing_username_user.username,
+            },
+        )
+
+        raise HTTPException(
+            status_code=409,
+            detail=DUPLICATE_USERNAME_MESSAGE,
+        )
+
+    if email:
+        existing_email_user = (
+            db.query(User)
+            .filter(User.email.ilike(email))
+            .first()
+        )
+
+        if existing_email_user:
+            write_audit_log(
+                db=db,
+                action="USER_CREATE_FAILED",
+                actor=admin,
+                request=request,
+                target_type="user",
+                target_id=username,
+                details={
+                    "reason": "duplicate_email_detected",
+                    "email": email,
+                    "existing_username": existing_email_user.username,
+                },
+            )
+
+            raise HTTPException(
+                status_code=409,
+                detail=DUPLICATE_EMAIL_MESSAGE,
+            )
+
+    payload.username = username
+    payload.email = email
+    payload.auth_provider = auth_provider
+        
+    email = (payload.email or "").strip().lower()
+
+    if email:
+        existing_email_user = (
+            db.query(User)
+            .filter(User.email.ilike(email))
+            .first()
+        )
+
+        if existing_email_user:
+            write_audit_log(
+                db=db,
+                action="USER_CREATE_FAILED",
+                actor=admin,
+                request=request,
+                target_type="user",
+                target_id=payload.username,
+                details={
+                    "reason": "duplicate_email_detected",
+                    "email": email,
+                    "existing_username": existing_email_user.username,
+                },
+            )
+
+            raise HTTPException(
+                status_code=409,
+                detail=DUPLICATE_EMAIL_MESSAGE,
+            )
+
+    payload.email = email
+    payload.auth_provider = str(payload.auth_provider or "entra").strip().lower()
 
     if (
         payload.role == "INSYT Admin"
@@ -204,14 +293,83 @@ def update_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    username = (payload.username or "").strip()
+    email = (payload.email or "").strip().lower()
+    auth_provider = str(payload.auth_provider or "entra").strip().lower()
+
     user = (
         db.query(User)
-        .filter(User.username == payload.username)
+        .filter(User.username.ilike(username))
         .first()
     )
 
     if not user:
         return {"status": "not_found"}
+    
+    if email:
+        existing_email_user = (
+            db.query(User)
+            .filter(User.email.ilike(email))
+            .filter(User.id != user.id)
+            .first()
+        )
+
+        if existing_email_user:
+            write_audit_log(
+                db=db,
+                action="USER_UPDATE_FAILED",
+                actor=admin,
+                request=request,
+                target_type="user",
+                target_id=user.username,
+                details={
+                    "reason": "duplicate_email_detected",
+                    "email": email,
+                    "existing_username": existing_email_user.username,
+                },
+            )
+
+            raise HTTPException(
+                status_code=409,
+                detail=DUPLICATE_EMAIL_MESSAGE,
+            )
+
+    payload.username = user.username
+    payload.email = email
+    payload.auth_provider = auth_provider
+    
+    email = (payload.email or "").strip().lower()
+
+    if email:
+        existing_email_user = (
+            db.query(User)
+            .filter(User.email.ilike(email))
+            .filter(User.username != payload.username)
+            .first()
+        )
+
+        if existing_email_user:
+            write_audit_log(
+                db=db,
+                action="USER_UPDATE_FAILED",
+                actor=admin,
+                request=request,
+                target_type="user",
+                target_id=payload.username,
+                details={
+                    "reason": "duplicate_email_detected",
+                    "email": email,
+                    "existing_username": existing_email_user.username,
+                },
+            )
+
+            raise HTTPException(
+                status_code=409,
+                detail=DUPLICATE_EMAIL_MESSAGE,
+            )
+
+    payload.email = email
+    payload.auth_provider = str(payload.auth_provider or "entra").strip().lower()
 
     if (
         payload.role == "INSYT Admin"
