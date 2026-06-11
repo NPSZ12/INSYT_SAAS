@@ -46,6 +46,8 @@ class ReviewHoursClockRequest(BaseModel):
     display_name: str | None = None
     role: str | None = None
     date: str
+    logout_reason: str = "manual"
+    auto_logout_at: str | None = None
 
 
 def get_entries_blob_name(client_id: str, project_id: str):
@@ -120,6 +122,39 @@ def current_date_string():
 
 def current_time_string():
     return now_utc().strftime("%H:%M")
+
+INACTIVITY_TIMEOUT_MINUTES = 10
+
+
+def parse_iso_datetime(value: str | None):
+    if not value:
+        return now_utc()
+
+    cleaned = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(cleaned)
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.astimezone(timezone.utc)
+
+
+def get_effective_review_hours_logout_time(
+    logout_reason: str,
+    auto_logout_at: str | None,
+):
+    actual_logout_at = parse_iso_datetime(auto_logout_at)
+
+    if logout_reason == "inactivity_timeout":
+        effective_logout_at = actual_logout_at - timedelta(
+            minutes=INACTIVITY_TIMEOUT_MINUTES
+        )
+        inactive_minutes_deducted = INACTIVITY_TIMEOUT_MINUTES
+    else:
+        effective_logout_at = actual_logout_at
+        inactive_minutes_deducted = 0
+
+    return effective_logout_at, actual_logout_at, inactive_minutes_deducted
 
 
 def calculate_hours(login_iso: str, logout_iso: str, break_minutes: int):
@@ -871,47 +906,105 @@ def review_hours_logout(payload: ReviewHoursClockRequest):
         project_id=payload.project_id,
     )
 
-    now = now_utc()
+    (
+        effective_logout_at,
+        actual_logout_at,
+        inactive_minutes_deducted,
+    ) = get_effective_review_hours_logout_time(
+        logout_reason=payload.logout_reason,
+        auto_logout_at=payload.auto_logout_at,
+    )
 
+    target_entry = None
+
+    # First try to close the active entry for the requested date.
     for entry in reversed(entries):
         if (
             entry.get("username") == payload.username
             and entry.get("date") == payload.date
             and not entry.get("logout_at")
         ):
-            entry["logout"] = now.strftime("%H:%M")
-            entry["logout_at"] = now.isoformat()
-            entry["hours"] = calculate_hours(
-                entry.get("login_at", ""),
-                entry.get("logout_at", ""),
-                int(entry.get("break_minutes") or 0),
-            )
+            target_entry = entry
+            break
 
-            entry["display_name"] = (
-                entry.get("display_name")
-                or payload.display_name
-                or payload.username
-            )
-            entry["role"] = entry.get("role") or payload.role or ""
-            entry["source"] = entry.get("source") or "review_hours_login"
+    # Auto logout fallback:
+    # If the browser has a stale/missing date in localStorage, still close the
+    # latest open Review Hours entry for this reviewer in this project.
+    if target_entry is None and payload.logout_reason == "inactivity_timeout":
+        for entry in reversed(entries):
+            if (
+                entry.get("username") == payload.username
+                and not entry.get("logout_at")
+            ):
+                target_entry = entry
+                break
 
-            save_entries(
-                workspace=payload.workspace,
-                client_id=payload.client_id,
-                project_id=payload.project_id,
-                entries=entries,
-            )
+    if target_entry is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No active review-hours login found for this user and date.",
+        )
 
-            return {
-                "status": "logged_out",
-                "message": "Review hours logout recorded.",
-                "entry": entry,
-            }
+    # Do not allow effective logout to be before login.
+    login_at_raw = target_entry.get("login_at") or ""
+    try:
+        login_at = datetime.fromisoformat(login_at_raw)
+        if login_at.tzinfo is None:
+            login_at = login_at.replace(tzinfo=timezone.utc)
 
-    raise HTTPException(
-        status_code=400,
-        detail="No active review-hours login found for this user and date.",
+        if effective_logout_at < login_at:
+            effective_logout_at = login_at
+    except Exception:
+        pass
+
+    target_entry["logout"] = effective_logout_at.strftime("%H:%M")
+    target_entry["logout_at"] = effective_logout_at.isoformat()
+    target_entry["actual_logout_event_at"] = actual_logout_at.isoformat()
+    target_entry["logout_reason"] = payload.logout_reason
+    target_entry["inactive_minutes_deducted"] = inactive_minutes_deducted
+    target_entry["current"] = False
+    target_entry["is_active"] = False
+    target_entry["status"] = "Logged Out"
+
+    target_entry["hours"] = calculate_hours(
+        target_entry.get("login_at", ""),
+        target_entry.get("logout_at", ""),
+        int(target_entry.get("break_minutes") or 0),
     )
+
+    target_entry["display_name"] = (
+        target_entry.get("display_name")
+        or payload.display_name
+        or payload.username
+    )
+    target_entry["role"] = target_entry.get("role") or payload.role or ""
+
+    if payload.logout_reason == "inactivity_timeout":
+        target_entry["source"] = "inactivity_timeout"
+        target_entry["notes"] = (
+            target_entry.get("notes")
+            or f"Auto logout due to inactivity; "
+            f"{inactive_minutes_deducted} inactive minutes deducted."
+        )
+    else:
+        target_entry["source"] = (
+            target_entry.get("source")
+            or "review_hours_login"
+        )
+
+    save_entries(
+        workspace=payload.workspace,
+        client_id=payload.client_id,
+        project_id=payload.project_id,
+        entries=entries,
+    )
+
+    return {
+        "status": "logged_out",
+        "message": "Review hours logout recorded.",
+        "entry": target_entry,
+    }
+    
 
 @router.post("/review-hours/edit")
 def edit_review_hours(payload: ManualEntryRequest):

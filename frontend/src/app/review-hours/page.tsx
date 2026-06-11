@@ -145,17 +145,24 @@ function isQcAndUp(role?: string) {
   ].includes(role || "");
 }
 
-function isCurrentlyLoggedIn(row: ReviewHoursRow) {
-  const openEntry = (row.details || []).find(
-    (item) => item.login && !item.logout
-  );
+function getEntryTimestamp(item: TimeEntryDetail) {
+  const value = item.logout || item.login;
 
-  return Boolean(openEntry);
+  if (!value) return 0;
+
+  const parsed = new Date(value).getTime();
+
+  if (!Number.isNaN(parsed)) return parsed;
+
+  if (item.date && value) {
+    const parsedWithDate = new Date(`${item.date}T${value}`).getTime();
+
+    if (!Number.isNaN(parsedWithDate)) return parsedWithDate;
+  }
+
+  return 0;
 }
 
-function getCurrentStatusLabel(row: ReviewHoursRow) {
-  return isCurrentlyLoggedIn(row) ? "Logged In" : "Logged Out";
-}
 
 function getDayTotal(row: ReviewHoursRow, date: string, field: string) {
   const detailTotal = getDayDetails(row, date).reduce(
@@ -178,8 +185,27 @@ function getLatestLogout(row: ReviewHoursRow, date: string) {
   return details[details.length - 1]?.logout || "";
 }
 
+function getDayLoginLogoutPairs(row: ReviewHoursRow, date: string) {
+  const details = getDayDetails(row, date)
+    .filter((item) => item.login || item.logout)
+    .sort((a, b) => getEntryTimestamp(a) - getEntryTimestamp(b));
+
+  if (details.length === 0) return "—";
+
+  const pairs = details.map((item) => {
+    const login = item.login ? formatTimeDisplay(item.login) : "—";
+    const logout = item.logout ? formatTimeDisplay(item.logout) : "—";
+
+    return `${login} - ${logout}`;
+  });
+
+  return pairs.join("; ");
+}
+
 function isReviewerLoggedInForDate(row: ReviewHoursRow, date: string) {
-  const details = getDayDetails(row, date);
+  const details = getDayDetails(row, date)
+    .filter((item) => item.login || item.logout)
+    .sort((a, b) => getEntryTimestamp(a) - getEntryTimestamp(b));
 
   if (details.length === 0) return false;
 
@@ -250,9 +276,22 @@ function ReviewHoursPageContent() {
     const storedUser = localStorage.getItem("insyt_user");
 
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
+
+      localStorage.setItem(
+        "insyt_review_hours_context",
+        JSON.stringify({
+          workspace,
+          client_id: client,
+          project_id: project,
+          username: parsedUser.username,
+          display_name: parsedUser.display_name || parsedUser.username,
+          role: parsedUser.role || "1L",
+        })
+      );
     }
-  }, []);
+  }, [workspace, client, project]);
 
   function loadRows() {
     if (!workspace || !client || !project) {
@@ -280,6 +319,19 @@ function ReviewHoursPageContent() {
 
   function logInForDay(date: string) {
     if (!user) return;
+
+    localStorage.setItem(
+      "insyt_review_hours_context",
+      JSON.stringify({
+        workspace,
+        client_id: client,
+        project_id: project,
+        username: user.username,
+        display_name: user.display_name || user.username,
+        role: user.role || "1L",
+        date,
+      })
+    );
 
     apiPost("/api/timesheet/review-hours/login", {
       workspace,
@@ -483,7 +535,7 @@ function ReviewHoursPageContent() {
                       </td>
 
                       <td className="p-3">
-                        {isCurrentlyLoggedIn(row) ? (
+                        {isReviewerLoggedInForDate(row, todayDate) ? (
                           <span className="rounded-full bg-lime-500/10 px-3 py-1 text-xs font-semibold text-lime-300">
                             Logged In
                           </span>
@@ -570,10 +622,10 @@ function ReviewHoursPageContent() {
                   <thead className="bg-slate-900 text-slate-400">
                     <tr>
                       <th className="p-3 text-left">Reviewer Name</th>
-                      <th className="p-3 text-left">Current</th>
                       <th className="p-3 text-left">Status</th>
                       <th className="p-3 text-left">First Login</th>
                       <th className="p-3 text-left">Last Logout</th>
+                      <th className="p-3 text-left">Login / Logout History</th>
                       <th className="p-3 text-right">Day Total</th>
                       <th className="p-3 text-right">Action</th>
                     </tr>
@@ -601,18 +653,6 @@ function ReviewHoursPageContent() {
                             </div>
                           </td>
 
-                          <td className="p-3">
-                            {isCurrentlyLoggedIn(row) ? (
-                              <span className="rounded-full bg-lime-500/10 px-3 py-1 text-xs font-semibold text-lime-300">
-                                Logged In
-                              </span>
-                            ) : (
-                              <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-400">
-                                Logged Out
-                              </span>
-                            )}
-                          </td>
-
                           <td className="p-3 text-slate-300">
                             {isLoggedIn ? (
                               <span className="text-lime-300">
@@ -635,6 +675,10 @@ function ReviewHoursPageContent() {
                             {formatTimeDisplay(
                               getLatestLogout(row, activeDay.date)
                             )}
+                          </td>
+
+                          <td className="p-3 text-slate-300 whitespace-nowrap">
+                            {getDayLoginLogoutPairs(row, activeDay.date)}
                           </td>
 
                           <td className="p-3 text-right font-semibold text-white">

@@ -43,12 +43,32 @@ export default function AutoLogout() {
 
     if (!adminUser) {
       try {
-        await apiPost("/api/reviewer-hours/logout", {
-          logout_reason: reason,
-          auto_logout_at: new Date().toISOString(),
-        });
+        const rawReviewHoursContext = localStorage.getItem(
+          "insyt_review_hours_context"
+        );
+
+        const reviewHoursContext = rawReviewHoursContext
+          ? JSON.parse(rawReviewHoursContext)
+          : null;
+
+        if (reviewHoursContext?.workspace) {
+          await apiPost("/api/timesheet/review-hours/logout", {
+            workspace: reviewHoursContext.workspace,
+            client_id: reviewHoursContext.client_id,
+            project_id: reviewHoursContext.project_id,
+            username: reviewHoursContext.username,
+            display_name:
+              reviewHoursContext.display_name || reviewHoursContext.username,
+            role: reviewHoursContext.role || "1L",
+            date:
+              reviewHoursContext.date ||
+              new Date().toISOString().slice(0, 10),
+            logout_reason: reason,
+            auto_logout_at: new Date().toISOString(),
+          });
+        }
       } catch (error) {
-        console.error("Failed to record reviewer hours logout", error);
+        console.error("Failed to record review hours auto logout", error);
       }
     }
 
