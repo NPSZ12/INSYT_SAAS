@@ -460,7 +460,9 @@ def entra_login(
             detail="INSYT Admins must use local INSYT login with MFA.",
         )
 
-    if user.auth_provider != "entra":
+    auth_provider = str(user.auth_provider or "").strip().lower()
+
+    if auth_provider != "entra":
         write_audit_log(
             db=db,
             action="ENTRA_LOGIN_FAILED",
@@ -472,12 +474,16 @@ def entra_login(
                 "reason": "user_not_configured_for_entra",
                 "email": email,
                 "auth_provider": user.auth_provider,
+                "normalized_auth_provider": auth_provider,
             },
         )
 
         raise HTTPException(
             status_code=403,
-            detail="This user is not configured for Microsoft Entra login.",
+            detail=(
+                "This user is not configured for Microsoft Entra login. "
+                f"Stored auth_provider={user.auth_provider!r}"
+            ),
         )
 
     token = create_user_token(user)
@@ -596,7 +602,7 @@ def entra_callback(
 
     user = (
         db.query(User)
-        .filter(User.email == email)
+        .filter(User.email.ilike(email))
         .first()
     )
 
@@ -621,10 +627,15 @@ def entra_callback(
             detail="INSYT Admins must use local INSYT login with MFA.",
         )
 
-    if user.auth_provider != "entra":
+    auth_provider = str(user.auth_provider or "").strip().lower()
+
+    if auth_provider != "entra":
         raise HTTPException(
             status_code=403,
-            detail="This user is not configured for Microsoft Entra login.",
+            detail=(
+                "This user is not configured for Microsoft Entra login. "
+                f"Stored auth_provider={user.auth_provider!r}"
+            ),
         )
 
     token = create_user_token(user)
