@@ -59,6 +59,12 @@ class UrgentAcknowledgeRequest(BaseModel):
     message_id: str
     username: str
     display_name: str | None = None
+    
+class MessageSeenRequest(BaseModel):
+    workspace: str
+    client_id: str
+    project_id: str
+    username: str
 
 
 def get_messages_blob_name(
@@ -117,6 +123,71 @@ def save_messages(
     container.upload_blob(
         name=blob_name,
         data=json.dumps(messages, indent=2),
+        overwrite=True,
+    )
+    
+def get_message_seen_blob_name(
+    client_id: str,
+    project_id: str,
+    username: str,
+):
+    clean_client_id = client_id.strip("/")
+    clean_project_id = project_id.strip("/")
+    clean_username = username.strip().lower()
+
+    return (
+        f"{clean_client_id}/{clean_project_id}/Messaging/"
+        f"seen/{clean_username}.json"
+    )
+
+
+def load_message_seen(
+    workspace: str,
+    client_id: str,
+    project_id: str,
+    username: str,
+):
+    container = get_container_client(workspace)
+
+    blob_name = get_message_seen_blob_name(
+        client_id=client_id,
+        project_id=project_id,
+        username=username,
+    )
+
+    blob_client = container.get_blob_client(blob_name)
+
+    if not blob_client.exists():
+        return {}
+
+    data = blob_client.download_blob().readall()
+
+    try:
+        seen_data = json.loads(data.decode("utf-8"))
+    except Exception:
+        return {}
+
+    return seen_data if isinstance(seen_data, dict) else {}
+
+
+def save_message_seen(
+    workspace: str,
+    client_id: str,
+    project_id: str,
+    username: str,
+    seen_data: dict,
+):
+    container = get_container_client(workspace)
+
+    blob_name = get_message_seen_blob_name(
+        client_id=client_id,
+        project_id=project_id,
+        username=username,
+    )
+
+    container.upload_blob(
+        name=blob_name,
+        data=json.dumps(seen_data, indent=2),
         overwrite=True,
     )
 
@@ -233,6 +304,104 @@ def list_messages(
         "messages": visible_messages,
     }
 
+@router.get("/new-status")
+def message_new_status(
+    workspace: str = Query(...),
+    client: str = Query(...),
+    project: str = Query(...),
+    username: str = Query(...),
+    role: str = Query(default=""),
+):
+    messages = load_messages(
+        workspace=workspace,
+        client_id=client,
+        project_id=project,
+    )
+
+    visible_messages = [
+        message
+        for message in messages
+        if can_view_message(
+            message=message,
+            username=username,
+            role=role,
+        )
+        and message.get("sender_username") != username
+    ]
+
+    latest_message_at = ""
+
+    for message in visible_messages:
+        created_at = message.get("created_at") or ""
+
+        if created_at > latest_message_at:
+            latest_message_at = created_at
+
+    seen_data = load_message_seen(
+        workspace=workspace,
+        client_id=client,
+        project_id=project,
+        username=username,
+    )
+
+    last_seen_at = seen_data.get("last_seen_at") or ""
+
+    return {
+        "has_new_messages": bool(
+            latest_message_at and latest_message_at > last_seen_at
+        ),
+        "latest_message_at": latest_message_at,
+        "last_seen_at": last_seen_at,
+    }
+
+@router.post("/mark-seen")
+def mark_messages_seen(payload: MessageSeenRequest):
+    if not payload.workspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Workspace is required.",
+        )
+
+    if not payload.client_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required.",
+        )
+
+    if not payload.project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Project is required.",
+        )
+
+    if not payload.username:
+        raise HTTPException(
+            status_code=400,
+            detail="Username is required.",
+        )
+
+    seen_at = datetime.now(timezone.utc).isoformat()
+
+    seen_data = {
+        "workspace": payload.workspace,
+        "client_id": payload.client_id,
+        "project_id": payload.project_id,
+        "username": payload.username,
+        "last_seen_at": seen_at,
+    }
+
+    save_message_seen(
+        workspace=payload.workspace,
+        client_id=payload.client_id,
+        project_id=payload.project_id,
+        username=payload.username,
+        seen_data=seen_data,
+    )
+
+    return {
+        "status": "seen",
+        "last_seen_at": seen_at,
+    }
 
 @router.post("/send")
 def send_message(payload: MessageCreateRequest):

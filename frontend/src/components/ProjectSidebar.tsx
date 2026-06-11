@@ -50,6 +50,7 @@ export default function ProjectSidebar() {
   const clientId = searchParams.get("client") || "";
   const selectedBatch = searchParams.get("batch");
   const workspaceParam = searchParams.get("workspace");
+  const [hasNewMessages, setHasNewMessages] = useState(false);
 
   const [selectedOutlineItem, setSelectedOutlineItem] =
     useState<PdfOutlineItem | null>(null);
@@ -96,6 +97,53 @@ export default function ProjectSidebar() {
       setUser(JSON.parse(storedUser));
     }
   }, []);
+
+  useEffect(() => {
+    const username = String(user?.username || "");
+    const role = String(user?.role || "");
+
+    if (!username || !clientId || !projectId) {
+      setHasNewMessages(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function checkNewMessages() {
+      try {
+        const query = new URLSearchParams({
+          workspace: String(workspaceName || ""),
+          client: String(clientId || ""),
+          project: String(projectId || ""),
+          username,
+          role,
+        });
+
+        const response = await apiGet(
+          `/api/messages/new-status?${query.toString()}`
+        );
+
+        if (!cancelled) {
+          setHasNewMessages(Boolean(response.has_new_messages));
+        }
+      } catch (error) {
+        console.warn("Unable to check new messages", error);
+
+        if (!cancelled) {
+          setHasNewMessages(false);
+        }
+      }
+    }
+
+    checkNewMessages();
+
+    const timer = window.setInterval(checkNewMessages, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [workspaceName, clientId, projectId, user?.username, user?.role]);
 
   useEffect(() => {
     if (!user?.username || !projectId) {
@@ -431,42 +479,52 @@ export default function ProjectSidebar() {
 
         <nav
           className={`space-y-2 overflow-y-auto flex-1 ${
-            collapsed
-              ? "p-2 pt-4"
-              : "p-5 pt-4 pr-4"
+            collapsed ? "p-2 pt-4" : "p-5 pt-4 pr-4"
           }`}
         >
           {navItems
             .filter((item) => !isHiddenFor1L(item.label))
             .map((item) => {
-            const itemPath =
-              item.href.split("?")[0];
+              const itemPath = item.href.split("?")[0];
 
-            const active =
-              pathname === itemPath;
+              const active = pathname === itemPath;
 
-            const Icon = item.icon;
+              const Icon = item.icon;
 
-            const linkClass = active
-              ? `flex items-center ${
-                  collapsed
-                    ? "justify-center px-2"
-                    : "gap-3 px-3"
-                } py-2.5 rounded-xl bg-teal-600 text-white`
-              : `flex items-center ${
-                  collapsed
-                    ? "justify-center px-2"
-                    : "gap-3 px-3"
-                } py-2.5 rounded-xl hover:bg-slate-800 text-slate-300`;
+              const linkClass = active
+                ? `flex items-center ${
+                    collapsed ? "justify-center px-2" : "gap-3 px-3"
+                  } py-2.5 rounded-xl bg-teal-600 text-white`
+                : `flex items-center ${
+                    collapsed ? "justify-center px-2" : "gap-3 px-3"
+                  } py-2.5 rounded-xl hover:bg-slate-800 text-slate-300`;
 
-            if (item.label === "Review") {
+              if (item.label === "Review") {
+                return (
+                  <button
+                    key={item.href}
+                    type="button"
+                    title={item.label}
+                    onClick={refreshAndOpenReview}
+                    className={`${linkClass} w-full text-left`}
+                  >
+                    <Icon size={18} />
+
+                    {!collapsed && (
+                      <span className="insyt-workspace text-sm">
+                        {item.label}
+                      </span>
+                    )}
+                  </button>
+                );
+              }
+
               return (
-                <button
+                <Link
                   key={item.href}
-                  type="button"
+                  href={item.href}
                   title={item.label}
-                  onClick={refreshAndOpenReview}
-                  className={`${linkClass} w-full text-left`}
+                  className={`${linkClass} relative`}
                 >
                   <Icon size={18} />
 
@@ -475,27 +533,21 @@ export default function ProjectSidebar() {
                       {item.label}
                     </span>
                   )}
-                </button>
+
+                  {item.label === "Messaging" && Boolean(hasNewMessages) ? (
+                    <span
+                      className={
+                        collapsed
+                          ? "absolute -right-1 -top-1 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-lg"
+                          : "absolute right-2 top-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg"
+                      }
+                    >
+                      New
+                    </span>
+                  ) : null}
+                </Link>
               );
-            }
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                title={item.label}
-                className={linkClass}
-              >
-                <Icon size={18} />
-
-                {!collapsed && (
-                  <span className="insyt-workspace text-sm">
-                    {item.label}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+            })}
         </nav>
       </div>
 

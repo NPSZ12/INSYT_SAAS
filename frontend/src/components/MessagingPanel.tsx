@@ -94,6 +94,26 @@ export default function MessagingPanel({
   const [urgent, setUrgent] = useState(false);
 
   useEffect(() => {
+    const rawSelectedReviewers = localStorage.getItem(
+      "insyt_message_to_reviewers"
+    );
+
+    if (!rawSelectedReviewers) return;
+
+    try {
+      const names = JSON.parse(rawSelectedReviewers);
+
+      if (Array.isArray(names) && names.length > 0) {
+        setPrivateRecipients(names.join(", "));
+        setChannel("private");
+        setStatus("Selected reviewers loaded into private recipients.");
+      }
+    } catch (error) {
+      console.error("Failed to load selected message recipients", error);
+    }
+  }, []);
+
+  useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
 
     if (storedUser) {
@@ -185,6 +205,8 @@ export default function MessagingPanel({
       .then((response) => {
         setStatus(response.status === "sent" ? "Message sent." : "Message sent.");
         setMessageText("");
+        setPrivateRecipients("");
+        localStorage.removeItem("insyt_message_to_reviewers");
         setReplyToMessage(null);
         setSelectedMessage(null);
         setImportant(false);
@@ -196,6 +218,19 @@ export default function MessagingPanel({
         setStatus("Failed to send message.");
       });
   }
+
+  useEffect(() => {
+    if (!clientId || !projectId || !user?.username) return;
+
+    apiPost("/api/messages/mark-seen", {
+      workspace,
+      client_id: clientId,
+      project_id: projectId,
+      username: user.username,
+    }).catch((error) => {
+      console.warn("Failed to mark messages seen", error);
+    });
+  }, [workspace, clientId, projectId, user?.username]);
 
   function sendForwardMessage() {
     if (!clientId || !projectId || !user || !forwardMessage) return;

@@ -291,6 +291,7 @@ function ReviewHoursPageContent() {
   const todayDate = getTodayDateString();
   const canUnlockDates = isQcAndUp(user?.role);
   const inactivityLogoutEntries = getInactivityLogoutEntries(rows); 
+  const [selectedMessageUsers, setSelectedMessageUsers] = useState<Record<string, boolean>>({});
 
   const activeDayIsToday =
     Boolean(activeDay) && activeDay?.date === todayDate;
@@ -456,6 +457,63 @@ function ReviewHoursPageContent() {
       });
   }
 
+  function getMessageReviewerKey(row: ReviewHoursRow) {
+    return row.username || row.display_name;
+  }
+
+  function getMessageReviewerLabel(row: ReviewHoursRow) {
+    return row.display_name || row.username;
+  }
+
+  function toggleMessageReviewer(row: ReviewHoursRow) {
+    const key = getMessageReviewerKey(row);
+
+    setSelectedMessageUsers((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  }
+
+  function selectAllMessageReviewers() {
+    const next: Record<string, boolean> = {};
+
+    rows.forEach((row) => {
+      const key = getMessageReviewerKey(row);
+
+      if (key) {
+        next[key] = true;
+      }
+    });
+
+    setSelectedMessageUsers(next);
+  }
+
+  function clearSelectedMessageReviewers() {
+    setSelectedMessageUsers({});
+  }
+
+  function getSelectedMessageReviewerNames() {
+    return rows
+      .filter((row) => selectedMessageUsers[getMessageReviewerKey(row)])
+      .map((row) => row.username);
+  }
+
+  function goToMessagesWithSelectedReviewers() {
+    const names = getSelectedMessageReviewerNames();
+
+    localStorage.setItem(
+      "insyt_message_to_reviewers",
+      JSON.stringify(names)
+    );
+
+    const params = new URLSearchParams({
+      client,
+      project,
+    });
+
+    window.location.href = `/${workspace}/messaging?${params.toString()}`;
+  }
+
   return (
     <AppShell>
       <PageContainer>
@@ -497,7 +555,24 @@ function ReviewHoursPageContent() {
               </select>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
+              <Button variant="secondary" onClick={selectAllMessageReviewers}>
+                Select All
+              </Button>
+
+              <Button variant="secondary" onClick={clearSelectedMessageReviewers}>
+                Clear Selected
+              </Button>
+
+              <Button
+                onClick={() => {
+                  if (getSelectedMessageReviewerNames().length === 0) return;
+                  goToMessagesWithSelectedReviewers();
+                }}
+              >
+                Send Message To Selected
+              </Button>
+
               <Button onClick={loadRows}>
                 Refresh
               </Button>
@@ -558,10 +633,23 @@ function ReviewHoursPageContent() {
                       className="border-t border-slate-800"
                     >
                       <td className="p-3 text-white">
-                        <div>{row.display_name || row.username}</div>
-                        <div className="text-xs text-slate-500">
-                          {row.username} • {row.role || "—"}
-                        </div>
+                        <label className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(
+                              selectedMessageUsers[getMessageReviewerKey(row)]
+                            )}
+                            onChange={() => toggleMessageReviewer(row)}
+                            className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950"
+                          />
+
+                          <span>
+                            <div>{row.display_name || row.username}</div>
+                            <div className="text-xs text-slate-500">
+                              {row.username} • {row.role || "—"}
+                            </div>
+                          </span>
+                        </label>
                       </td>
 
                       <td className="p-3">
@@ -677,10 +765,23 @@ function ReviewHoursPageContent() {
                           className="border-t border-slate-800"
                         >
                           <td className="p-3 text-white">
-                            <div>{row.display_name || row.username}</div>
-                            <div className="text-xs text-slate-500">
-                              {row.username} • {row.role || "—"}
-                            </div>
+                            <label className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(
+                                  selectedMessageUsers[getMessageReviewerKey(row)]
+                                )}
+                                onChange={() => toggleMessageReviewer(row)}
+                                className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950"
+                              />
+
+                              <span>
+                                <div>{row.display_name || row.username}</div>
+                                <div className="text-xs text-slate-500">
+                                  {row.username} • {row.role || "—"}
+                                </div>
+                              </span>
+                            </label>
                           </td>
 
                           <td className="p-3 text-slate-300">
