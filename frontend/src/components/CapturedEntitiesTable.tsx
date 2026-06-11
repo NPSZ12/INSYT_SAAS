@@ -415,6 +415,20 @@ export default function CapturedEntitiesTable({
         docId
       )
     );
+
+    function getFinalEntityUid(row: Record<string, any>) {
+      return (
+        row["INSYT UID"] ||
+        row["Insyt UID"] ||
+        row["insyt_uid"] ||
+        row["UCID"] ||
+        row["ucid"] ||
+        row["CDS ID"] ||
+        row["CDS Raw ID"] ||
+        row.final_entity_id ||
+        ""
+      );
+    }
   }
 
   function getFinalEntityDisplayName(row: Record<string, any>) {
@@ -436,6 +450,20 @@ export default function CapturedEntitiesTable({
   );
 }
 
+function getFinalEntityUid(row: Record<string, any>) {
+  return (
+    row["INSYT UID"] ||
+    row["Insyt UID"] ||
+    row["insyt_uid"] ||
+    row["UCID"] ||
+    row["ucid"] ||
+    row["CDS ID"] ||
+    row["CDS Raw ID"] ||
+    row.final_entity_id ||
+    ""
+  );
+}
+
 function openFinalSourceDocs(row: Record<string, any>) {
   const docIds = splitFinalDocIds(
     row.doc_ids?.length > 0
@@ -449,12 +477,14 @@ function openFinalSourceDocs(row: Record<string, any>) {
   }
 
   const capturedEntity = getFinalEntityDisplayName(row);
+  const entityUid = getFinalEntityUid(row);
 
   const params = new URLSearchParams();
 
   if (clientId) params.set("client", clientId);
   if (projectId) params.set("project", projectId);
   if (capturedEntity) params.set("entity", capturedEntity);
+  if (entityUid) params.set("entityUid", entityUid);
 
   params.set("docIds", docIds.join(";"));
   params.set("startDoc", docIds[0]);

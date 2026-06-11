@@ -100,6 +100,7 @@ function ReviewPageContent() {
   const docSetParam = searchParams.get("docSet") || "";
   const sourceParam = searchParams.get("source") || "";
   const entityParam = searchParams.get("entity") || "";
+  const entityUidParam = searchParams.get("entityUid") || "";
 
   const finalSourceDocIds = splitDocSet(docSetParam);
 
@@ -435,6 +436,10 @@ function ReviewPageContent() {
       if (entityParam) {
         params.set("entity", entityParam);
       }
+
+      if (entityUidParam) {
+        params.set("entityUid", entityUidParam);
+      }
     } else if (batchId) {
       params.set("batch", batchId);
     }
@@ -557,6 +562,7 @@ function ReviewPageContent() {
     if (clientId) params.set("client", clientId);
     if (projectId) params.set("project", projectId);
     if (entityParam) params.set("entity", entityParam);
+    if (entityUidParam) params.set("entityUid", entityUidParam);
 
     params.set("docIds", finalSourceDocIds.join(";"));
     params.set("startDoc", finalSourceDocIds[0] || docId);

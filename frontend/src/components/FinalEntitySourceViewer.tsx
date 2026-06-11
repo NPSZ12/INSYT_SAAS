@@ -33,6 +33,7 @@ export default function FinalEntitySourceViewer({
   const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
   const capturedEntity = searchParams.get("entity") || "";
+  const entityUid = searchParams.get("entityUid") || "";
   const rawDocIds = searchParams.get("docIds") || "";
 
   const docIds = useMemo(() => {
@@ -81,6 +82,7 @@ export default function FinalEntitySourceViewer({
     if (clientId) params.set("client", clientId);
     if (projectId) params.set("project", projectId);
     if (capturedEntity) params.set("entity", capturedEntity);
+    if (entityUid) params.set("entityUid", entityUid);
 
     params.set("doc", cleanDocIds[0]);
     params.set("docSet", cleanDocIds.join(";"));
@@ -150,6 +152,7 @@ export default function FinalEntitySourceViewer({
             client: clientId,
             project: projectId,
             entity: capturedEntity,
+            entity_uid: entityUid,
             doc_ids: cleanDocIds,
             include_native: true,
             include_text: true,
@@ -164,8 +167,8 @@ export default function FinalEntitySourceViewer({
 
       const blob = await response.blob();
 
-      const safeEntity =
-        capturedEntity
+      const safeExportId =
+        (entityUid || "final_entity")
           .replace(/[^a-z0-9_\- ]/gi, "")
           .trim()
           .replaceAll(" ", "_") || "final_entity";
@@ -174,7 +177,7 @@ export default function FinalEntitySourceViewer({
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = `${safeEntity}_source_docs.zip`;
+      link.download = `${safeExportId}_source_docs.zip`;
 
       document.body.appendChild(link);
       link.click();
@@ -220,11 +223,18 @@ export default function FinalEntitySourceViewer({
         />
 
         <ContentCard title="Source Document Set">
-          <div className="mb-4 grid grid-cols-1 gap-3 text-sm text-slate-400 md:grid-cols-3">
+          <div className="mb-4 grid grid-cols-1 gap-3 text-sm text-slate-400 md:grid-cols-4">
             <p>
               Captured Entity:{" "}
               <span className="font-semibold text-slate-100">
                 {capturedEntity || "Unknown Entity"}
+              </span>
+            </p>
+
+            <p>
+              INSYT UID:{" "}
+              <span className="font-semibold text-slate-100">
+                {entityUid || "Not available"}
               </span>
             </p>
 

@@ -253,6 +253,7 @@ def build_source_docs_csv(
 
     fieldnames = [
         "Captured Entity",
+        "INSYT UID",
         "Project",
         "Doc ID",
         "Native Exported",
@@ -269,6 +270,7 @@ def build_source_docs_csv(
         writer.writerow(
             {
                 "Captured Entity": payload.entity,
+                "INSYT UID": payload.entity_uid,
                 "Project": payload.project,
                 "Doc ID": row.get("doc_id", ""),
                 "Native Exported": "Yes" if row.get("native_exported") else "",
@@ -315,6 +317,7 @@ class EntitySourceDocsExportRequest(BaseModel):
     client: str = ""
     project: str
     entity: str = ""
+    entity_uid: str = ""
     doc_ids: list[str]
     include_native: bool = True
     include_text: bool = True
@@ -642,17 +645,12 @@ def export_source_docs(
 
     zip_buffer.seek(0)
 
-    safe_entity = safe_export_name(
-        payload.entity,
+    safe_export_id = safe_export_name(
+        payload.entity_uid,
         fallback="final_entity",
     )
 
-    safe_project = safe_export_name(
-        payload.project,
-        fallback="project",
-    )
-
-    filename = f"{safe_project}_{safe_entity}_source_docs.zip"
+    filename = f"{safe_export_id}_source_docs.zip"
 
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"'
