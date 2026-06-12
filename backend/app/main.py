@@ -50,6 +50,7 @@ from app.api import processing_center
 from app.api import reviewer_hours
 
 from app.api import document_overlays
+from app.api.processing_center_azure import router as processing_center_azure_router
 
 from app.routes import merge_dedupe
 from app.routes import tools_merge_dedupe
@@ -229,7 +230,7 @@ app.include_router(discovery_review_batches.router)
 app.include_router(summaries_review_batches.router)
 app.include_router(processing_center.router)
 app.include_router(reviewer_hours.router)
-
+app.include_router(processing_center_azure_router)
 
 
 # =========================
