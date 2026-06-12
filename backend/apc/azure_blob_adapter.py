@@ -41,7 +41,7 @@ class DualStorageBlobAdapter:
     """Two-account Blob adapter.
 
     Processing reads/staging use insytprodstorage. Review outputs are written to
-    cdsintakestorage. In production, prefer DefaultAzureCredential/managed identity.
+    insytreviewstorage. In production, prefer DefaultAzureCredential/managed identity.
     For local tests, connection strings can be provided through environment variables.
     """
 
@@ -203,8 +203,15 @@ def azure_upload_review_outputs(
 ) -> dict[str, object]:
     if not azure_write:
         raise ValueError("Refusing to write to Azure because --azure-write was not passed.")
-    if routing.review_account.lower() != "cdsintakestorage":
-        raise ValueError("Refusing review output upload: review account must be cdsintakestorage.")
+    expected_review_account = os.getenv(
+        "INSYT_REVIEW_STORAGE_ACCOUNT",
+        "insytreviewstorage",
+    ).lower()
+
+    if routing.review_account.lower() != expected_review_account:
+        raise ValueError(
+            f"Refusing review output upload: review account must be {expected_review_account}."
+        )
     if routing.processing_account.lower() != "insytprodstorage":
         raise ValueError("Refusing review output upload: processing account must be insytprodstorage.")
     warnings = routing.validate()
@@ -242,8 +249,15 @@ def azure_upload_report_files(
     """
     if not azure_write:
         raise ValueError("Refusing to write report files to Azure because --azure-write was not passed.")
-    if routing.review_account.lower() != "cdsintakestorage":
-        raise ValueError("Refusing report upload: review account must be cdsintakestorage.")
+    expected_review_account = os.getenv(
+        "INSYT_REVIEW_STORAGE_ACCOUNT",
+        "insytreviewstorage",
+    ).lower()
+
+    if routing.review_account.lower() != expected_review_account:
+        raise ValueError(
+            f"Refusing report upload: review account must be {expected_review_account}."
+        )
     if routing.processing_account.lower() != "insytprodstorage":
         raise ValueError("Refusing report upload: processing account must be insytprodstorage.")
 

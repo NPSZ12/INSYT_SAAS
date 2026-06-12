@@ -11,7 +11,7 @@ from .db import LedgerDB
 from .util import utc_now
 
 DEFAULT_PROCESSING_ACCOUNT = "insytprodstorage"
-DEFAULT_REVIEW_ACCOUNT = "cdsintakestorage"
+DEFAULT_REVIEW_ACCOUNT = "insytreviewstorage"
 
 
 def default_container_for_workspace(workspace: str) -> str:
@@ -104,7 +104,7 @@ class AzureRoutingConfig:
         if self.processing_account.lower() == self.review_account.lower() and not self.allow_same_account:
             raise ValueError(
                 "Processing and review storage accounts are the same. "
-                "Expected insytprodstorage for processing and cdsintakestorage for review outputs. "
+                "Expected insytprodstorage for processing and insytreviewstorage for review outputs. "
                 "Use --allow-same-account only for an intentional non-production test."
             )
         if self.processing_account.lower() != DEFAULT_PROCESSING_ACCOUNT:

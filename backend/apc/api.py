@@ -94,7 +94,7 @@ def api_settings() -> ApiSettings:
         allow_azure_write=_bool_env("APC_API_ALLOW_AZURE_WRITE", False),
         allow_live_ocr=_bool_env("APC_API_ALLOW_LIVE_OCR", False),
         processing_account=os.getenv("INSYT_PROCESSING_STORAGE_ACCOUNT", "insytprodstorage"),
-        review_account=os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "cdsintakestorage"),
+        review_account=os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "insytreviewstorage"),
     )
 
 
