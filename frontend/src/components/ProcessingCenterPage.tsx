@@ -9,6 +9,7 @@ import PageHeader from "./PageHeader";
 import ContentCard from "./ContentCard";
 import Button from "./Button";
 import { apiGet, apiPost } from "../lib/api";
+import AzureProcessingCenterPanel from "./processing-center/AzureProcessingCenterPanel";
 
 type ProcessingCenterPageProps = {
   workspace: "capture" | "discovery" | "summaries";
@@ -378,6 +379,14 @@ export default function ProcessingCenterPage({
               Missing client or project in the URL.
             </div>
           </ContentCard>
+        ) : null}
+
+        {clientId && projectId ? (
+          <AzureProcessingCenterPanel
+            workspace={workspace}
+            clientId={clientId}
+            projectId={projectId}
+          />
         ) : null}
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
