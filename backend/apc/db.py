@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_PATH = Path(__file__).resolve().parents[2] / "sql" / "sqlite_schema.sql"
+SCHEMA_PATH = Path(__file__).resolve().parent / "sql" / "sqlite_schema.sql"
 
 
 class LedgerDB:
