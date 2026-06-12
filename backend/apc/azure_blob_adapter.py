@@ -1,0 +1,323 @@
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+from .azure_layout import AzureRoutingConfig, build_review_promotion_blob_plan, build_azure_routing_summary
+from .db import LedgerDB
+from .reports import latest_job_id
+from .util import utc_now
+
+
+class AzureDependencyError(RuntimeError):
+    pass
+
+
+def _load_azure_sdk():
+    try:
+        from azure.storage.blob import BlobServiceClient, ContentSettings  # type: ignore
+        from azure.identity import DefaultAzureCredential  # type: ignore
+    except Exception as exc:  # pragma: no cover - depends on optional Azure packages
+        raise AzureDependencyError(
+            "Azure SDK packages are not installed. Run: pip install -e .[azure] "
+            "or pip install azure-storage-blob azure-identity"
+        ) from exc
+    return BlobServiceClient, ContentSettings, DefaultAzureCredential
+
+
+@dataclass(frozen=True)
+class BlobItem:
+    name: str
+    size: int
+    last_modified: str
+    content_type: str = ""
+
+
+class DualStorageBlobAdapter:
+    """Two-account Blob adapter.
+
+    Processing reads/staging use insytprodstorage. Review outputs are written to
+    cdsintakestorage. In production, prefer DefaultAzureCredential/managed identity.
+    For local tests, connection strings can be provided through environment variables.
+    """
+
+    def __init__(self, routing: AzureRoutingConfig):
+        self.routing = routing
+        BlobServiceClient, ContentSettings, DefaultAzureCredential = _load_azure_sdk()
+        self._content_settings_cls = ContentSettings
+
+        processing_conn = os.getenv("INSYT_PROCESSING_STORAGE_CONNECTION_STRING")
+        review_conn = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+
+        if processing_conn:
+            self.processing_service = BlobServiceClient.from_connection_string(processing_conn)
+        else:
+            cred = DefaultAzureCredential()
+            self.processing_service = BlobServiceClient(
+                account_url=f"https://{routing.processing_account}.blob.core.windows.net",
+                credential=cred,
+            )
+
+        if review_conn:
+            self.review_service = BlobServiceClient.from_connection_string(review_conn)
+        else:
+            cred = DefaultAzureCredential()
+            self.review_service = BlobServiceClient(
+                account_url=f"https://{routing.review_account}.blob.core.windows.net",
+                credential=cred,
+            )
+
+        self.processing_container = self.processing_service.get_container_client(routing.processing_container)
+        self.review_container = self.review_service.get_container_client(routing.review_container)
+
+    def list_processing_uploads(self, prefix: str | None = None) -> list[BlobItem]:
+        upload_prefix = prefix or self.routing.processing_paths()["uploads"]
+        rows: list[BlobItem] = []
+        for blob in self.processing_container.list_blobs(name_starts_with=upload_prefix):
+            if str(blob.name).endswith("/"):
+                continue
+            props = getattr(blob, "content_settings", None)
+            rows.append(
+                BlobItem(
+                    name=blob.name,
+                    size=int(getattr(blob, "size", 0) or 0),
+                    last_modified=str(getattr(blob, "last_modified", "") or ""),
+                    content_type=str(getattr(props, "content_type", "") or ""),
+                )
+            )
+        return rows
+
+    def download_processing_uploads(self, destination_root: str, prefix: str | None = None, overwrite: bool = False) -> list[dict[str, object]]:
+        dest = Path(destination_root)
+        dest.mkdir(parents=True, exist_ok=True)
+        upload_prefix = (prefix or self.routing.processing_paths()["uploads"]).rstrip("/") + "/"
+        downloaded: list[dict[str, object]] = []
+        for item in self.list_processing_uploads(prefix=upload_prefix.rstrip("/")):
+            rel = item.name[len(upload_prefix):] if item.name.startswith(upload_prefix) else Path(item.name).name
+            local_path = dest / rel.replace("/", os.sep)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            if local_path.exists() and not overwrite:
+                status = "skipped_exists"
+            else:
+                data = self.processing_container.download_blob(item.name).readall()
+                local_path.write_bytes(data)
+                status = "downloaded"
+            downloaded.append({
+                "blob_name": item.name,
+                "local_path": str(local_path),
+                "size": item.size,
+                "status": status,
+            })
+        return downloaded
+
+    def upload_review_promotion_outputs(
+        self,
+        promotion_plan: list[dict[str, object]],
+        local_review_root: str,
+        overwrite: bool = False,
+    ) -> list[dict[str, object]]:
+        root = Path(local_review_root)
+        results: list[dict[str, object]] = []
+        for row in promotion_plan:
+            doc_id = str(row["doc_id"])
+            ext = str(row.get("extension") or "bin").lstrip(".") or "bin"
+            local_native = root / "source" / "native" / f"{doc_id}.{ext}"
+            local_text = root / "source" / "text" / f"{doc_id}.txt"
+
+            for kind, local_path, blob_path in (
+                ("native", local_native, str(row["native_blob_path"])),
+                ("text", local_text, str(row["text_blob_path"])),
+            ):
+                if not local_path.exists():
+                    results.append({
+                        "doc_id": doc_id,
+                        "kind": kind,
+                        "local_path": str(local_path),
+                        "blob_path": blob_path,
+                        "status": "missing_local_file",
+                        "bytes": 0,
+                    })
+                    continue
+                content_type = "text/plain; charset=utf-8" if kind == "text" else "application/octet-stream"
+                blob_client = self.review_container.get_blob_client(blob_path)
+                with local_path.open("rb") as fh:
+                    blob_client.upload_blob(
+                        fh,
+                        overwrite=overwrite,
+                        content_settings=self._content_settings_cls(content_type=content_type),
+                    )
+                results.append({
+                    "doc_id": doc_id,
+                    "kind": kind,
+                    "local_path": str(local_path),
+                    "blob_path": blob_path,
+                    "status": "uploaded",
+                    "bytes": local_path.stat().st_size,
+                })
+        return results
+
+    def upload_report_file(self, local_path: str, blob_path: str, overwrite: bool = True) -> dict[str, object]:
+        path = Path(local_path)
+        blob_client = self.review_container.get_blob_client(blob_path)
+        with path.open("rb") as fh:
+            blob_client.upload_blob(fh, overwrite=overwrite)
+        return {"local_path": str(path), "blob_path": blob_path, "bytes": path.stat().st_size, "status": "uploaded"}
+
+
+def export_json(path: str | Path, payload: object) -> str:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    return str(p)
+
+
+def azure_list_uploads(routing: AzureRoutingConfig, export_dir: str | None = None) -> list[dict[str, object]]:
+    adapter = DualStorageBlobAdapter(routing)
+    items = adapter.list_processing_uploads()
+    rows = [item.__dict__ for item in items]
+    if export_dir:
+        export_json(Path(export_dir) / "azure_processing_uploads.json", {"generated_at": utc_now(), "uploads": rows})
+    return rows
+
+
+def azure_download_uploads(routing: AzureRoutingConfig, destination_root: str, overwrite: bool = False, export_dir: str | None = None) -> list[dict[str, object]]:
+    adapter = DualStorageBlobAdapter(routing)
+    rows = adapter.download_processing_uploads(destination_root, overwrite=overwrite)
+    if export_dir:
+        export_json(Path(export_dir) / "azure_processing_downloads.json", {"generated_at": utc_now(), "downloads": rows})
+    return rows
+
+
+def azure_upload_review_outputs(
+    db: LedgerDB,
+    routing: AzureRoutingConfig,
+    job_id: str,
+    local_review_root: str,
+    azure_write: bool,
+    overwrite: bool = False,
+    export_dir: str | None = None,
+) -> dict[str, object]:
+    if not azure_write:
+        raise ValueError("Refusing to write to Azure because --azure-write was not passed.")
+    if routing.review_account.lower() != "cdsintakestorage":
+        raise ValueError("Refusing review output upload: review account must be cdsintakestorage.")
+    if routing.processing_account.lower() != "insytprodstorage":
+        raise ValueError("Refusing review output upload: processing account must be insytprodstorage.")
+    warnings = routing.validate()
+    plan = build_review_promotion_blob_plan(db, job_id, routing)
+    adapter = DualStorageBlobAdapter(routing)
+    uploads = adapter.upload_review_promotion_outputs(plan, local_review_root=local_review_root, overwrite=overwrite)
+    payload = {
+        "generated_at": utc_now(),
+        "mode": "azure-write",
+        "job_id": job_id,
+        "routing": build_azure_routing_summary(routing, job_id=job_id, promotion_count=len(plan)),
+        "warnings": warnings,
+        "planned_docs": len(plan),
+        "uploads": uploads,
+    }
+    if export_dir:
+        export_json(Path(export_dir) / f"{job_id}.azure_upload_results.json", payload)
+    return payload
+
+
+def azure_upload_report_files(
+    routing: AzureRoutingConfig,
+    job_id: str,
+    local_review_root: str | None = None,
+    report_files: list[str] | None = None,
+    azure_write: bool = False,
+    overwrite: bool = True,
+    export_dir: str | None = None,
+) -> dict[str, object]:
+    """Upload job report/manifest artifacts to the review account reports prefix.
+
+    Review-ready Native/Text files are handled by azure_upload_review_outputs.
+    This function uploads non-source artifacts, such as review_ready_manifest.csv,
+    job summaries, stage CSVs, meter CSVs, and Azure upload result JSON.
+    """
+    if not azure_write:
+        raise ValueError("Refusing to write report files to Azure because --azure-write was not passed.")
+    if routing.review_account.lower() != "cdsintakestorage":
+        raise ValueError("Refusing report upload: review account must be cdsintakestorage.")
+    if routing.processing_account.lower() != "insytprodstorage":
+        raise ValueError("Refusing report upload: processing account must be insytprodstorage.")
+
+    adapter = DualStorageBlobAdapter(routing)
+    reports_prefix = routing.review_paths()["reports"].rstrip("/")
+    candidates: list[Path] = []
+
+    if local_review_root:
+        manifest = Path(local_review_root) / "processing_center" / "reports" / "review_ready_manifest.csv"
+        if manifest.exists():
+            candidates.append(manifest)
+
+    for file in report_files or []:
+        path = Path(file)
+        if path.exists() and path.is_file():
+            candidates.append(path)
+
+    seen: set[str] = set()
+    uploads: list[dict[str, object]] = []
+    for path in candidates:
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        blob_path = f"{reports_prefix}/{job_id}/{path.name}"
+        uploads.append(adapter.upload_report_file(str(path), blob_path, overwrite=overwrite))
+
+    payload = {
+        "generated_at": utc_now(),
+        "mode": "azure-write",
+        "job_id": job_id,
+        "routing": build_azure_routing_summary(routing, job_id=job_id, promotion_count=0),
+        "uploaded_reports": uploads,
+    }
+    if export_dir:
+        export_json(Path(export_dir) / f"{job_id}.azure_report_upload_results.json", payload)
+    return payload
+
+
+def upload_processing_job_status(
+    routing: AzureRoutingConfig,
+    job_id: str,
+    payload: dict[str, object],
+    overwrite: bool = True,
+) -> dict[str, object]:
+    """Upload billing/job status JSON to the processing account.
+
+    This writes to insytprodstorage under processing_center/jobs/{job_id}/status.json,
+    keeping operational job state separate from review-ready outputs.
+    """
+    if routing.processing_account.lower() != "insytprodstorage":
+        raise ValueError("Refusing job status upload: processing account must be insytprodstorage.")
+    adapter = DualStorageBlobAdapter(routing)
+    jobs_prefix = routing.processing_paths()["jobs"].rstrip("/")
+    blob_path = f"{jobs_prefix}/{job_id}/status.json"
+    blob_client = adapter.processing_container.get_blob_client(blob_path)
+    data = json.dumps(payload, indent=2, default=str).encode("utf-8")
+    blob_client.upload_blob(
+        data,
+        overwrite=overwrite,
+        content_settings=adapter._content_settings_cls(content_type="application/json"),
+    )
+    return {
+        "status": "uploaded",
+        "storage_account": routing.processing_account,
+        "container": routing.processing_container,
+        "blob_path": blob_path,
+        "bytes": len(data),
+    }
+
+
+def read_processing_job_status(routing: AzureRoutingConfig, job_id: str) -> dict[str, object]:
+    adapter = DualStorageBlobAdapter(routing)
+    jobs_prefix = routing.processing_paths()["jobs"].rstrip("/")
+    blob_path = f"{jobs_prefix}/{job_id}/status.json"
+    data = adapter.processing_container.download_blob(blob_path).readall()
+    return json.loads(data.decode("utf-8"))
