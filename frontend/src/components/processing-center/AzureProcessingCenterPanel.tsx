@@ -20,6 +20,26 @@ type ProcessingSettings = {
   review_account?: string;
 };
 
+type JobHistoryItem = {
+  job_id?: string;
+  status?: string;
+  message?: string;
+  matter_id?: string;
+  generated_at?: string;
+  created_at?: string;
+  completed_at?: string;
+  source_file_count?: number;
+  unique_doc_count?: number;
+  ocr_page_count?: number;
+  estimated_azure_cost_usd?: number;
+  downloaded_count?: number;
+  native_text_upload_count?: number;
+  report_upload_count?: number;
+  warning_count?: number;
+  status_blob_path?: string;
+  last_modified?: string;
+};
+
 type Props = {
   workspace: "capture" | "discovery" | "summaries";
   clientId: string;
@@ -41,6 +61,16 @@ function formatBytes(value?: number) {
 
   const gb = mb / 1024;
   return `${gb.toFixed(2)} GB`;
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "—";
+
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
 }
 
 function cleanError(message: string) {
@@ -75,6 +105,8 @@ export default function AzureProcessingCenterPanel({
     useState(false);
   const [archivingUploads, setArchivingUploads] = useState(false);
   const [archiveMessage, setArchiveMessage] = useState("");
+  const [jobHistory, setJobHistory] = useState<JobHistoryItem[]>([]);
+  const [loadingJobHistory, setLoadingJobHistory] = useState(false);
   
 
   const settingsUrl = useMemo(
@@ -84,6 +116,14 @@ export default function AzureProcessingCenterPanel({
   const uploadsUrl = useMemo(
     () =>
       `/api/${workspace}/processing-center/uploads?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}`,
+    [workspace, clientId, projectId]
+  );
+
+  const jobHistoryUrl = useMemo(
+    () =>
+      `/api/${workspace}/processing-center/job-history?client=${encodeURIComponent(
         clientId
       )}&project=${encodeURIComponent(projectId)}`,
     [workspace, clientId, projectId]
@@ -255,8 +295,29 @@ export default function AzureProcessingCenterPanel({
     }
   }
 
+  async function refreshJobHistory() {
+    setLoadingJobHistory(true);
+    setError("");
+
+    try {
+      const data = (await apiGet(jobHistoryUrl)) as {
+        jobs?: JobHistoryItem[];
+      };
+
+      setJobHistory(data.jobs || []);
+    } catch (err: any) {
+      setError(cleanError(err?.message || "Unable to load processing history."));
+    } finally {
+      setLoadingJobHistory(false);
+    }
+  }
+
   async function refreshAll() {
-    await Promise.all([refreshSettings(), refreshUploads()]);
+    await Promise.all([
+      refreshSettings(),
+      refreshUploads(),
+      refreshJobHistory(),
+    ]);
   }
 
   async function uploadToAzureProcessingCenter() {
@@ -372,6 +433,7 @@ export default function AzureProcessingCenterPanel({
       );
 
       await refreshUploads();
+      await refreshJobHistory();
     } catch (err: any) {
       setError(err?.message || "Unable to archive Processing Center uploads.");
     } finally {
@@ -408,6 +470,7 @@ export default function AzureProcessingCenterPanel({
 
       setJob(data);
       await refreshUploads();
+      await refreshJobHistory();
     } catch (err: any) {
       setError(cleanError(err?.message || "Processing job failed."));
     } finally {
@@ -419,7 +482,7 @@ export default function AzureProcessingCenterPanel({
   useEffect(() => {
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsUrl, uploadsUrl]);
+  }, [settingsUrl, uploadsUrl, jobHistoryUrl]);
 
   return (
     <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-5 text-slate-100 shadow-xl space-y-5">
@@ -606,6 +669,104 @@ export default function AzureProcessingCenterPanel({
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-medium">Processing Status / History</div>
+            <div className="mt-1 text-sm text-slate-400">
+              Previously completed Azure Processing Center jobs for this project.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={refreshJobHistory}
+            disabled={loadingJobHistory}
+            className="inline-flex h-9 min-w-[100px] items-center justify-center whitespace-nowrap rounded-full border border-blue-400/60 bg-blue-500/10 px-4 text-xs font-semibold text-blue-200 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loadingJobHistory ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+
+        {jobHistory.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No completed processing jobs found for this project yet.
+          </p>
+        ) : (
+          <div className="max-h-96 space-y-3 overflow-y-auto pr-1">
+            {jobHistory.map((historyJob) => (
+              <div
+                key={historyJob.job_id || historyJob.status_blob_path}
+                className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-100">
+                      {historyJob.job_id || "Unknown Job"}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      Completed:{" "}
+                      {formatDateTime(
+                        historyJob.completed_at ||
+                          historyJob.generated_at ||
+                          historyJob.last_modified
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                    {historyJob.status || "unknown"}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 md:grid-cols-5">
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">Source files</div>
+                    <div className="font-semibold text-slate-100">
+                      {historyJob.source_file_count ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">Unique docs</div>
+                    <div className="font-semibold text-slate-100">
+                      {historyJob.unique_doc_count ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">OCR pages</div>
+                    <div className="font-semibold text-slate-100">
+                      {historyJob.ocr_page_count ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">Warnings</div>
+                    <div className="font-semibold text-slate-100">
+                      {historyJob.warning_count ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">Azure estimate</div>
+                    <div className="font-semibold text-slate-100">
+                      {typeof historyJob.estimated_azure_cost_usd === "number"
+                        ? `$${historyJob.estimated_azure_cost_usd.toFixed(6)}`
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-2 break-all text-xs text-slate-600">
+                  {historyJob.status_blob_path}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
