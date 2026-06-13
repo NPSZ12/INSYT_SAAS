@@ -92,6 +92,28 @@ function cleanError(message: string) {
   }
 }
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  message: string,
+  timeoutMs = 20000
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 export default function AzureProcessingCenterPanel({
   workspace,
   clientId,
@@ -328,10 +350,13 @@ export default function AzureProcessingCenterPanel({
 
   async function refreshSettings() {
     setLoadingSettings(true);
-    setError("");
 
     try {
-      const data = (await apiGet(settingsUrl)) as ProcessingSettings;
+      const data = (await withTimeout(
+        apiGet(settingsUrl),
+        "APC settings request timed out."
+      )) as ProcessingSettings;
+
       setSettings(data);
     } catch (err: any) {
       setError(cleanError(err?.message || "Unable to load APC settings."));
@@ -342,10 +367,13 @@ export default function AzureProcessingCenterPanel({
 
   async function refreshUploads() {
     setLoadingUploads(true);
-    setError("");
 
     try {
-      const data = (await apiGet(uploadsUrl)) as { uploads: UploadItem[] };
+      const data = (await withTimeout(
+        apiGet(uploadsUrl),
+        "Processing uploads request timed out."
+      )) as { uploads: UploadItem[] };
+
       setUploads(data.uploads || []);
     } catch (err: any) {
       setError(cleanError(err?.message || "Unable to load processing uploads."));
@@ -356,10 +384,12 @@ export default function AzureProcessingCenterPanel({
 
   async function refreshJobHistory() {
     setLoadingJobHistory(true);
-    setError("");
 
     try {
-      const data = (await apiGet(jobHistoryUrl)) as {
+      const data = (await withTimeout(
+        apiGet(jobHistoryUrl),
+        "Processing history request timed out."
+      )) as {
         jobs?: JobHistoryItem[];
       };
 
@@ -372,7 +402,9 @@ export default function AzureProcessingCenterPanel({
   }
 
   async function refreshAll() {
-    await Promise.all([
+    setError("");
+
+    await Promise.allSettled([
       refreshSettings(),
       refreshUploads(),
       refreshJobHistory(),
@@ -558,10 +590,12 @@ export default function AzureProcessingCenterPanel({
           <button
             type="button"
             onClick={refreshAll}
-            disabled={loadingSettings || loadingUploads}
+            disabled={false}
             className="inline-flex h-10 min-w-[110px] items-center justify-center whitespace-nowrap rounded-full border border-blue-400/60 bg-blue-500/10 px-5 text-sm font-semibold text-blue-200 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loadingSettings || loadingUploads ? "Refreshing..." : "Refresh"}
+            {loadingSettings || loadingUploads || loadingJobHistory
+              ? "Refreshing..."
+              : "Refresh"}
           </button>
 
           <button
