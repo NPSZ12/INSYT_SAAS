@@ -289,7 +289,9 @@ def _list_processing_job_history(
                     "created_at": report_job.get("created_at"),
                     "completed_at": report_job.get("completed_at"),
                     "source_file_count": report_job.get("source_file_count"),
+                    "expanded_file_count": report_job.get("expanded_file_count"),
                     "unique_doc_count": report_job.get("unique_doc_count"),
+                    "duplicate_doc_count": report_job.get("duplicate_doc_count"),
                     "ocr_page_count": report_job.get("ocr_page_count"),
                     "estimated_azure_cost_usd": report_job.get(
                         "estimated_azure_cost_usd"
