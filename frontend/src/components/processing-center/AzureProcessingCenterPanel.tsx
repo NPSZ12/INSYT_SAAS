@@ -233,7 +233,7 @@ export default function AzureProcessingCenterPanel({
       const token = localStorage.getItem("insyt_token");
 
       const response = await fetch(
-        `${resolvedApiBase}/api/${workspace}/processing-center/upload`,
+        `${resolvedApiBase}/api/${workspace}/processing-center/uploads/upload`
         {
           method: "POST",
           headers: token
