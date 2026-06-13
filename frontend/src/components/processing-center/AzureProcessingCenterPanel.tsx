@@ -108,13 +108,18 @@ export default function AzureProcessingCenterPanel({
   const warningCount = job?.warnings?.length ?? 0;
 
   const reportSummary =
-    jobReport?.summary ||
     jobReport?.report ||
+    jobReport?.summary ||
     jobReport?.job_report ||
     jobReport ||
     null;
 
+  const reportJob = reportSummary?.job || {};
+  const reportOcr = reportSummary?.ocr || {};
+  const reportCost = reportSummary?.cost || {};
+
   const sourceFiles =
+    reportJob?.source_file_count ??
     reportSummary?.source_file_count ??
     reportSummary?.source_files ??
     reportSummary?.source_data?.source_files ??
@@ -122,6 +127,7 @@ export default function AzureProcessingCenterPanel({
     null;
 
   const uniqueDocs =
+    reportJob?.unique_doc_count ??
     reportSummary?.unique_doc_count ??
     reportSummary?.unique_docs ??
     reportSummary?.source_data?.unique_docs ??
@@ -129,6 +135,8 @@ export default function AzureProcessingCenterPanel({
     null;
 
   const ocrPages =
+    reportJob?.ocr_page_count ??
+    reportOcr?.estimated_pages ??
     reportSummary?.ocr_page_count ??
     reportSummary?.ocr_estimated_pages ??
     reportSummary?.ocr?.estimated_pages ??
@@ -136,15 +144,23 @@ export default function AzureProcessingCenterPanel({
     null;
 
   const ocrCost =
+    reportOcr?.estimated_cost_usd ??
     reportSummary?.ocr_estimated_cost ??
     reportSummary?.ocr_cost_estimated_usd ??
     reportSummary?.ocr?.estimated_cost_usd ??
     null;
 
   const totalAzureCost =
+    reportJob?.estimated_azure_cost_usd ??
+    reportCost?.total_estimated_azure_cost_usd ??
     reportSummary?.estimated_azure_cost_usd ??
     reportSummary?.total_estimated_azure_cost ??
     reportSummary?.azure_cost?.total_estimated_cost ??
+    null;
+
+  const promotedDocs =
+    reportSummary?.review_promotion?.promoted_docs ??
+    reportSummary?.reviewPromotion?.promotedDocs ??
     null;
 
   function getStoredUser() {
@@ -624,7 +640,7 @@ export default function AzureProcessingCenterPanel({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-6">
                 <div className="rounded-lg bg-slate-950 px-3 py-2">
                   <div className="text-xs text-slate-500">Source files</div>
                   <div className="text-base font-semibold text-slate-100">
@@ -636,6 +652,13 @@ export default function AzureProcessingCenterPanel({
                   <div className="text-xs text-slate-500">Unique docs</div>
                   <div className="text-base font-semibold text-slate-100">
                     {uniqueDocs ?? "—"}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-950 px-3 py-2">
+                  <div className="text-xs text-slate-500">Promoted docs</div>
+                  <div className="text-base font-semibold text-slate-100">
+                    {promotedDocs ?? "—"}
                   </div>
                 </div>
 
