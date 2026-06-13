@@ -34,6 +34,14 @@ type JobHistoryItem = {
   duplicate_doc_count?: number;
   ocr_page_count?: number;
   estimated_azure_cost_usd?: number;
+  ocr_candidate_files?: number;
+  ocr_candidate_bytes?: number;
+  ocr_candidate_gb?: number;
+  ocr_estimated_pages?: number;
+  ocr_estimated_cost_usd?: number;
+  ocr_cost_pct_of_total?: number;
+  ocr_reason_counts?: Record<string, number>;
+  non_ocr_estimated_cost_usd?: number;
   downloaded_count?: number;
   native_text_upload_count?: number;
   report_upload_count?: number;
@@ -259,6 +267,12 @@ export default function AzureProcessingCenterPanel({
       totals.duplicateDocs += Number(historyJob.duplicate_doc_count || 0);
       totals.ocrPages += Number(historyJob.ocr_page_count || 0);
       totals.azureEstimate += Number(historyJob.estimated_azure_cost_usd || 0);
+      totals.ocrCandidates += Number(historyJob.ocr_candidate_files || 0);
+      totals.ocrEstimatedPages += Number(
+        historyJob.ocr_estimated_pages ?? historyJob.ocr_page_count ?? 0
+      );
+      totals.ocrEstimate += Number(historyJob.ocr_estimated_cost_usd || 0);
+      totals.nonOcrEstimate += Number(historyJob.non_ocr_estimated_cost_usd || 0);
 
       if (String(historyJob.status || "").toLowerCase().includes("fail")) {
         totals.failedJobs += 1;
@@ -274,6 +288,10 @@ export default function AzureProcessingCenterPanel({
       uniqueDocs: 0,
       duplicateDocs: 0,
       ocrPages: 0,
+      ocrCandidates: 0,
+      ocrEstimatedPages: 0,
+      ocrEstimate: 0,
+      nonOcrEstimate: 0,
       azureEstimate: 0,
     }
   );
@@ -691,7 +709,7 @@ export default function AzureProcessingCenterPanel({
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-7">
+        <div className="grid gap-3 md:grid-cols-8">
           <div className="rounded-lg bg-slate-950 px-3 py-2">
             <div className="text-xs text-slate-500">Source uploads</div>
             <div className="text-base font-semibold text-slate-100">
@@ -728,6 +746,13 @@ export default function AzureProcessingCenterPanel({
           </div>
 
           <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">OCR estimate</div>
+            <div className="text-base font-semibold text-violet-100">
+              ${projectHistoryTotals.ocrEstimate.toFixed(6)}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
             <div className="text-xs text-slate-500">Failed jobs</div>
             <div className="text-base font-semibold text-red-100">
               {projectHistoryTotals.failedJobs}
@@ -736,6 +761,58 @@ export default function AzureProcessingCenterPanel({
 
           <div className="rounded-lg bg-slate-950 px-3 py-2">
             <div className="text-xs text-slate-500">Azure estimate</div>
+            <div className="text-base font-semibold text-slate-100">
+              ${projectHistoryTotals.azureEstimate.toFixed(6)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-medium">OCR Pricing Snapshot</div>
+            <div className="mt-1 text-sm text-slate-400">
+              OCR dry-run estimates from completed jobs. Live OCR remains disabled.
+            </div>
+          </div>
+
+          <div className="rounded-full border border-slate-600 px-3 py-1 text-xs font-semibold text-slate-300">
+            Dry-run pricing
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-5">
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">OCR candidates</div>
+            <div className="text-base font-semibold text-slate-100">
+              {projectHistoryTotals.ocrCandidates}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">OCR pages</div>
+            <div className="text-base font-semibold text-slate-100">
+              {projectHistoryTotals.ocrEstimatedPages}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">OCR estimate</div>
+            <div className="text-base font-semibold text-violet-100">
+              ${projectHistoryTotals.ocrEstimate.toFixed(6)}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">Non-OCR estimate</div>
+            <div className="text-base font-semibold text-slate-100">
+              ${projectHistoryTotals.nonOcrEstimate.toFixed(6)}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">Total Azure estimate</div>
             <div className="text-base font-semibold text-slate-100">
               ${projectHistoryTotals.azureEstimate.toFixed(6)}
             </div>
@@ -830,7 +907,7 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="mt-3 grid gap-2 md:grid-cols-7">
+                <div className="mt-3 grid gap-2 md:grid-cols-8">
                   <div className="rounded-lg bg-slate-900 px-3 py-2">
                     <div className="text-xs text-slate-500">Source files</div>
                     <div className="font-semibold text-slate-100">
@@ -863,6 +940,15 @@ export default function AzureProcessingCenterPanel({
                     <div className="text-xs text-slate-500">OCR pages</div>
                     <div className="font-semibold text-slate-100">
                       {historyJob.ocr_page_count ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">OCR estimate</div>
+                    <div className="font-semibold text-violet-100">
+                      {typeof historyJob.ocr_estimated_cost_usd === "number"
+                        ? `$${historyJob.ocr_estimated_cost_usd.toFixed(6)}`
+                        : "—"}
                     </div>
                   </div>
 
