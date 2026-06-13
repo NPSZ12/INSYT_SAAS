@@ -273,6 +273,8 @@ def _list_processing_job_history(
 
             report = status.get("report") or {}
             report_job = report.get("job") or {}
+            report_ocr = report.get("ocr") or {}
+            report_cost = report.get("cost") or {}
             review_upload = status.get("review_upload") or {}
             report_upload = status.get("report_upload") or {}
 
@@ -293,6 +295,16 @@ def _list_processing_job_history(
                     "unique_doc_count": report_job.get("unique_doc_count"),
                     "duplicate_doc_count": report_job.get("duplicate_doc_count"),
                     "ocr_page_count": report_job.get("ocr_page_count"),
+                    "ocr_candidate_files": report_ocr.get("candidate_files"),
+                    "ocr_candidate_bytes": report_ocr.get("candidate_bytes"),
+                    "ocr_candidate_gb": report_ocr.get("candidate_gb"),
+                    "ocr_estimated_pages": report_ocr.get("estimated_pages"),
+                    "ocr_estimated_cost_usd": report_ocr.get("estimated_cost_usd"),
+                    "ocr_cost_pct_of_total": report_ocr.get("cost_pct_of_total"),
+                    "ocr_reason_counts": report_ocr.get("reason_counts") or {},
+                    "non_ocr_estimated_cost_usd": report_cost.get(
+                        "non_ocr_estimated_cost_usd"
+                    ),
                     "estimated_azure_cost_usd": report_job.get(
                         "estimated_azure_cost_usd"
                     ),
