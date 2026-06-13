@@ -102,6 +102,14 @@ def run_azure_processing_job(
     status_upload: dict[str, Any] | None = None
 
     try:
+        # Important: each Azure run must start from only the blobs currently
+        # pending in source/processing_center/uploads. Without clearing this
+        # local folder, stale files from prior runs can be processed again even
+        # after Azure uploads were archived or removed.
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+
         downloads = azure_download_uploads(
             routing,
             str(staging_dir),
