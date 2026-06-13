@@ -27,9 +27,11 @@ from typing import Any, Literal
 
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient, ContentSettings
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
+from app.models.user import User
+from app.services.security import require_admin
 from apc.azure_blob_adapter import azure_list_uploads, read_processing_job_status
 from apc.azure_job_runner import run_azure_processing_job
 from apc.azure_layout import AzureRoutingConfig
@@ -247,6 +249,7 @@ async def upload_to_azure_processing_center(
 def start_azure_processing(
     workspace: Literal["capture", "discovery", "summaries"],
     request: AzureRunStartRequest,
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     allow_write = _bool_env("APC_API_ALLOW_AZURE_WRITE", False)
     allow_live_ocr = _bool_env("APC_API_ALLOW_LIVE_OCR", False)
