@@ -71,6 +71,8 @@ export default function AzureProcessingCenterPanel({
   const [error, setError] = useState<string>("");
   const [uploadMessage, setUploadMessage] = useState<string>("");
   const [showStartConfirm, setShowStartConfirm] = useState(false);
+  const [costThresholdAcknowledged, setCostThresholdAcknowledged] =
+    useState(false);
 
   const settingsUrl = useMemo(
     () => `/api/${workspace}/processing-center/settings`,
@@ -97,7 +99,7 @@ export default function AzureProcessingCenterPanel({
     )}/report`;
   }, [workspace, job?.job_id]);
 
-  const uploadCount = uploads.length;
+  
   const totalUploadBytes = uploads.reduce(
     (sum, item) => sum + Number(item.size || 0),
     0
@@ -114,6 +116,34 @@ export default function AzureProcessingCenterPanel({
     jobReport?.job_report ||
     jobReport ||
     null;
+
+  const uploadCount = uploads.length;
+
+  const uploadSizeBytes = uploads.reduce((total, item: any) => {
+    const size =
+      item.size ??
+      item.size_bytes ??
+      item.content_length ??
+      item.contentLength ??
+      0;
+
+    return total + Number(size || 0);
+  }, 0);
+
+  const uploadSizeGb = uploadSizeBytes / 1024 / 1024 / 1024;
+
+  // Demo/preflight estimate.
+  // Actual cost telemetry is finalized after the APC job runs.
+  const estimatedPreRunCostUsd =
+    uploadCount > 0
+      ? Math.max(0.00005, uploadSizeGb * 35 + uploadCount * 0.00001)
+      : 0;
+
+  // Keep intentionally low for now so we can confirm the warning works.
+  const costThresholdUsd = 0.00005;
+
+  const exceedsCostThreshold =
+    uploadCount > 0 && estimatedPreRunCostUsd >= costThresholdUsd;
 
   const reportJob = reportSummary?.job || {};
   const reportOcr = reportSummary?.ocr || {};
@@ -375,7 +405,10 @@ export default function AzureProcessingCenterPanel({
 
           <button
             type="button"
-            onClick={() => setShowStartConfirm(true)}
+            onClick={() => {
+              setCostThresholdAcknowledged(false);
+              setShowStartConfirm(true);
+            }}
             disabled={starting || uploads.length === 0 || !isInsytAdmin()}
             className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-violet-400/60 bg-violet-500/20 px-5 text-sm font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -745,6 +778,34 @@ export default function AzureProcessingCenterPanel({
                 Live OCR is currently disabled. OCR dry-run cost telemetry may still
                 be generated.
               </p>
+
+              {exceedsCostThreshold ? (
+                <div className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-3 text-red-100">
+                  <div className="font-semibold">Cost threshold warning</div>
+
+                  <div className="mt-1 text-sm leading-6">
+                    This project currently has {uploadCount} upload(s), totaling{" "}
+                    {uploadSizeBytes.toLocaleString()} bytes. The pre-run safety estimate is{" "}
+                    ${estimatedPreRunCostUsd.toFixed(6)}, which meets or exceeds the current
+                    demo threshold of ${costThresholdUsd.toFixed(6)}.
+                  </div>
+
+                  <label className="mt-3 flex items-start gap-2 text-sm text-red-50">
+                    <input
+                      type="checkbox"
+                      checked={costThresholdAcknowledged}
+                      onChange={(event) =>
+                        setCostThresholdAcknowledged(event.target.checked)
+                      }
+                      className="mt-1 h-4 w-4 rounded border-red-300 bg-slate-950"
+                    />
+                    <span>
+                      I understand this processing run may generate Azure processing and
+                      storage costs, and I approve starting the job.
+                    </span>
+                  </label>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -762,7 +823,9 @@ export default function AzureProcessingCenterPanel({
                   setShowStartConfirm(false);
                   startProcessing();
                 }}
-                disabled={starting}
+                disabled={
+                  starting || (exceedsCostThreshold && !costThresholdAcknowledged)
+                }
                 className="inline-flex h-10 items-center justify-center rounded-full border border-violet-400/60 bg-violet-500/20 px-5 text-sm font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {starting ? "Starting..." : "Start Processing"}
