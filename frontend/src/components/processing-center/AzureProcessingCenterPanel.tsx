@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { apiGet, apiPost } from "../../lib/api";
 
 type UploadItem = {
   name?: string;
@@ -26,32 +27,6 @@ type Props = {
   apiBase?: string;
 };
 
-async function apiGet<T>(url: string): Promise<T> {
-  const response = await fetch(url, { credentials: "include" });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `GET failed with status ${response.status}`);
-  }
-
-  return response.json();
-}
-
-async function apiPost<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `POST failed with status ${response.status}`);
-  }
-
-  return response.json();
-}
 
 function formatBytes(value?: number) {
   const bytes = Number(value || 0);
@@ -92,21 +67,20 @@ export default function AzureProcessingCenterPanel({
   const [error, setError] = useState<string>("");
 
   const settingsUrl = useMemo(
-    () => `${apiBase}/api/${workspace}/processing-center/settings`,
-    [apiBase, workspace]
+    () => `/api/${workspace}/processing-center/settings`,
+    [workspace]
   );
-
   const uploadsUrl = useMemo(
     () =>
-      `${apiBase}/api/${workspace}/processing-center/uploads?client=${encodeURIComponent(
+      `/api/${workspace}/processing-center/uploads?client=${encodeURIComponent(
         clientId
       )}&project=${encodeURIComponent(projectId)}`,
-    [apiBase, workspace, clientId, projectId]
+    [workspace, clientId, projectId]
   );
 
   const startUrl = useMemo(
-    () => `${apiBase}/api/${workspace}/processing-center/azure-run/start`,
-    [apiBase, workspace]
+    () => `/api/${workspace}/processing-center/azure-run/start`,
+    [workspace]
   );
 
   const uploadCount = uploads.length;
@@ -125,7 +99,7 @@ export default function AzureProcessingCenterPanel({
     setError("");
 
     try {
-      const data = await apiGet<ProcessingSettings>(settingsUrl);
+      const data = (await apiGet(settingsUrl)) as ProcessingSettings;
       setSettings(data);
     } catch (err: any) {
       setError(cleanError(err?.message || "Unable to load APC settings."));
@@ -139,7 +113,7 @@ export default function AzureProcessingCenterPanel({
     setError("");
 
     try {
-      const data = await apiGet<{ uploads: UploadItem[] }>(uploadsUrl);
+      const data = (await apiGet(uploadsUrl)) as { uploads: UploadItem[] };
       setUploads(data.uploads || []);
     } catch (err: any) {
       setError(cleanError(err?.message || "Unable to load processing uploads."));
@@ -162,7 +136,7 @@ export default function AzureProcessingCenterPanel({
     setError("");
 
     try {
-      const data = await apiPost<any>(startUrl, {
+      const data = (await apiPost(startUrl, {
         client: clientId,
         project: projectId,
         matter_id: `${projectId}-AZURE-RUN`,
@@ -171,7 +145,7 @@ export default function AzureProcessingCenterPanel({
         enable_live_ocr: false,
         azure_write: true,
         overwrite: true,
-      });
+      })) as any;
 
       setJob(data);
       await refreshUploads();
@@ -181,6 +155,7 @@ export default function AzureProcessingCenterPanel({
       setStarting(false);
     }
   }
+
 
   useEffect(() => {
     refreshAll();
