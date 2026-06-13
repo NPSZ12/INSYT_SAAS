@@ -224,6 +224,122 @@ def _archive_uploads_for_job(
         "archived": archived,
         "errors": errors,
     }
+    
+def _list_processing_job_history(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+) -> dict[str, Any]:
+    processing_account = _processing_account()
+    processing_container = _processing_container()
+
+    blob_service = _processing_blob_service()
+    container_client = blob_service.get_container_client(processing_container)
+
+    jobs_prefix = (
+        f"{workspace}/{client}/{project}/"
+        f"processing_center/jobs/"
+    )
+
+    jobs: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    blobs = list(container_client.list_blobs(name_starts_with=jobs_prefix))
+
+    status_blobs = [
+        blob for blob in blobs
+        if blob.name.endswith("/status.json")
+    ]
+
+    for blob in status_blobs:
+        try:
+            blob_client = container_client.get_blob_client(blob.name)
+
+            raw = (
+                blob_client.download_blob()
+                .readall()
+                .decode("utf-8")
+            )
+
+            import json
+
+            status = json.loads(raw)
+
+            job_id = (
+                status.get("job_id")
+                or blob.name.replace(jobs_prefix, "").split("/")[0]
+            )
+
+            report = status.get("report") or {}
+            report_job = report.get("job") or {}
+            review_upload = status.get("review_upload") or {}
+            report_upload = status.get("report_upload") or {}
+
+            jobs.append(
+                {
+                    "job_id": job_id,
+                    "status": status.get("status"),
+                    "message": status.get("message"),
+                    "matter_id": status.get("matter_id"),
+                    "workspace": status.get("workspace") or workspace,
+                    "client": status.get("client_id") or client,
+                    "project": status.get("project_id") or project,
+                    "generated_at": status.get("generated_at"),
+                    "created_at": report_job.get("created_at"),
+                    "completed_at": report_job.get("completed_at"),
+                    "source_file_count": report_job.get("source_file_count"),
+                    "unique_doc_count": report_job.get("unique_doc_count"),
+                    "ocr_page_count": report_job.get("ocr_page_count"),
+                    "estimated_azure_cost_usd": report_job.get(
+                        "estimated_azure_cost_usd"
+                    ),
+                    "downloaded_count": len(status.get("downloads") or []),
+                    "native_text_upload_count": len(
+                        review_upload.get("uploads") or []
+                    ),
+                    "report_upload_count": len(
+                        report_upload.get("uploaded_reports") or []
+                    ),
+                    "warning_count": len(status.get("warnings") or []),
+                    "status_blob_path": blob.name,
+                    "last_modified": (
+                        blob.last_modified.isoformat()
+                        if getattr(blob, "last_modified", None)
+                        else None
+                    ),
+                }
+            )
+        except Exception as exc:
+            errors.append(
+                {
+                    "status_blob_path": blob.name,
+                    "error": str(exc),
+                }
+            )
+
+    jobs.sort(
+        key=lambda item: (
+            item.get("completed_at")
+            or item.get("generated_at")
+            or item.get("last_modified")
+            or ""
+        ),
+        reverse=True,
+    )
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "storage_account": processing_account,
+        "container": processing_container,
+        "jobs_prefix": jobs_prefix,
+        "job_count": len(jobs),
+        "error_count": len(errors),
+        "jobs": jobs,
+        "errors": errors,
+    }
 
 @router.get("/{workspace}/processing-center/settings")
 def processing_center_settings(
@@ -406,6 +522,21 @@ def start_azure_processing(
         db.close()
 
 
+@router.get("/{workspace}/processing-center/jobs/history")
+def get_processing_job_history(
+    workspace: Literal["capture", "discovery", "summaries"],
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    try:
+        return _list_processing_job_history(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    
 @router.get("/{workspace}/processing-center/jobs/{job_id}")
 def get_processing_job(
     workspace: Literal["capture", "discovery", "summaries"],
@@ -438,7 +569,6 @@ def get_processing_job(
         return dict(row)
     finally:
         db.close()
-
 
 @router.get("/{workspace}/processing-center/jobs/{job_id}/report")
 def get_processing_job_report(
