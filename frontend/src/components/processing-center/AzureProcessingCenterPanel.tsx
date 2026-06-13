@@ -382,8 +382,9 @@ export default function AzureProcessingCenterPanel({
             {starting ? "Processing..." : "Start Azure Processing"}
           </button>
           {!isInsytAdmin() ? (
-            <div className="text-xs text-slate-500">
-              Upload is available to clients. Processing commitment is currently reserved for INSYT Admin.
+            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              Files may be uploaded to the Processing Center, but Azure Processing can
+              only be started by an INSYT Admin.
             </div>
           ) : null}
         </div>
