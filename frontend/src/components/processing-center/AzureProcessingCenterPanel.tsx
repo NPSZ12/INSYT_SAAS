@@ -139,6 +139,9 @@ export default function AzureProcessingCenterPanel({
   const [archiveMessage, setArchiveMessage] = useState("");
   const [jobHistory, setJobHistory] = useState<JobHistoryItem[]>([]);
   const [loadingJobHistory, setLoadingJobHistory] = useState(false);
+  const [selectedUploadNames, setSelectedUploadNames] = useState<string[]>([]);
+  const [removingUploads, setRemovingUploads] = useState(false);
+  const [removeMessage, setRemoveMessage] = useState("");
   
 
   const settingsUrl = useMemo(
@@ -348,6 +351,63 @@ export default function AzureProcessingCenterPanel({
     );
   }
 
+  function toggleSelectedUpload(name: string) {
+    setSelectedUploadNames((current) =>
+      current.includes(name)
+        ? current.filter((item) => item !== name)
+        : [...current, name]
+    );
+  }
+
+  function clearSelectedUploads() {
+    setSelectedUploadNames([]);
+  }
+
+  async function removeProcessingUploads(clearAll = false) {
+    if (!isInsytAdmin()) {
+      setError("Only INSYT Admin can remove Processing Center uploads.");
+      return;
+    }
+
+    if (!clearAll && selectedUploadNames.length === 0) {
+      setError("Select at least one upload to remove.");
+      return;
+    }
+
+    setRemovingUploads(true);
+    setError("");
+    setRemoveMessage("");
+
+    try {
+      const result = (await apiPost(
+        `/api/${workspace}/processing-center/uploads/remove`,
+        {
+          client: clientId,
+          project: projectId,
+          blob_names: clearAll ? [] : selectedUploadNames,
+          clear_all: clearAll,
+          reason: clearAll
+            ? "clear_all_pending_processing_uploads"
+            : "remove_selected_pending_processing_uploads",
+        }
+      )) as any;
+
+      setRemoveMessage(
+        clearAll
+          ? `Cleared ${result?.removed_count ?? 0} pending upload(s).`
+          : `Removed ${result?.removed_count ?? 0} selected upload(s).`
+      );
+
+      setSelectedUploadNames([]);
+      await refreshUploads();
+      await refreshJobHistory();
+    } catch (err: any) {
+      setError(cleanError(err?.message || "Unable to remove processing uploads."));
+    } finally {
+      setRemovingUploads(false);
+    }
+  }
+
   async function refreshSettings() {
     setLoadingSettings(true);
 
@@ -375,6 +435,13 @@ export default function AzureProcessingCenterPanel({
       )) as { uploads: UploadItem[] };
 
       setUploads(data.uploads || []);
+      setSelectedUploadNames((current) =>
+        current.filter((name) =>
+          (data.uploads || []).some(
+            (item) => (item.blob_name || item.name || "Unknown file") === name
+          )
+        )
+      );
     } catch (err: any) {
       setError(cleanError(err?.message || "Unable to load processing uploads."));
     } finally {
@@ -855,12 +922,48 @@ export default function AzureProcessingCenterPanel({
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="font-medium">Processing uploads</div>
-          <div className="text-sm text-slate-400">
-            {uploads.length} file(s)
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-medium">Processing uploads</div>
+            <div className="mt-1 text-sm text-slate-400">
+              Pending files that have not yet been processed.
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm text-slate-400">
+              {uploads.length} file(s)
+            </div>
+
+            {isInsytAdmin() && uploads.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => removeProcessingUploads(false)}
+                  disabled={removingUploads || selectedUploadNames.length === 0}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-amber-400/60 bg-amber-500/10 px-4 text-xs font-semibold text-amber-100 shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {removingUploads ? "Removing..." : "Remove Selected"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => removeProcessingUploads(true)}
+                  disabled={removingUploads}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-red-400/60 bg-red-500/10 px-4 text-xs font-semibold text-red-100 shadow-sm transition hover:-translate-y-0.5 hover:border-red-300 hover:bg-red-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Clear All Uploads
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
+
+        {removeMessage ? (
+          <div className="mb-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            {removeMessage}
+          </div>
+        ) : null}
 
         {uploads.length === 0 ? (
           <p className="text-sm text-slate-500">
@@ -876,7 +979,18 @@ export default function AzureProcessingCenterPanel({
                   key={`${displayName}-${index}`}
                   className="rounded-lg bg-slate-950 px-3 py-2 text-sm"
                 >
-                  <div className="break-all text-slate-200">{displayName}</div>
+                  <div className="flex items-start gap-3">
+                    {isInsytAdmin() ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedUploadNames.includes(displayName)}
+                        onChange={() => toggleSelectedUpload(displayName)}
+                        className="mt-1 h-4 w-4 rounded border-slate-500 bg-slate-950"
+                      />
+                    ) : null}
+
+                    <div className="break-all text-slate-200">{displayName}</div>
+                  </div>
                   <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
                     <span>{formatBytes(item.size)}</span>
                     {item.content_type ? <span>{item.content_type}</span> : null}
