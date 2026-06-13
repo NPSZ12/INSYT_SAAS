@@ -28,10 +28,17 @@ const workspaceOptions = [
 ];
 
 const clientFolderOptions = [
-  { value: "source/native", label: "Native" },
+  {
+    value: "source/processing_center/uploads",
+    label: "Processing Center",
+  },
 ];
 
 const adminFolderOptions = [
+  {
+    value: "source/processing_center/uploads",
+    label: "Processing Center",
+  },
   { value: "source/native", label: "Native" },
   { value: "source/text", label: "Text" },
   { value: "source/metadata", label: "Metadata" },
@@ -60,7 +67,7 @@ export default function ProjectFileUploadCard({
     useState<string[]>([]);
 
   const [selectedFolder, setSelectedFolder] =
-    useState("source/native");
+    useState("source/processing_center/uploads");
 
   const [selectedFiles, setSelectedFiles] =
     useState<File[]>([]);
@@ -77,6 +84,9 @@ export default function ProjectFileUploadCard({
   const normalizedRole =
     user?.role?.toLowerCase() || "";
 
+  const isClientUser =
+    normalizedRole === "client";
+
   const canSeeAllFolders =
     normalizedRole.includes("admin") ||
     normalizedRole === "rm";
@@ -84,6 +94,12 @@ export default function ProjectFileUploadCard({
   const folderOptions = canSeeAllFolders
     ? adminFolderOptions
     : clientFolderOptions;
+
+  useEffect(() => {
+    if (isClientUser) {
+      setSelectedFolder("source/processing_center/uploads");
+    }
+  }, [isClientUser]);
 
   useEffect(() => {
     if (!selectedWorkspace) {
@@ -204,9 +220,12 @@ export default function ProjectFileUploadCard({
       setMessage(
         `${
           result.count || selectedFiles.length
-        } file(s) uploaded successfully to ${selectedClient}/${selectedProject}/${selectedFolder}.`
+        } file(s) uploaded successfully to ${selectedClient}/${selectedProject}/${selectedFolder}. ${
+          selectedFolder === "source/processing_center/uploads"
+            ? "INSYT Admin will start processing when ready."
+            : ""
+        }`
       );
-
       setSelectedFiles([]);
     } catch (error: any) {
       console.error("Upload failed:", error);
@@ -232,7 +251,7 @@ export default function ProjectFileUploadCard({
                 setSelectedWorkspace(value);
                 setSelectedClient("");
                 setSelectedProject("");
-                setSelectedFolder("source/native");
+                setSelectedFolder("source/processing_center/uploads");
               }}
             >
               <option value="">Select workspace...</option>
@@ -290,7 +309,10 @@ export default function ProjectFileUploadCard({
 
             <Select
               value={selectedFolder}
-              onChange={setSelectedFolder}
+              onChange={(value) => {
+                if (isClientUser) return;
+                setSelectedFolder(value);
+              }}
             >
               {folderOptions.map((folder) => (
                 <option
@@ -301,6 +323,12 @@ export default function ProjectFileUploadCard({
                 </option>
               ))}
             </Select>
+
+            {isClientUser ? (
+              <div className="mt-2 text-xs text-slate-500">
+                Client uploads are routed to the Processing Center. INSYT Admin will review and start processing when ready.
+              </div>
+            ) : null}
           </div>
 
           <div className="md:col-span-4">
@@ -351,13 +379,13 @@ export default function ProjectFileUploadCard({
               onClick={handleUpload}
               disabled={uploading}
               className={`
-                relative z-50 inline-flex items-center justify-center
-                rounded-xl border px-5 py-3 text-sm font-semibold
-                text-white shadow-md transition-all duration-200
+                relative z-50 inline-flex h-11 min-w-[220px] items-center justify-center
+                whitespace-nowrap rounded-full border px-6 text-sm font-semibold
+                shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50
                 ${
                   uploading
-                    ? "cursor-not-allowed border-slate-600 bg-slate-700 text-slate-300"
-                    : "cursor-pointer border-sky-400 bg-sky-500 shadow-sky-500/20 hover:bg-teal-500 hover:border-teal-400 hover:shadow-lg hover:shadow-teal-500/30 hover:scale-[1.02] active:scale-[0.98]"
+                    ? "border-slate-600 bg-slate-700/60 text-slate-300"
+                    : "border-sky-400/60 bg-sky-500/15 text-sky-200 shadow-sky-500/20 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white hover:shadow-lg hover:shadow-sky-500/20"
                 }
               `}
             >

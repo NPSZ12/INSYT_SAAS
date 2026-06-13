@@ -60,8 +60,10 @@ export default function AzureProcessingCenterPanel({
 }: Props) {
   const [settings, setSettings] = useState<ProcessingSettings | null>(null);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [loadingUploads, setLoadingUploads] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [job, setJob] = useState<any>(null);
   const [error, setError] = useState<string>("");
@@ -93,6 +95,36 @@ export default function AzureProcessingCenterPanel({
   const reportUploadCount = job?.report_upload?.uploaded_reports?.length ?? 0;
   const downloadedCount = job?.downloads?.length ?? 0;
   const warningCount = job?.warnings?.length ?? 0;
+
+  function getStoredUser() {
+    try {
+      const raw = localStorage.getItem("insyt_user");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function isInsytAdmin() {
+    const user = getStoredUser();
+
+    const roleValues = [
+      user?.role,
+      user?.user_role,
+      user?.access_role,
+      user?.type,
+      ...(Array.isArray(user?.roles) ? user.roles : []),
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase());
+
+    return roleValues.some(
+      (role) =>
+        role === "insyt admin" ||
+        role === "insyt_admin" ||
+        role === "super admin"
+    );
+  }
 
   async function refreshSettings() {
     setLoadingSettings(true);
@@ -126,9 +158,60 @@ export default function AzureProcessingCenterPanel({
     await Promise.all([refreshSettings(), refreshUploads()]);
   }
 
+  async function uploadToAzureProcessingCenter() {
+    if (!clientId || !projectId || !selectedFile) {
+      setError("Client, project, and file are required before uploading.");
+      return;
+    }
+
+    const resolvedApiBase =
+      apiBase || process.env.NEXT_PUBLIC_API_BASE_URL || "";
+
+    if (!resolvedApiBase) {
+      setError("API base URL is not configured.");
+      return;
+    }
+
+    setUploading(true);
+    setError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("client", clientId);
+      formData.append("project_id", projectId);
+      formData.append("file", selectedFile);
+
+      const response = await fetch(
+        `${resolvedApiBase}/api/${workspace}/processing-center/upload`,
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Upload failed.");
+      }
+
+      setSelectedFile(null);
+      await refreshUploads();
+    } catch (err: any) {
+      setError(cleanError(err?.message || "Unable to upload to Azure Processing Center."));
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function startProcessing() {
     if (!clientId || !projectId) {
       setError("Client and project are required before starting processing.");
+      return;
+    }
+
+    if (!isInsytAdmin()) {
+      setError("Only INSYT Admin users can start Azure processing.");
       return;
     }
 
@@ -186,11 +269,16 @@ export default function AzureProcessingCenterPanel({
           <button
             type="button"
             onClick={startProcessing}
-            disabled={starting || uploads.length === 0}
+            disabled={starting || uploads.length === 0 || !isInsytAdmin()}
             className="rounded-full bg-blue-500 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {starting ? "Processing..." : "Start Azure Processing"}
           </button>
+          {!isInsytAdmin() ? (
+            <div className="text-xs text-slate-500">
+              Upload is available to clients. Processing commitment is currently reserved for INSYT Admin.
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -200,6 +288,49 @@ export default function AzureProcessingCenterPanel({
         </div>
       ) : null}
 
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="mb-3">
+          <div className="font-medium">Upload to Azure Processing Center</div>
+          <div className="mt-1 text-sm text-slate-400">
+            Files are uploaded to source/processing_center/uploads. Processing can only be started by INSYT Admin.
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            id="azure-processing-center-file-input"
+            type="file"
+            className="hidden"
+            onChange={(event) =>
+              setSelectedFile(event.target.files?.[0] || null)
+            }
+          />
+
+          <label
+            htmlFor="azure-processing-center-file-input"
+            className="inline-flex h-10 min-w-[210px] cursor-pointer items-center justify-center whitespace-nowrap rounded-full border border-emerald-400/60 bg-emerald-500/15 px-5 text-sm font-semibold text-emerald-200 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+          >
+            Choose File
+          </label>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (!selectedFile || uploading) return;
+              uploadToAzureProcessingCenter();
+            }}
+            disabled={!selectedFile || uploading}
+            className="inline-flex h-10 min-w-[230px] items-center justify-center whitespace-nowrap rounded-full border border-sky-400/60 bg-sky-500/15 px-5 text-sm font-semibold text-sky-200 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {uploading ? "Uploading..." : "Upload to Processing Center"}
+          </button>
+        </div>
+
+        <div className="mt-2 min-h-5 truncate text-xs leading-5 text-slate-500">
+          {selectedFile ? selectedFile.name : "No file selected"}
+        </div>
+      </div>
+      
       <div className="grid gap-3 md:grid-cols-4">
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="text-xs uppercase tracking-wide text-slate-500">
