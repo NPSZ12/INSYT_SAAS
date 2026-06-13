@@ -7,6 +7,8 @@ from typing import Any
 
 from .azure_blob_adapter import (
     azure_download_uploads,
+    azure_read_processed_hash_index,
+    azure_update_processed_hash_index,
     azure_upload_report_files,
     azure_upload_review_outputs,
     upload_processing_job_status,
@@ -32,6 +34,7 @@ class AzureRunResult:
     review_upload: dict[str, Any] | None
     report_upload: dict[str, Any] | None
     status_upload: dict[str, Any] | None
+    hash_index_upload: dict[str, Any] | None
     warnings: list[str]
 
     def to_dict(self) -> dict[str, Any]:
@@ -119,9 +122,12 @@ def run_azure_processing_job(
                 review_upload=None,
                 report_upload=None,
                 status_upload=None,
+                hash_index_upload=None,
                 warnings=warnings,
             )
             return result
+        
+        prior_processed_index = azure_read_processed_hash_index(routing)
 
         job_id = run_local_pipeline(
             db=db,
@@ -134,6 +140,7 @@ def run_azure_processing_job(
             enable_live_ocr=enable_live_ocr,
             promote_review_ready=True,
             output_root=str(review_root),
+            prior_processed_index=prior_processed_index,
         )
         local_review_root = review_root / job_id
 
@@ -143,6 +150,8 @@ def run_azure_processing_job(
 
         review_upload = None
         report_upload = None
+        hash_index_upload = None
+
         if azure_write:
             review_upload = azure_upload_review_outputs(
                 db=db,
@@ -152,6 +161,12 @@ def run_azure_processing_job(
                 azure_write=True,
                 overwrite=overwrite,
                 export_dir=export_dir,
+            )
+            hash_index_upload = azure_update_processed_hash_index(
+                db=db,
+                routing=routing,
+                job_id=job_id,
+                overwrite=True,
             )
             report_upload = azure_upload_report_files(
                 routing=routing,
@@ -199,6 +214,7 @@ def run_azure_processing_job(
             review_upload=review_upload,
             report_upload=report_upload,
             status_upload=status_upload,
+            hash_index_upload=hash_index_upload,
             warnings=warnings,
         )
     except Exception as exc:

@@ -1,9 +1,42 @@
 from __future__ import annotations
 
+from typing import Any
+
 from ..config import Settings
 from ..db import LedgerDB
 from ..telemetry import StageRunner
 from ..util import json_dumps, utc_now
+
+
+def _normalize_prior_hash_index(
+    prior_processed_index: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    if not prior_processed_index:
+        return {}
+
+    items = prior_processed_index.get("items") or {}
+
+    if isinstance(items, dict):
+        return {
+            str(sha256).strip().lower(): dict(record or {})
+            for sha256, record in items.items()
+            if str(sha256).strip()
+        }
+
+    if isinstance(items, list):
+        normalized: dict[str, dict[str, Any]] = {}
+
+        for record in items:
+            if not isinstance(record, dict):
+                continue
+
+            sha256 = str(record.get("sha256") or "").strip().lower()
+            if sha256 and sha256 not in normalized:
+                normalized[sha256] = dict(record)
+
+        return normalized
+
+    return {}
 
 
 def run_prior_processed_duplicate_suppression(
@@ -11,14 +44,15 @@ def run_prior_processed_duplicate_suppression(
     settings: Settings,
     job_id: str,
     matter_id: str,
+    prior_processed_index: dict[str, Any] | None = None,
 ) -> None:
-    """Suppress files already promoted in prior jobs for the same matter/project.
+    """Suppress files already promoted in prior jobs for the same project.
 
     This stage runs after hashing + within-job dedupe and before Doc ID assignment.
 
-    If a current file's SHA256 was already promoted to review in a prior job for
-    the same matter_id, mark the current file as a duplicate. Existing downstream
-    filters then automatically skip Doc ID assignment and review promotion.
+    If a current file's SHA256 already exists in the Azure project-level processed
+    hash index, mark the current file as a duplicate. Existing downstream filters
+    then automatically skip Doc ID assignment and review promotion.
     """
 
     current_rows = db.query(
@@ -36,38 +70,7 @@ def run_prior_processed_duplicate_suppression(
         (job_id,),
     )
 
-    prior_rows = db.query(
-        """
-        SELECT
-          f.file_id,
-          f.job_id,
-          f.doc_id,
-          f.normalized_path,
-          f.native_output_path,
-          f.text_output_path,
-          f.sha256
-        FROM file_processing_metrics f
-        JOIN processing_job j ON j.job_id = f.job_id
-        WHERE f.job_id <> ?
-          AND j.matter_id = ?
-          AND f.is_container=0
-          AND f.is_denisted=0
-          AND f.is_duplicate=0
-          AND f.promoted_to_review=1
-          AND f.doc_id IS NOT NULL
-          AND f.sha256 IS NOT NULL
-          AND f.sha256 <> ''
-        ORDER BY j.completed_at DESC, j.created_at DESC, f.doc_id
-        """,
-        (job_id, matter_id),
-    )
-
-    prior_by_sha256: dict[str, dict] = {}
-
-    for row in prior_rows:
-        sha256 = str(row["sha256"] or "").strip().lower()
-        if sha256 and sha256 not in prior_by_sha256:
-            prior_by_sha256[sha256] = dict(row)
+    prior_by_sha256 = _normalize_prior_hash_index(prior_processed_index)
 
     with StageRunner(
         db,
@@ -75,11 +78,11 @@ def run_prior_processed_duplicate_suppression(
         job_id,
         matter_id,
         "prior_processed_duplicate_suppression",
-        "sha256-project-history-suppression",
+        "azure-sha256-project-history-suppression",
     ) as stage:
         suppressed = 0
         checked = 0
-        examples: list[dict] = []
+        examples: list[dict[str, Any]] = []
 
         for row in current_rows:
             checked += 1
@@ -92,11 +95,12 @@ def run_prior_processed_duplicate_suppression(
             duplicate_note = {
                 "prior_processed_duplicate": {
                     "status": "suppressed",
-                    "reason": "sha256_already_promoted_in_prior_job",
-                    "prior_job_id": prior.get("job_id"),
-                    "prior_file_id": prior.get("file_id"),
+                    "reason": "sha256_already_exists_in_project_hash_index",
+                    "prior_job_id": prior.get("first_processed_job_id")
+                    or prior.get("job_id"),
                     "prior_doc_id": prior.get("doc_id"),
-                    "prior_normalized_path": prior.get("normalized_path"),
+                    "prior_original_name": prior.get("original_name")
+                    or prior.get("normalized_path"),
                     "prior_native_output_path": prior.get("native_output_path"),
                     "prior_text_output_path": prior.get("text_output_path"),
                     "sha256": sha256,
@@ -128,7 +132,8 @@ def run_prior_processed_duplicate_suppression(
                         "file_id": row["file_id"],
                         "normalized_path": row["normalized_path"],
                         "sha256": sha256,
-                        "prior_job_id": prior.get("job_id"),
+                        "prior_job_id": prior.get("first_processed_job_id")
+                        or prior.get("job_id"),
                         "prior_doc_id": prior.get("doc_id"),
                     }
                 )

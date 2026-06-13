@@ -328,6 +328,180 @@ def upload_processing_job_status(
         "bytes": len(data),
     }
 
+def _processed_hash_index_blob_path(routing: AzureRoutingConfig) -> str:
+    return (
+        f"{routing.workspace}/{routing.client}/{routing.project}/"
+        f"processing_center/index/processed_hash_index.json"
+    )
+
+
+def azure_read_processed_hash_index(routing: AzureRoutingConfig) -> dict[str, object]:
+    adapter = DualStorageBlobAdapter(routing)
+    blob_path = _processed_hash_index_blob_path(routing)
+    blob_client = adapter.processing_container.get_blob_client(blob_path)
+
+    try:
+        data = blob_client.download_blob().readall()
+        payload = json.loads(data.decode("utf-8"))
+
+        if not isinstance(payload, dict):
+            raise ValueError("processed_hash_index.json is not a JSON object.")
+
+        payload.setdefault("items", {})
+        return payload
+    except Exception as exc:
+        message = str(exc)
+
+        if (
+            "BlobNotFound" in message
+            or "The specified blob does not exist" in message
+            or getattr(exc, "status_code", None) == 404
+        ):
+            return {
+                "generated_at": utc_now(),
+                "workspace": routing.workspace,
+                "client": routing.client,
+                "project": routing.project,
+                "storage_account": routing.processing_account,
+                "container": routing.processing_container,
+                "blob_path": blob_path,
+                "count": 0,
+                "items": {},
+            }
+
+        raise
+
+
+def azure_update_processed_hash_index(
+    db: LedgerDB,
+    routing: AzureRoutingConfig,
+    job_id: str,
+    overwrite: bool = True,
+) -> dict[str, object]:
+    adapter = DualStorageBlobAdapter(routing)
+    blob_path = _processed_hash_index_blob_path(routing)
+
+    existing = azure_read_processed_hash_index(routing)
+    existing_items = existing.get("items") or {}
+
+    if isinstance(existing_items, list):
+        items: dict[str, object] = {
+            str(record.get("sha256") or "").strip().lower(): record
+            for record in existing_items
+            if isinstance(record, dict)
+            and str(record.get("sha256") or "").strip()
+        }
+    elif isinstance(existing_items, dict):
+        items = {
+            str(sha256).strip().lower(): record
+            for sha256, record in existing_items.items()
+            if str(sha256).strip()
+        }
+    else:
+        items = {}
+
+    rows = db.query(
+        """
+        SELECT
+            file_id,
+            job_id,
+            doc_id,
+            normalized_path,
+            extension,
+            source_bytes,
+            page_count,
+            md5,
+            sha1,
+            sha256,
+            native_output_path,
+            text_output_path
+        FROM file_processing_metrics
+        WHERE job_id=?
+          AND is_container=0
+          AND is_denisted=0
+          AND is_duplicate=0
+          AND promoted_to_review=1
+          AND doc_id IS NOT NULL
+          AND sha256 IS NOT NULL
+          AND sha256 <> ''
+        ORDER BY doc_id
+        """,
+        (job_id,),
+    )
+
+    added = 0
+    updated = 0
+
+    for row in rows:
+        sha256 = str(row["sha256"] or "").strip().lower()
+        if not sha256:
+            continue
+
+        existed = sha256 in items
+
+        items[sha256] = {
+            "sha256": sha256,
+            "md5": row["md5"] or "",
+            "sha1": row["sha1"] or "",
+            "doc_id": row["doc_id"],
+            "file_id": row["file_id"],
+            "original_name": Path(row["normalized_path"] or "").name,
+            "normalized_path": row["normalized_path"],
+            "extension": row["extension"] or "",
+            "source_bytes": int(row["source_bytes"] or 0),
+            "page_count": int(row["page_count"] or 0),
+            "first_processed_job_id": (
+                (items.get(sha256) or {}).get("first_processed_job_id")
+                if isinstance(items.get(sha256), dict)
+                else None
+            )
+            or row["job_id"],
+            "last_seen_job_id": row["job_id"],
+            "native_output_path": row["native_output_path"] or "",
+            "text_output_path": row["text_output_path"] or "",
+            "updated_at": utc_now(),
+        }
+
+        if existed:
+            updated += 1
+        else:
+            added += 1
+
+    payload = {
+        "generated_at": utc_now(),
+        "workspace": routing.workspace,
+        "client": routing.client,
+        "project": routing.project,
+        "storage_account": routing.processing_account,
+        "container": routing.processing_container,
+        "blob_path": blob_path,
+        "count": len(items),
+        "added_count": added,
+        "updated_count": updated,
+        "job_id": job_id,
+        "items": items,
+    }
+
+    blob_client = adapter.processing_container.get_blob_client(blob_path)
+    data = json.dumps(payload, indent=2, default=str).encode("utf-8")
+    blob_client.upload_blob(
+        data,
+        overwrite=overwrite,
+        content_settings=adapter._content_settings_cls(
+            content_type="application/json"
+        ),
+    )
+
+    return {
+        "status": "uploaded",
+        "storage_account": routing.processing_account,
+        "container": routing.processing_container,
+        "blob_path": blob_path,
+        "bytes": len(data),
+        "count": len(items),
+        "added_count": added,
+        "updated_count": updated,
+    }
 
 def read_processing_job_status(routing: AzureRoutingConfig, job_id: str) -> dict[str, object]:
     adapter = DualStorageBlobAdapter(routing)

@@ -113,6 +113,7 @@ def run_local_pipeline(
     enable_live_ocr: bool = False,
     promote_review_ready: bool = False,
     output_root: str | None = None,
+    prior_processed_index: dict | None = None,
 ) -> str:
     db.init_schema()
     job_id = create_job(
@@ -127,6 +128,11 @@ def run_local_pipeline(
             "enable_live_ocr": enable_live_ocr,
             "promote_review_ready": promote_review_ready,
             "output_root": output_root,
+            "prior_processed_index_count": len(
+                (prior_processed_index or {}).get("items", {})
+                if isinstance(prior_processed_index, dict)
+                else {}
+            ),
         },
     )
     db.execute("UPDATE processing_job SET status=? WHERE job_id=?", ("running", job_id))
@@ -139,7 +145,13 @@ def run_local_pipeline(
     run_hashing(db, settings, job_id, matter_id)
     run_denist(db, settings, job_id, matter_id)
     run_dedupe(db, settings, job_id, matter_id)
-    run_prior_processed_duplicate_suppression(db, settings, job_id, matter_id)
+    run_prior_processed_duplicate_suppression(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        prior_processed_index=prior_processed_index,
+    )
     run_family_detection(db, settings, job_id, matter_id)
     run_doc_id_assignment(db, settings, job_id, matter_id, prefix=doc_prefix)
     run_text_extraction(db, settings, job_id, matter_id)
