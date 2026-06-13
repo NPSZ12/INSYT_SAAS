@@ -12,6 +12,7 @@ from .stages.inventory import run_inventory
 from .stages.ocr_dry_run import run_ocr_dry_run
 from .stages.ocr_live_placeholder import run_live_ocr_placeholder
 from .stages.ocr_preflight import run_ocr_preflight
+from .stages.prior_processed import run_prior_processed_duplicate_suppression
 from .stages.review_promotion import run_review_promotion
 from .stages.text_extraction import run_text_extraction
 from .util import bytes_to_gb, json_dumps, new_id, utc_now
@@ -138,6 +139,7 @@ def run_local_pipeline(
     run_hashing(db, settings, job_id, matter_id)
     run_denist(db, settings, job_id, matter_id)
     run_dedupe(db, settings, job_id, matter_id)
+    run_prior_processed_duplicate_suppression(db, settings, job_id, matter_id)
     run_family_detection(db, settings, job_id, matter_id)
     run_doc_id_assignment(db, settings, job_id, matter_id, prefix=doc_prefix)
     run_text_extraction(db, settings, job_id, matter_id)
