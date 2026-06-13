@@ -73,6 +73,9 @@ export default function AzureProcessingCenterPanel({
   const [showStartConfirm, setShowStartConfirm] = useState(false);
   const [costThresholdAcknowledged, setCostThresholdAcknowledged] =
     useState(false);
+  const [archivingUploads, setArchivingUploads] = useState(false);
+  const [archiveMessage, setArchiveMessage] = useState("");
+  
 
   const settingsUrl = useMemo(
     () => `/api/${workspace}/processing-center/settings`,
@@ -340,6 +343,42 @@ export default function AzureProcessingCenterPanel({
     }
   }
 
+  async function archiveProcessedUploads() {
+    if (!job?.job_id) {
+      setError("No completed processing job is available to archive uploads.");
+      return;
+    }
+
+    if (!isInsytAdmin()) {
+      setError("Only INSYT Admin can archive Processing Center uploads.");
+      return;
+    }
+
+    setArchivingUploads(true);
+    setArchiveMessage("");
+    setError("");
+
+    try {
+      const archiveUrl =
+        `/api/${workspace}/processing-center/uploads/archive` +
+        `?client=${encodeURIComponent(clientId)}` +
+        `&project=${encodeURIComponent(projectId)}` +
+        `&job_id=${encodeURIComponent(job.job_id)}`;
+
+      const result = (await apiPost(archiveUrl, {})) as any;
+
+      setArchiveMessage(
+        `Archived ${result?.archived_count ?? 0} upload(s).`
+      );
+
+      await refreshUploads();
+    } catch (err: any) {
+      setError(err?.message || "Unable to archive Processing Center uploads.");
+    } finally {
+      setArchivingUploads(false);
+    }
+  }
+
   async function startProcessing() {
     if (!clientId || !projectId) {
       setError("Client and project are required before starting processing.");
@@ -594,8 +633,24 @@ export default function AzureProcessingCenterPanel({
               >
                 {loadingReport ? "Loading..." : "View Report"}
               </button>
+              {isInsytAdmin() && job?.status === "completed" ? (
+                <button
+                  type="button"
+                  onClick={archiveProcessedUploads}
+                  disabled={archivingUploads || uploads.length === 0}
+                  className="inline-flex h-10 items-center justify-center rounded-full border border-amber-400/60 bg-amber-500/10 px-5 text-sm font-semibold text-amber-100 shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {archivingUploads ? "Archiving..." : "Archive Processed Uploads"}
+                </button>
+              ) : null}
             </div>
           </div>
+
+          {archiveMessage ? (
+            <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+              {archiveMessage}
+            </div>
+          ) : null}
 
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <div className="rounded-lg bg-slate-950 px-3 py-2">
