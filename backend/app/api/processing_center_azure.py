@@ -52,6 +52,12 @@ class AzureRunStartRequest(BaseModel):
     overwrite: bool = False
     clean_staging: bool = False
 
+class RemoveProcessingUploadsRequest(BaseModel):
+    client: str
+    project: str
+    blob_names: list[str] = []
+    clear_all: bool = False
+    reason: str = "removed_from_processing"
 
 class AzureRunResponse(BaseModel):
     job_id: str
@@ -222,6 +228,129 @@ def _archive_uploads_for_job(
         "archived_count": len(archived),
         "error_count": len(errors),
         "archived": archived,
+        "errors": errors,
+    }
+    
+def _remove_processing_uploads(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    blob_names: list[str],
+    clear_all: bool = False,
+    reason: str = "removed_from_processing",
+) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
+    processing_account = _processing_account()
+    processing_container = _processing_container()
+
+    blob_service = _processing_blob_service()
+    container_client = blob_service.get_container_client(processing_container)
+
+    uploads_prefix = (
+        f"{workspace}/{client}/{project}/"
+        f"source/processing_center/uploads/"
+    )
+
+    removed_at = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    removed_prefix = (
+        f"{workspace}/{client}/{project}/"
+        f"processing_center/removed/{removed_at}/uploads/"
+    )
+
+    selected_names = set(str(name or "").strip() for name in blob_names if name)
+
+    if clear_all:
+        blobs = [
+            blob
+            for blob in container_client.list_blobs(name_starts_with=uploads_prefix)
+            if not str(blob.name).endswith("/")
+        ]
+    else:
+        blobs = []
+        for name in selected_names:
+            if not name.startswith(uploads_prefix):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Upload path is outside processing uploads: {name}",
+                )
+
+            try:
+                props = container_client.get_blob_client(name).get_blob_properties()
+                blobs.append(
+                    type(
+                        "BlobRef",
+                        (),
+                        {
+                            "name": name,
+                            "size": getattr(props, "size", 0),
+                        },
+                    )()
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Upload blob not found: {name}",
+                ) from exc
+
+    removed: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    for blob in blobs:
+        source_name = str(blob.name)
+
+        if source_name.endswith("/"):
+            continue
+
+        relative_name = source_name[len(uploads_prefix):]
+        removed_name = f"{removed_prefix}{relative_name}"
+
+        source_blob = container_client.get_blob_client(source_name)
+        removed_blob = container_client.get_blob_client(removed_name)
+
+        try:
+            removed_blob.start_copy_from_url(source_blob.url)
+
+            props = removed_blob.get_blob_properties()
+            copy_status = props.copy.status if props.copy else None
+
+            if copy_status not in {"success", None}:
+                raise RuntimeError(f"Removal copy did not complete: {copy_status}")
+
+            source_blob.delete_blob()
+
+            removed.append(
+                {
+                    "source_path": source_name,
+                    "removed_path": removed_name,
+                    "size": getattr(blob, "size", None),
+                    "status": "removed",
+                }
+            )
+        except Exception as exc:
+            errors.append(
+                {
+                    "source_path": source_name,
+                    "removed_path": removed_name,
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "reason": reason,
+        "clear_all": clear_all,
+        "storage_account": processing_account,
+        "container": processing_container,
+        "uploads_prefix": uploads_prefix,
+        "removed_prefix": removed_prefix,
+        "removed_count": len(removed),
+        "error_count": len(errors),
+        "removed": removed,
         "errors": errors,
     }
     
@@ -454,6 +583,32 @@ async def upload_to_azure_processing_center(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
         await file.close()
+
+@router.post("/{workspace}/processing-center/uploads/remove")
+def remove_processing_uploads(
+    workspace: Literal["capture", "discovery", "summaries"],
+    request: RemoveProcessingUploadsRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    if not request.clear_all and not request.blob_names:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one upload or set clear_all=true.",
+        )
+
+    try:
+        return _remove_processing_uploads(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+            blob_names=request.blob_names,
+            clear_all=request.clear_all,
+            reason=request.reason,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/{workspace}/processing-center/uploads/archive")
