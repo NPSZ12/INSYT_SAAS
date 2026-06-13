@@ -69,6 +69,7 @@ export default function AzureProcessingCenterPanel({
   const [jobReport, setJobReport] = useState<any>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [error, setError] = useState<string>("");
+  const [uploadMessage, setUploadMessage] = useState<string>("");
 
   const settingsUrl = useMemo(
     () => `/api/${workspace}/processing-center/settings`,
@@ -215,15 +216,13 @@ export default function AzureProcessingCenterPanel({
     }
 
     const resolvedApiBase =
-      apiBase || process.env.NEXT_PUBLIC_API_BASE_URL || "";
-
-    if (!resolvedApiBase) {
-      setError("API base URL is not configured.");
-      return;
-    }
+      apiBase ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      "https://api.insyt360.com";
 
     setUploading(true);
     setError("");
+    setUploadMessage(`Uploading ${selectedFile.name}...`);
 
     try {
       const formData = new FormData();
@@ -247,15 +246,29 @@ export default function AzureProcessingCenterPanel({
         }
       );
 
+      const text = await response.text();
+
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Upload failed.");
+        throw new Error(text || `Upload failed with status ${response.status}.`);
       }
+
+      let result: any = {};
+      try {
+        result = text ? JSON.parse(text) : {};
+      } catch {
+        result = {};
+      }
+
+      setUploadMessage(
+        result?.message ||
+          `Uploaded ${selectedFile.name} to Azure Processing Center.`
+      );
 
       setSelectedFile(null);
       await refreshUploads();
     } catch (err: any) {
       setError(cleanError(err?.message || "Unable to upload to Azure Processing Center."));
+      setUploadMessage("");
     } finally {
       setUploading(false);
     }
@@ -406,6 +419,12 @@ export default function AzureProcessingCenterPanel({
         <div className="mt-2 min-h-5 truncate text-xs leading-5 text-slate-500">
           {selectedFile ? selectedFile.name : "No file selected"}
         </div>
+
+        {uploadMessage ? (
+          <div className="mt-2 rounded-lg border border-sky-500/30 bg-sky-950/30 px-3 py-2 text-xs text-sky-200">
+            {uploadMessage}
+          </div>
+        ) : null}
       </div>
       
       <div className="grid gap-3 md:grid-cols-4">
