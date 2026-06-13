@@ -51,6 +51,7 @@ class AzureRunStartRequest(BaseModel):
     azure_write: bool = False
     overwrite: bool = False
     clean_staging: bool = False
+    auto_archive_uploads: bool = True
 
 class RemoveProcessingUploadsRequest(BaseModel):
     client: str
@@ -60,7 +61,7 @@ class RemoveProcessingUploadsRequest(BaseModel):
     reason: str = "removed_from_processing"
 
 class AzureRunResponse(BaseModel):
-    job_id: str
+    job_id: str | None
     status: str
     message: str | None = None
     routing: dict[str, Any] | None = None
@@ -68,6 +69,8 @@ class AzureRunResponse(BaseModel):
     review_upload: dict[str, Any] | None = None
     report_upload: dict[str, Any] | None = None
     status_upload: dict[str, Any] | None = None
+    hash_index_upload: dict[str, Any] | None = None
+    archive_uploads: dict[str, Any] | None = None
     warnings: list[str] = []
 
 
@@ -684,7 +687,23 @@ def start_azure_processing(
             upload_status=True,
         )
 
-        return result.to_dict()
+        result_dict = result.to_dict()
+        result_dict["archive_uploads"] = None
+
+        if (
+            request.auto_archive_uploads
+            and request.azure_write
+            and result_dict.get("status") == "completed"
+            and result_dict.get("job_id")
+        ):
+            result_dict["archive_uploads"] = _archive_uploads_for_job(
+                workspace=workspace,
+                client=request.client,
+                project=request.project,
+                job_id=str(result_dict["job_id"]),
+            )
+
+        return result_dict
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
