@@ -70,6 +70,7 @@ export default function AzureProcessingCenterPanel({
   const [loadingReport, setLoadingReport] = useState(false);
   const [error, setError] = useState<string>("");
   const [uploadMessage, setUploadMessage] = useState<string>("");
+  const [showStartConfirm, setShowStartConfirm] = useState(false);
 
   const settingsUrl = useMemo(
     () => `/api/${workspace}/processing-center/settings`,
@@ -374,7 +375,7 @@ export default function AzureProcessingCenterPanel({
 
           <button
             type="button"
-            onClick={startProcessing}
+            onClick={() => setShowStartConfirm(true)}
             disabled={starting || uploads.length === 0 || !isInsytAdmin()}
             className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-violet-400/60 bg-violet-500/20 px-5 text-sm font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -718,6 +719,57 @@ export default function AzureProcessingCenterPanel({
           ) : null}
         </div>
       ) : null}
+      {showStartConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
+            <div className="text-lg font-semibold text-slate-100">
+              Start Azure Processing?
+            </div>
+
+            <div className="mt-3 space-y-3 text-sm leading-6 text-slate-300">
+              <p>
+                This will process all files currently in{" "}
+                <span className="font-semibold text-slate-100">
+                  source/processing_center/uploads
+                </span>{" "}
+                for this project.
+              </p>
+
+              <p>
+                INSYT will assign Doc IDs, promote review-ready Native/Text outputs to
+                review storage, and generate processing reports and cost telemetry.
+              </p>
+
+              <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-amber-100">
+                Live OCR is currently disabled. OCR dry-run cost telemetry may still
+                be generated.
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowStartConfirm(false)}
+                className="inline-flex h-10 items-center justify-center rounded-full border border-slate-600 px-5 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowStartConfirm(false);
+                  startProcessing();
+                }}
+                disabled={starting}
+                className="inline-flex h-10 items-center justify-center rounded-full border border-violet-400/60 bg-violet-500/20 px-5 text-sm font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {starting ? "Starting..." : "Start Processing"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
