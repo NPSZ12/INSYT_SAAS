@@ -29,7 +29,9 @@ type JobHistoryItem = {
   created_at?: string;
   completed_at?: string;
   source_file_count?: number;
+  expanded_file_count?: number;
   unique_doc_count?: number;
+  duplicate_doc_count?: number;
   ocr_page_count?: number;
   estimated_azure_cost_usd?: number;
   downloaded_count?: number;
@@ -200,6 +202,17 @@ export default function AzureProcessingCenterPanel({
     reportSummary?.sourceData?.sourceFiles ??
     null;
 
+  const expandedFiles =
+    reportJob?.expanded_file_count ??
+    reportSummary?.expanded_file_count ??
+    reportSummary?.containers?.expanded_file_count ??
+    null;
+
+  const duplicateDocs =
+    reportJob?.duplicate_doc_count ??
+    reportSummary?.duplicate_doc_count ??
+    null;
+
   const uniqueDocs =
     reportJob?.unique_doc_count ??
     reportSummary?.unique_doc_count ??
@@ -236,6 +249,34 @@ export default function AzureProcessingCenterPanel({
     reportSummary?.review_promotion?.promoted_docs ??
     reportSummary?.reviewPromotion?.promotedDocs ??
     null;
+
+  const projectHistoryTotals = jobHistory.reduce(
+    (totals, historyJob) => {
+      totals.jobs += 1;
+      totals.sourceFiles += Number(historyJob.source_file_count || 0);
+      totals.expandedFiles += Number(historyJob.expanded_file_count || 0);
+      totals.uniqueDocs += Number(historyJob.unique_doc_count || 0);
+      totals.duplicateDocs += Number(historyJob.duplicate_doc_count || 0);
+      totals.ocrPages += Number(historyJob.ocr_page_count || 0);
+      totals.azureEstimate += Number(historyJob.estimated_azure_cost_usd || 0);
+
+      if (String(historyJob.status || "").toLowerCase().includes("fail")) {
+        totals.failedJobs += 1;
+      }
+
+      return totals;
+    },
+    {
+      jobs: 0,
+      failedJobs: 0,
+      sourceFiles: 0,
+      expandedFiles: 0,
+      uniqueDocs: 0,
+      duplicateDocs: 0,
+      ocrPages: 0,
+      azureEstimate: 0,
+    }
+  );
 
   function getStoredUser() {
     try {
@@ -637,6 +678,72 @@ export default function AzureProcessingCenterPanel({
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-medium">Project Processing Totals</div>
+            <div className="mt-1 text-sm text-slate-400">
+              Running totals from completed Azure Processing Center jobs for this project.
+            </div>
+          </div>
+
+          <div className="rounded-full border border-slate-600 px-3 py-1 text-xs font-semibold text-slate-300">
+            {projectHistoryTotals.jobs} job(s)
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-7">
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">Source uploads</div>
+            <div className="text-base font-semibold text-slate-100">
+              {projectHistoryTotals.sourceFiles}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">Expanded files</div>
+            <div className="text-base font-semibold text-slate-100">
+              {projectHistoryTotals.expandedFiles}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">New unique docs</div>
+            <div className="text-base font-semibold text-emerald-100">
+              {projectHistoryTotals.uniqueDocs}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">Duplicate docs</div>
+            <div className="text-base font-semibold text-amber-100">
+              {projectHistoryTotals.duplicateDocs}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">OCR pages</div>
+            <div className="text-base font-semibold text-slate-100">
+              {projectHistoryTotals.ocrPages}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">Failed jobs</div>
+            <div className="text-base font-semibold text-red-100">
+              {projectHistoryTotals.failedJobs}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-950 px-3 py-2">
+            <div className="text-xs text-slate-500">Azure estimate</div>
+            <div className="text-base font-semibold text-slate-100">
+              ${projectHistoryTotals.azureEstimate.toFixed(6)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="mb-3 flex items-center justify-between">
           <div className="font-medium">Processing uploads</div>
           <div className="text-sm text-slate-400">
@@ -723,7 +830,7 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="mt-3 grid gap-2 md:grid-cols-5">
+                <div className="mt-3 grid gap-2 md:grid-cols-7">
                   <div className="rounded-lg bg-slate-900 px-3 py-2">
                     <div className="text-xs text-slate-500">Source files</div>
                     <div className="font-semibold text-slate-100">
@@ -732,9 +839,23 @@ export default function AzureProcessingCenterPanel({
                   </div>
 
                   <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Unique docs</div>
+                    <div className="text-xs text-slate-500">Expanded</div>
                     <div className="font-semibold text-slate-100">
+                      {historyJob.expanded_file_count ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">Unique docs</div>
+                    <div className="font-semibold text-emerald-100">
                       {historyJob.unique_doc_count ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">Duplicates</div>
+                    <div className="font-semibold text-amber-100">
+                      {historyJob.duplicate_doc_count ?? "—"}
                     </div>
                   </div>
 
@@ -891,7 +1012,7 @@ export default function AzureProcessingCenterPanel({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-6">
+              <div className="grid gap-3 md:grid-cols-8">
                 <div className="rounded-lg bg-slate-950 px-3 py-2">
                   <div className="text-xs text-slate-500">Source files</div>
                   <div className="text-base font-semibold text-slate-100">
