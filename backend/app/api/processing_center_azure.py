@@ -140,6 +140,90 @@ def _processing_blob_service() -> BlobServiceClient:
         credential=credential,
     )
 
+def _archive_uploads_for_job(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+) -> dict[str, Any]:
+    processing_account = _processing_account()
+    processing_container = _processing_container()
+
+    blob_service = _processing_blob_service()
+    container_client = blob_service.get_container_client(processing_container)
+
+    uploads_prefix = (
+        f"{workspace}/{client}/{project}/"
+        f"source/processing_center/uploads/"
+    )
+
+    archive_prefix = (
+        f"{workspace}/{client}/{project}/"
+        f"processing_center/archive/{job_id}/uploads/"
+    )
+
+    archived: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    blobs = list(container_client.list_blobs(name_starts_with=uploads_prefix))
+
+    for blob in blobs:
+        source_name = blob.name
+
+        if source_name.endswith("/"):
+            continue
+
+        relative_name = source_name[len(uploads_prefix):]
+        archive_name = f"{archive_prefix}{relative_name}"
+
+        source_blob = container_client.get_blob_client(source_name)
+        archive_blob = container_client.get_blob_client(archive_name)
+
+        try:
+            source_url = source_blob.url
+
+            archive_blob.start_copy_from_url(source_url)
+
+            props = archive_blob.get_blob_properties()
+            copy_status = props.copy.status if props.copy else None
+
+            if copy_status not in {"success", None}:
+                raise RuntimeError(f"Archive copy did not complete: {copy_status}")
+
+            source_blob.delete_blob()
+
+            archived.append(
+                {
+                    "source_path": source_name,
+                    "archive_path": archive_name,
+                    "size": getattr(blob, "size", None),
+                    "status": "archived",
+                }
+            )
+        except Exception as exc:
+            errors.append(
+                {
+                    "source_path": source_name,
+                    "archive_path": archive_name,
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "job_id": job_id,
+        "storage_account": processing_account,
+        "container": processing_container,
+        "uploads_prefix": uploads_prefix,
+        "archive_prefix": archive_prefix,
+        "archived_count": len(archived),
+        "error_count": len(errors),
+        "archived": archived,
+        "errors": errors,
+    }
 
 @router.get("/{workspace}/processing-center/settings")
 def processing_center_settings(
@@ -241,6 +325,27 @@ async def upload_to_azure_processing_center(
     finally:
         await file.close()
 
+
+@router.post("/{workspace}/processing-center/uploads/archive")
+def archive_processing_uploads(
+    workspace: Literal["capture", "discovery", "summaries"],
+    client: str = Query(...),
+    project: str = Query(...),
+    job_id: str = Query(...),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    if not job_id.strip():
+        raise HTTPException(status_code=400, detail="job_id is required.")
+
+    try:
+        return _archive_uploads_for_job(
+            workspace=workspace,
+            client=client,
+            project=project,
+            job_id=job_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 @router.post(
     "/{workspace}/processing-center/azure-run/start",
