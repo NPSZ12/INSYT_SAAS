@@ -522,7 +522,7 @@ def start_azure_processing(
         db.close()
 
 
-@router.get("/{workspace}/processing-center/jobs/history")
+@router.get("/{workspace}/processing-center/job-history")
 def get_processing_job_history(
     workspace: Literal["capture", "discovery", "summaries"],
     client: str = Query(...),
