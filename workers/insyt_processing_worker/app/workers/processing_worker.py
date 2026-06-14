@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import json
 import os
-import tempfile
-from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 try:
     from dotenv import load_dotenv
@@ -10,373 +12,319 @@ try:
 except Exception:
     pass
 
-from app.api.processing_center import (
-    copy_blob,
-    delete_blob_if_exists,
-    determine_viewer_type,
-    errors_path,
-    extract_text_basic,
-    final_native_path,
-    final_text_path,
-    get_blob_service_client,
-    get_container_name,
-    get_doc_id,
-    get_extension,
-    get_processing_queue_client,
-    in_progress_path,
-    now_iso,
-    preview_html_path,
-    preview_pdf_path,
-    processed_metadata_path,
-    processed_native_path,
-    processed_text_path,
-    read_json_blob,
-    update_manifest_item,
-    write_json_blob,
+from azure.identity import DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient, ContentSettings
+
+from apc.azure_blob_adapter import (
+    azure_upload_report_files,
+    azure_upload_review_outputs,
+    azure_update_processed_hash_index,
 )
+from apc.azure_job_runner import run_azure_processing_job
+from apc.azure_layout import AzureRoutingConfig
+from apc.config import DEFAULT_SETTINGS
+from apc.db import LedgerDB
+from apc.reports import export_job_report, job_report_data
+from apc.util import utc_now
 
 
-def update_job(container, job_blob_path: str, updates: dict):
-    job = read_json_blob(container, job_blob_path, {})
-
-    if not job:
-        raise RuntimeError(f"Job not found: {job_blob_path}")
-
-    job.update(updates)
-    job["last_updated_at"] = now_iso()
-
-    write_json_blob(container, job_blob_path, job)
-
-    return job
+def _processing_account() -> str:
+    return os.getenv("INSYT_PROCESSING_STORAGE_ACCOUNT", "insytprodstorage")
 
 
-def process_one_upload(
-    workspace: str,
-    client: str,
-    project_id: str,
-    upload_blob_path: str,
-):
-    container_name = get_container_name(workspace)
-    service = get_blob_service_client()
-    container = service.get_container_client(container_name)
+def _processing_container() -> str:
+    return os.getenv("INSYT_PROCESSING_CONTAINER", "insyt-capture")
 
-    file_name = upload_blob_path.split("/")[-1]
 
-    if not file_name:
-        raise RuntimeError(f"Invalid upload path: {upload_blob_path}")
+def _review_account() -> str:
+    return os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "insytreviewstorage")
 
-    doc_id = get_doc_id(file_name)
-    progress_path = in_progress_path(client, project_id, file_name)
 
-    update_manifest_item(
-        container,
-        client,
-        project_id,
-        file_name,
+def _review_container() -> str:
+    return os.getenv("INSYT_REVIEW_CONTAINER", "insyt-capture")
+
+
+def _blob_service() -> BlobServiceClient:
+    processing_account = _processing_account()
+
+    processing_conn = os.getenv("INSYT_PROCESSING_STORAGE_CONNECTION_STRING")
+    if processing_conn:
+        return BlobServiceClient.from_connection_string(processing_conn)
+
+    credential = DefaultAzureCredential()
+    return BlobServiceClient(
+        account_url=f"https://{processing_account}.blob.core.windows.net",
+        credential=credential,
+    )
+
+
+def _container_client():
+    return _blob_service().get_container_client(_processing_container())
+
+
+def _read_json_blob(blob_path: str, default: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        data = _container_client().download_blob(blob_path).readall()
+        return json.loads(data.decode("utf-8"))
+    except Exception:
+        if default is not None:
+            return default
+        raise
+
+
+def _write_json_blob(blob_path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    data = json.dumps(payload, indent=2, default=str).encode("utf-8")
+    blob_client = _container_client().get_blob_client(blob_path)
+
+    blob_client.upload_blob(
+        data,
+        overwrite=True,
+        content_settings=ContentSettings(content_type="application/json"),
+    )
+
+    return {
+        "status": "uploaded",
+        "storage_account": _processing_account(),
+        "container": _processing_container(),
+        "blob_path": blob_path,
+        "bytes": len(data),
+    }
+
+
+def _cancel_requested(cancel_blob_path: str | None) -> bool:
+    if not cancel_blob_path:
+        return False
+
+    try:
+        cancel = _read_json_blob(cancel_blob_path, default={})
+        return bool(cancel)
+    except Exception:
+        return False
+
+
+def _update_status(
+    *,
+    status_blob_path: str,
+    status: str,
+    stage: str,
+    progress_pct: int,
+    message: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = _read_json_blob(status_blob_path, default={})
+
+    current.update(
         {
-            "doc_id": doc_id,
-            "extension": get_extension(file_name),
-            "status": "In Progress",
-            "started_at": now_iso(),
-            "upload_path": upload_blob_path,
-            "in_progress_path": progress_path,
-            "error": "",
+            "status": status,
+            "stage": stage,
+            "progress_pct": progress_pct,
+            "message": message,
+            "updated_at": utc_now(),
+        }
+    )
+
+    if status == "running" and not current.get("started_at"):
+        current["started_at"] = utc_now()
+
+    if extra:
+        current.update(extra)
+
+    _write_json_blob(status_blob_path, current)
+    return current
+
+
+def _cancel_if_requested(
+    *,
+    cancel_blob_path: str | None,
+    status_blob_path: str,
+    stage: str,
+) -> None:
+    if not _cancel_requested(cancel_blob_path):
+        return
+
+    _update_status(
+        status_blob_path=status_blob_path,
+        status="cancelled",
+        stage=stage,
+        progress_pct=0,
+        message="APC job cancelled before next processing checkpoint.",
+        extra={
+            "cancelled_at": utc_now(),
+            "cancel_requested": True,
         },
     )
 
-    copy_blob(container, upload_blob_path, progress_path)
+    raise RuntimeError("APC job cancelled by user request.")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        local_file_path = os.path.join(tmpdir, file_name)
 
-        with open(local_file_path, "wb") as f:
-            f.write(
-                container.get_blob_client(progress_path)
-                .download_blob()
-                .readall()
-            )
-
-        extraction_result = extract_text_basic(
-            local_file_path,
-            file_name,
-        )
-
-    extracted_text = extraction_result.get("text", "")
-
-    processed_native = processed_native_path(
-        client,
-        project_id,
-        file_name,
+def _routing_from_payload(payload: dict[str, Any]) -> AzureRoutingConfig:
+    return AzureRoutingConfig.from_args(
+        workspace=payload["workspace"],
+        client=payload["client"],
+        project=payload["project"],
+        processing_account=_processing_account(),
+        review_account=_review_account(),
+        processing_container=_processing_container(),
+        review_container=_review_container(),
+        azure_write=bool(payload.get("azure_write", True)),
+        allow_same_account=False,
     )
 
-    processed_text = processed_text_path(
-        client,
-        project_id,
-        doc_id,
-    )
 
-    metadata_path = processed_metadata_path(
-        client,
-        project_id,
-        doc_id,
-    )
-
-    final_native = final_native_path(
-        client,
-        project_id,
-        file_name,
-    )
-
-    final_text = final_text_path(
-        client,
-        project_id,
-        doc_id,
-    )
-
-    extension = get_extension(file_name)
-    viewer_type = determine_viewer_type(file_name, extracted_text)
-
-    preview_pdf = preview_pdf_path(
-        client,
-        project_id,
-        doc_id,
-    )
-
-    preview_html = preview_html_path(
-        client,
-        project_id,
-        doc_id,
-    )
-
-    copy_blob(container, progress_path, processed_native)
-    copy_blob(container, progress_path, final_native)
-
-    container.get_blob_client(processed_text).upload_blob(
-        extracted_text,
-        overwrite=True,
-    )
-
-    container.get_blob_client(final_text).upload_blob(
-        extracted_text,
-        overwrite=True,
-    )
-
-    metadata = {
-        "doc_id": doc_id,
-        "file_name": file_name,
-        "extension": extension,
-        "workspace": workspace,
-        "client": client,
-        "project_id": project_id,
-        "status": "Processed",
-        "processed_at": now_iso(),
-        "upload_path": upload_blob_path,
-        "processed_native_path": processed_native,
-        "processed_text_path": processed_text,
-        "final_native_path": final_native,
-        "final_text_path": final_text,
-        "preview_pdf_path": preview_pdf,
-        "preview_html_path": preview_html,
-        "viewer_type": viewer_type,
-        "preview_available": viewer_type
-        in ["pdf", "image", "text", "email"],
-        "ocr_status": extraction_result.get("ocr_status", ""),
-        "ocr_applied": extraction_result.get("ocr_applied", False),
-        "ocr_engine": extraction_result.get("ocr_engine", ""),
-        "ocr_page_count": extraction_result.get("ocr_page_count", 0),
-        "ocr_text_length": extraction_result.get(
-            "ocr_text_length",
-            len(extracted_text or ""),
-        ),
-        "ocr_confidence_score": extraction_result.get(
-            "ocr_confidence_score"
-        ),
-        "ocr_quality": extraction_result.get("ocr_quality", ""),
-        "ocr_warning": extraction_result.get("ocr_warning", ""),
-        "text_length": len(extracted_text or ""),
-        "error": "",
-    }
-
-    write_json_blob(container, metadata_path, metadata)
-
-    delete_blob_if_exists(container, upload_blob_path)
-    delete_blob_if_exists(container, progress_path)
-
-    update_manifest_item(
-        container,
-        client,
-        project_id,
-        file_name,
-        metadata,
-    )
-
-    return metadata
+def _db_path(job_id: str) -> str:
+    root = Path(os.getenv("APC_WORKER_DB_ROOT", "/tmp/apc_worker_db"))
+    root.mkdir(parents=True, exist_ok=True)
+    return str(root / f"{job_id}.db")
 
 
 def process_job_message(message_content: str):
-    queue_payload = json.loads(message_content)
+    payload = json.loads(message_content)
 
-    workspace = queue_payload["workspace"]
-    client = queue_payload["client"]
-    project_id = queue_payload["project_id"]
-    job_blob_path = queue_payload["job_blob_path"]
+    job_id = payload["job_id"]
+    status_blob_path = payload["status_blob_path"]
+    cancel_blob_path = payload.get("cancel_blob_path")
+    request_blob_path = payload.get("request_blob_path")
 
-    container_name = get_container_name(workspace)
-    service = get_blob_service_client()
-    container = service.get_container_client(container_name)
+    routing = _routing_from_payload(payload)
 
-    job = read_json_blob(container, job_blob_path, None)
+    db = LedgerDB(_db_path(job_id))
 
-    if not job:
-        raise RuntimeError(f"Job blob not found: {job_blob_path}")
-
-    files = job.get("files", [])
-
-    update_job(
-        container,
-        job_blob_path,
-        {
-            "status": "Running",
-            "started_at": job.get("started_at") or now_iso(),
-            "message": "Processing job running.",
-        },
-    )
-
-    processed_files = 0
-    error_files = 0
-    updated_files = []
-
-    for item in files:
-        file_name = item.get("file_name", "")
-        upload_path = item.get("upload_path", "")
-
-        if not upload_path:
-            item["status"] = "Error"
-            item["error"] = "Missing upload_path."
-            error_files += 1
-            updated_files.append(item)
-            continue
-
-        try:
-            item["status"] = "Running"
-            item["started_at"] = now_iso()
-
-            job = update_job(
-                container,
-                job_blob_path,
-                {
-                    "files": updated_files + [item] + files[len(updated_files) + 1 :],
-                    "processed_files": processed_files,
-                    "error_files": error_files,
-                    "message": f"Processing {file_name}.",
-                },
-            )
-
-            metadata = process_one_upload(
-                workspace=workspace,
-                client=client,
-                project_id=project_id,
-                upload_blob_path=upload_path,
-            )
-
-            item.update(
-                {
-                    "status": "Processed",
-                    "processed_at": metadata.get("processed_at", now_iso()),
-                    "doc_id": metadata.get("doc_id", ""),
-                    "final_native_path": metadata.get(
-                        "final_native_path",
-                        "",
-                    ),
-                    "final_text_path": metadata.get(
-                        "final_text_path",
-                        "",
-                    ),
-                    "text_length": metadata.get("text_length", 0),
-                    "ocr_status": metadata.get("ocr_status", ""),
-                    "ocr_applied": metadata.get("ocr_applied", False),
-                    "ocr_quality": metadata.get("ocr_quality", ""),
-                    "ocr_confidence_score": metadata.get(
-                        "ocr_confidence_score"
-                    ),
-                    "error": "",
-                }
-            )
-
-            processed_files += 1
-
-        except Exception as exc:
-            message = str(exc)
-
-            error_destination = errors_path(
-                client,
-                project_id,
-                file_name or "unknown_file",
-            )
-
-            try:
-                copy_blob(container, upload_path, error_destination)
-            except Exception:
-                pass
-
-            item.update(
-                {
-                    "status": "Error",
-                    "failed_at": now_iso(),
-                    "error": message,
-                    "error_path": error_destination,
-                }
-            )
-
-            error_files += 1
-
-        updated_files.append(item)
-
-        update_job(
-            container,
-            job_blob_path,
-            {
-                "files": updated_files + files[len(updated_files) :],
-                "processed_files": processed_files,
-                "error_files": error_files,
-                "message": (
-                    f"Processed {processed_files} file(s), "
-                    f"{error_files} error(s)."
-                ),
+    try:
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="running",
+            stage="starting",
+            progress_pct=5,
+            message="APC worker accepted job.",
+            extra={
+                "worker_started_at": utc_now(),
+                "request_blob_path": request_blob_path,
             },
         )
 
-    final_status = "Completed"
+        _cancel_if_requested(
+            cancel_blob_path=cancel_blob_path,
+            status_blob_path=status_blob_path,
+            stage="starting",
+        )
 
-    if error_files and processed_files:
-        final_status = "Completed With Errors"
-    elif error_files and not processed_files:
-        final_status = "Failed"
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="running",
+            stage="processing",
+            progress_pct=15,
+            message="APC processing started. Downloading uploads, expanding containers, hashing, duplicate checking, OCR pricing, and promoting outputs.",
+        )
 
-    update_job(
-        container,
-        job_blob_path,
-        {
-            "status": final_status,
-            "processed_files": processed_files,
-            "error_files": error_files,
-            "completed_at": now_iso(),
-            "files": updated_files,
-            "message": (
-                f"Job {final_status}. "
-                f"Processed {processed_files} file(s), "
-                f"{error_files} error(s)."
-            ),
-        },
-    )
+        result = run_azure_processing_job(
+            db=db,
+            routing=routing,
+            matter_id=payload["matter_id"],
+            doc_prefix=payload.get("doc_prefix", "INSYT"),
+            enable_ocr_dry_run=bool(payload.get("enable_ocr_dry_run", True)),
+            enable_live_ocr=bool(payload.get("enable_live_ocr", False)),
+            azure_write=bool(payload.get("azure_write", True)),
+            overwrite=bool(payload.get("overwrite", True)),
+            staging_root=os.getenv("APC_STAGING_ROOT", "/tmp/apc_worker_runs"),
+            output_root=os.getenv("APC_OUTPUT_ROOT", "/tmp/apc_worker_review_output"),
+            export_dir=os.getenv("APC_EXPORT_DIR", "/tmp/apc_worker_reports"),
+            clean_staging=bool(payload.get("clean_staging", False)),
+            upload_status=False,
+        )
+
+        result_dict = result.to_dict()
+
+        _cancel_if_requested(
+            cancel_blob_path=cancel_blob_path,
+            status_blob_path=status_blob_path,
+            stage="post_processing",
+        )
+
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="running",
+            stage="finalizing",
+            progress_pct=95,
+            message="APC job finalizing status.",
+        )
+
+        final_status = {
+            **_read_json_blob(status_blob_path, default={}),
+            **result_dict,
+            "job_id": job_id,
+            "status": result_dict.get("status", "completed"),
+            "stage": "completed",
+            "progress_pct": 100,
+            "message": result_dict.get("message", "APC job completed."),
+            "completed_at": utc_now(),
+            "updated_at": utc_now(),
+            "cancel_requested": False,
+        }
+
+        _write_json_blob(status_blob_path, final_status)
+
+    except RuntimeError as exc:
+        message = str(exc)
+
+        if "cancelled" in message.lower():
+            return
+
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="failed",
+            stage="failed",
+            progress_pct=0,
+            message=message,
+            extra={
+                "failed_at": utc_now(),
+                "error": message,
+            },
+        )
+        raise
+
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {exc}"
+
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="failed",
+            stage="failed",
+            progress_pct=0,
+            message=message,
+            extra={
+                "failed_at": utc_now(),
+                "error": message,
+            },
+        )
+        raise
+
+    finally:
+        db.close()
 
 
 def run_once():
-    queue_client = get_processing_queue_client()
+    from azure.storage.queue import QueueClient
+
+    queue_name = os.getenv("APC_PROCESSING_QUEUE_NAME", "apc-processing-jobs")
+    processing_account = _processing_account()
+
+    queue_conn = os.getenv("INSYT_PROCESSING_STORAGE_CONNECTION_STRING")
+
+    if queue_conn:
+        queue_client = QueueClient.from_connection_string(
+            queue_conn,
+            queue_name=queue_name,
+        )
+    else:
+        queue_client = QueueClient(
+            account_url=f"https://{processing_account}.queue.core.windows.net",
+            queue_name=queue_name,
+            credential=DefaultAzureCredential(),
+        )
 
     messages = queue_client.receive_messages(
         messages_per_page=1,
-        visibility_timeout=300,
+        visibility_timeout=1800,
     )
 
     processed_any = False
@@ -384,21 +332,18 @@ def run_once():
     for message in messages:
         processed_any = True
 
-        print(f"Processing queue message: {message.id}")
+        print(f"Processing APC queue message: {message.id}")
 
         try:
             process_job_message(message.content)
-
             queue_client.delete_message(message)
-
-            print("Queue message processed and deleted.")
-
+            print("APC queue message processed and deleted.")
         except Exception as exc:
-            print(f"Worker failed: {type(exc).__name__}: {exc}")
+            print(f"APC worker failed: {type(exc).__name__}: {exc}")
             raise
 
     if not processed_any:
-        print("No processing jobs found.")
+        print("No APC processing jobs found.")
 
 
 if __name__ == "__main__":

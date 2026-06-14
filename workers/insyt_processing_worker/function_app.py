@@ -10,15 +10,15 @@ app = func.FunctionApp()
 
 @app.queue_trigger(
     arg_name="msg",
-    queue_name="insyt-processing-jobs",
+    queue_name="apc-processing-jobs",
     connection="AzureWebJobsStorage",
 )
-def processing_queue_worker(msg: func.QueueMessage):
+def apc_processing_queue_worker(msg: func.QueueMessage):
     message_body = msg.get_body().decode("utf-8")
 
-    logging.info("INSYT processing worker received queue message.")
+    logging.info("APC processing worker received queue message.")
     logging.info(message_body)
 
     process_job_message(message_body)
 
-    logging.info("INSYT processing worker completed queue message.")
+    logging.info("APC processing worker completed queue message.")
