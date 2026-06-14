@@ -100,8 +100,18 @@ def _request_retail_prices(
     return items
 
 
-def _pick_lowest_consumption_price(items: list[dict[str, Any]]) -> dict[str, Any] | None:
-    usable = []
+def _pick_document_intelligence_read_price(
+    items: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Pick the best standard Read meter.
+
+    Do not select commitment-tier, connected-container, free, or overage meters
+    for the default APC pre-run quote. INSYT should quote standard retail
+    consumption unless a customer-specific commitment plan is configured later.
+    """
+
+    preferred = []
+    fallback = []
 
     for item in items:
         price_type = str(item.get("type") or "").lower()
@@ -117,16 +127,47 @@ def _pick_lowest_consumption_price(items: list[dict[str, Any]]) -> dict[str, Any
         except Exception:
             continue
 
-        if numeric_price < 0:
+        if numeric_price <= 0:
             continue
 
-        usable.append((numeric_price, item))
+        combined = " ".join(
+            [
+                str(item.get("serviceName") or ""),
+                str(item.get("productName") or ""),
+                str(item.get("meterName") or ""),
+                str(item.get("skuName") or ""),
+            ]
+        ).lower()
 
-    if not usable:
-        return None
+        excluded = any(
+            phrase in combined
+            for phrase in [
+                "commitment",
+                "connected",
+                "overage",
+                "container",
+                "free",
+                "s0",
+            ]
+        )
 
-    usable.sort(key=lambda row: row[0])
-    return usable[0][1]
+        if excluded:
+            fallback.append((numeric_price, item))
+            continue
+
+        preferred.append((numeric_price, item))
+
+    if preferred:
+        # For standard meters, prefer the lowest valid standard consumption price.
+        preferred.sort(key=lambda row: row[0])
+        return preferred[0][1]
+
+    if fallback:
+        # Only use fallback meters if no standard meter was found.
+        fallback.sort(key=lambda row: row[0])
+        return fallback[0][1]
+
+    return None
 
 
 def lookup_document_intelligence_read_price(
@@ -255,7 +296,7 @@ def lookup_document_intelligence_read_price(
         if is_document_product and is_read_meter and not wrong_product:
             read_candidates.append(item)
 
-    selected = _pick_lowest_consumption_price(read_candidates)
+    selected = _pick_document_intelligence_read_price(read_candidates)
 
     if not selected:
         fallback_per_1000 = float(
