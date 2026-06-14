@@ -1120,16 +1120,58 @@ def _get_nested_int(*values: Any, default: int = 0) -> int:
 
     return default
 
+def _load_worker_report_summary_for_history(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job: dict[str, Any],
+) -> dict[str, Any] | None:
+    apc_job_id = (
+        job.get("apc_job_id")
+        or (job.get("routing") or {}).get("job_id")
+        or (job.get("review_upload") or {}).get("job_id")
+        or (job.get("report_upload") or {}).get("job_id")
+    )
 
-def _normalize_processing_history_job(job: dict[str, Any]) -> dict[str, Any]:
+    if not apc_job_id:
+        return None
+
+    review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+
+    summary_blob_path = (
+        f"{workspace}/{client}/{project}/processing_center/reports/"
+        f"{apc_job_id}/{apc_job_id}.summary.json"
+    )
+
+    return _read_review_json_blob(
+        container_name=review_container,
+        blob_path=summary_blob_path,
+    )
+
+def _normalize_processing_history_job(
+    job: dict[str, Any],
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+) -> dict[str, Any]:
     """Flatten tracked APC worker status into the fields the UI expects.
 
-    Cost fields ending in estimated_* remain estimates only. Actual Azure cost
-    will be populated later from Azure Cost Management ingestion.
+    Prefer the worker-uploaded report summary when available because it contains
+    the completed APC engine metrics. Fall back to tracked status wrapper fields.
     """
 
+    worker_summary = _load_worker_report_summary_for_history(
+        workspace=workspace,
+        client=client,
+        project=project,
+        job=job,
+    )
+
     summary = (
-        job.get("summary")
+        worker_summary
+        or job.get("summary")
         or job.get("report")
         or job.get("job_report")
         or {}
@@ -1138,6 +1180,7 @@ def _normalize_processing_history_job(job: dict[str, Any]) -> dict[str, Any]:
     job_summary = summary.get("job") or {}
     ocr_summary = summary.get("ocr") or {}
     cost_summary = summary.get("cost") or {}
+    review_promotion = summary.get("review_promotion") or {}
 
     review_upload = job.get("review_upload") or {}
     report_upload = job.get("report_upload") or {}
@@ -1152,70 +1195,114 @@ def _normalize_processing_history_job(job: dict[str, Any]) -> dict[str, Any]:
     uploaded_reports = report_upload.get("uploaded_reports") or []
 
     source_file_count = _get_nested_int(
-        job.get("source_file_count"),
         job_summary.get("source_file_count"),
         summary.get("source_file_count"),
+        job.get("source_file_count"),
         len(downloads),
     )
 
     expanded_file_count = _get_nested_int(
-        job.get("expanded_file_count"),
         job_summary.get("expanded_file_count"),
         summary.get("expanded_file_count"),
+        job.get("expanded_file_count"),
         source_file_count,
     )
 
     unique_doc_count = _get_nested_int(
-        job.get("unique_doc_count"),
         job_summary.get("unique_doc_count"),
         summary.get("unique_doc_count"),
+        job.get("unique_doc_count"),
         review_upload.get("planned_docs"),
         hash_index_upload.get("added_count"),
         0,
     )
 
     duplicate_doc_count = _get_nested_int(
-        job.get("duplicate_doc_count"),
         job_summary.get("duplicate_doc_count"),
         summary.get("duplicate_doc_count"),
+        job.get("duplicate_doc_count"),
         0,
     )
 
     ocr_page_count = _get_nested_int(
-        job.get("ocr_page_count"),
         job_summary.get("ocr_page_count"),
-        ocr_summary.get("pages"),
         ocr_summary.get("estimated_pages"),
+        ocr_summary.get("pages"),
         summary.get("ocr_page_count"),
         summary.get("ocr_estimated_pages"),
+        job.get("ocr_page_count"),
         0,
     )
 
     ocr_estimated_cost_usd = _get_nested_number(
-        job.get("ocr_estimated_cost_usd"),
         ocr_summary.get("estimated_cost_usd"),
         summary.get("ocr_estimated_cost_usd"),
         summary.get("ocr_estimated_cost"),
+        job.get("ocr_estimated_cost_usd"),
         0,
     )
 
     estimated_azure_cost_usd = _get_nested_number(
-        job.get("estimated_azure_cost_usd"),
         job_summary.get("estimated_azure_cost_usd"),
         cost_summary.get("total_estimated_azure_cost_usd"),
         summary.get("estimated_azure_cost_usd"),
         summary.get("total_estimated_azure_cost"),
+        job.get("estimated_azure_cost_usd"),
         0,
+    )
+
+    non_ocr_estimated_cost_usd = _get_nested_number(
+        cost_summary.get("non_ocr_estimated_cost_usd"),
+        summary.get("non_ocr_estimated_cost_usd"),
+        job.get("non_ocr_estimated_cost_usd"),
+        0,
+    )
+
+    ocr_candidate_files = _get_nested_int(
+        ocr_summary.get("candidate_files"),
+        job.get("ocr_candidate_files"),
+        0,
+    )
+
+    ocr_candidate_bytes = _get_nested_int(
+        ocr_summary.get("candidate_bytes"),
+        job.get("ocr_candidate_bytes"),
+        0,
+    )
+
+    ocr_candidate_gb = _get_nested_number(
+        ocr_summary.get("candidate_gb"),
+        job.get("ocr_candidate_gb"),
+        0,
+    )
+
+    promoted_docs = _get_nested_int(
+        review_promotion.get("promoted_docs"),
+        review_upload.get("planned_docs"),
+        0,
+    )
+
+    apc_job_id = (
+        job.get("apc_job_id")
+        or (job.get("routing") or {}).get("job_id")
+        or (job.get("review_upload") or {}).get("job_id")
+        or (job.get("report_upload") or {}).get("job_id")
     )
 
     normalized = {
         **job,
+        "apc_job_id": apc_job_id,
         "source_file_count": source_file_count,
         "expanded_file_count": expanded_file_count,
         "unique_doc_count": unique_doc_count,
         "duplicate_doc_count": duplicate_doc_count,
         "ocr_page_count": ocr_page_count,
+        "ocr_candidate_files": ocr_candidate_files,
+        "ocr_candidate_bytes": ocr_candidate_bytes,
+        "ocr_candidate_gb": ocr_candidate_gb,
+        "ocr_estimated_pages": ocr_page_count,
         "ocr_estimated_cost_usd": ocr_estimated_cost_usd,
+        "non_ocr_estimated_cost_usd": non_ocr_estimated_cost_usd,
         "estimated_azure_cost_usd": estimated_azure_cost_usd,
         "downloaded_count": len(downloads),
         "native_text_upload_count": len(native_text_uploads),
@@ -1224,6 +1311,10 @@ def _normalize_processing_history_job(job: dict[str, Any]) -> dict[str, Any]:
         "hash_index_added_count": _safe_int(hash_index_upload.get("added_count")),
         "archive_upload_count": _safe_int(archive_upload.get("archived_count")),
         "report_file_count": len(report_files),
+        "promoted_doc_count": promoted_docs,
+        "history_metrics_source": (
+            "worker_report_summary" if worker_summary else "tracked_status_wrapper"
+        ),
         "actual_azure_cost_status": job.get(
             "actual_azure_cost_status",
             "pending_cost_management_ingestion",
@@ -1250,7 +1341,12 @@ def get_processing_job_history(
         jobs = history.get("jobs") or []
 
         normalized_jobs = [
-            _normalize_processing_history_job(job)
+            _normalize_processing_history_job(
+                job,
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
             for job in jobs
             if isinstance(job, dict)
         ]
