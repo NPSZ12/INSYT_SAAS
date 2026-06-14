@@ -558,51 +558,166 @@ def _list_processing_job_history(
                 or blob.name.replace(jobs_prefix, "").split("/")[0]
             )
 
-            report = status.get("report") or {}
+            apc_job_id = (
+                status.get("apc_job_id")
+                or (status.get("routing") or {}).get("job_id")
+                or (status.get("review_upload") or {}).get("job_id")
+                or (status.get("report_upload") or {}).get("job_id")
+            )
+
+            worker_report = None
+
+            if apc_job_id:
+                review_container = os.getenv(
+                    "INSYT_REVIEW_CONTAINER",
+                    f"insyt-{workspace}",
+                )
+
+                summary_blob_path = (
+                    f"{workspace}/{client}/{project}/"
+                    f"processing_center/reports/"
+                    f"{apc_job_id}/{apc_job_id}.summary.json"
+                )
+
+                worker_report = _read_review_json_blob(
+                    container_name=review_container,
+                    blob_path=summary_blob_path,
+                )
+
+            report = (
+                worker_report
+                or status.get("report")
+                or status.get("summary")
+                or status.get("job_report")
+                or {}
+            )
+
             report_job = report.get("job") or {}
             report_ocr = report.get("ocr") or {}
             report_cost = report.get("cost") or {}
             review_upload = status.get("review_upload") or {}
             report_upload = status.get("report_upload") or {}
+            hash_index_upload = status.get("hash_index_upload") or {}
+            archive_upload = status.get("archive_upload") or {}
+
+            downloads = status.get("downloads") or []
+            uploaded_native_text = review_upload.get("uploads") or []
+            uploaded_reports = report_upload.get("uploaded_reports") or []
+            warnings = status.get("warnings") or []
+
+            source_file_count = (
+                report_job.get("source_file_count")
+                if report_job.get("source_file_count") is not None
+                else len(downloads)
+            )
+
+            expanded_file_count = (
+                report_job.get("expanded_file_count")
+                if report_job.get("expanded_file_count") is not None
+                else source_file_count
+            )
+
+            unique_doc_count = (
+                report_job.get("unique_doc_count")
+                if report_job.get("unique_doc_count") is not None
+                else (
+                    review_upload.get("planned_docs")
+                    or hash_index_upload.get("added_count")
+                    or 0
+                )
+            )
+
+            duplicate_doc_count = (
+                report_job.get("duplicate_doc_count")
+                if report_job.get("duplicate_doc_count") is not None
+                else 0
+            )
+
+            ocr_page_count = (
+                report_job.get("ocr_page_count")
+                if report_job.get("ocr_page_count") is not None
+                else (
+                    report_ocr.get("estimated_pages")
+                    or report_ocr.get("pages")
+                    or 0
+                )
+            )
+
+            ocr_estimated_cost_usd = (
+                report_ocr.get("estimated_cost_usd")
+                if report_ocr.get("estimated_cost_usd") is not None
+                else 0
+            )
+
+            estimated_azure_cost_usd = (
+                report_job.get("estimated_azure_cost_usd")
+                if report_job.get("estimated_azure_cost_usd") is not None
+                else (
+                    report_cost.get("total_estimated_azure_cost_usd")
+                    or 0
+                )
+            )
 
             jobs.append(
                 {
                     "job_id": job_id,
+                    "apc_job_id": apc_job_id,
                     "status": status.get("status"),
                     "message": status.get("message"),
                     "matter_id": status.get("matter_id"),
                     "workspace": status.get("workspace") or workspace,
-                    "client": status.get("client_id") or client,
-                    "project": status.get("project_id") or project,
-                    "generated_at": status.get("generated_at"),
-                    "created_at": report_job.get("created_at"),
-                    "completed_at": report_job.get("completed_at"),
-                    "source_file_count": report_job.get("source_file_count"),
-                    "expanded_file_count": report_job.get("expanded_file_count"),
-                    "unique_doc_count": report_job.get("unique_doc_count"),
-                    "duplicate_doc_count": report_job.get("duplicate_doc_count"),
-                    "ocr_page_count": report_job.get("ocr_page_count"),
-                    "ocr_candidate_files": report_ocr.get("candidate_files"),
-                    "ocr_candidate_bytes": report_ocr.get("candidate_bytes"),
-                    "ocr_candidate_gb": report_ocr.get("candidate_gb"),
-                    "ocr_estimated_pages": report_ocr.get("estimated_pages"),
-                    "ocr_estimated_cost_usd": report_ocr.get("estimated_cost_usd"),
+                    "client": status.get("client_id") or status.get("client") or client,
+                    "project": status.get("project_id") or status.get("project") or project,
+                    "generated_at": (
+                        report.get("generated_at")
+                        or status.get("generated_at")
+                    ),
+                    "created_at": (
+                        report_job.get("created_at")
+                        or status.get("created_at")
+                    ),
+                    "completed_at": (
+                        report_job.get("completed_at")
+                        or status.get("completed_at")
+                    ),
+                    "source_file_count": source_file_count,
+                    "expanded_file_count": expanded_file_count,
+                    "unique_doc_count": unique_doc_count,
+                    "duplicate_doc_count": duplicate_doc_count,
+                    "ocr_page_count": ocr_page_count,
+                    "ocr_candidate_files": report_ocr.get("candidate_files") or 0,
+                    "ocr_candidate_bytes": report_ocr.get("candidate_bytes") or 0,
+                    "ocr_candidate_gb": report_ocr.get("candidate_gb") or 0,
+                    "ocr_estimated_pages": report_ocr.get("estimated_pages") or ocr_page_count,
+                    "ocr_estimated_cost_usd": ocr_estimated_cost_usd,
                     "ocr_cost_pct_of_total": report_ocr.get("cost_pct_of_total"),
                     "ocr_reason_counts": report_ocr.get("reason_counts") or {},
-                    "non_ocr_estimated_cost_usd": report_cost.get(
-                        "non_ocr_estimated_cost_usd"
+                    "non_ocr_estimated_cost_usd": (
+                        report_cost.get("non_ocr_estimated_cost_usd") or 0
                     ),
-                    "estimated_azure_cost_usd": report_job.get(
-                        "estimated_azure_cost_usd"
+                    "estimated_azure_cost_usd": estimated_azure_cost_usd,
+                    "downloaded_count": len(downloads),
+                    "native_text_upload_count": len(uploaded_native_text),
+                    "report_upload_count": len(uploaded_reports),
+                    "warning_count": len(warnings),
+                    "hash_index_added_count": hash_index_upload.get("added_count") or 0,
+                    "archive_upload_count": archive_upload.get("archived_count") or 0,
+                    "report_file_count": len(status.get("report_files") or {}),
+                    "promoted_doc_count": (
+                        (report.get("review_promotion") or {}).get("promoted_docs")
+                        or review_upload.get("planned_docs")
+                        or 0
                     ),
-                    "downloaded_count": len(status.get("downloads") or []),
-                    "native_text_upload_count": len(
-                        review_upload.get("uploads") or []
+                    "history_metrics_source": (
+                        "worker_report_summary"
+                        if worker_report
+                        else "tracked_status_wrapper"
                     ),
-                    "report_upload_count": len(
-                        report_upload.get("uploaded_reports") or []
+                    "actual_azure_cost_status": status.get(
+                        "actual_azure_cost_status",
+                        "pending_cost_management_ingestion",
                     ),
-                    "warning_count": len(status.get("warnings") or []),
+                    "actual_azure_cost_usd": status.get("actual_azure_cost_usd"),
                     "status_blob_path": blob.name,
                     "last_modified": (
                         blob.last_modified.isoformat()
