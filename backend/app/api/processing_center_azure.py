@@ -1127,12 +1127,42 @@ def _load_worker_report_summary_for_history(
     project: str,
     job: dict[str, Any],
 ) -> dict[str, Any] | None:
+    """Load worker-generated APC summary JSON for a history row.
+
+    Some history rows are thin wrappers and only include status_blob_path.
+    When that happens, load the full tracked status first so we can recover
+    apc_job_id / routing.job_id and then read the actual worker report.
+    """
+
+    expanded_job = dict(job)
+
     apc_job_id = (
-        job.get("apc_job_id")
-        or (job.get("routing") or {}).get("job_id")
-        or (job.get("review_upload") or {}).get("job_id")
-        or (job.get("report_upload") or {}).get("job_id")
+        expanded_job.get("apc_job_id")
+        or (expanded_job.get("routing") or {}).get("job_id")
+        or (expanded_job.get("review_upload") or {}).get("job_id")
+        or (expanded_job.get("report_upload") or {}).get("job_id")
     )
+
+    status_blob_path = expanded_job.get("status_blob_path")
+
+    if not apc_job_id and status_blob_path:
+        try:
+            tracked_status = _read_processing_json_blob(
+                container_name=os.getenv("INSYT_PROCESSING_CONTAINER", f"insyt-{workspace}"),
+                blob_path=status_blob_path,
+            )
+
+            if isinstance(tracked_status, dict):
+                expanded_job.update(tracked_status)
+
+                apc_job_id = (
+                    expanded_job.get("apc_job_id")
+                    or (expanded_job.get("routing") or {}).get("job_id")
+                    or (expanded_job.get("review_upload") or {}).get("job_id")
+                    or (expanded_job.get("report_upload") or {}).get("job_id")
+                )
+        except Exception:
+            apc_job_id = None
 
     if not apc_job_id:
         return None
