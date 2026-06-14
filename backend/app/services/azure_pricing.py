@@ -66,7 +66,11 @@ def _retail_filter(parts: list[str]) -> str:
     return " and ".join(parts)
 
 
-def _request_retail_prices(filter_expression: str) -> list[dict[str, Any]]:
+def _request_retail_prices(
+    filter_expression: str,
+    *,
+    max_pages: int = 3,
+) -> list[dict[str, Any]]:
     params = {
         "$filter": filter_expression,
     }
@@ -82,12 +86,16 @@ def _request_retail_prices(filter_expression: str) -> list[dict[str, Any]]:
     items = data.get("Items") or []
 
     next_page = data.get("NextPageLink")
-    while next_page:
+    page_count = 1
+
+    while next_page and page_count < max_pages:
         next_response = requests.get(next_page, timeout=20)
         next_response.raise_for_status()
+
         next_data = next_response.json()
         items.extend(next_data.get("Items") or [])
         next_page = next_data.get("NextPageLink")
+        page_count += 1
 
     return items
 
@@ -140,38 +148,46 @@ def lookup_document_intelligence_read_price(
     candidate_filters = [
         _retail_filter(
             [
+                "serviceName eq 'Azure AI Document Intelligence'",
                 f"armRegionName eq '{arm_region_name}'",
                 f"currencyCode eq '{currency_code}'",
             ]
         ),
         _retail_filter(
             [
-                "contains(serviceName, 'Document')",
+                "serviceName eq 'Cognitive Services'",
+                f"armRegionName eq '{arm_region_name}'",
                 f"currencyCode eq '{currency_code}'",
             ]
         ),
         _retail_filter(
             [
-                "contains(productName, 'Document')",
+                "serviceName eq 'Azure Cognitive Services'",
+                f"armRegionName eq '{arm_region_name}'",
                 f"currencyCode eq '{currency_code}'",
             ]
         ),
         _retail_filter(
             [
-                "contains(meterName, 'Read')",
+                "serviceFamily eq 'AI + Machine Learning'",
+                f"armRegionName eq '{arm_region_name}'",
                 f"currencyCode eq '{currency_code}'",
             ]
         ),
     ]
 
     all_items: list[dict[str, Any]] = []
+    query_errors: list[str] = []
 
     for filter_expression in candidate_filters:
         try:
-            items = _request_retail_prices(filter_expression)
+            items = _request_retail_prices(
+                filter_expression,
+                max_pages=3,
+            )
             all_items.extend(items)
-        except Exception:
-            continue
+        except Exception as exc:
+            query_errors.append(f"{filter_expression}: {exc}")
 
     seen: set[str] = set()
     unique_items: list[dict[str, Any]] = []
@@ -194,57 +210,49 @@ def lookup_document_intelligence_read_price(
         seen.add(key)
         unique_items.append(item)
 
-    read_candidates = []
+    read_candidates: list[dict[str, Any]] = []
 
     for item in unique_items:
-        text = " ".join(
-            [
-                str(item.get("serviceName") or ""),
-                str(item.get("productName") or ""),
-                str(item.get("meterName") or ""),
-                str(item.get("skuName") or ""),
-                str(item.get("armRegionName") or ""),
-            ]
-        ).lower()
+        service_name = str(item.get("serviceName") or "").lower()
+        product_name = str(item.get("productName") or "").lower()
+        meter_name = str(item.get("meterName") or "").lower()
+        sku_name = str(item.get("skuName") or "").lower()
 
-        is_document_service = any(
-            phrase in text
+        combined = " ".join(
+            [
+                service_name,
+                product_name,
+                meter_name,
+                sku_name,
+            ]
+        )
+
+        is_document_product = any(
+            phrase in combined
             for phrase in [
                 "document intelligence",
                 "form recognizer",
                 "document",
-                "cognitive services",
-                "azure ai",
             ]
         )
 
-        is_read_meter = any(
-            phrase in text
-            for phrase in [
-                " read ",
-                "read ",
-                " read",
-                "batch read",
-                "commitment tier read",
-            ]
-        )
+        is_read_meter = "read" in meter_name or "read" in sku_name
 
-        wrong_meter = any(
-            phrase in text
+        wrong_product = any(
+            phrase in combined
             for phrase in [
+                "openai",
                 "speech",
                 "translator",
                 "search",
-                "openai",
-                "vision",
-                "computer vision",
                 "language",
-                "anomaly",
+                "vision",
                 "face",
+                "anomaly",
             ]
         )
 
-        if is_document_service and is_read_meter and not wrong_meter:
+        if is_document_product and is_read_meter and not wrong_product:
             read_candidates.append(item)
 
     selected = _pick_lowest_consumption_price(read_candidates)
@@ -267,7 +275,24 @@ def lookup_document_intelligence_read_price(
             "source": "fallback_env_or_default",
             "candidate_count": len(read_candidates),
             "searched_item_count": len(unique_items),
+            "query_error_count": len(query_errors),
+            "query_errors": query_errors[:5],
+            "sample_items": [
+                {
+                    "serviceName": item.get("serviceName"),
+                    "productName": item.get("productName"),
+                    "meterName": item.get("meterName"),
+                    "skuName": item.get("skuName"),
+                    "armRegionName": item.get("armRegionName"),
+                    "unitOfMeasure": item.get("unitOfMeasure"),
+                    "retailPrice": item.get("retailPrice"),
+                    "unitPrice": item.get("unitPrice"),
+                    "type": item.get("type"),
+                }
+                for item in unique_items[:20]
+            ],
         }
+
         _cache_set(cache_key, payload)
         return payload
 
@@ -280,13 +305,16 @@ def lookup_document_intelligence_read_price(
         unit_of_measure=str(selected.get("unitOfMeasure") or ""),
         currency_code=str(selected.get("currencyCode") or currency_code),
         retail_price=float(selected.get("retailPrice") or 0),
-        unit_price=float(selected.get("unitPrice") or selected.get("retailPrice") or 0),
+        unit_price=float(
+            selected.get("unitPrice") or selected.get("retailPrice") or 0
+        ),
         effective_start_date=selected.get("effectiveStartDate"),
     ).to_dict()
 
     payload["status"] = "current_retail_rate"
     payload["candidate_count"] = len(read_candidates)
     payload["searched_item_count"] = len(unique_items)
+    payload["query_error_count"] = len(query_errors)
     payload["source"] = "azure_retail_prices_api"
 
     _cache_set(cache_key, payload)
