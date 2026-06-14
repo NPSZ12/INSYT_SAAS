@@ -25,8 +25,13 @@ import os
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
+import json
+from datetime import datetime, timezone
+from uuid import uuid4
+
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient, ContentSettings
+from azure.storage.queue import QueueClient
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
@@ -103,6 +108,134 @@ def _review_account() -> str:
 def _review_container() -> str:
     return os.getenv("INSYT_REVIEW_CONTAINER", "insyt-capture")
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _queue_name() -> str:
+    return os.getenv("APC_PROCESSING_QUEUE_NAME", "apc-processing-jobs")
+
+
+def _new_job_id() -> str:
+    return f"JOB-{uuid4().hex[:16].upper()}"
+
+
+def _job_base_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+) -> str:
+    return (
+        f"{workspace}/{client}/{project}/"
+        f"processing_center/jobs/{job_id}"
+    )
+
+
+def _job_status_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+) -> str:
+    return f"{_job_base_path(workspace=workspace, client=client, project=project, job_id=job_id)}/status.json"
+
+
+def _job_request_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+) -> str:
+    return f"{_job_base_path(workspace=workspace, client=client, project=project, job_id=job_id)}/request.json"
+
+
+def _job_cancel_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+) -> str:
+    return f"{_job_base_path(workspace=workspace, client=client, project=project, job_id=job_id)}/cancel_request.json"
+
+
+def _processing_container_client():
+    blob_service = _processing_blob_service()
+    return blob_service.get_container_client(_processing_container())
+
+
+def _write_processing_json_blob(
+    *,
+    blob_path: str,
+    payload: dict[str, Any],
+    overwrite: bool = True,
+) -> dict[str, Any]:
+    container_client = _processing_container_client()
+    blob_client = container_client.get_blob_client(blob_path)
+
+    data = json.dumps(payload, indent=2, default=str).encode("utf-8")
+
+    blob_client.upload_blob(
+        data,
+        overwrite=overwrite,
+        content_settings=ContentSettings(content_type="application/json"),
+    )
+
+    return {
+        "status": "uploaded",
+        "storage_account": _processing_account(),
+        "container": _processing_container(),
+        "blob_path": blob_path,
+        "bytes": len(data),
+    }
+
+
+def _read_processing_json_blob(blob_path: str) -> dict[str, Any]:
+    container_client = _processing_container_client()
+    blob_client = container_client.get_blob_client(blob_path)
+
+    data = blob_client.download_blob().readall()
+
+    return json.loads(data.decode("utf-8"))
+
+
+def _queue_client() -> QueueClient:
+    processing_account = _processing_account()
+
+    if processing_account != "insytprodstorage":
+        raise HTTPException(
+            status_code=400,
+            detail="Queue refused: processing account must be insytprodstorage.",
+        )
+
+    credential = DefaultAzureCredential()
+
+    queue = QueueClient(
+        account_url=f"https://{processing_account}.queue.core.windows.net",
+        queue_name=_queue_name(),
+        credential=credential,
+    )
+
+    queue.create_queue()
+
+    return queue
+
+
+def _send_apc_queue_message(payload: dict[str, Any]) -> dict[str, Any]:
+    queue = _queue_client()
+    result = queue.send_message(json.dumps(payload, default=str))
+
+    return {
+        "status": "queued",
+        "queue_name": _queue_name(),
+        "message_id": result.id,
+        "inserted_on": str(result.inserted_on),
+        "expires_on": str(result.expires_on),
+    }
 
 def _routing(
     *,
@@ -634,6 +767,196 @@ def archive_processing_uploads(
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+@router.post("/{workspace}/processing-center/jobs/start")
+def start_tracked_azure_processing_job(
+    workspace: Literal["capture", "discovery", "summaries"],
+    request: AzureRunStartRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    allow_write = _bool_env("APC_API_ALLOW_AZURE_WRITE", False)
+    allow_live_ocr = _bool_env("APC_API_ALLOW_LIVE_OCR", False)
+
+    if request.azure_write and not allow_write:
+        raise HTTPException(
+            status_code=403,
+            detail="Azure writes are disabled for this API.",
+        )
+
+    if request.enable_live_ocr and not allow_live_ocr:
+        raise HTTPException(
+            status_code=403,
+            detail="Live OCR is disabled for this API.",
+        )
+
+    job_id = _new_job_id()
+
+    request_payload = {
+        "job_id": job_id,
+        "workspace": workspace,
+        "client": request.client,
+        "project": request.project,
+        "matter_id": request.matter_id,
+        "doc_prefix": request.doc_prefix,
+        "enable_ocr_dry_run": request.enable_ocr_dry_run,
+        "enable_live_ocr": request.enable_live_ocr,
+        "azure_write": request.azure_write,
+        "overwrite": request.overwrite,
+        "clean_staging": request.clean_staging,
+        "auto_archive_uploads": request.auto_archive_uploads,
+        "requested_by": getattr(admin, "username", None)
+        or getattr(admin, "email", None)
+        or "INSYT Admin",
+        "requested_at": _utc_now(),
+    }
+
+    request_blob_path = _job_request_path(
+        workspace=workspace,
+        client=request.client,
+        project=request.project,
+        job_id=job_id,
+    )
+
+    status_blob_path = _job_status_path(
+        workspace=workspace,
+        client=request.client,
+        project=request.project,
+        job_id=job_id,
+    )
+
+    status_payload = {
+        "job_id": job_id,
+        "workspace": workspace,
+        "client": request.client,
+        "project": request.project,
+        "matter_id": request.matter_id,
+        "status": "queued",
+        "stage": "queued",
+        "progress_pct": 0,
+        "message": "APC job queued.",
+        "requested_by": request_payload["requested_by"],
+        "requested_at": request_payload["requested_at"],
+        "created_at": _utc_now(),
+        "updated_at": _utc_now(),
+        "request_blob_path": request_blob_path,
+        "status_blob_path": status_blob_path,
+        "cancel_requested": False,
+    }
+
+    request_upload = _write_processing_json_blob(
+        blob_path=request_blob_path,
+        payload=request_payload,
+        overwrite=True,
+    )
+
+    status_upload = _write_processing_json_blob(
+        blob_path=status_blob_path,
+        payload=status_payload,
+        overwrite=True,
+    )
+
+    queue_payload = {
+        **request_payload,
+        "request_blob_path": request_blob_path,
+        "status_blob_path": status_blob_path,
+        "cancel_blob_path": _job_cancel_path(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+            job_id=job_id,
+        ),
+    }
+
+    queue_result = _send_apc_queue_message(queue_payload)
+
+    return {
+        **status_payload,
+        "request_upload": request_upload,
+        "status_upload": status_upload,
+        "queue": queue_result,
+    }
+
+@router.get("/{workspace}/processing-center/jobs/{job_id}/status")
+def get_tracked_azure_processing_job_status(
+    workspace: Literal["capture", "discovery", "summaries"],
+    job_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    status_blob_path = _job_status_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+        job_id=job_id,
+    )
+
+    try:
+        return _read_processing_json_blob(status_blob_path)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@router.post("/{workspace}/processing-center/jobs/{job_id}/cancel")
+def cancel_tracked_azure_processing_job(
+    workspace: Literal["capture", "discovery", "summaries"],
+    job_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    cancel_blob_path = _job_cancel_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+        job_id=job_id,
+    )
+
+    cancel_payload = {
+        "job_id": job_id,
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "status": "cancel_requested",
+        "requested_by": getattr(admin, "username", None)
+        or getattr(admin, "email", None)
+        or "INSYT Admin",
+        "requested_at": _utc_now(),
+        "message": "Cancellation requested. Worker will stop at the next safe checkpoint.",
+    }
+
+    cancel_upload = _write_processing_json_blob(
+        blob_path=cancel_blob_path,
+        payload=cancel_payload,
+        overwrite=True,
+    )
+
+    status_blob_path = _job_status_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+        job_id=job_id,
+    )
+
+    try:
+        status_payload = _read_processing_json_blob(status_blob_path)
+        status_payload["cancel_requested"] = True
+        status_payload["cancel_requested_at"] = cancel_payload["requested_at"]
+        status_payload["message"] = cancel_payload["message"]
+        status_payload["updated_at"] = _utc_now()
+
+        _write_processing_json_blob(
+            blob_path=status_blob_path,
+            payload=status_payload,
+            overwrite=True,
+        )
+    except Exception:
+        status_payload = cancel_payload
+
+    return {
+        "status": "cancel_requested",
+        "cancel_upload": cancel_upload,
+        "job_status": status_payload,
+    }
+
 
 @router.post(
     "/{workspace}/processing-center/azure-run/start",
