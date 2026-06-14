@@ -1301,17 +1301,153 @@ def get_processing_job(
     finally:
         db.close()
 
+def _get_review_blob_service_client() -> BlobServiceClient:
+    review_account = os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "insytreviewstorage")
+    connection_string = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING", "")
+
+    if connection_string:
+        return BlobServiceClient.from_connection_string(connection_string)
+
+    return BlobServiceClient(
+        account_url=f"https://{review_account}.blob.core.windows.net",
+        credential=DefaultAzureCredential(),
+    )
+
+
+def _read_review_json_blob(
+    *,
+    container_name: str,
+    blob_path: str,
+) -> dict[str, Any] | None:
+    try:
+        blob_service = _get_review_blob_service_client()
+        blob_client = blob_service.get_blob_client(
+            container=container_name,
+            blob=blob_path,
+        )
+
+        if not blob_client.exists():
+            return None
+
+        raw = blob_client.download_blob().readall()
+        return json.loads(raw.decode("utf-8"))
+
+    except Exception:
+        return None
+
+
+def _read_review_text_blob(
+    *,
+    container_name: str,
+    blob_path: str,
+) -> str | None:
+    try:
+        blob_service = _get_review_blob_service_client()
+        blob_client = blob_service.get_blob_client(
+            container=container_name,
+            blob=blob_path,
+        )
+
+        if not blob_client.exists():
+            return None
+
+        raw = blob_client.download_blob().readall()
+        return raw.decode("utf-8", errors="replace")
+
+    except Exception:
+        return None
+
 @router.get("/{workspace}/processing-center/jobs/{job_id}/report")
 def get_processing_job_report(
     workspace: Literal["capture", "discovery", "summaries"],
     job_id: str,
+    client: str | None = Query(default=None),
+    project: str | None = Query(default=None),
 ) -> dict[str, Any]:
+    review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+
+    # New worker-generated report location:
+    # {workspace}/{client}/{project}/processing_center/reports/{job_id}/{job_id}.summary.json
+    if client and project:
+        report_prefix = (
+            f"{workspace}/{client}/{project}/processing_center/reports/{job_id}"
+        )
+
+        summary_blob_path = f"{report_prefix}/{job_id}.summary.json"
+        summary = _read_review_json_blob(
+            container_name=review_container,
+            blob_path=summary_blob_path,
+        )
+
+        if summary is not None:
+            cost_events_blob_path = f"{report_prefix}/{job_id}.cost_events_by_meter.csv"
+            stages_blob_path = f"{report_prefix}/{job_id}.stages.csv"
+            files_blob_path = f"{report_prefix}/{job_id}.files.csv"
+            containers_blob_path = f"{report_prefix}/{job_id}.containers.csv"
+            review_promotion_blob_path = f"{report_prefix}/{job_id}.review_promotion.csv"
+            review_manifest_blob_path = f"{report_prefix}/review_ready_manifest.csv"
+
+            return {
+                "job_id": job_id,
+                "workspace": workspace,
+                "client": client,
+                "project": project,
+                "report_source": "azure_worker_report_blob",
+                "storage_account": os.getenv(
+                    "INSYT_REVIEW_STORAGE_ACCOUNT",
+                    "insytreviewstorage",
+                ),
+                "container": review_container,
+                "summary_blob_path": summary_blob_path,
+                "report": summary,
+                "summary": summary,
+                "uploaded_report_paths": {
+                    "summary_json": summary_blob_path,
+                    "cost_events_by_meter_csv": cost_events_blob_path,
+                    "stages_csv": stages_blob_path,
+                    "files_csv": files_blob_path,
+                    "containers_csv": containers_blob_path,
+                    "review_promotion_csv": review_promotion_blob_path,
+                    "review_ready_manifest_csv": review_manifest_blob_path,
+                },
+                "cost_events_by_meter_csv": _read_review_text_blob(
+                    container_name=review_container,
+                    blob_path=cost_events_blob_path,
+                ),
+                "stages_csv": _read_review_text_blob(
+                    container_name=review_container,
+                    blob_path=stages_blob_path,
+                ),
+                "files_csv": _read_review_text_blob(
+                    container_name=review_container,
+                    blob_path=files_blob_path,
+                ),
+                "containers_csv": _read_review_text_blob(
+                    container_name=review_container,
+                    blob_path=containers_blob_path,
+                ),
+                "review_promotion_csv": _read_review_text_blob(
+                    container_name=review_container,
+                    blob_path=review_promotion_blob_path,
+                ),
+                "review_ready_manifest_csv": _read_review_text_blob(
+                    container_name=review_container,
+                    blob_path=review_manifest_blob_path,
+                ),
+            }
+
+    # Legacy/local fallback for older API-side jobs.
     db = LedgerDB(_db_path())
 
     try:
         db.init_schema()
         return job_report_data(db, job_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        detail = (
+            f"job not found: {job_id}. "
+            "For worker-generated APC reports, pass client and project query "
+            "parameters so the API can read the Azure report blob."
+        )
+        raise HTTPException(status_code=404, detail=detail) from exc
     finally:
         db.close()
