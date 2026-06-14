@@ -198,7 +198,14 @@ export default function AzureProcessingCenterPanel({
   const downloadedCount = job?.downloads?.length ?? 0;
   const warningCount = job?.warnings?.length ?? 0;
 
-  const activeJobStatus = trackedJob || job;
+  const hasPendingUploads = uploads.length > 0;
+
+  const activeJobStatus =
+    starting || pollingJob
+      ? trackedJob || job
+      : hasPendingUploads
+        ? null
+        : trackedJob || job;
 
   const processingProgressPct =
     typeof activeJobStatus?.progress_pct === "number"
