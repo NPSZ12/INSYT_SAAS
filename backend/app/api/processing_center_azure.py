@@ -1051,6 +1051,153 @@ def start_azure_processing(
         db.close()
 
 
+def _safe_number(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _get_nested_number(*values: Any, default: float = 0.0) -> float:
+    for value in values:
+        if value is not None and value != "":
+            return _safe_number(value, default=default)
+
+    return default
+
+
+def _get_nested_int(*values: Any, default: int = 0) -> int:
+    for value in values:
+        if value is not None and value != "":
+            return _safe_int(value, default=default)
+
+    return default
+
+
+def _normalize_processing_history_job(job: dict[str, Any]) -> dict[str, Any]:
+    """Flatten tracked APC worker status into the fields the UI expects.
+
+    Cost fields ending in estimated_* remain estimates only. Actual Azure cost
+    will be populated later from Azure Cost Management ingestion.
+    """
+
+    summary = (
+        job.get("summary")
+        or job.get("report")
+        or job.get("job_report")
+        or {}
+    )
+
+    job_summary = summary.get("job") or {}
+    ocr_summary = summary.get("ocr") or {}
+    cost_summary = summary.get("cost") or {}
+
+    review_upload = job.get("review_upload") or {}
+    report_upload = job.get("report_upload") or {}
+    hash_index_upload = job.get("hash_index_upload") or {}
+    archive_upload = job.get("archive_upload") or {}
+
+    downloads = job.get("downloads") or []
+    warnings = job.get("warnings") or []
+    report_files = job.get("report_files") or {}
+
+    native_text_uploads = review_upload.get("uploads") or []
+    uploaded_reports = report_upload.get("uploaded_reports") or []
+
+    source_file_count = _get_nested_int(
+        job.get("source_file_count"),
+        job_summary.get("source_file_count"),
+        summary.get("source_file_count"),
+        len(downloads),
+    )
+
+    expanded_file_count = _get_nested_int(
+        job.get("expanded_file_count"),
+        job_summary.get("expanded_file_count"),
+        summary.get("expanded_file_count"),
+        source_file_count,
+    )
+
+    unique_doc_count = _get_nested_int(
+        job.get("unique_doc_count"),
+        job_summary.get("unique_doc_count"),
+        summary.get("unique_doc_count"),
+        review_upload.get("planned_docs"),
+        hash_index_upload.get("added_count"),
+        0,
+    )
+
+    duplicate_doc_count = _get_nested_int(
+        job.get("duplicate_doc_count"),
+        job_summary.get("duplicate_doc_count"),
+        summary.get("duplicate_doc_count"),
+        0,
+    )
+
+    ocr_page_count = _get_nested_int(
+        job.get("ocr_page_count"),
+        job_summary.get("ocr_page_count"),
+        ocr_summary.get("pages"),
+        ocr_summary.get("estimated_pages"),
+        summary.get("ocr_page_count"),
+        summary.get("ocr_estimated_pages"),
+        0,
+    )
+
+    ocr_estimated_cost_usd = _get_nested_number(
+        job.get("ocr_estimated_cost_usd"),
+        ocr_summary.get("estimated_cost_usd"),
+        summary.get("ocr_estimated_cost_usd"),
+        summary.get("ocr_estimated_cost"),
+        0,
+    )
+
+    estimated_azure_cost_usd = _get_nested_number(
+        job.get("estimated_azure_cost_usd"),
+        job_summary.get("estimated_azure_cost_usd"),
+        cost_summary.get("total_estimated_azure_cost_usd"),
+        summary.get("estimated_azure_cost_usd"),
+        summary.get("total_estimated_azure_cost"),
+        0,
+    )
+
+    normalized = {
+        **job,
+        "source_file_count": source_file_count,
+        "expanded_file_count": expanded_file_count,
+        "unique_doc_count": unique_doc_count,
+        "duplicate_doc_count": duplicate_doc_count,
+        "ocr_page_count": ocr_page_count,
+        "ocr_estimated_cost_usd": ocr_estimated_cost_usd,
+        "estimated_azure_cost_usd": estimated_azure_cost_usd,
+        "downloaded_count": len(downloads),
+        "native_text_upload_count": len(native_text_uploads),
+        "report_upload_count": len(uploaded_reports),
+        "warning_count": len(warnings),
+        "hash_index_added_count": _safe_int(hash_index_upload.get("added_count")),
+        "archive_upload_count": _safe_int(archive_upload.get("archived_count")),
+        "report_file_count": len(report_files),
+        "actual_azure_cost_status": job.get(
+            "actual_azure_cost_status",
+            "pending_cost_management_ingestion",
+        ),
+        "actual_azure_cost_usd": job.get("actual_azure_cost_usd"),
+    }
+
+    return normalized
+
+
 @router.get("/{workspace}/processing-center/job-history")
 def get_processing_job_history(
     workspace: Literal["capture", "discovery", "summaries"],
@@ -1058,11 +1205,30 @@ def get_processing_job_history(
     project: str = Query(...),
 ) -> dict[str, Any]:
     try:
-        return _list_processing_job_history(
+        history = _list_processing_job_history(
             workspace=workspace,
             client=client,
             project=project,
         )
+
+        jobs = history.get("jobs") or []
+
+        normalized_jobs = [
+            _normalize_processing_history_job(job)
+            for job in jobs
+            if isinstance(job, dict)
+        ]
+
+        return {
+            **history,
+            "jobs": normalized_jobs,
+            "cost_basis": {
+                "estimated_azure_cost_usd": "estimate_only_not_actual_billed_cost",
+                "ocr_estimated_cost_usd": "estimate_only_not_actual_billed_cost",
+                "actual_azure_cost_usd": "pending_azure_cost_management_ingestion",
+            },
+        }
+
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     
