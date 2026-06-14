@@ -147,7 +147,6 @@ def _pick_document_intelligence_read_price(
                 "overage",
                 "container",
                 "free",
-                "s0",
             ]
         )
 
@@ -181,7 +180,7 @@ def lookup_document_intelligence_read_price(
     not actual billed cost. It is suitable for pre-run quoting.
     """
 
-    cache_key = f"document-intelligence-read:{arm_region_name}:{currency_code}"
+    cache_key = f"document-intelligence-read:v2:{arm_region_name}:{currency_code}"
     cached = _cache_get(cache_key)
     if cached:
         return cached
