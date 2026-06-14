@@ -438,6 +438,14 @@ export default function AzureProcessingCenterPanel({
       );
 
       setSelectedUploadNames([]);
+
+      if (clearAll || selectedUploadNames.length > 0) {
+        setJob(null);
+        setTrackedJob(null);
+        setJobReport(null);
+        setArchiveMessage("");
+      }
+
       await refreshUploads();
       await refreshJobHistory();
     } catch (err: any) {
@@ -605,8 +613,16 @@ export default function AzureProcessingCenterPanel({
           `Uploaded ${selectedFile.name} to Azure Processing Center.`
       );
 
+      // A new upload means the prior completed job status is stale.
+      setJob(null);
+      setTrackedJob(null);
+      setJobReport(null);
+      setArchiveMessage("");
+      setRemoveMessage("");
+
       setSelectedFile(null);
       await refreshUploads();
+      await refreshJobHistory();
     } catch (err: any) {
       setError(cleanError(err?.message || "Unable to upload to Azure Processing Center."));
       setUploadMessage("");
