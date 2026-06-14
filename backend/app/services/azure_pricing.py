@@ -140,15 +140,25 @@ def lookup_document_intelligence_read_price(
     candidate_filters = [
         _retail_filter(
             [
-                "serviceName eq 'Azure AI Document Intelligence'",
                 f"armRegionName eq '{arm_region_name}'",
                 f"currencyCode eq '{currency_code}'",
             ]
         ),
         _retail_filter(
             [
-                "serviceName eq 'Azure Cognitive Services'",
-                f"armRegionName eq '{arm_region_name}'",
+                "contains(serviceName, 'Document')",
+                f"currencyCode eq '{currency_code}'",
+            ]
+        ),
+        _retail_filter(
+            [
+                "contains(productName, 'Document')",
+                f"currencyCode eq '{currency_code}'",
+            ]
+        ),
+        _retail_filter(
+            [
+                "contains(meterName, 'Read')",
                 f"currencyCode eq '{currency_code}'",
             ]
         ),
@@ -163,21 +173,78 @@ def lookup_document_intelligence_read_price(
         except Exception:
             continue
 
-    read_candidates = []
+    seen: set[str] = set()
+    unique_items: list[dict[str, Any]] = []
+
     for item in all_items:
+        key = "|".join(
+            [
+                str(item.get("meterId") or ""),
+                str(item.get("meterName") or ""),
+                str(item.get("productName") or ""),
+                str(item.get("skuName") or ""),
+                str(item.get("armRegionName") or ""),
+                str(item.get("retailPrice") or ""),
+            ]
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        unique_items.append(item)
+
+    read_candidates = []
+
+    for item in unique_items:
         text = " ".join(
             [
+                str(item.get("serviceName") or ""),
                 str(item.get("productName") or ""),
                 str(item.get("meterName") or ""),
                 str(item.get("skuName") or ""),
+                str(item.get("armRegionName") or ""),
             ]
         ).lower()
 
-        if "read" in text and (
-            "document" in text
-            or "form recognizer" in text
-            or "intelligence" in text
-        ):
+        is_document_service = any(
+            phrase in text
+            for phrase in [
+                "document intelligence",
+                "form recognizer",
+                "document",
+                "cognitive services",
+                "azure ai",
+            ]
+        )
+
+        is_read_meter = any(
+            phrase in text
+            for phrase in [
+                " read ",
+                "read ",
+                " read",
+                "batch read",
+                "commitment tier read",
+            ]
+        )
+
+        wrong_meter = any(
+            phrase in text
+            for phrase in [
+                "speech",
+                "translator",
+                "search",
+                "openai",
+                "vision",
+                "computer vision",
+                "language",
+                "anomaly",
+                "face",
+            ]
+        )
+
+        if is_document_service and is_read_meter and not wrong_meter:
             read_candidates.append(item)
 
     selected = _pick_lowest_consumption_price(read_candidates)
@@ -198,6 +265,8 @@ def lookup_document_intelligence_read_price(
             "retail_price": fallback_per_1000,
             "unit_price": fallback_per_1000,
             "source": "fallback_env_or_default",
+            "candidate_count": len(read_candidates),
+            "searched_item_count": len(unique_items),
         }
         _cache_set(cache_key, payload)
         return payload
@@ -216,10 +285,12 @@ def lookup_document_intelligence_read_price(
     ).to_dict()
 
     payload["status"] = "current_retail_rate"
+    payload["candidate_count"] = len(read_candidates)
+    payload["searched_item_count"] = len(unique_items)
+    payload["source"] = "azure_retail_prices_api"
 
     _cache_set(cache_key, payload)
     return payload
-
 
 def calculate_document_intelligence_read_quote(
     *,
