@@ -212,30 +212,48 @@ def _queue_client() -> QueueClient:
             detail="Queue refused: processing account must be insytprodstorage.",
         )
 
-    credential = DefaultAzureCredential()
+    try:
+        credential = DefaultAzureCredential()
 
-    queue = QueueClient(
-        account_url=f"https://{processing_account}.queue.core.windows.net",
-        queue_name=_queue_name(),
-        credential=credential,
-    )
-
-    queue.create_queue()
-
-    return queue
+        return QueueClient(
+            account_url=f"https://{processing_account}.queue.core.windows.net",
+            queue_name=_queue_name(),
+            credential=credential,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Unable to create APC queue client: {exc}",
+        ) from exc
 
 
 def _send_apc_queue_message(payload: dict[str, Any]) -> dict[str, Any]:
-    queue = _queue_client()
-    result = queue.send_message(json.dumps(payload, default=str))
+    try:
+        queue = _queue_client()
 
-    return {
-        "status": "queued",
-        "queue_name": _queue_name(),
-        "message_id": result.id,
-        "inserted_on": str(result.inserted_on),
-        "expires_on": str(result.expires_on),
-    }
+        try:
+            queue.create_queue()
+        except Exception:
+            # Queue may already exist, or creation may be blocked while send is allowed.
+            # Sending below will confirm whether the queue is usable.
+            pass
+
+        result = queue.send_message(json.dumps(payload, default=str))
+
+        return {
+            "status": "queued",
+            "queue_name": _queue_name(),
+            "message_id": result.id,
+            "inserted_on": str(result.inserted_on),
+            "expires_on": str(result.expires_on),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Unable to enqueue APC processing job: {exc}",
+        ) from exc
 
 def _routing(
     *,
