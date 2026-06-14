@@ -768,7 +768,7 @@ def archive_processing_uploads(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-@router.post("/{workspace}/processing-center/jobs/start")
+@router.post("/{workspace}/processing-center/tracked-jobs/start")
 def start_tracked_azure_processing_job(
     workspace: Literal["capture", "discovery", "summaries"],
     request: AzureRunStartRequest,
@@ -876,7 +876,7 @@ def start_tracked_azure_processing_job(
         "queue": queue_result,
     }
 
-@router.get("/{workspace}/processing-center/jobs/{job_id}/status")
+@router.get("/{workspace}/processing-center/tracked-jobs/{job_id}/status")
 def get_tracked_azure_processing_job_status(
     workspace: Literal["capture", "discovery", "summaries"],
     job_id: str,
@@ -895,7 +895,7 @@ def get_tracked_azure_processing_job_status(
     except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.post("/{workspace}/processing-center/jobs/{job_id}/cancel")
+@router.post("/{workspace}/processing-center/tracked-jobs/{job_id}/cancel")
 def cancel_tracked_azure_processing_job(
     workspace: Literal["capture", "discovery", "summaries"],
     job_id: str,
