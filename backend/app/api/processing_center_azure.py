@@ -82,6 +82,13 @@ class AzureRunResponse(BaseModel):
     archive_uploads: dict[str, Any] | None = None
     warnings: list[str] = []
 
+class PromoteStagedResultsRequest(BaseModel):
+    client: str
+    project: str
+    job_id: str
+    doc_ids: list[str] = []
+    promote_all: bool = False
+    overwrite: bool = False
 
 def _bool_env(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {
@@ -1554,7 +1561,6 @@ def _get_review_blob_service_client() -> BlobServiceClient:
         credential=DefaultAzureCredential(),
     )
 
-
 def _read_review_json_blob(
     *,
     container_name: str,
@@ -1597,6 +1603,429 @@ def _read_review_text_blob(
 
     except Exception:
         return None
+
+def _read_review_blob_bytes(
+    *,
+    container_name: str,
+    blob_path: str,
+) -> bytes | None:
+    try:
+        blob_service = _get_review_blob_service_client()
+        blob_client = blob_service.get_blob_client(
+            container=container_name,
+            blob=blob_path,
+        )
+
+        if not blob_client.exists():
+            return None
+
+        return blob_client.download_blob().readall()
+
+    except Exception:
+        return None
+
+
+def _write_review_blob_bytes(
+    *,
+    container_name: str,
+    blob_path: str,
+    data: bytes,
+    overwrite: bool = False,
+    content_type: str = "application/octet-stream",
+) -> dict[str, Any]:
+    blob_service = _get_review_blob_service_client()
+    blob_client = blob_service.get_blob_client(
+        container=container_name,
+        blob=blob_path,
+    )
+
+    blob_client.upload_blob(
+        data,
+        overwrite=overwrite,
+        content_settings=ContentSettings(content_type=content_type),
+    )
+
+    return {
+        "status": "uploaded",
+        "blob_path": blob_path,
+        "bytes": len(data),
+        "content_type": content_type,
+    }
+
+
+def _list_review_blobs(
+    *,
+    container_name: str,
+    prefix: str,
+) -> list[dict[str, Any]]:
+    blob_service = _get_review_blob_service_client()
+    container_client = blob_service.get_container_client(container_name)
+
+    rows: list[dict[str, Any]] = []
+
+    for blob in container_client.list_blobs(name_starts_with=prefix):
+        if str(blob.name).endswith("/"):
+            continue
+
+        rows.append(
+            {
+                "name": blob.name,
+                "size": int(getattr(blob, "size", 0) or 0),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if getattr(blob, "last_modified", None)
+                    else None
+                ),
+            }
+        )
+
+    return rows
+
+
+def _load_worker_report_for_job(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+) -> dict[str, Any] | None:
+    review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+
+    summary_blob_path = (
+        f"{workspace}/{client}/{project}/processing_center/reports/"
+        f"{job_id}/{job_id}.summary.json"
+    )
+
+    return _read_review_json_blob(
+        container_name=review_container,
+        blob_path=summary_blob_path,
+    )
+
+
+def _build_staged_results_payload(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+) -> dict[str, Any]:
+    review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+    review_account = os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "insytreviewstorage")
+
+    staged_prefix = (
+        f"{workspace}/{client}/{project}/processing_center/staged/{job_id}"
+    )
+
+    native_prefix = f"{staged_prefix}/native/"
+    text_prefix = f"{staged_prefix}/text/"
+
+    native_blobs = _list_review_blobs(
+        container_name=review_container,
+        prefix=native_prefix,
+    )
+
+    text_blobs = _list_review_blobs(
+        container_name=review_container,
+        prefix=text_prefix,
+    )
+
+    text_by_doc_id: dict[str, dict[str, Any]] = {}
+    for blob in text_blobs:
+        name = str(blob.get("name") or "")
+        filename = name.rsplit("/", 1)[-1]
+        doc_id = filename.rsplit(".", 1)[0]
+        if doc_id:
+            text_by_doc_id[doc_id] = blob
+
+    report = _load_worker_report_for_job(
+        workspace=workspace,
+        client=client,
+        project=project,
+        job_id=job_id,
+    ) or {}
+
+    files = report.get("files") or []
+    file_by_doc_id: dict[str, dict[str, Any]] = {
+        str(item.get("doc_id")): item
+        for item in files
+        if isinstance(item, dict) and item.get("doc_id")
+    }
+
+    docs: list[dict[str, Any]] = []
+
+    for native_blob in native_blobs:
+        native_path = str(native_blob.get("name") or "")
+        native_filename = native_path.rsplit("/", 1)[-1]
+
+        if "." in native_filename:
+            doc_id = native_filename.rsplit(".", 1)[0]
+            extension = native_filename.rsplit(".", 1)[-1]
+        else:
+            doc_id = native_filename
+            extension = ""
+
+        text_blob = text_by_doc_id.get(doc_id)
+        report_file = file_by_doc_id.get(doc_id) or {}
+
+        final_native_blob_path = (
+            f"{workspace}/{client}/{project}/source/native/{native_filename}"
+        )
+        final_text_blob_path = (
+            f"{workspace}/{client}/{project}/source/text/{doc_id}.txt"
+        )
+
+        docs.append(
+            {
+                "doc_id": doc_id,
+                "original_filename": (
+                    report_file.get("normalized_path")
+                    or report_file.get("original_filename")
+                    or native_filename
+                ),
+                "extension": extension,
+                "source_bytes": report_file.get("source_bytes")
+                or native_blob.get("size")
+                or 0,
+                "page_count": report_file.get("page_count") or 0,
+                "requires_ocr": bool(report_file.get("requires_ocr") or False),
+                "is_duplicate": bool(report_file.get("is_duplicate") or False),
+                "is_denisted": bool(report_file.get("is_denisted") or False),
+                "family_id": report_file.get("family_id"),
+                "native_staged_blob_path": native_path,
+                "text_staged_blob_path": text_blob.get("name") if text_blob else None,
+                "native_staged_bytes": native_blob.get("size") or 0,
+                "text_staged_bytes": text_blob.get("size") if text_blob else 0,
+                "final_native_blob_path": final_native_blob_path,
+                "final_text_blob_path": final_text_blob_path,
+                "ready_to_promote": bool(text_blob),
+            }
+        )
+
+    docs.sort(key=lambda item: item.get("doc_id") or "")
+
+    summary = report.get("job") or {}
+    ocr = report.get("ocr") or {}
+    cost = report.get("cost") or {}
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "job_id": job_id,
+        "storage_account": review_account,
+        "container": review_container,
+        "staged_prefix": staged_prefix,
+        "native_prefix": native_prefix,
+        "text_prefix": text_prefix,
+        "doc_count": len(docs),
+        "ready_to_promote_count": sum(
+            1 for item in docs if item.get("ready_to_promote")
+        ),
+        "docs": docs,
+        "summary": {
+            "source_file_count": summary.get("source_file_count", len(docs)),
+            "expanded_file_count": summary.get("expanded_file_count"),
+            "unique_doc_count": summary.get("unique_doc_count", len(docs)),
+            "duplicate_doc_count": summary.get("duplicate_doc_count"),
+            "ocr_page_count": summary.get("ocr_page_count"),
+            "ocr_estimated_cost_usd": ocr.get("estimated_cost_usd"),
+            "estimated_azure_cost_usd": summary.get(
+                "estimated_azure_cost_usd",
+                cost.get("total_estimated_azure_cost_usd"),
+            ),
+        },
+    }
+
+@router.get("/{workspace}/processing-center/staged-results")
+def list_processing_center_staged_results(
+    workspace: Literal["capture", "discovery", "summaries"],
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    try:
+        history = _list_processing_job_history(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+
+        staged_jobs: list[dict[str, Any]] = []
+
+        for job in history.get("jobs") or []:
+            if not isinstance(job, dict):
+                continue
+
+            apc_job_id = job.get("apc_job_id")
+            if not apc_job_id:
+                continue
+
+            staged = _build_staged_results_payload(
+                workspace=workspace,
+                client=client,
+                project=project,
+                job_id=str(apc_job_id),
+            )
+
+            if staged.get("doc_count", 0) > 0:
+                staged_jobs.append(
+                    {
+                        "job_id": apc_job_id,
+                        "tracked_job_id": job.get("job_id"),
+                        "status": job.get("status"),
+                        "completed_at": job.get("completed_at") or job.get("last_modified"),
+                        "doc_count": staged.get("doc_count", 0),
+                        "ready_to_promote_count": staged.get("ready_to_promote_count", 0),
+                        "summary": staged.get("summary"),
+                    }
+                )
+
+        return {
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "jobs": staged_jobs,
+            "job_count": len(staged_jobs),
+        }
+
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{workspace}/processing-center/staged-results/{job_id}")
+def get_processing_center_staged_results(
+    workspace: Literal["capture", "discovery", "summaries"],
+    job_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    try:
+        return _build_staged_results_payload(
+            workspace=workspace,
+            client=client,
+            project=project,
+            job_id=job_id,
+        )
+
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/{workspace}/processing-center/promote")
+def promote_processing_center_staged_results(
+    workspace: Literal["capture", "discovery", "summaries"],
+    request: PromoteStagedResultsRequest,
+) -> dict[str, Any]:
+    try:
+        staged = _build_staged_results_payload(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+            job_id=request.job_id,
+        )
+
+        docs = staged.get("docs") or []
+
+        if request.promote_all:
+            selected_docs = docs
+        else:
+            requested_doc_ids = {str(doc_id) for doc_id in request.doc_ids}
+            selected_docs = [
+                doc for doc in docs
+                if str(doc.get("doc_id")) in requested_doc_ids
+            ]
+
+        if not selected_docs:
+            raise HTTPException(
+                status_code=400,
+                detail="No staged documents selected for promotion.",
+            )
+
+        review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+
+        promoted: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+
+        for doc in selected_docs:
+            doc_id = str(doc.get("doc_id") or "")
+            native_source = doc.get("native_staged_blob_path")
+            text_source = doc.get("text_staged_blob_path")
+
+            native_dest = doc.get("final_native_blob_path")
+            text_dest = doc.get("final_text_blob_path")
+
+            if not native_source or not text_source or not native_dest or not text_dest:
+                skipped.append(
+                    {
+                        "doc_id": doc_id,
+                        "status": "skipped_missing_staged_pair",
+                    }
+                )
+                continue
+
+            native_bytes = _read_review_blob_bytes(
+                container_name=review_container,
+                blob_path=str(native_source),
+            )
+            text_bytes = _read_review_blob_bytes(
+                container_name=review_container,
+                blob_path=str(text_source),
+            )
+
+            if native_bytes is None or text_bytes is None:
+                skipped.append(
+                    {
+                        "doc_id": doc_id,
+                        "status": "skipped_missing_staged_blob",
+                        "native_found": native_bytes is not None,
+                        "text_found": text_bytes is not None,
+                    }
+                )
+                continue
+
+            native_upload = _write_review_blob_bytes(
+                container_name=review_container,
+                blob_path=str(native_dest),
+                data=native_bytes,
+                overwrite=request.overwrite,
+                content_type="application/octet-stream",
+            )
+
+            text_upload = _write_review_blob_bytes(
+                container_name=review_container,
+                blob_path=str(text_dest),
+                data=text_bytes,
+                overwrite=request.overwrite,
+                content_type="text/plain; charset=utf-8",
+            )
+
+            promoted.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "promoted",
+                    "native": native_upload,
+                    "text": text_upload,
+                }
+            )
+
+        return {
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+            "job_id": request.job_id,
+            "promote_all": request.promote_all,
+            "requested_doc_ids": request.doc_ids,
+            "promoted_count": len(promoted),
+            "skipped_count": len(skipped),
+            "promoted": promoted,
+            "skipped": skipped,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 
 @router.get("/{workspace}/processing-center/jobs/{job_id}/report")
 def get_processing_job_report(
