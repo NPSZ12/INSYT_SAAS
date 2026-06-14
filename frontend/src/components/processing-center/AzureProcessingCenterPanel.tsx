@@ -142,6 +142,8 @@ export default function AzureProcessingCenterPanel({
   const [selectedUploadNames, setSelectedUploadNames] = useState<string[]>([]);
   const [removingUploads, setRemovingUploads] = useState(false);
   const [removeMessage, setRemoveMessage] = useState("");
+  const [trackedJob, setTrackedJob] = useState<any>(null);
+  const [pollingJob, setPollingJob] = useState(false);
   
   
 
@@ -165,18 +167,25 @@ export default function AzureProcessingCenterPanel({
     [workspace, clientId, projectId]
   );
 
-  const startUrl = useMemo(
-    () => `/api/${workspace}/processing-center/azure-run/start`,
+  const trackedStartUrl = useMemo(
+    () => `/api/${workspace}/processing-center/tracked-jobs/start`,
     [workspace]
   );
 
+  const reportLookupJobId =
+    job?.routing?.job_id ||
+    job?.review_upload?.job_id ||
+    job?.report_upload?.job_id ||
+    job?.job_id ||
+    "";
+
   const reportUrl = useMemo(() => {
-    if (!job?.job_id) return "";
+    if (!reportLookupJobId) return "";
 
     return `/api/${workspace}/processing-center/jobs/${encodeURIComponent(
-      job.job_id
+      reportLookupJobId
     )}/report`;
-  }, [workspace, job?.job_id]);
+  }, [workspace, reportLookupJobId]);
 
   
   const totalUploadBytes = uploads.reduce(
@@ -189,17 +198,24 @@ export default function AzureProcessingCenterPanel({
   const downloadedCount = job?.downloads?.length ?? 0;
   const warningCount = job?.warnings?.length ?? 0;
 
-  const processingProgressPct = starting
-    ? 65
-    : job?.status === "completed"
-      ? 100
-      : 0;
+  const activeJobStatus = trackedJob || job;
 
-  const processingStatusLabel = starting
-    ? "Processing in progress..."
-    : job?.status === "completed"
-      ? "Processing completed"
-      : "Ready";
+  const processingProgressPct =
+    typeof activeJobStatus?.progress_pct === "number"
+      ? activeJobStatus.progress_pct
+      : starting || pollingJob
+        ? 15
+        : activeJobStatus?.status === "completed"
+          ? 100
+          : 0;
+
+  const processingStatusLabel =
+    activeJobStatus?.message ||
+    (starting || pollingJob
+      ? "Processing in progress..."
+      : activeJobStatus?.status === "completed"
+        ? "Processing completed"
+        : "Ready");
 
   const reportSummary =
     jobReport?.report ||
@@ -372,6 +388,16 @@ export default function AzureProcessingCenterPanel({
     );
   }
 
+  function buildTrackedStatusUrl(jobId: string) {
+    return (
+      `/api/${workspace}/processing-center/tracked-jobs/${encodeURIComponent(
+        jobId
+      )}/status` +
+      `?client=${encodeURIComponent(clientId)}` +
+      `&project=${encodeURIComponent(projectId)}`
+    );
+  }
+
   function clearSelectedUploads() {
     setSelectedUploadNames([]);
   }
@@ -489,6 +515,39 @@ export default function AzureProcessingCenterPanel({
       refreshUploads(),
       refreshJobHistory(),
     ]);
+  }
+
+  async function pollTrackedJobStatus(jobId: string) {
+    setPollingJob(true);
+
+    try {
+      const statusUrl = buildTrackedStatusUrl(jobId);
+
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        const status = (await apiGet(statusUrl)) as any;
+
+        setTrackedJob(status);
+
+        if (
+          ["completed", "failed", "cancelled", "no_uploads"].includes(
+            String(status?.status || "").toLowerCase()
+          )
+        ) {
+          setJob(status);
+          await refreshUploads();
+          await refreshJobHistory();
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+
+      setError("Tracked APC job is still running. Refresh status again shortly.");
+    } catch (err: any) {
+      setError(cleanError(err?.message || "Unable to poll tracked APC job."));
+    } finally {
+      setPollingJob(false);
+    }
   }
 
   async function uploadToAzureProcessingCenter() {
@@ -626,9 +685,10 @@ export default function AzureProcessingCenterPanel({
     setStarting(true);
     setError("");
     setJobReport(null);
+    setTrackedJob(null);
 
     try {
-      const data = (await apiPost(startUrl, {
+      const data = (await apiPost(trackedStartUrl, {
         client: clientId,
         project: projectId,
         matter_id: `${projectId}-AZURE-RUN`,
@@ -637,13 +697,20 @@ export default function AzureProcessingCenterPanel({
         enable_live_ocr: false,
         azure_write: true,
         overwrite: true,
+        clean_staging: false,
+        auto_archive_uploads: true,
       })) as any;
 
+      setTrackedJob(data);
       setJob(data);
-      await refreshUploads();
-      await refreshJobHistory();
+
+      if (data?.job_id) {
+        await pollTrackedJobStatus(data.job_id);
+      } else {
+        setError("Tracked APC job did not return a job_id.");
+      }
     } catch (err: any) {
-      setError(cleanError(err?.message || "Processing job failed."));
+      setError(cleanError(err?.message || "Unable to start tracked APC job."));
     } finally {
       setStarting(false);
     }
@@ -684,10 +751,10 @@ export default function AzureProcessingCenterPanel({
               setCostThresholdAcknowledged(false);
               setShowStartConfirm(true);
             }}
-            disabled={starting || uploads.length === 0 || !isInsytAdmin()}
+            disabled={starting || pollingJob || uploads.length === 0 || !isInsytAdmin()}
             className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-violet-400/60 bg-violet-500/20 px-5 text-sm font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {starting ? "Processing..." : "Start Azure Processing"}
+            {starting || pollingJob ? "Processing..." : "Start Azure Processing"}
           </button>
           {!isInsytAdmin() ? (
             <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
@@ -704,7 +771,7 @@ export default function AzureProcessingCenterPanel({
         </div>
       ) : null}
 
-      {starting || job?.status === "completed" ? (
+      {starting || pollingJob || activeJobStatus ? (
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
@@ -1438,12 +1505,14 @@ export default function AzureProcessingCenterPanel({
               <button
                 type="button"
                 onClick={() => {
-                  if (starting) return;
+                  if (starting || pollingJob) return;
                   setShowStartConfirm(false);
                   startProcessing();
                 }}
                 disabled={
-                  starting || (exceedsCostThreshold && !costThresholdAcknowledged)
+                  starting ||
+                  pollingJob ||
+                  (exceedsCostThreshold && !costThresholdAcknowledged)
                 }
                 className="inline-flex h-10 items-center justify-center rounded-full border border-violet-400/60 bg-violet-500/20 px-5 text-sm font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
