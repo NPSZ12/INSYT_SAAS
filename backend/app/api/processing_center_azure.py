@@ -37,6 +37,10 @@ from pydantic import BaseModel, Field
 
 from app.models.user import User
 from app.services.security import require_admin
+from app.services.azure_pricing import (
+    calculate_document_intelligence_read_quote,
+    lookup_document_intelligence_read_price,
+)
 from apc.azure_blob_adapter import azure_list_uploads, read_processing_job_status
 from apc.azure_job_runner import run_azure_processing_job
 from apc.azure_layout import AzureRoutingConfig
@@ -653,6 +657,38 @@ def processing_center_settings(
         "review_container": _review_container(),
     }
 
+@router.get("/{workspace}/processing-center/pricing/ocr-read")
+def get_processing_center_ocr_read_pricing(
+    workspace: Literal["capture", "discovery", "summaries"],
+    pages: int = Query(1, ge=0),
+    region: str = Query("centralus"),
+    currency: str = Query("USD"),
+) -> dict[str, Any]:
+    try:
+        price = lookup_document_intelligence_read_price(
+            arm_region_name=region,
+            currency_code=currency,
+        )
+
+        quote = calculate_document_intelligence_read_quote(
+            pages=pages,
+            arm_region_name=region,
+            currency_code=currency,
+        )
+
+        return {
+            "workspace": workspace,
+            "region": region,
+            "currency": currency,
+            "pricing_basis": "azure_retail_prices_api",
+            "price": price,
+            "quote": quote,
+            "actual_cost_status": "pending_azure_cost_management_ingestion",
+            "actual_cost_usd": None,
+        }
+
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 @router.get("/{workspace}/processing-center/uploads")
 def list_processing_uploads(
