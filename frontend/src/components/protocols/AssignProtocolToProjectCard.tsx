@@ -17,10 +17,8 @@ type AssignProtocolToProjectCardProps = {
 
 type ProtocolOption = {
   name: string;
-  fields: dict[];
+  fields: Record<string, any>[];
 };
-
-type dict = Record<string, any>;
 
 const WORKSPACE_LABELS: Record<Workspace, string> = {
   capture: "INSYT Capture",
@@ -29,40 +27,45 @@ const WORKSPACE_LABELS: Record<Workspace, string> = {
 };
 
 function normalizeProtocolOptions(response: any): ProtocolOption[] {
-  const rawTemplates =
-    response?.templates ||
+  const templates =
     response?.protocols ||
+    response?.templates ||
     response?.items ||
-    response ||
     [];
 
-  if (!Array.isArray(rawTemplates)) {
-    return [];
+  if (Array.isArray(templates)) {
+    return templates
+      .map((item: any) => {
+        if (typeof item === "string") {
+          return {
+            name: item,
+            fields: [],
+          };
+        }
+
+        const name =
+          item?.name ||
+          item?.protocol_name ||
+          item?.protocol_template ||
+          item?.template_name ||
+          "";
+
+        return {
+          name: String(name || "").trim(),
+          fields: Array.isArray(item?.fields) ? item.fields : [],
+        };
+      })
+      .filter((item) => item.name);
   }
 
-  return rawTemplates
-    .map((item: any) => {
-      if (typeof item === "string") {
-        return {
-          name: item,
-          fields: [],
-        };
-      }
+  if (response?.templates && typeof response.templates === "object") {
+    return Object.entries(response.templates).map(([name, fields]) => ({
+      name,
+      fields: Array.isArray(fields) ? fields : [],
+    }));
+  }
 
-      const name =
-        item?.name ||
-        item?.protocol_name ||
-        item?.protocol_template ||
-        item?.template_name ||
-        item?.id ||
-        "";
-
-      return {
-        name: String(name || "").trim(),
-        fields: Array.isArray(item?.fields) ? item.fields : [],
-      };
-    })
-    .filter((item: ProtocolOption) => item.name);
+  return [];
 }
 
 export default function AssignProtocolToProjectCard({
@@ -83,10 +86,7 @@ export default function AssignProtocolToProjectCard({
   const [error, setError] = useState("");
 
   const selectedProtocolOption = useMemo(
-    () =>
-      protocols.find(
-        (protocol) => protocol.name === selectedProtocol
-      ),
+    () => protocols.find((protocol) => protocol.name === selectedProtocol),
     [protocols, selectedProtocol]
   );
 
@@ -128,6 +128,8 @@ export default function AssignProtocolToProjectCard({
 
     setProjects([]);
     setSelectedProject("");
+    setStatusMessage("");
+    setError("");
 
     apiGet(
       `/api/${selectedWorkspace}/clients/${encodeURIComponent(
@@ -145,7 +147,7 @@ export default function AssignProtocolToProjectCard({
 
   async function loadProtocolFieldsIfNeeded(
     protocolName: string,
-    existingFields: dict[]
+    existingFields: Record<string, any>[]
   ) {
     if (existingFields.length > 0) {
       return existingFields;
@@ -172,7 +174,7 @@ export default function AssignProtocolToProjectCard({
           return fields;
         }
       } catch {
-        // Continue to the next possible endpoint.
+        // Try next candidate endpoint.
       }
     }
 
@@ -212,7 +214,9 @@ export default function AssignProtocolToProjectCard({
         override: true,
       });
 
-      setStatusMessage("Protocol assigned to project.");
+      setStatusMessage(
+        `Protocol assigned to ${selectedClient}/${selectedWorkspace}/${selectedProject}.`
+      );
     } catch (error: any) {
       console.error(error);
       setError(
