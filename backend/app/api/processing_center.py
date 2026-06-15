@@ -38,6 +38,11 @@ class StartProcessingJobPayload(BaseModel):
     job_type: str = "processing"
     requested_by: str = ""
 
+class PromoteProcessingJobPayload(BaseModel):
+    client: str
+    project_id: str
+    doc_ids: List[str] = []
+    promote_all: bool = False
 
 def get_container_name(workspace: str) -> str:
     workspace_clean = workspace.lower().strip()
@@ -68,6 +73,47 @@ def get_blob_service_client() -> BlobServiceClient:
 
     return BlobServiceClient.from_connection_string(conn)
 
+def get_review_blob_service_client() -> BlobServiceClient:
+    conn = (
+        os.getenv("AZURE_REVIEW_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_FINAL_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
+
+    if not conn:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Review storage is not configured. Set "
+                "AZURE_REVIEW_STORAGE_CONNECTION_STRING or "
+                "AZURE_STORAGE_CONNECTION_STRING."
+            ),
+        )
+
+    return BlobServiceClient.from_connection_string(conn)
+
+
+def copy_blob_between_containers(
+    source_container,
+    destination_container,
+    source_blob_path: str,
+    destination_blob_path: str,
+):
+    source_blob = source_container.get_blob_client(source_blob_path)
+    destination_blob = destination_container.get_blob_client(destination_blob_path)
+
+    if not source_blob.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source blob not found: {source_blob_path}",
+        )
+
+    source_data = source_blob.download_blob().readall()
+
+    destination_blob.upload_blob(
+        source_data,
+        overwrite=True,
+    )
 
 def clean_path_part(value: str) -> str:
     return str(value or "").strip().strip("/")
@@ -103,16 +149,32 @@ def processed_metadata_path(client: str, project_id: str, doc_id: str) -> str:
     return f"{processing_base_path(client, project_id)}/processed/metadata/{doc_id}.json"
 
 
-def final_native_path(client: str, project_id: str, file_name: str) -> str:
+def final_native_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    file_name: str,
+) -> str:
+    workspace = clean_path_part(workspace).lower()
     client = clean_path_part(client)
     project_id = clean_path_part(project_id)
-    return f"{client}/{project_id}/source/native/{file_name}"
+    file_name = clean_path_part(file_name)
+
+    return f"{workspace}/{client}/{project_id}/source/native/{file_name}"
 
 
-def final_text_path(client: str, project_id: str, doc_id: str) -> str:
+def final_text_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    doc_id: str,
+) -> str:
+    workspace = clean_path_part(workspace).lower()
     client = clean_path_part(client)
     project_id = clean_path_part(project_id)
-    return f"{client}/{project_id}/source/text/{doc_id}.txt"
+    doc_id = clean_path_part(doc_id)
+
+    return f"{workspace}/{client}/{project_id}/source/text/{doc_id}.txt"
 
 
 def errors_path(client: str, project_id: str, file_name: str) -> str:
@@ -558,6 +620,8 @@ def start_processing(
     container_name = get_container_name(workspace)
     service = get_blob_service_client()
     container = service.get_container_client(container_name)
+    review_service = get_review_blob_service_client()
+    review_container = review_service.get_container_client(container_name)
 
     base = processing_base_path(payload.client, payload.project_id)
     uploads_prefix = f"{base}/uploads/"
@@ -625,26 +689,33 @@ def start_processing(
             )
 
             final_native = final_native_path(
+                workspace,
                 payload.client,
                 payload.project_id,
                 file_name,
             )
 
             final_text = final_text_path(
+                workspace,
                 payload.client,
                 payload.project_id,
                 doc_id,
             )
 
             copy_blob(container, progress_path, processed_native)
-            copy_blob(container, progress_path, final_native)
+            copy_blob_between_containers(
+                container,
+                review_container,
+                progress_path,
+                final_native,
+            )
 
             container.get_blob_client(processed_text).upload_blob(
                 extracted_text,
                 overwrite=True,
             )
 
-            container.get_blob_client(final_text).upload_blob(
+            review_container.get_blob_client(final_text).upload_blob(
                 extracted_text,
                 overwrite=True,
             )
@@ -963,6 +1034,332 @@ def list_processing_jobs(
                 "workspace": workspace,
                 "client": client,
                 "project_id": project_id,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
+
+@router.post("/jobs/{job_id}/promote")
+def promote_processing_job(
+    workspace: str,
+    job_id: str,
+    payload: PromoteProcessingJobPayload,
+):
+    try:
+        container_name = get_container_name(workspace)
+
+        processing_service = get_blob_service_client()
+        processing_container = processing_service.get_container_client(
+            container_name
+        )
+
+        review_service = get_review_blob_service_client()
+        review_container = review_service.get_container_client(
+            container_name
+        )
+
+        job_blob_path = processing_job_path(
+            payload.client,
+            payload.project_id,
+            job_id,
+        )
+
+        job = read_json_blob(
+            processing_container,
+            job_blob_path,
+            None,
+        )
+
+        if not job:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": "Processing job not found.",
+                    "job_id": job_id,
+                    "job_blob_path": job_blob_path,
+                },
+            )
+
+        requested_doc_ids = {
+            str(doc_id).strip()
+            for doc_id in payload.doc_ids or []
+            if str(doc_id).strip()
+        }
+
+        files = job.get("files", []) or []
+
+        promoted = []
+        skipped = []
+        errors = []
+
+        selected_count = 0
+        now = now_iso()
+
+        for item in files:
+            file_name = str(item.get("file_name", "")).strip()
+
+            if not file_name:
+                continue
+
+            doc_id = str(
+                item.get("doc_id")
+                or get_doc_id(file_name)
+            ).strip()
+
+            should_promote = (
+                payload.promote_all
+                or doc_id in requested_doc_ids
+                or file_name in requested_doc_ids
+            )
+
+            if not should_promote:
+                continue
+
+            selected_count += 1
+
+            source_native = (
+                item.get("processed_native_path")
+                or processed_native_path(
+                    payload.client,
+                    payload.project_id,
+                    file_name,
+                )
+            )
+
+            source_text = (
+                item.get("processed_text_path")
+                or processed_text_path(
+                    payload.client,
+                    payload.project_id,
+                    doc_id,
+                )
+            )
+
+            native_destination = final_native_path(
+                workspace,
+                payload.client,
+                payload.project_id,
+                file_name,
+            )
+
+            text_destination = final_text_path(
+                workspace,
+                payload.client,
+                payload.project_id,
+                doc_id,
+            )
+
+            native_destination_blob = review_container.get_blob_client(
+                native_destination
+            )
+
+            text_destination_blob = review_container.get_blob_client(
+                text_destination
+            )
+
+            native_destination_exists = native_destination_blob.exists()
+            text_destination_exists = text_destination_blob.exists()
+
+            try:
+                if native_destination_exists and text_destination_exists:
+                    item.update(
+                        {
+                            "doc_id": doc_id,
+                            "promotion_status": "Promoted",
+                            "promotion_result": "already_promoted",
+                            "promoted_at": item.get("promoted_at") or now,
+                            "native_destination_exists": True,
+                            "text_destination_exists": True,
+                            "native_destination": native_destination,
+                            "text_destination": text_destination,
+                        }
+                    )
+
+                    update_manifest_item(
+                        processing_container,
+                        payload.client,
+                        payload.project_id,
+                        file_name,
+                        {
+                            "doc_id": doc_id,
+                            "status": "Promoted",
+                            "promotion_status": "Promoted",
+                            "promotion_result": "already_promoted",
+                            "promoted_at": item.get("promoted_at") or now,
+                            "final_native_path": native_destination,
+                            "final_text_path": text_destination,
+                            "native_destination_exists": True,
+                            "text_destination_exists": True,
+                            "error": "",
+                        },
+                    )
+
+                    skipped.append(
+                        {
+                            "doc_id": doc_id,
+                            "file_name": file_name,
+                            "status": "already_promoted",
+                            "native_destination_exists": True,
+                            "text_destination_exists": True,
+                            "native_destination": native_destination,
+                            "text_destination": text_destination,
+                        }
+                    )
+
+                    continue
+
+                if not native_destination_exists:
+                    copy_blob_between_containers(
+                        processing_container,
+                        review_container,
+                        source_native,
+                        native_destination,
+                    )
+
+                if not text_destination_exists:
+                    copy_blob_between_containers(
+                        processing_container,
+                        review_container,
+                        source_text,
+                        text_destination,
+                    )
+
+                item.update(
+                    {
+                        "doc_id": doc_id,
+                        "promotion_status": "Promoted",
+                        "promotion_result": "promoted",
+                        "promoted_at": now,
+                        "native_destination_exists": True,
+                        "text_destination_exists": True,
+                        "native_destination": native_destination,
+                        "text_destination": text_destination,
+                    }
+                )
+
+                update_manifest_item(
+                    processing_container,
+                    payload.client,
+                    payload.project_id,
+                    file_name,
+                    {
+                        "doc_id": doc_id,
+                        "status": "Promoted",
+                        "promotion_status": "Promoted",
+                        "promotion_result": "promoted",
+                        "promoted_at": now,
+                        "final_native_path": native_destination,
+                        "final_text_path": text_destination,
+                        "native_destination_exists": True,
+                        "text_destination_exists": True,
+                        "error": "",
+                    },
+                )
+
+                promoted.append(
+                    {
+                        "doc_id": doc_id,
+                        "file_name": file_name,
+                        "status": "promoted",
+                        "native_destination": native_destination,
+                        "text_destination": text_destination,
+                    }
+                )
+
+            except Exception as exc:
+                message = str(exc)
+
+                item.update(
+                    {
+                        "doc_id": doc_id,
+                        "promotion_status": "Error",
+                        "promotion_result": "error",
+                        "promotion_error": message,
+                        "promotion_error_at": now_iso(),
+                    }
+                )
+
+                errors.append(
+                    {
+                        "doc_id": doc_id,
+                        "file_name": file_name,
+                        "status": "error",
+                        "error": message,
+                    }
+                )
+
+        if selected_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "No matching documents were selected for promotion.",
+                    "requested_doc_ids": list(requested_doc_ids),
+                    "promote_all": payload.promote_all,
+                },
+            )
+
+        promoted_or_done_count = len(promoted) + len(skipped)
+
+        job["files"] = files
+        job["last_updated_at"] = now_iso()
+        job["last_promoted_at"] = now_iso()
+        job["promoted_files"] = sum(
+            1
+            for item in files
+            if item.get("promotion_status") == "Promoted"
+        )
+        job["promotion_error_files"] = sum(
+            1
+            for item in files
+            if item.get("promotion_status") == "Error"
+        )
+
+        if promoted_or_done_count > 0 and not errors:
+            job["promotion_status"] = "Promoted"
+            job["message"] = "Selected review-ready files have been promoted."
+        elif promoted_or_done_count > 0 and errors:
+            job["promotion_status"] = "Partially Promoted"
+            job["message"] = "Some files promoted; some files had errors."
+        else:
+            job["promotion_status"] = "Promotion Error"
+            job["message"] = "Promotion failed."
+
+        write_json_blob(
+            processing_container,
+            job_blob_path,
+            job,
+        )
+
+        return {
+            "ok": len(errors) == 0,
+            "workspace": workspace,
+            "client": payload.client,
+            "project_id": payload.project_id,
+            "job_id": job_id,
+            "promote_all": payload.promote_all,
+            "requested_doc_ids": list(requested_doc_ids),
+            "selected_count": selected_count,
+            "promoted_count": len(promoted),
+            "skipped_count": len(skipped),
+            "error_count": len(errors),
+            "promoted": promoted,
+            "skipped": skipped,
+            "errors": errors,
+            "promotion_status": job.get("promotion_status", ""),
+            "message": job.get("message", ""),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to promote processing job results.",
+                "job_id": job_id,
+                "client": payload.client,
+                "project_id": payload.project_id,
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             },
