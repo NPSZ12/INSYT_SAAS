@@ -1624,6 +1624,22 @@ def _read_review_blob_bytes(
     except Exception:
         return None
 
+def _review_blob_exists(
+    *,
+    container_name: str,
+    blob_path: str,
+) -> bool:
+    try:
+        blob_service = _get_review_blob_service_client()
+        blob_client = blob_service.get_blob_client(
+            container=container_name,
+            blob=blob_path,
+        )
+
+        return bool(blob_client.exists())
+
+    except Exception:
+        return False
 
 def _write_review_blob_bytes(
     *,
@@ -1982,30 +1998,74 @@ def promote_processing_center_staged_results(
                 )
                 continue
 
-            native_upload = _write_review_blob_bytes(
+            native_dest_exists = _review_blob_exists(
                 container_name=review_container,
                 blob_path=str(native_dest),
-                data=native_bytes,
-                overwrite=request.overwrite,
-                content_type="application/octet-stream",
             )
 
-            text_upload = _write_review_blob_bytes(
+            text_dest_exists = _review_blob_exists(
                 container_name=review_container,
                 blob_path=str(text_dest),
-                data=text_bytes,
-                overwrite=request.overwrite,
-                content_type="text/plain; charset=utf-8",
             )
 
-            promoted.append(
-                {
-                    "doc_id": doc_id,
-                    "status": "promoted",
-                    "native": native_upload,
-                    "text": text_upload,
-                }
-            )
+            if (native_dest_exists or text_dest_exists) and not request.overwrite:
+                skipped.append(
+                    {
+                        "doc_id": doc_id,
+                        "status": (
+                            "already_promoted"
+                            if native_dest_exists and text_dest_exists
+                            else "skipped_existing_destination"
+                        ),
+                        "native_destination_exists": native_dest_exists,
+                        "text_destination_exists": text_dest_exists,
+                        "native_destination": native_dest,
+                        "text_destination": text_dest,
+                        "message": (
+                            "Final source file already exists. "
+                            "Set overwrite=true to replace it."
+                        ),
+                    }
+                )
+                continue
+
+            try:
+                native_upload = _write_review_blob_bytes(
+                    container_name=review_container,
+                    blob_path=str(native_dest),
+                    data=native_bytes,
+                    overwrite=request.overwrite,
+                    content_type="application/octet-stream",
+                )
+
+                text_upload = _write_review_blob_bytes(
+                    container_name=review_container,
+                    blob_path=str(text_dest),
+                    data=text_bytes,
+                    overwrite=request.overwrite,
+                    content_type="text/plain; charset=utf-8",
+                )
+
+                promoted.append(
+                    {
+                        "doc_id": doc_id,
+                        "status": "promoted",
+                        "native": native_upload,
+                        "text": text_upload,
+                    }
+                )
+
+            except Exception as exc:
+                skipped.append(
+                    {
+                        "doc_id": doc_id,
+                        "status": "promotion_failed",
+                        "native_destination": native_dest,
+                        "text_destination": text_dest,
+                        "error": str(exc),
+                    }
+                )
+                continue
 
         return {
             "workspace": workspace,
