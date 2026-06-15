@@ -212,10 +212,14 @@ def list_registered_clients():
 
             parts = blob_name.split("/")
 
-            if len(parts) < 3:
+            if len(parts) < 4:
                 continue
 
             client_name = parts[0]
+            workspace_name = parts[1]
+
+            if workspace_name not in VALID_WORKSPACES:
+                continue
 
             if (
                 not client_name
@@ -235,7 +239,7 @@ def list_registered_clients():
                         "client_name": client_name,
                         "normalized_name": normalized,
                         "created_at": datetime.now(timezone.utc).isoformat(),
-                        "workspaces": [workspace],
+                        "workspaces": [workspace_name],
                     }
                 )
 
@@ -243,8 +247,8 @@ def list_registered_clients():
             else:
                 workspaces = existing_by_name[normalized].get("workspaces") or []
 
-                if workspace not in workspaces:
-                    workspaces.append(workspace)
+                if workspace_name not in workspaces:
+                    workspaces.append(workspace_name)
 
                 existing_by_name[normalized]["workspaces"] = sorted(workspaces)
 
@@ -279,7 +283,7 @@ def list_workspace_clients(workspace: str):
 
         parts = blob_name.split("/")
 
-        if len(parts) >= 3:
+        if len(parts) >= 4 and parts[1] == workspace:
             client = parts[0]
 
             if (
@@ -309,7 +313,7 @@ def list_workspace_client_projects(
 
     container = get_container_client(workspace)
 
-    prefix = f"{client_name.strip('/')}/"
+    prefix = f"{client_name.strip('/')}/{workspace}/"
 
     projects = set()
 
@@ -321,8 +325,8 @@ def list_workspace_client_projects(
 
         parts = blob_name.split("/")
 
-        if len(parts) >= 3:
-            project = parts[1]
+        if len(parts) >= 4 and parts[1] == workspace:
+            project = parts[2]
 
             if (
                 project
@@ -468,33 +472,46 @@ def create_workspace_project(
             content_type="application/json",
         )
         project_folders = [
+            f"{project_root}/source/native/.keep",
+            f"{project_root}/source/text/.keep",
+            f"{project_root}/source/protocol/.keep",
+            f"{project_root}/source/metadata/.keep",
+            f"{project_root}/source/preview/.keep",
+            f"{project_root}/source/processing_center/uploads/.keep",
+
+            f"{project_root}/processing_center/jobs/.keep",
+            f"{project_root}/processing_center/staged/.keep",
+            f"{project_root}/processing_center/reports/.keep",
+            f"{project_root}/processing_center/archive/.keep",
+            f"{project_root}/processing_center/removed/.keep",
+
             f"{project_root}/Batches/.keep",
 
+            f"{project_root}/SearchFolders/.keep",
+            f"{project_root}/SearchFolderResults/.keep",
+
+            f"{project_root}/Review/documents/.keep",
+            f"{project_root}/Review/batches/.keep",
+            f"{project_root}/Review/exports/.keep",
+            f"{project_root}/Review/qc/.keep",
+            f"{project_root}/Review/saved_records/.keep",
+            f"{project_root}/Review/statistical_qc/.keep",
+            f"{project_root}/Review/linked_entities/.keep",
+            f"{project_root}/Review/captured_entities/.keep",
+            f"{project_root}/Review/audit/.keep",
+            f"{project_root}/Review/workproduct/.keep",
+
+            f"{project_root}/overlays/raw/.keep",
+            f"{project_root}/overlays/final/.keep",
+
+            f"{project_root}/Deleted Data/linked_entities/.keep",
+
+            f"{project_root}/Audit/Batches/.keep",
+
             f"{project_root}/analytics/.keep",
-
             f"{project_root}/archive/.keep",
-
             f"{project_root}/logs/.keep",
-
-            f"{project_root}/review/batches/.keep",
-            f"{project_root}/review/exports/.keep",
-            f"{project_root}/review/qc/.keep",
-            f"{project_root}/review/saved_records/.keep",
-            f"{project_root}/review/statistical_qc/.keep",
-            f"{project_root}/review/linked_entities/.keep",
-            f"{project_root}/review/captured_entities/.keep",
-            f"{project_root}/review/audit/.keep",
-            f"{project_root}/review/workproduct/.keep",
-
-            f"{project_root}/source/metadata/.keep",
-            f"{project_root}/source/native/.keep",
-            f"{project_root}/source/protocol/.keep",
-            f"{project_root}/source/text/.keep",
-
-            f"{project_root}/uploads/.keep",
-
             f"{project_root}/reports/.keep",
-
             f"{project_root}/exports/.keep",
         ]
 
@@ -515,7 +532,7 @@ def create_workspace_project(
             "created_at": metadata["created_at"],
         }
 
-        protocol_blob = f"{project_root}/{project_name}_Protocol.json"
+        protocol_blob = f"{project_root}/source/protocol/{project_name}_Protocol.json"
 
         container.upload_blob(
             name=protocol_blob,
