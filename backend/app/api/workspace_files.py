@@ -34,17 +34,19 @@ def get_workspace_container(workspace: str):
 
 
 def build_prefix(
+    workspace: str,
     project: str,
     client: str | None = None,
     folder: str | None = None,
 ) -> str:
+    workspace_name = clean_folder(workspace)
     project_name = clean_folder(project)
 
     if client:
         client_name = clean_folder(client)
-        base_prefix = f"{client_name}/{project_name}/"
+        base_prefix = f"{client_name}/{workspace_name}/{project_name}/"
     else:
-        base_prefix = f"{project_name}/"
+        base_prefix = f"{workspace_name}/{project_name}/"
 
     if folder:
         folder_name = clean_folder(folder)
@@ -64,18 +66,20 @@ def list_workspace_files(
 
     project_name = clean_folder(project)
     client_name = clean_folder(client) if client else ""
+    resolved_folder = folder or "source/native"
 
     prefix = build_prefix(
+        workspace=workspace,
         project=project,
         client=client,
-        folder=folder,
+        folder=resolved_folder,
     )
     print(
         "WORKSPACE FILES:",
         workspace,
         project,
         client,
-        folder,
+        resolved_folder,
         prefix,
     )
 
@@ -130,7 +134,7 @@ def list_workspace_files(
                 "workspace": workspace,
                 "client": client_name,
                 "project": project_name,
-                "folder": clean_folder(folder) if folder else "",
+                "folder": clean_folder(resolved_folder),
             }
         )
 

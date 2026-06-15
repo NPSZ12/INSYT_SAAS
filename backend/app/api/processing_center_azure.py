@@ -130,6 +130,13 @@ def _queue_name() -> str:
 def _new_job_id() -> str:
     return f"JOB-{uuid4().hex[:16].upper()}"
 
+def _project_base_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+) -> str:
+    return f"{client}/{workspace}/{project}"
 
 def _job_base_path(
     *,
@@ -139,7 +146,7 @@ def _job_base_path(
     job_id: str,
 ) -> str:
     return (
-        f"{workspace}/{client}/{project}/"
+        f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
         f"processing_center/jobs/{job_id}"
     )
 
@@ -324,15 +331,14 @@ def _archive_uploads_for_job(
     blob_service = _processing_blob_service()
     container_client = blob_service.get_container_client(processing_container)
 
-    uploads_prefix = (
-        f"{workspace}/{client}/{project}/"
-        f"source/processing_center/uploads/"
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
     )
 
-    archive_prefix = (
-        f"{workspace}/{client}/{project}/"
-        f"processing_center/archive/{job_id}/uploads/"
-    )
+    uploads_prefix = f"{base_path}/source/processing_center/uploads/"
+    archive_prefix = f"{base_path}/processing_center/archive/{job_id}/uploads/"
 
     archived: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -413,17 +419,16 @@ def _remove_processing_uploads(
     blob_service = _processing_blob_service()
     container_client = blob_service.get_container_client(processing_container)
 
-    uploads_prefix = (
-        f"{workspace}/{client}/{project}/"
-        f"source/processing_center/uploads/"
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
     )
+
+    uploads_prefix = f"{base_path}/source/processing_center/uploads/"
+    removed_prefix = f"{base_path}/processing_center/removed/{removed_at}/uploads/"
 
     removed_at = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-    removed_prefix = (
-        f"{workspace}/{client}/{project}/"
-        f"processing_center/removed/{removed_at}/uploads/"
-    )
 
     selected_names = set(str(name or "").strip() for name in blob_names if name)
 
@@ -532,7 +537,7 @@ def _list_processing_job_history(
     container_client = blob_service.get_container_client(processing_container)
 
     jobs_prefix = (
-        f"{workspace}/{client}/{project}/"
+        f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
         f"processing_center/jobs/"
     )
 
@@ -857,7 +862,7 @@ async def upload_to_azure_processing_center(
     safe_filename = _safe_blob_filename(file.filename)
 
     blob_path = (
-        f"{workspace}/{client}/{project_id}/"
+        f"{_project_base_path(workspace=workspace, client=client, project=project_id)}/"
         f"source/processing_center/uploads/{safe_filename}"
     )
 
@@ -1294,8 +1299,8 @@ def _load_worker_report_summary_for_history(
     review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
 
     summary_blob_path = (
-        f"{workspace}/{client}/{project}/processing_center/reports/"
-        f"{apc_job_id}/{apc_job_id}.summary.json"
+        f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+        f"processing_center/reports/{apc_job_id}/{apc_job_id}.summary.json"
     )
 
     return _read_review_json_blob(
@@ -1798,8 +1803,8 @@ def _load_worker_report_for_job(
     review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
 
     summary_blob_path = (
-        f"{workspace}/{client}/{project}/processing_center/reports/"
-        f"{job_id}/{job_id}.summary.json"
+        f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+        f"processing_center/reports/{job_id}/{job_id}.summary.json"
     )
 
     return _read_review_json_blob(
@@ -1819,7 +1824,8 @@ def _build_staged_results_payload(
     review_account = os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "insytreviewstorage")
 
     staged_prefix = (
-        f"{workspace}/{client}/{project}/processing_center/staged/{job_id}"
+        f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+        f"processing_center/staged/{job_id}"
     )
 
     native_prefix = f"{staged_prefix}/native/"
@@ -1874,10 +1880,13 @@ def _build_staged_results_payload(
         report_file = file_by_doc_id.get(doc_id) or {}
 
         final_native_blob_path = (
-            f"{workspace}/{client}/{project}/source/native/{native_filename}"
+            f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+            f"source/native/{native_filename}"
         )
+
         final_text_blob_path = (
-            f"{workspace}/{client}/{project}/source/text/{doc_id}.txt"
+            f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+            f"source/text/{doc_id}.txt"
         )
 
         final_native_exists = _live_source_blob_exists(
@@ -2248,7 +2257,8 @@ def get_processing_job_report(
     # {workspace}/{client}/{project}/processing_center/reports/{job_id}/{job_id}.summary.json
     if client and project:
         report_prefix = (
-            f"{workspace}/{client}/{project}/processing_center/reports/{job_id}"
+            f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+            f"processing_center/reports/{job_id}"
         )
 
         summary_blob_path = f"{report_prefix}/{job_id}.summary.json"
