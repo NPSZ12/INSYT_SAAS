@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "../../lib/api";
+import AzureProcessingCenterPromotionPanel from "./AzureProcessingCenterPromotionPanel";
 
 type UploadItem = {
   name?: string;
@@ -960,6 +961,16 @@ export default function AzureProcessingCenterPanel({
           </div>
         )}
       </div>
+
+      <AzureProcessingCenterPromotionPanel
+        workspace={workspace}
+        clientId={clientId}
+        projectId={projectId}
+        onPromoted={async () => {
+          await refreshUploads();
+          await refreshJobHistory();
+        }}
+      />
       
       <div className="grid gap-3 md:grid-cols-4">
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
