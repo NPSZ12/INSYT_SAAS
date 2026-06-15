@@ -22,18 +22,90 @@ router = APIRouter(
     tags=["workspace-protocols"],
 )
 
+def normalize_name(value: str | None) -> str:
+    return (
+        str(value or "")
+        .strip()
+        .strip("/")
+        .replace(" ", "_")
+        .lower()
+    )
+
+
+def resolve_client_for_project(
+    workspace: str,
+    project_id: str,
+    client: str | None = None,
+) -> str:
+    clean_client = str(client or "").strip().strip("/")
+
+    if clean_client:
+        return clean_client
+
+    container = get_container_client(workspace)
+
+    target_project = normalize_name(project_id)
+    matches: list[str] = []
+
+    for blob in container.list_blobs():
+        blob_name = str(blob.name or "").strip("/")
+
+        if not blob_name.endswith("/project.json"):
+            continue
+
+        parts = blob_name.split("/")
+
+        # New standard:
+        # client/workspace/project/project.json
+        if len(parts) < 4:
+            continue
+
+        blob_client = parts[0]
+        blob_workspace = parts[1]
+        blob_project = parts[2]
+
+        if blob_workspace != workspace:
+            continue
+
+        if normalize_name(blob_project) == target_project:
+            matches.append(blob_client)
+
+    unique_matches = sorted(set(matches))
+
+    if len(unique_matches) == 1:
+        return unique_matches[0]
+
+    if len(unique_matches) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Client is required because this project name exists under "
+                "multiple clients."
+            ),
+        )
+
+    raise HTTPException(
+        status_code=400,
+        detail="Client is required.",
+    )
 
 @router.get("/{workspace}/projects/{project_id}/protocol")
 def get_workspace_protocol(
     workspace: str,
     project_id: str,
-    client: str = Query(...),
+    client: str | None = Query(default=None),
 ):
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
             detail="Invalid workspace.",
         )
+
+    client = resolve_client_for_project(
+        workspace=workspace,
+        project_id=project_id,
+        client=client,
+    )
 
     try:
         container = get_container_client(workspace)
@@ -208,6 +280,9 @@ def get_workspace_protocol(
             "message": "No protocol found.",
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -222,19 +297,17 @@ def save_workspace_protocol(
     payload: SaveProtocolRequest,
     client: str | None = Query(default=None),
 ):
-    client = client or payload.client
-
-    if not client:
-        raise HTTPException(
-            status_code=400,
-            detail="Client is required.",
-        )
-
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
             detail="Invalid workspace.",
         )
+
+    client = resolve_client_for_project(
+        workspace=workspace,
+        project_id=project_id,
+        client=client or payload.client,
+    )
 
     container = get_container_client(workspace)
 
