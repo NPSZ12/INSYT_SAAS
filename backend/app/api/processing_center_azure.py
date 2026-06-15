@@ -777,6 +777,8 @@ def processing_center_settings(
         "review_account": _review_account(),
         "processing_container": _processing_container(),
         "review_container": _review_container(),
+        "live_source_account": _live_source_account(),
+        "live_source_container": _live_source_container(workspace),
     }
 
 @router.get("/{workspace}/processing-center/pricing/ocr-read")
@@ -1951,6 +1953,10 @@ def _build_staged_results_payload(
         "job_id": job_id,
         "storage_account": review_account,
         "container": review_container,
+        "staged_storage_account": review_account,
+        "staged_container": review_container,
+        "live_source_storage_account": _live_source_account(),
+        "live_source_container": _live_source_container(workspace),
         "staged_prefix": staged_prefix,
         "native_prefix": native_prefix,
         "text_prefix": text_prefix,
