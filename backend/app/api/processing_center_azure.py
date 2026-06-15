@@ -1790,6 +1790,19 @@ def _build_staged_results_payload(
             f"{workspace}/{client}/{project}/source/text/{doc_id}.txt"
         )
 
+        final_native_exists = _review_blob_exists(
+            container_name=review_container,
+            blob_path=final_native_blob_path,
+        )
+
+        final_text_exists = _review_blob_exists(
+            container_name=review_container,
+            blob_path=final_text_blob_path,
+        )
+
+        already_promoted = final_native_exists and final_text_exists
+        ready_to_promote = bool(text_blob) and not already_promoted
+
         docs.append(
             {
                 "doc_id": doc_id,
@@ -1813,7 +1826,11 @@ def _build_staged_results_payload(
                 "text_staged_bytes": text_blob.get("size") if text_blob else 0,
                 "final_native_blob_path": final_native_blob_path,
                 "final_text_blob_path": final_text_blob_path,
-                "ready_to_promote": bool(text_blob),
+                "final_native_exists": final_native_exists,
+                "final_text_exists": final_text_exists,
+                "promotion_status": "Promoted" if already_promoted else "",
+                "promotion_result": "already_promoted" if already_promoted else "",
+                "ready_to_promote": ready_to_promote,
             }
         )
 
@@ -1822,6 +1839,22 @@ def _build_staged_results_payload(
     summary = report.get("job") or {}
     ocr = report.get("ocr") or {}
     cost = report.get("cost") or {}
+
+    ready_to_promote_count = sum(
+        1 for item in docs if item.get("ready_to_promote")
+    )
+
+    promoted_count = sum(
+        1
+        for item in docs
+        if item.get("promotion_status") == "Promoted"
+    )
+
+    promotion_status = (
+        "Promoted"
+        if promoted_count > 0 and ready_to_promote_count == 0
+        else ""
+    )
 
     return {
         "workspace": workspace,
@@ -1834,9 +1867,9 @@ def _build_staged_results_payload(
         "native_prefix": native_prefix,
         "text_prefix": text_prefix,
         "doc_count": len(docs),
-        "ready_to_promote_count": sum(
-            1 for item in docs if item.get("ready_to_promote")
-        ),
+        "ready_to_promote_count": ready_to_promote_count,
+        "promoted_count": promoted_count,
+        "promotion_status": promotion_status,
         "docs": docs,
         "summary": {
             "source_file_count": summary.get("source_file_count", len(docs)),
@@ -1888,9 +1921,11 @@ def list_processing_center_staged_results(
                         "job_id": apc_job_id,
                         "tracked_job_id": job.get("job_id"),
                         "status": job.get("status"),
+                        "promotion_status": staged.get("promotion_status", ""),
                         "completed_at": job.get("completed_at") or job.get("last_modified"),
                         "doc_count": staged.get("doc_count", 0),
                         "ready_to_promote_count": staged.get("ready_to_promote_count", 0),
+                        "promoted_count": staged.get("promoted_count", 0),
                         "summary": staged.get("summary"),
                     }
                 )
@@ -2067,6 +2102,13 @@ def promote_processing_center_staged_results(
                 )
                 continue
 
+        post_promote_staged = _build_staged_results_payload(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+            job_id=request.job_id,
+        )
+
         return {
             "workspace": workspace,
             "client": request.client,
@@ -2078,6 +2120,18 @@ def promote_processing_center_staged_results(
             "skipped_count": len(skipped),
             "promoted": promoted,
             "skipped": skipped,
+            "ready_to_promote_count": post_promote_staged.get(
+                "ready_to_promote_count",
+                0,
+            ),
+            "promoted_total_count": post_promote_staged.get(
+                "promoted_count",
+                0,
+            ),
+            "promotion_status": post_promote_staged.get(
+                "promotion_status",
+                "",
+            ),
         }
 
     except HTTPException:
