@@ -3,12 +3,14 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
+from app.services.storage_paths import build_project_prefix, build_project_path
 from app.services.batch_service import (
     get_container_client,
 )
 
 
 def build_batch_blob_name(
+    workspace: str,
     client_id: str,
     project_id: str,
     batch_name: str,
@@ -17,42 +19,50 @@ def build_batch_blob_name(
     clean_project_id = project_id.strip("/")
     clean_batch_name = batch_name.strip("/")
 
-    if clean_client_id:
-        return (
-            f"{clean_client_id}/"
-            f"{clean_project_id}/"
-            f"Batches/"
-            f"{clean_batch_name}.json"
+    if not clean_client_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required for batch paths.",
         )
 
-    return (
-        f"{clean_project_id}/"
-        f"Batches/"
-        f"{clean_batch_name}.json"
+    return build_project_path(
+        workspace,
+        clean_client_id,
+        clean_project_id,
+        "Batches",
+        f"{clean_batch_name}.json",
     )
 
 
 def build_batches_prefix(
-    client_id: str,
     project_id: str,
+    client_id: str | None = None,
+    workspace: str = "capture",
 ):
-    clean_client_id = client_id.strip("/")
-    clean_project_id = project_id.strip("/")
+    if not client_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required for batch paths.",
+        )
 
-    if clean_client_id:
-        return f"{clean_client_id}/{clean_project_id}/Batches/"
-
-    return f"{clean_project_id}/Batches/"
+    return build_project_prefix(
+        workspace,
+        client_id,
+        project_id,
+        "Batches",
+    )
 
 
 def find_existing_checked_out_batch_for_user(
     container,
+    workspace: str,
     client_id: str,
     project_id: str,
     username: str,
     requested_batch_blob_name: str,
 ):
     batches_prefix = build_batches_prefix(
+        workspace=workspace,
         client_id=client_id,
         project_id=project_id,
     )
@@ -130,6 +140,7 @@ def checkout_batch(
 
     existing_batch = find_existing_checked_out_batch_for_user(
         container=container,
+        workspace=workspace,
         client_id=client_id,
         project_id=project_id,
         username=username,
@@ -185,6 +196,7 @@ def complete_batch(
     container = get_container_client(workspace)
 
     blob_name = build_batch_blob_name(
+        workspace=workspace,
         client_id=client_id,
         project_id=project_id,
         batch_name=batch_name,
@@ -236,6 +248,7 @@ def release_batch(
     container = get_container_client(workspace)
 
     blob_name = build_batch_blob_name(
+        workspace=workspace,
         client_id=client_id,
         project_id=project_id,
         batch_name=batch_name,

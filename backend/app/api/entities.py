@@ -16,20 +16,33 @@ import json
 from typing import Any
 
 from app.services.batch_service import get_container_client
+from app.services.storage_paths import build_project_base_path
 
 
 def clean_path(value: str | None) -> str:
     return str(value or "").strip().strip("/")
 
 
-def project_base_path(client: str | None, project: str) -> str:
+def project_base_path(
+    workspace: str,
+    client: str | None,
+    project: str,
+) -> str:
     client_name = clean_path(client)
     project_name = clean_path(project)
+    workspace_name = clean_path(workspace)
 
-    if client_name:
-        return f"{client_name}/{project_name}"
+    if not client_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required for entity paths.",
+        )
 
-    return project_name
+    return build_project_base_path(
+        workspace=workspace_name,
+        client=client_name,
+        project=project_name,
+    )
 
 
 def normalize_doc_lookup(value: str) -> str:
@@ -38,12 +51,18 @@ def normalize_doc_lookup(value: str) -> str:
     clean = clean.rsplit(".", 1)[0]
     return clean.replace("_", " ").lower()
 
+
 def get_document_review_blob_name(
+    workspace: str,
     client: str | None,
     project: str,
     doc_id: str,
 ) -> str:
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
     clean_doc_id = str(doc_id or "").strip().split("/")[-1]
 
     if "." in clean_doc_id:
@@ -61,6 +80,7 @@ def load_document_review_state(
     container = get_container_client(workspace)
 
     blob_name = get_document_review_blob_name(
+        workspace,
         client,
         project,
         doc_id,
@@ -84,7 +104,11 @@ def list_project_document_review_states(
     project: str,
 ) -> list[dict[str, Any]]:
     container = get_container_client(workspace)
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
     prefix = f"{base_path}/Review/documents/"
 
     states = []
@@ -177,7 +201,11 @@ def load_latest_overlay_records(
     overlay_view: str = "raw",
 ) -> list[dict[str, Any]]:
     container = get_container_client(workspace)
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
     latest_path = f"{base_path}/overlays/{overlay_view}/latest_overlay.json"
 
     blob_client = container.get_blob_client(latest_path)
@@ -212,7 +240,11 @@ def find_blob_for_doc_id(
     folder: str,
 ):
     container = get_container_client(workspace)
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
     normalized_target = normalize_doc_lookup(doc_id)
 
     prefix = f"{base_path}/{folder.strip('/')}/"
@@ -863,6 +895,7 @@ def save_document_review_state(
     container = get_container_client(workspace)
 
     blob_name = get_document_review_blob_name(
+        workspace,
         client,
         project,
         doc_id,
@@ -883,7 +916,11 @@ def save_deleted_entity_record(
     entity: dict,
 ):
     container = get_container_client(workspace)
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
 
     ucid = (
         entity.get("ucid")

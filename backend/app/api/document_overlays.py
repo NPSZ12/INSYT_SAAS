@@ -9,6 +9,7 @@ import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from app.services.batch_service import get_container_client
+from app.services.storage_paths import build_project_base_path, build_project_path
 
 
 router = APIRouter(
@@ -65,14 +66,26 @@ def validate_overlay_view(overlay_view: str):
         )
 
 
-def project_base_path(client: str | None, project_id: str) -> str:
+def project_base_path(
+    workspace: str,
+    client: str | None,
+    project_id: str,
+) -> str:
     project_name = clean_path(project_id)
     client_name = clean_path(client)
+    workspace_name = clean_path(workspace)
 
-    if client_name:
-        return f"{client_name}/{project_name}"
+    if not client_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required for document overlay paths.",
+        )
 
-    return project_name
+    return build_project_base_path(
+        workspace=workspace_name,
+        client=client_name,
+        project=project_name,
+    )
 
 
 def normalize_header(value: str) -> str:
@@ -257,26 +270,18 @@ def load_protocol_fields(
 ) -> tuple[list[dict[str, Any]], str | None]:
     container = get_container_client(workspace)
 
-    base_path = project_base_path(client, project_id)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project_id=project_id,
+    )
     project_name = clean_path(project_id)
 
     possible_protocol_files = [
         f"{base_path}/source/protocol/{project_name}_Protocol.json",
-        f"{base_path}/{project_name}_Protocol.json",
-        f"{base_path}/Protocol/{project_name}_Protocol.json",
-        f"{base_path}/protocol.json",
         f"{base_path}/source/protocol/{project_name}_Protocol.xlsx",
-        f"{base_path}/{project_name}_Protocol.xlsx",
-        f"{base_path}/Protocol/{project_name}_Protocol.xlsx",
+        f"{base_path}/protocol.json",
         f"{base_path}/protocol.xlsx",
-        f"{project_name}/source/protocol/{project_name}_Protocol.json",
-        f"{project_name}/{project_name}_Protocol.json",
-        f"{project_name}/Protocol/{project_name}_Protocol.json",
-        f"{project_name}/protocol.json",
-        f"{project_name}/source/protocol/{project_name}_Protocol.xlsx",
-        f"{project_name}/{project_name}_Protocol.xlsx",
-        f"{project_name}/Protocol/{project_name}_Protocol.xlsx",
-        f"{project_name}/protocol.xlsx",
     ]
 
     for blob_name in possible_protocol_files:
@@ -408,7 +413,11 @@ def list_project_doc_ids(
 ) -> set[str]:
     container = get_container_client(workspace)
 
-    base_path = project_base_path(client, project_id)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project_id=project_id,
+    )
     prefix = f"{base_path}/source/native/"
 
     doc_ids = set()
@@ -436,12 +445,17 @@ def list_project_doc_ids(
 
 
 def build_overlay_blob_paths(
+    workspace: str,
     client: str | None,
     project_id: str,
     overlay_view: str,
     filename: str,
 ) -> tuple[str, str]:
-    base_path = project_base_path(client, project_id)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project_id=project_id,
+    )
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     original_name = filename.replace("\\", "_").replace("/", "_")
 
@@ -915,6 +929,7 @@ async def commit_document_overlay(
         container = get_container_client(workspace)
 
         overlay_path, latest_path = build_overlay_blob_paths(
+            workspace=workspace,
             client=client,
             project_id=project_id,
             overlay_view=overlay_view,
@@ -986,7 +1001,11 @@ def list_document_overlays(
 
     try:
         container = get_container_client(workspace)
-        base_path = project_base_path(client, project_id)
+        base_path = project_base_path(
+            workspace=workspace,
+            client=client,
+            project_id=project_id,
+        )
 
         if overlay_view:
             prefix = f"{base_path}/overlays/{overlay_view}/"
@@ -1042,7 +1061,11 @@ def get_latest_document_overlay(
 
     try:
         container = get_container_client(workspace)
-        base_path = project_base_path(client, project_id)
+        base_path = project_base_path(
+            workspace=workspace,
+            client=client,
+            project_id=project_id,
+        )
         latest_path = f"{base_path}/overlays/{overlay_view}/latest_overlay.json"
 
         blob_client = container.get_blob_client(latest_path)

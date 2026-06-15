@@ -46,6 +46,11 @@ from apc.azure_job_runner import run_azure_processing_job
 from apc.azure_layout import AzureRoutingConfig
 from apc.db import LedgerDB
 from apc.reports import job_report_data
+from app.services.storage_paths import (
+    build_project_base_path,
+    build_project_path,
+    build_project_prefix,
+)
 
 router = APIRouter(prefix="/api", tags=["processing-center-azure"])
 
@@ -136,7 +141,11 @@ def _project_base_path(
     client: str,
     project: str,
 ) -> str:
-    return f"{client}/{workspace}/{project}"
+    return build_project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
 
 def _job_base_path(
     *,
@@ -586,9 +595,8 @@ def _list_processing_job_history(
                 )
 
                 summary_blob_path = (
-                    f"{workspace}/{client}/{project}/"
-                    f"processing_center/reports/"
-                    f"{apc_job_id}/{apc_job_id}.summary.json"
+                    f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+                    f"processing_center/reports/{apc_job_id}/{apc_job_id}.summary.json"
                 )
 
                 worker_report = _read_review_json_blob(

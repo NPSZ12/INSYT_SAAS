@@ -5,6 +5,7 @@ from io import BytesIO
 import pandas as pd
 
 from app.services.batch_service import get_container_client
+from app.services.storage_paths import build_project_prefix
 
 try:
     from docx import Document
@@ -39,20 +40,18 @@ def build_prefix(
     client: str | None = None,
     folder: str | None = None,
 ) -> str:
-    workspace_name = clean_folder(workspace)
-    project_name = clean_folder(project)
+    if not client:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required for workspace file paths.",
+        )
 
-    if client:
-        client_name = clean_folder(client)
-        base_prefix = f"{client_name}/{workspace_name}/{project_name}/"
-    else:
-        base_prefix = f"{workspace_name}/{project_name}/"
-
-    if folder:
-        folder_name = clean_folder(folder)
-        return f"{base_prefix}{folder_name}/"
-
-    return base_prefix
+    return build_project_prefix(
+        workspace,
+        client,
+        project,
+        folder or "",
+    )
 
 
 @router.get("/{workspace}/files")

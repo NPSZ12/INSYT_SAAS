@@ -2,11 +2,12 @@ import io
 import json
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
 from app.services.batch_service import get_container_client
+from app.services.storage_paths import build_project_path
 
 
 class SaveProtocolRequest(BaseModel):
@@ -25,6 +26,7 @@ router = APIRouter(
 def get_workspace_protocol(
     workspace: str,
     project_id: str,
+    client: str = Query(...),
 ):
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
@@ -36,14 +38,32 @@ def get_workspace_protocol(
         container = get_container_client(workspace)
 
         possible_protocol_files = [
-            f"{project_id}/source/protocol/{project_id}_Protocol.json",
-            f"{project_id}/{project_id}_Protocol.json",
-            f"{project_id}/Protocol/{project_id}_Protocol.json",
-            f"{project_id}/protocol.json",
-            f"{project_id}/source/protocol/{project_id}_Protocol.xlsx",
-            f"{project_id}/{project_id}_Protocol.xlsx",
-            f"{project_id}/Protocol/{project_id}_Protocol.xlsx",
-            f"{project_id}/protocol.xlsx",
+            build_project_path(
+                workspace,
+                client,
+                project_id,
+                "source/protocol",
+                f"{project_id}_Protocol.json",
+            ),
+            build_project_path(
+                workspace,
+                client,
+                project_id,
+                "source/protocol",
+                f"{project_id}_Protocol.xlsx",
+            ),
+            build_project_path(
+                workspace,
+                client,
+                project_id,
+                "protocol.json",
+            ),
+            build_project_path(
+                workspace,
+                client,
+                project_id,
+                "protocol.xlsx",
+            ),
         ]
 
         for blob_name in possible_protocol_files:
@@ -62,6 +82,7 @@ def get_workspace_protocol(
 
                 return {
                     "workspace": workspace,
+                    "client": client,
                     "project_id": project_id,
                     "has_protocol": True,
                     "protocol_blob": blob_name,
@@ -151,6 +172,7 @@ def get_workspace_protocol(
 
                 return {
                     "workspace": workspace,
+                    "client": client,
                     "project_id": project_id,
                     "has_protocol": True,
                     "protocol_blob": blob_name,
@@ -196,6 +218,7 @@ def save_workspace_protocol(
     workspace: str,
     project_id: str,
     payload: SaveProtocolRequest,
+    client: str = Query(...),
 ):
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
@@ -205,7 +228,13 @@ def save_workspace_protocol(
 
     container = get_container_client(workspace)
 
-    protocol_blob = f"{project_id}/source/protocol/{project_id}_Protocol.json"
+    protocol_blob = build_project_path(
+        workspace,
+        client,
+        project_id,
+        "source/protocol",
+        f"{project_id}_Protocol.json",
+    )
     blob_client = container.get_blob_client(protocol_blob)
 
     if blob_client.exists() and not payload.override:
@@ -217,6 +246,7 @@ def save_workspace_protocol(
     protocol_payload = {
         "project_id": project_id,
         "workspace": workspace,
+        "client": client,
         "protocol_template": payload.protocol_template,
         "fields": payload.fields,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -231,6 +261,7 @@ def save_workspace_protocol(
     return {
         "message": "Protocol saved.",
         "workspace": workspace,
+        "client": client,
         "project_id": project_id,
         "has_protocol": True,
         "protocol_blob": protocol_blob,

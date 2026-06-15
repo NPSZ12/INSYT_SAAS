@@ -2,6 +2,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.services.batch_service import get_container_client
 from app.services.summary_text_service import create_summary_text_file
+from app.services.storage_paths import build_project_path
 
 router = APIRouter(
     prefix="/api",
@@ -70,11 +71,12 @@ async def upload_workspace_files(
         if not file_name:
             continue
 
-        blob_path = (
-            f"{client_name}/"
-            f"{project_name}/"
-            f"{folder_name}/"
-            f"{file_name}"
+        blob_path = build_project_path(
+            workspace,
+            client_name,
+            project_name,
+            folder_name,
+            file_name,
         )
 
         content = await upload_file.read()

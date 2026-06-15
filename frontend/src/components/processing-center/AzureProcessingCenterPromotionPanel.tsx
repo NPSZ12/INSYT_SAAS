@@ -9,9 +9,13 @@ type StagedJobSummary = {
   job_id: string;
   tracked_job_id?: string;
   status?: string;
+  promotion_status?: string;
+  promotion_result?: string;
+  promoted_at?: string;
   completed_at?: string;
   doc_count?: number;
   ready_to_promote_count?: number;
+  promoted_count?: number;
   summary?: {
     source_file_count?: number;
     expanded_file_count?: number;
@@ -26,6 +30,9 @@ type StagedJobSummary = {
 type StagedDoc = {
   doc_id: string;
   original_filename?: string;
+  promotion_status?: string;
+  promotion_result?: string;
+  promoted_at?: string;
   extension?: string;
   source_bytes?: number;
   page_count?: number;
@@ -61,6 +68,9 @@ type StagedJobDetail = {
 type PromotionResult = {
   promoted_count?: number;
   skipped_count?: number;
+  error_count?: number;
+  promotion_status?: string;
+  message?: string;
   promoted?: Array<{
     doc_id?: string;
     status?: string;
@@ -145,6 +155,46 @@ function isInsytAdmin() {
   );
 }
 
+function isPromotedValue(value?: string) {
+  const clean = String(value || "").toLowerCase().trim();
+
+  return (
+    clean === "promoted" ||
+    clean === "already_promoted" ||
+    clean === "already promoted"
+  );
+}
+
+function isPromotedJob(job: StagedJobSummary) {
+  return (
+    isPromotedValue(job.promotion_status) ||
+    isPromotedValue(job.promotion_result) ||
+    Number(job.promoted_count || 0) > 0 ||
+    (
+      Number(job.ready_to_promote_count || 0) === 0 &&
+      String(job.status || "").toLowerCase().includes("promoted")
+    )
+  );
+}
+
+function getJobStatusLabel(job: StagedJobSummary) {
+  if (isPromotedJob(job)) return "Promoted";
+
+  if (Number(job.ready_to_promote_count || 0) > 0) {
+    return "Ready";
+  }
+
+  return job.status || "unknown";
+}
+
+function isPromotedDoc(doc: StagedDoc) {
+  return (
+    isPromotedValue(doc.promotion_status) ||
+    isPromotedValue(doc.promotion_result) ||
+    Boolean(doc.promoted_at)
+  );
+}
+
 export default function AzureProcessingCenterPromotionPanel({
   workspace,
   clientId,
@@ -181,7 +231,16 @@ export default function AzureProcessingCenterPromotionPanel({
   }
 
   const docs = selectedJob?.docs || [];
-  const readyDocs = docs.filter((doc) => doc.ready_to_promote);
+
+  const readyDocs = docs.filter(
+    (doc) => doc.ready_to_promote && !isPromotedDoc(doc)
+  );
+
+  const promotedDocs = docs.filter((doc) => isPromotedDoc(doc));
+
+  const readyJobs = jobs.filter((job) => !isPromotedJob(job));
+
+  const promotedJobs = jobs.filter((job) => isPromotedJob(job));
 
   function toggleDoc(docId: string) {
     setSelectedDocIds((current) =>
@@ -272,14 +331,14 @@ export default function AzureProcessingCenterPromotionPanel({
 
     try {
       const result = (await apiPost(
-        `/api/${workspace}/processing-center/promote`,
+        `/api/${workspace}/processing-center/jobs/${encodeURIComponent(
+          selectedJobId
+        )}/promote`,
         {
           client: clientId,
-          project: projectId,
-          job_id: selectedJobId,
+          project_id: projectId,
           doc_ids: promoteAll ? [] : selectedDocIds,
           promote_all: promoteAll,
-          overwrite: false,
         }
       )) as PromotionResult;
 
@@ -333,8 +392,8 @@ export default function AzureProcessingCenterPromotionPanel({
 
       {promotionResult ? (
         <div className="mb-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-          Promoted {promotionResult.promoted_count ?? 0} doc(s). Skipped{" "}
-          {promotionResult.skipped_count ?? 0} doc(s).
+          Promotion completed. Promoted {promotionResult.promoted_count ?? 0} doc(s).{" "}
+          {promotionResult.skipped_count ?? 0} already promoted / skipped.
         </div>
       ) : null}
 
@@ -344,51 +403,124 @@ export default function AzureProcessingCenterPromotionPanel({
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-          <div className="space-y-2">
-            {jobs.map((job) => {
-              const selected = job.job_id === selectedJobId;
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Ready for Promotion
+              </div>
 
-              return (
-                <button
-                  key={job.job_id}
-                  type="button"
-                  onClick={() => loadStagedJob(job.job_id)}
-                  className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
-                    selected
-                      ? "border-violet-400/70 bg-violet-500/15"
-                      : "border-slate-800 bg-slate-950 hover:border-slate-600"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="font-semibold text-slate-100">
-                      {job.job_id}
-                    </div>
-                    <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">
-                      {job.status || "unknown"}
-                    </div>
-                  </div>
+              {readyJobs.length === 0 ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-500">
+                  No jobs are currently ready for promotion.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {readyJobs.map((job) => {
+                    const selected = job.job_id === selectedJobId;
 
-                  <div className="mt-1 text-xs text-slate-500">
-                    Completed: {formatDateTime(job.completed_at)}
-                  </div>
+                    return (
+                      <button
+                        key={job.job_id}
+                        type="button"
+                        onClick={() => loadStagedJob(job.job_id)}
+                        className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
+                          selected
+                            ? "border-violet-400/70 bg-violet-500/15"
+                            : "border-slate-800 bg-slate-950 hover:border-slate-600"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="font-semibold text-slate-100">
+                            {job.job_id}
+                          </div>
+                          <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">
+                            {getJobStatusLabel(job)}
+                          </div>
+                        </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-lg bg-slate-900 px-2 py-1">
-                      <div className="text-slate-500">Docs</div>
-                      <div className="font-semibold text-slate-100">
-                        {job.doc_count ?? 0}
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-slate-900 px-2 py-1">
-                      <div className="text-slate-500">Ready</div>
-                      <div className="font-semibold text-emerald-100">
-                        {job.ready_to_promote_count ?? 0}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+                        <div className="mt-1 text-xs text-slate-500">
+                          Completed: {formatDateTime(job.completed_at)}
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded-lg bg-slate-900 px-2 py-1">
+                            <div className="text-slate-500">Docs</div>
+                            <div className="font-semibold text-slate-100">
+                              {job.doc_count ?? 0}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-900 px-2 py-1">
+                            <div className="text-slate-500">Ready</div>
+                            <div className="font-semibold text-emerald-100">
+                              {job.ready_to_promote_count ?? 0}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Promoted
+              </div>
+
+              {promotedJobs.length === 0 ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-500">
+                  No promoted APC jobs yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {promotedJobs.map((job) => {
+                    const selected = job.job_id === selectedJobId;
+
+                    return (
+                      <button
+                        key={job.job_id}
+                        type="button"
+                        onClick={() => loadStagedJob(job.job_id)}
+                        className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
+                          selected
+                            ? "border-emerald-400/70 bg-emerald-500/15"
+                            : "border-slate-800 bg-slate-950 hover:border-slate-600"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="font-semibold text-slate-100">
+                            {job.job_id}
+                          </div>
+                          <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">
+                            Promoted
+                          </div>
+                        </div>
+
+                        <div className="mt-1 text-xs text-slate-500">
+                          Promoted: {formatDateTime(job.promoted_at || job.completed_at)}
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded-lg bg-slate-900 px-2 py-1">
+                            <div className="text-slate-500">Docs</div>
+                            <div className="font-semibold text-slate-100">
+                              {job.doc_count ?? 0}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-900 px-2 py-1">
+                            <div className="text-slate-500">Promoted</div>
+                            <div className="font-semibold text-emerald-100">
+                              {job.promoted_count ?? job.doc_count ?? 0}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
@@ -455,7 +587,7 @@ export default function AzureProcessingCenterPromotionPanel({
                   </div>
                 </div>
 
-                <div className="mb-3 grid gap-2 md:grid-cols-6">
+                <div className="mb-3 grid gap-2 md:grid-cols-7">
                   <div className="rounded-lg bg-slate-900 px-3 py-2">
                     <div className="text-xs text-slate-500">Docs</div>
                     <div className="font-semibold text-slate-100">
@@ -465,7 +597,13 @@ export default function AzureProcessingCenterPromotionPanel({
                   <div className="rounded-lg bg-slate-900 px-3 py-2">
                     <div className="text-xs text-slate-500">Ready</div>
                     <div className="font-semibold text-emerald-100">
-                      {selectedJob.ready_to_promote_count ?? 0}
+                      {readyDocs.length}
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                    <div className="text-xs text-slate-500">Promoted</div>
+                    <div className="font-semibold text-emerald-100">
+                      {promotedDocs.length}
                     </div>
                   </div>
                   <div className="rounded-lg bg-slate-900 px-3 py-2">
@@ -560,12 +698,18 @@ export default function AzureProcessingCenterPromotionPanel({
                             <td className="px-3 py-2">
                               <span
                                 className={`rounded-full border px-2 py-0.5 font-semibold ${
-                                  doc.ready_to_promote
-                                    ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
-                                    : "border-amber-400/40 bg-amber-500/10 text-amber-200"
+                                  isPromotedDoc(doc)
+                                    ? "border-blue-400/40 bg-blue-500/10 text-blue-200"
+                                    : doc.ready_to_promote
+                                      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
+                                      : "border-amber-400/40 bg-amber-500/10 text-amber-200"
                                 }`}
                               >
-                                {doc.ready_to_promote ? "Ready" : "Missing Pair"}
+                                {isPromotedDoc(doc)
+                                  ? "Promoted"
+                                  : doc.ready_to_promote
+                                    ? "Ready"
+                                    : "Missing Pair"}
                               </span>
                             </td>
                             <td className="whitespace-nowrap px-3 py-2 text-slate-400">

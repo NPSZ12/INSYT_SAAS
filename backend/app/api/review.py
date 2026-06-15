@@ -8,6 +8,7 @@ from app.services.project_store import CAPTURED_ENTITIES
 from app.services.batch_service import get_container_client
 from app.services.summary_outline_service import parse_summary_outline
 from app.services.pdf_text_service import get_text_blob_path
+from app.services.storage_paths import build_project_base_path, build_project_path
 
 
 from datetime import datetime, timedelta, timezone
@@ -36,9 +37,9 @@ def list_workspace_project_files(
     clean_client_id = client_id.strip("/")
 
     if clean_client_id:
-        prefix = f"{clean_client_id}/{clean_project_id}/"
+        prefix = f"{build_project_base_path(workspace, clean_client_id, clean_project_id)}/"
     else:
-        prefix = f"{clean_project_id}/"
+        prefix = f"{workspace.strip('/')}/{clean_project_id}/"
 
     files = []
 
@@ -224,14 +225,27 @@ def normalize_doc_id(value: str) -> str:
 
 
 def get_batch_blob_name(
+    workspace: str,
     client: str,
     project_id: str,
     batch: str,
 ) -> str:
     if client:
-        return f"{client}/{project_id}/Batches/{batch}.json"
+        return build_project_path(
+            workspace,
+            client,
+            project_id,
+            "Batches",
+            f"{batch}.json",
+        )
 
-    return f"{project_id}/Batches/{batch}.json"
+    return build_project_path(
+        workspace,
+        "",
+        project_id,
+        "Batches",
+        f"{batch}.json",
+    )
 
 
 def load_batch_payload(
@@ -243,6 +257,7 @@ def load_batch_payload(
     container = get_container_client(workspace)
 
     batch_blob_name = get_batch_blob_name(
+        workspace=workspace,
         client=client,
         project_id=project_id,
         batch=batch,
@@ -343,21 +358,35 @@ def normalize_doc_lookup(value: str) -> str:
     return clean.replace("_", " ").lower()
 
 
-def project_base_path(client: str, project: str) -> str:
+def project_base_path(
+    workspace: str,
+    client: str,
+    project: str,
+) -> str:
     client = str(client or "").strip().strip("/")
     project = str(project or "").strip().strip("/")
+    workspace = str(workspace or "").strip().strip("/")
 
     if client:
-        return f"{client}/{project}"
+        return build_project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
 
-    return project
+    return f"{workspace}/{project}"
 
 def get_document_review_blob_name(
+    workspace: str,
     client: str,
     project_id: str,
     doc_id: str,
 ) -> str:
-    base_path = project_base_path(client, project_id)
+    base_path = project_base_path(
+        workspace,
+        client,
+        project_id,
+    )
     clean_doc_id = str(doc_id or "").strip().split("/")[-1]
 
     if "." in clean_doc_id:
@@ -375,6 +404,7 @@ def load_document_review_state(
     container = get_container_client(workspace)
 
     blob_name = get_document_review_blob_name(
+        workspace,
         client,
         project_id,
         doc_id,
@@ -409,6 +439,7 @@ def save_document_review_state(
     container = get_container_client(workspace)
 
     blob_name = get_document_review_blob_name(
+        workspace,
         client,
         project_id,
         doc_id,
@@ -490,7 +521,11 @@ def load_review_document_by_doc_id(
     doc_id: str,
 ):
     container = get_container_client(workspace)
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace,
+        client,
+        project,
+    )
     requested = normalize_doc_lookup(doc_id)
 
     project_variants = [
@@ -502,9 +537,15 @@ def load_review_document_by_doc_id(
 
     for project_variant in project_variants:
         if client:
-            base_paths.append(f"{client}/{project_variant}")
-
-        base_paths.append(project_variant)
+            base_paths.append(
+                build_project_base_path(
+                    workspace,
+                    client,
+                    project_variant,
+                )
+            )
+        else:
+            base_paths.append(f"{workspace}/{project_variant}")
 
     native_prefixes = [
         f"{base_path}/source/native/"
@@ -987,6 +1028,7 @@ def save_capture(
         container = get_container_client(workspace)
 
         batch_blob = get_batch_blob_name(
+            workspace=workspace,
             client=payload.client_id,
             project_id=payload.project_id,
             batch=payload.batch_id,
@@ -1063,7 +1105,11 @@ def get_review_coding_map(
 ):
     container = get_container_client(workspace)
 
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace,
+        client,
+        project,
+    )
     document_prefix = f"{base_path}/Review/documents/"
 
     coding_map = {}

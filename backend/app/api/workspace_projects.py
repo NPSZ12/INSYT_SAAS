@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services.batch_service import get_container_client
+from app.services.storage_paths import build_project_base_path
 
 
 router = APIRouter(prefix="/api", tags=["workspace-projects"])
@@ -438,7 +439,11 @@ def create_workspace_project(
         if not client_uuid:
             client_uuid, client_name = get_or_create_client_uuid(client_name)
 
-        project_root = f"{client_name}/{project_name}"
+        project_root = build_project_base_path(
+            workspace=workspace,
+            client=client_name,
+            project=project_name,
+        )
 
         metadata = build_project_metadata(
             workspace=workspace,
@@ -532,7 +537,7 @@ def create_workspace_project(
         )
 
         return {
-            "message": f"Project created: {client_name}/{project_name}",
+            "message": f"Project created: {client_name}/{workspace}/{project_name}",
             "workspace": workspace,
             "client": client_name,
             "client_uuid": client_uuid,

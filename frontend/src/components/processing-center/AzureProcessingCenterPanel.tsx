@@ -969,6 +969,12 @@ export default function AzureProcessingCenterPanel({
         onPromoted={async () => {
           await refreshUploads();
           await refreshJobHistory();
+
+          // Clear stale completed job/report state so the APC panel reflects
+          // the latest promoted/ready status from the promotion panel.
+          setJob(null);
+          setTrackedJob(null);
+          setJobReport(null);
         }}
       />
       

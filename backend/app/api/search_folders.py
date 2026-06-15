@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
 from app.services.batch_service import get_container_client
+from app.services.storage_paths import build_project_base_path
 from app.services.project_store import (
     SEARCH_FOLDERS,
     SEARCH_HITS,
@@ -29,15 +30,23 @@ def clean_path(value: str | None) -> str:
     return str(value or "").strip().strip("/")
 
 
-def project_base_path(client: str | None, project: str) -> str:
+def project_base_path(
+    workspace: str,
+    client: str | None,
+    project: str,
+) -> str:
     client_name = clean_path(client)
     project_name = clean_path(project)
+    workspace_name = clean_path(workspace)
 
-    if client_name:
-        return f"{client_name}/{project_name}"
+    if not client_name:
+        raise ValueError("Client is required for search folder paths.")
 
-    return project_name
-
+    return build_project_base_path(
+        workspace=workspace_name,
+        client=client_name,
+        project=project_name,
+    )
 
 def list_workspace_text_files(
     workspace: str,
@@ -45,7 +54,11 @@ def list_workspace_text_files(
     project: str,
 ):
     container = get_container_client(workspace)
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
     prefix = f"{base_path}/source/text/"
 
     files = []
@@ -86,7 +99,11 @@ def list_document_coding_states(
     project: str,
 ):
     container = get_container_client(workspace)
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
     prefix = f"{base_path}/Review/documents/"
 
     states = []
@@ -116,7 +133,11 @@ def save_search_folder_blob(
     hits: list[dict],
 ):
     container = get_container_client(workspace)
-    base_path = project_base_path(client, project)
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
 
     folder_blob = f"{base_path}/SearchFolders/{folder['folder_id']}.json"
     results_blob = f"{base_path}/SearchFolderResults/{folder['folder_id']}.json"
@@ -369,6 +390,8 @@ def create_search_folder(payload: SearchFolderRequest, x_username: str = Header(
     supplemental_batch_id = f"{payload.folder_name}_00001"
 
     BATCHES.append({
+        "workspace": payload.workspace,
+        "client_id": payload.client_id,
         "project_id": payload.project_id,
         "batch_id": supplemental_batch_id,
         "name": supplemental_batch_id,

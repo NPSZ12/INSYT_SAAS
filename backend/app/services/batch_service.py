@@ -8,6 +8,7 @@ import random
 
 from azure.storage.blob import BlobServiceClient
 from fastapi import HTTPException
+from app.services.storage_paths import build_project_prefix, build_project_path
 
 
 Workspace = Literal["capture", "summaries", "discovery"]
@@ -52,10 +53,13 @@ def list_project_batches(
 ):
     container = get_container_client(workspace)
 
-    if client_id:
-        batch_prefix = f"{client_id}/{project_id}/Batches/"
-    else:
-        batch_prefix = f"{project_id}/Batches/"
+    batch_prefix = build_project_prefix(
+        workspace,
+        client_id,
+        project_id,
+        "Batches",
+    )
+        
 
     batches = []
 
@@ -87,10 +91,12 @@ def list_project_doc_ids(
 ):
     container = get_container_client(workspace)
 
-    if client_id:
-        prefix = f"{client_id}/{project_id}/source/native/"
-    else:
-        prefix = f"{project_id}/source/native/"
+    prefix = build_project_prefix(
+        workspace,
+        client_id,
+        project_id,
+        "source/native",
+    )
 
     doc_ids = []
 
@@ -143,14 +149,41 @@ def resolve_search_folder_doc_ids(
     workspace: Workspace,
     project_id: str,
     folder_id: str,
+    client_id: str = "",
 ):
     container = get_container_client(workspace)
 
     possible_blob_names = [
-        f"{project_id}/SearchFolders/{folder_id}.json",
-        f"{project_id}/SearchFolders/{folder_id}/results.json",
-        f"{project_id}/SearchFolderResults/{folder_id}.json",
-        f"{project_id}/SearchFolderResults/{folder_id}/results.json",
+        build_project_path(
+            workspace,
+            client_id,
+            project_id,
+            "SearchFolders",
+            f"{folder_id}.json",
+        ),
+        build_project_path(
+            workspace,
+            client_id,
+            project_id,
+            "SearchFolders",
+            folder_id,
+            "results.json",
+        ),
+        build_project_path(
+            workspace,
+            client_id,
+            project_id,
+            "SearchFolderResults",
+            f"{folder_id}.json",
+        ),
+        build_project_path(
+            workspace,
+            client_id,
+            project_id,
+            "SearchFolderResults",
+            folder_id,
+            "results.json",
+        ),
     ]
 
     last_error = None
@@ -258,10 +291,13 @@ def load_project_batch(
 ):
     container = get_container_client(workspace)
 
-    if client_id:
-        batch_blob_name = f"{client_id}/{project_id}/Batches/{batch_name}.json"
-    else:
-        batch_blob_name = f"{project_id}/Batches/{batch_name}.json"
+    batch_blob_name = build_project_path(
+        workspace,
+        client_id,
+        project_id,
+        "Batches",
+        f"{batch_name}.json",
+    )
 
     blob_client = container.get_blob_client(batch_blob_name)
 
@@ -396,6 +432,7 @@ def create_project_batch(
                         workspace,
                         project_id,
                         folder_id,
+                        client_id,
                     )
                 )
             else:
@@ -443,6 +480,7 @@ def create_project_batch(
                 workspace,
                 project_id,
                 "Statistical QC",
+                client_id,
             )
 
             eligible_doc_ids = [
@@ -509,10 +547,12 @@ def create_project_batch(
 
     container = get_container_client(workspace)
 
-    if client_id:
-        batch_prefix = f"{client_id}/{project_id}/Batches/"
-    else:
-        batch_prefix = f"{project_id}/Batches/"
+    batch_prefix = build_project_prefix(
+        workspace,
+        client_id,
+        project_id,
+        "Batches",
+    )
 
     existing_batch_files = [
         blob.name
@@ -624,10 +664,13 @@ def checkout_project_batch(
 ):
     container = get_container_client(workspace)
 
-    if client_id:
-        batch_blob_name = f"{client_id}/{project_id}/Batches/{batch_name}.json"
-    else:
-        batch_blob_name = f"{project_id}/Batches/{batch_name}.json"
+    batch_blob_name = build_project_path(
+        workspace,
+        client_id,
+        project_id,
+        "Batches",
+        f"{batch_name}.json",
+    )
 
     blob_client = container.get_blob_client(batch_blob_name)
 
@@ -674,10 +717,13 @@ def remove_docs_from_batch(
 ):
     container = get_container_client(workspace)
 
-    if client_id:
-        batch_blob_name = f"{client_id}/{project_id}/Batches/{batch_name}.json"
-    else:
-        batch_blob_name = f"{project_id}/Batches/{batch_name}.json"
+    batch_blob_name = build_project_path(
+        workspace,
+        client_id,
+        project_id,
+        "Batches",
+        f"{batch_name}.json",
+    )
 
     batch_blob = container.get_blob_client(batch_blob_name)
 
@@ -733,18 +779,14 @@ def remove_docs_from_batch(
         overwrite=True,
     )
 
-    if client_id:
-        audit_blob_name = (
-            f"{client_id}/{project_id}/Audit/Batches/"
-            f"{batch_name}_remove_docs_"
-            f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.json"
-        )
-    else:
-        audit_blob_name = (
-            f"{project_id}/Audit/Batches/"
-            f"{batch_name}_remove_docs_"
-            f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.json"
-        )
+    audit_blob_name = build_project_path(
+        workspace,
+        client_id,
+        project_id,
+        "Audit",
+        "Batches",
+        f"{batch_name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.json",
+    )
 
     audit_record = {
         "action": "remove_docs_from_batch",

@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services.batch_service import get_container_client
+from app.services.storage_paths import build_project_path
+
 
 router = APIRouter(
     prefix="/api",
@@ -96,8 +98,11 @@ def create_workspace_project(
 
         created_paths.append(blob_path)
 
-    project_json_path = (
-        f"{client_name}/{project_name}/project.json"
+    project_json_path = build_project_path(
+        workspace,
+        client_name,
+        project_name,
+        "project.json",
     )
 
     project_blob = container.get_blob_client(project_json_path)
