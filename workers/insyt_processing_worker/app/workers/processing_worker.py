@@ -19,6 +19,7 @@ from apc.azure_blob_adapter import (
     azure_upload_report_files,
     azure_upload_review_outputs,
     azure_update_processed_hash_index,
+    azure_archive_processing_uploads,
 )
 from apc.azure_job_runner import run_azure_processing_job
 from apc.azure_layout import AzureRoutingConfig
@@ -101,6 +102,42 @@ def _cancel_requested(cancel_blob_path: str | None) -> bool:
     except Exception:
         return False
 
+def _status_event(
+    *,
+    status: str,
+    stage: str,
+    progress_pct: int,
+    message: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    event = {
+        "at": utc_now(),
+        "status": status,
+        "stage": stage,
+        "progress_pct": progress_pct,
+        "message": message,
+    }
+
+    if extra:
+        current_file = (
+            extra.get("current_file")
+            or extra.get("current_file_name")
+            or extra.get("latest_file_name")
+        )
+
+        current_step = (
+            extra.get("current_step")
+            or extra.get("step")
+            or message
+        )
+
+        if current_file:
+            event["current_file"] = current_file
+
+        if current_step:
+            event["current_step"] = current_step
+
+    return event
 
 def _update_status(
     *,
@@ -113,23 +150,46 @@ def _update_status(
 ) -> dict[str, Any]:
     current = _read_json_blob(status_blob_path, default={})
 
+    now = utc_now()
+
+    existing_events = current.get("events") or []
+
+    if not isinstance(existing_events, list):
+        existing_events = []
+
+    event = _status_event(
+        status=status,
+        stage=stage,
+        progress_pct=progress_pct,
+        message=message,
+        extra=extra,
+    )
+
     current.update(
         {
             "status": status,
             "stage": stage,
+            "current_stage": stage,
+            "current_step": (extra or {}).get("current_step", message),
             "progress_pct": progress_pct,
             "message": message,
-            "updated_at": utc_now(),
+            "updated_at": now,
+            "last_updated_at": now,
+            "events": [*existing_events, event][-25:],
         }
     )
 
     if status == "running" and not current.get("started_at"):
-        current["started_at"] = utc_now()
+        current["started_at"] = now
+
+    if status in {"completed", "failed", "cancelled"}:
+        current.setdefault(f"{status}_at", now)
 
     if extra:
         current.update(extra)
 
     _write_json_blob(status_blob_path, current)
+
     return current
 
 
@@ -176,6 +236,100 @@ def _db_path(job_id: str) -> str:
     root.mkdir(parents=True, exist_ok=True)
     return str(root / f"{job_id}.db")
 
+def _count_list(value: Any) -> int:
+    return len(value) if isinstance(value, list) else 0
+
+
+def _summarize_result_for_status(result_dict: dict[str, Any]) -> dict[str, Any]:
+    report = (
+        result_dict.get("report")
+        or result_dict.get("summary")
+        or result_dict.get("job_report")
+        or {}
+    )
+
+    report_job = report.get("job") or {}
+    report_ocr = report.get("ocr") or {}
+    report_cost = report.get("cost") or {}
+
+    review_upload = result_dict.get("review_upload") or {}
+    report_upload = result_dict.get("report_upload") or {}
+    hash_index_upload = result_dict.get("hash_index_upload") or {}
+    archive_upload = result_dict.get("archive_upload") or {}
+
+    downloads = result_dict.get("downloads") or []
+    warnings = result_dict.get("warnings") or []
+
+    review_uploads = review_upload.get("uploads") or []
+    uploaded_reports = report_upload.get("uploaded_reports") or []
+
+    source_file_count = (
+        report_job.get("source_file_count")
+        or result_dict.get("source_file_count")
+        or _count_list(downloads)
+    )
+
+    expanded_file_count = (
+        report_job.get("expanded_file_count")
+        or result_dict.get("expanded_file_count")
+        or source_file_count
+    )
+
+    unique_doc_count = (
+        report_job.get("unique_doc_count")
+        or result_dict.get("unique_doc_count")
+        or review_upload.get("planned_docs")
+        or hash_index_upload.get("added_count")
+        or 0
+    )
+
+    duplicate_doc_count = (
+        report_job.get("duplicate_doc_count")
+        or result_dict.get("duplicate_doc_count")
+        or 0
+    )
+
+    ocr_page_count = (
+        report_job.get("ocr_page_count")
+        or report_ocr.get("estimated_pages")
+        or report_ocr.get("pages")
+        or result_dict.get("ocr_page_count")
+        or 0
+    )
+
+    estimated_azure_cost_usd = (
+        report_job.get("estimated_azure_cost_usd")
+        or report_cost.get("total_estimated_azure_cost_usd")
+        or result_dict.get("estimated_azure_cost_usd")
+        or 0
+    )
+
+    return {
+        "apc_job_id": (
+            result_dict.get("job_id")
+            or (result_dict.get("routing") or {}).get("job_id")
+            or (result_dict.get("review_upload") or {}).get("job_id")
+            or (result_dict.get("report_upload") or {}).get("job_id")
+        ),
+        "source_file_count": source_file_count,
+        "expanded_file_count": expanded_file_count,
+        "unique_doc_count": unique_doc_count,
+        "duplicate_doc_count": duplicate_doc_count,
+        "ocr_page_count": ocr_page_count,
+        "ocr_candidate_files": report_ocr.get("candidate_files") or 0,
+        "ocr_estimated_pages": report_ocr.get("estimated_pages") or ocr_page_count,
+        "ocr_estimated_cost_usd": report_ocr.get("estimated_cost_usd") or 0,
+        "estimated_azure_cost_usd": estimated_azure_cost_usd,
+        "native_text_upload_count": _count_list(review_uploads),
+        "report_upload_count": _count_list(uploaded_reports),
+        "warning_count": _count_list(warnings),
+        "archive_upload_count": archive_upload.get("archived_count") or 0,
+        "latest_file_name": (
+            downloads[-1].get("file_name")
+            if downloads and isinstance(downloads[-1], dict)
+            else ""
+        ),
+    }
 
 def process_job_message(message_content: str):
     payload = json.loads(message_content)
@@ -197,8 +351,13 @@ def process_job_message(message_content: str):
             progress_pct=5,
             message="APC worker accepted job.",
             extra={
+                "current_step": "Worker accepted queued APC job.",
                 "worker_started_at": utc_now(),
                 "request_blob_path": request_blob_path,
+                "client": payload.get("client", ""),
+                "project": payload.get("project", ""),
+                "workspace": payload.get("workspace", ""),
+                "matter_id": payload.get("matter_id", ""),
             },
         )
 
@@ -213,8 +372,20 @@ def process_job_message(message_content: str):
             status="running",
             stage="processing",
             progress_pct=15,
-            message="APC processing started. Downloading uploads, expanding containers, hashing, duplicate checking, OCR pricing, and promoting outputs.",
+            message=(
+                "APC processing started. Downloading uploads, expanding "
+                "containers, hashing, duplicate checking, OCR pricing, "
+                "and staging review outputs."
+            ),
+            extra={
+                "current_step": (
+                    "Downloading uploads, expanding containers, hashing, "
+                    "checking duplicates, quoting OCR, and staging review outputs."
+                ),
+            },
         )
+
+        export_dir = os.getenv("APC_EXPORT_DIR", "/tmp/apc_worker_reports")
 
         result = run_azure_processing_job(
             db=db,
@@ -226,13 +397,35 @@ def process_job_message(message_content: str):
             azure_write=bool(payload.get("azure_write", True)),
             overwrite=bool(payload.get("overwrite", True)),
             staging_root=os.getenv("APC_STAGING_ROOT", "/tmp/apc_worker_runs"),
-            output_root=os.getenv("APC_OUTPUT_ROOT", "/tmp/apc_worker_review_output"),
-            export_dir=os.getenv("APC_EXPORT_DIR", "/tmp/apc_worker_reports"),
+            output_root=os.getenv(
+                "APC_OUTPUT_ROOT",
+                "/tmp/apc_worker_review_output",
+            ),
+            export_dir=export_dir,
             clean_staging=bool(payload.get("clean_staging", False)),
             upload_status=False,
         )
 
-        result_dict = result.to_dict()
+        if hasattr(result, "to_dict"):
+            result_dict = result.to_dict()
+        elif isinstance(result, dict):
+            result_dict = result
+        else:
+            result_dict = {"result": str(result)}
+            
+        result_summary = _summarize_result_for_status(result_dict)
+
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="running",
+            stage="post_processing",
+            progress_pct=90,
+            message="APC processing completed. Preparing reports and final status.",
+            extra={
+                "current_step": "Processing completed; preparing reports and status.",
+                **result_summary,
+            },
+        )
 
         _cancel_if_requested(
             cancel_blob_path=cancel_blob_path,
@@ -240,25 +433,82 @@ def process_job_message(message_content: str):
             stage="post_processing",
         )
 
+        archive_upload = None
+
+        if bool(payload.get("auto_archive_uploads", True)):
+            _update_status(
+                status_blob_path=status_blob_path,
+                status="running",
+                stage="archiving_uploads",
+                progress_pct=96,
+                message="Archiving processed upload files.",
+                extra={
+                    "current_step": "Archiving processed upload files.",
+                    **_summarize_result_for_status(result_dict),
+                },
+            )
+
+            archive_upload = azure_archive_processing_uploads(
+                routing=routing,
+                job_id=str(result_dict.get("job_id") or job_id),
+                uploads=result_dict.get("downloads") or [],
+                delete_original=True,
+                export_dir=export_dir,
+            )
+
+            result_dict["archive_upload"] = archive_upload
+
+        _cancel_if_requested(
+            cancel_blob_path=cancel_blob_path,
+            status_blob_path=status_blob_path,
+            stage="archiving_uploads",
+        )
+
         _update_status(
             status_blob_path=status_blob_path,
             status="running",
             stage="finalizing",
-            progress_pct=95,
+            progress_pct=98,
             message="APC job finalizing status.",
+            extra={
+                "current_step": "Writing final tracked job status.",
+                **_summarize_result_for_status(result_dict),
+            },
+        )
+
+        final_status_existing = _read_json_blob(status_blob_path, default={})
+        final_status_events = final_status_existing.get("events") or []
+
+        if not isinstance(final_status_events, list):
+            final_status_events = []
+
+        completed_event = _status_event(
+            status=result_dict.get("status", "completed"),
+            stage="completed",
+            progress_pct=100,
+            message=result_dict.get("message", "APC job completed."),
+            extra={
+                "current_step": "APC job completed.",
+                **_summarize_result_for_status(result_dict),
+            },
         )
 
         final_status = {
-            **_read_json_blob(status_blob_path, default={}),
+            **final_status_existing,
             **result_dict,
+            **_summarize_result_for_status(result_dict),
             "job_id": job_id,
             "status": result_dict.get("status", "completed"),
             "stage": "completed",
+            "current_stage": "completed",
+            "current_step": "APC job completed.",
             "progress_pct": 100,
             "message": result_dict.get("message", "APC job completed."),
             "completed_at": utc_now(),
             "updated_at": utc_now(),
+            "last_updated_at": utc_now(),
             "cancel_requested": False,
+            "events": [*final_status_events, completed_event][-25:],
         }
 
         _write_json_blob(status_blob_path, final_status)
@@ -273,9 +523,10 @@ def process_job_message(message_content: str):
             status_blob_path=status_blob_path,
             status="failed",
             stage="failed",
-            progress_pct=0,
+            progress_pct=100,
             message=message,
             extra={
+                "current_step": "APC worker failed.",
                 "failed_at": utc_now(),
                 "error": message,
             },
@@ -289,9 +540,10 @@ def process_job_message(message_content: str):
             status_blob_path=status_blob_path,
             status="failed",
             stage="failed",
-            progress_pct=0,
-            message=message,
+            progress_pct=100,
+            message=f"APC worker failed: {message}",
             extra={
+                "current_step": "APC worker failed.",
                 "failed_at": utc_now(),
                 "error": message,
             },
