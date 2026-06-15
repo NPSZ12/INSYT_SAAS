@@ -1561,6 +1561,94 @@ def _get_review_blob_service_client() -> BlobServiceClient:
         credential=DefaultAzureCredential(),
     )
 
+def _live_source_account() -> str:
+    return (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_ACCOUNT")
+        or os.getenv("INSYT_FILES_STORAGE_ACCOUNT")
+        or os.getenv("CDS_INTAKE_STORAGE_ACCOUNT")
+        or "cdsintakestorage"
+    )
+
+
+def _live_source_container(workspace: str) -> str:
+    return (
+        os.getenv("INSYT_LIVE_SOURCE_CONTAINER")
+        or os.getenv("INSYT_FILES_CONTAINER")
+        or os.getenv("CDS_INTAKE_CONTAINER")
+        or os.getenv("INSYT_REVIEW_CONTAINER")
+        or f"insyt-{workspace}"
+    )
+
+
+def _get_live_source_blob_service_client() -> BlobServiceClient:
+    connection_string = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("INSYT_FILES_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_INTAKE_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_CDS_INTAKE_STORAGE_CONNECTION_STRING")
+        or ""
+    )
+
+    if connection_string:
+        return BlobServiceClient.from_connection_string(connection_string)
+
+    live_account = _live_source_account()
+
+    return BlobServiceClient(
+        account_url=f"https://{live_account}.blob.core.windows.net",
+        credential=DefaultAzureCredential(),
+    )
+
+
+def _live_source_blob_exists(
+    *,
+    workspace: str,
+    blob_path: str,
+) -> bool:
+    try:
+        blob_service = _get_live_source_blob_service_client()
+        blob_client = blob_service.get_blob_client(
+            container=_live_source_container(workspace),
+            blob=blob_path,
+        )
+
+        return bool(blob_client.exists())
+
+    except Exception:
+        return False
+
+
+def _write_live_source_blob_bytes(
+    *,
+    workspace: str,
+    blob_path: str,
+    data: bytes,
+    overwrite: bool = False,
+    content_type: str = "application/octet-stream",
+) -> dict[str, Any]:
+    blob_service = _get_live_source_blob_service_client()
+    container_name = _live_source_container(workspace)
+
+    blob_client = blob_service.get_blob_client(
+        container=container_name,
+        blob=blob_path,
+    )
+
+    blob_client.upload_blob(
+        data,
+        overwrite=overwrite,
+        content_settings=ContentSettings(content_type=content_type),
+    )
+
+    return {
+        "status": "uploaded",
+        "storage_account": _live_source_account(),
+        "container": container_name,
+        "blob_path": blob_path,
+        "bytes": len(data),
+        "content_type": content_type,
+    }
+
 def _read_review_json_blob(
     *,
     container_name: str,
@@ -1790,13 +1878,13 @@ def _build_staged_results_payload(
             f"{workspace}/{client}/{project}/source/text/{doc_id}.txt"
         )
 
-        final_native_exists = _review_blob_exists(
-            container_name=review_container,
+        final_native_exists = _live_source_blob_exists(
+            workspace=workspace,
             blob_path=final_native_blob_path,
         )
 
-        final_text_exists = _review_blob_exists(
-            container_name=review_container,
+        final_text_exists = _live_source_blob_exists(
+            workspace=workspace,
             blob_path=final_text_blob_path,
         )
 
@@ -2033,13 +2121,13 @@ def promote_processing_center_staged_results(
                 )
                 continue
 
-            native_dest_exists = _review_blob_exists(
-                container_name=review_container,
+            native_dest_exists = _live_source_blob_exists(
+                workspace=workspace,
                 blob_path=str(native_dest),
             )
 
-            text_dest_exists = _review_blob_exists(
-                container_name=review_container,
+            text_dest_exists = _live_source_blob_exists(
+                workspace=workspace,
                 blob_path=str(text_dest),
             )
 
@@ -2065,16 +2153,16 @@ def promote_processing_center_staged_results(
                 continue
 
             try:
-                native_upload = _write_review_blob_bytes(
-                    container_name=review_container,
+                native_upload = _write_live_source_blob_bytes(
+                    workspace=workspace,
                     blob_path=str(native_dest),
                     data=native_bytes,
                     overwrite=request.overwrite,
                     content_type="application/octet-stream",
                 )
 
-                text_upload = _write_review_blob_bytes(
-                    container_name=review_container,
+                text_upload = _write_live_source_blob_bytes(
+                    workspace=workspace,
                     blob_path=str(text_dest),
                     data=text_bytes,
                     overwrite=request.overwrite,
