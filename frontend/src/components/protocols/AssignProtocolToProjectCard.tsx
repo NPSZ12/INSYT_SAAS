@@ -206,6 +206,7 @@ export default function AssignProtocolToProjectCard({
         `?client=${encodeURIComponent(selectedClient)}`;
 
       await apiPost(protocolUrl, {
+        client: selectedClient,
         protocol_template: selectedProtocol,
         fields,
         override: true,

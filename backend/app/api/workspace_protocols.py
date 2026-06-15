@@ -14,6 +14,7 @@ class SaveProtocolRequest(BaseModel):
     protocol_template: str
     fields: list[dict]
     override: bool = False
+    client: str | None = None
 
 
 router = APIRouter(
@@ -192,6 +193,7 @@ def get_workspace_protocol(
 
         return {
             "workspace": workspace,
+            "client": client,
             "project_id": project_id,
             "has_protocol": False,
             "protocol_blob": None,
@@ -218,8 +220,16 @@ def save_workspace_protocol(
     workspace: str,
     project_id: str,
     payload: SaveProtocolRequest,
-    client: str = Query(...),
+    client: str | None = Query(default=None),
 ):
+    client = client or payload.client
+
+    if not client:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required.",
+        )
+
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
