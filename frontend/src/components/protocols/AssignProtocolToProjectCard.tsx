@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import ContentCard from "../ContentCard";
 import FormLabel from "../FormLabel";
@@ -15,11 +15,55 @@ type AssignProtocolToProjectCardProps = {
   defaultWorkspace: Workspace;
 };
 
+type ProtocolOption = {
+  name: string;
+  fields: dict[];
+};
+
+type dict = Record<string, any>;
+
 const WORKSPACE_LABELS: Record<Workspace, string> = {
   capture: "INSYT Capture",
   discovery: "INSYT Discovery",
   summaries: "INSYT Summaries",
 };
+
+function normalizeProtocolOptions(response: any): ProtocolOption[] {
+  const rawTemplates =
+    response?.templates ||
+    response?.protocols ||
+    response?.items ||
+    response ||
+    [];
+
+  if (!Array.isArray(rawTemplates)) {
+    return [];
+  }
+
+  return rawTemplates
+    .map((item: any) => {
+      if (typeof item === "string") {
+        return {
+          name: item,
+          fields: [],
+        };
+      }
+
+      const name =
+        item?.name ||
+        item?.protocol_name ||
+        item?.protocol_template ||
+        item?.template_name ||
+        item?.id ||
+        "";
+
+      return {
+        name: String(name || "").trim(),
+        fields: Array.isArray(item?.fields) ? item.fields : [],
+      };
+    })
+    .filter((item: ProtocolOption) => item.name);
+}
 
 export default function AssignProtocolToProjectCard({
   defaultWorkspace,
@@ -29,7 +73,7 @@ export default function AssignProtocolToProjectCard({
 
   const [clients, setClients] = useState<string[]>([]);
   const [projects, setProjects] = useState<string[]>([]);
-  const [protocols, setProtocols] = useState<string[]>([]);
+  const [protocols, setProtocols] = useState<ProtocolOption[]>([]);
 
   const [selectedClient, setSelectedClient] = useState("");
   const [selectedProject, setSelectedProject] = useState("");
@@ -37,6 +81,14 @@ export default function AssignProtocolToProjectCard({
 
   const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
+
+  const selectedProtocolOption = useMemo(
+    () =>
+      protocols.find(
+        (protocol) => protocol.name === selectedProtocol
+      ),
+    [protocols, selectedProtocol]
+  );
 
   useEffect(() => {
     setSelectedClient("");
@@ -59,7 +111,7 @@ export default function AssignProtocolToProjectCard({
 
     apiGet(`/api/${selectedWorkspace}/protocol-templates`)
       .then((response: any) => {
-        setProtocols(response.templates || response.protocols || response || []);
+        setProtocols(normalizeProtocolOptions(response));
       })
       .catch((error: any) => {
         console.error(error);
@@ -91,21 +143,72 @@ export default function AssignProtocolToProjectCard({
       });
   }, [selectedWorkspace, selectedClient]);
 
+  async function loadProtocolFieldsIfNeeded(
+    protocolName: string,
+    existingFields: dict[]
+  ) {
+    if (existingFields.length > 0) {
+      return existingFields;
+    }
+
+    const encodedProtocol = encodeURIComponent(protocolName);
+
+    const possibleUrls = [
+      `/api/${selectedWorkspace}/protocol-templates/${encodedProtocol}`,
+      `/api/${selectedWorkspace}/protocol-templates/${encodedProtocol}/fields`,
+    ];
+
+    for (const url of possibleUrls) {
+      try {
+        const response = (await apiGet(url)) as any;
+
+        const fields =
+          response?.fields ||
+          response?.protocol?.fields ||
+          response?.template?.fields ||
+          [];
+
+        if (Array.isArray(fields)) {
+          return fields;
+        }
+      } catch {
+        // Continue to the next possible endpoint.
+      }
+    }
+
+    return [];
+  }
+
   async function assignProtocol() {
     setStatusMessage("");
     setError("");
 
-    if (!selectedWorkspace || !selectedClient || !selectedProject || !selectedProtocol) {
+    if (
+      !selectedWorkspace ||
+      !selectedClient ||
+      !selectedProject ||
+      !selectedProtocol
+    ) {
       setError("Select workspace, client, project, and protocol first.");
       return;
     }
 
     try {
-      await apiPost(`/api/${selectedWorkspace}/assign-protocol`, {
-        workspace: selectedWorkspace,
-        client_id: selectedClient,
-        project_id: selectedProject,
-        protocol_name: selectedProtocol,
+      const fields = await loadProtocolFieldsIfNeeded(
+        selectedProtocol,
+        selectedProtocolOption?.fields || []
+      );
+
+      const protocolUrl =
+        `/api/${selectedWorkspace}/projects/${encodeURIComponent(
+          selectedProject
+        )}/protocol` +
+        `?client=${encodeURIComponent(selectedClient)}`;
+
+      await apiPost(protocolUrl, {
+        protocol_template: selectedProtocol,
+        fields,
+        override: true,
       });
 
       setStatusMessage("Protocol assigned to project.");
@@ -170,8 +273,8 @@ export default function AssignProtocolToProjectCard({
             <option value="">Select protocol...</option>
 
             {protocols.map((protocol) => (
-              <option key={protocol} value={protocol}>
-                {protocol.replaceAll("_", " ")}
+              <option key={protocol.name} value={protocol.name}>
+                {protocol.name.replaceAll("_", " ")}
               </option>
             ))}
           </Select>
