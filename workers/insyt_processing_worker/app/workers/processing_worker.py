@@ -354,10 +354,36 @@ def process_job_message(message_content: str):
                 "current_step": "Worker accepted queued APC job.",
                 "worker_started_at": utc_now(),
                 "request_blob_path": request_blob_path,
+
                 "client": payload.get("client", ""),
                 "project": payload.get("project", ""),
                 "workspace": payload.get("workspace", ""),
                 "matter_id": payload.get("matter_id", ""),
+
+                # Routing debug fields — these tell us exactly where the worker is looking.
+                "routing_prefix": routing.prefix,
+                "uploads_prefix": routing.processing_paths().get("uploads", ""),
+                "work_prefix": routing.processing_paths().get("work", ""),
+                "temp_prefix": routing.processing_paths().get("temp", ""),
+                "jobs_prefix": routing.processing_paths().get("jobs", ""),
+                "telemetry_prefix": routing.processing_paths().get("telemetry", ""),
+                "internal_reports_prefix": routing.processing_paths().get(
+                    "internal_reports",
+                    "",
+                ),
+
+                # Review output prefixes — these tell us where Native/Text outputs will land.
+                "review_native_prefix": routing.review_paths().get("native", ""),
+                "review_text_prefix": routing.review_paths().get("text", ""),
+                "review_preview_prefix": routing.review_paths().get("preview", ""),
+                "review_metadata_prefix": routing.review_paths().get("metadata", ""),
+                "review_reports_prefix": routing.review_paths().get("reports", ""),
+
+                # Storage accounts/containers used by the worker.
+                "processing_account": routing.processing_account,
+                "processing_container": routing.processing_container,
+                "review_account": routing.review_account,
+                "review_container": routing.review_container,
             },
         )
 
