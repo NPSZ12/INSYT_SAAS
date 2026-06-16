@@ -30,19 +30,7 @@ jobs:
           cd "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
           python -m pip install --upgrade pip
           pip install -r requirements.txt --target=".python_packages/lib/site-packages"
-          python - <<'PY'
-          from pathlib import Path
-
-          site_packages = Path(".python_packages/lib/site-packages")
-          print("Installed dependency directory exists:", site_packages.exists())
-
-          count = 0
-          for path in sorted(site_packages.iterdir()):
-              print(path)
-              count += 1
-              if count >= 50:
-                  break
-          PY
+          python -c "from pathlib import Path; p=Path('.python_packages/lib/site-packages'); print('site-packages exists:', p.exists()); print('top-level entries:', len(list(p.iterdir())) if p.exists() else 0)"
 
       - name: Deploy APC Worker Function App
         uses: Azure/functions-action@v1
