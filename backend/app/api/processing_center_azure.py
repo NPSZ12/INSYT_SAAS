@@ -440,27 +440,32 @@ def _remove_processing_uploads(
         project=project,
     )
 
-    base_path = _project_base_path(
-        workspace=workspace,
-        client=client,
-        project=project,
-    )
-
     uploads_prefix = f"{base_path}/source/processing_center/uploads/"
-    removed_prefix = f"{base_path}/processing_center/removed/{removed_at}/uploads/"
 
     removed_at = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    selected_names = set(str(name or "").strip() for name in blob_names if name)
+    removed_prefix = (
+        f"{base_path}/processing_center/removed/{removed_at}/uploads/"
+    )
+
+    selected_names = {
+        str(name or "").strip()
+        for name in blob_names
+        if str(name or "").strip()
+    }
 
     if clear_all:
         blobs = [
             blob
-            for blob in container_client.list_blobs(name_starts_with=uploads_prefix)
+            for blob in container_client.list_blobs(
+                name_starts_with=uploads_prefix
+            )
             if not str(blob.name).endswith("/")
+            and not str(blob.name).endswith("/.keep")
         ]
     else:
         blobs = []
+
         for name in selected_names:
             if not name.startswith(uploads_prefix):
                 raise HTTPException(
@@ -469,7 +474,12 @@ def _remove_processing_uploads(
                 )
 
             try:
-                props = container_client.get_blob_client(name).get_blob_properties()
+                props = (
+                    container_client
+                    .get_blob_client(name)
+                    .get_blob_properties()
+                )
+
                 blobs.append(
                     type(
                         "BlobRef",
@@ -480,6 +490,7 @@ def _remove_processing_uploads(
                         },
                     )()
                 )
+
             except Exception as exc:
                 raise HTTPException(
                     status_code=404,
@@ -492,7 +503,7 @@ def _remove_processing_uploads(
     for blob in blobs:
         source_name = str(blob.name)
 
-        if source_name.endswith("/"):
+        if source_name.endswith("/") or source_name.endswith("/.keep"):
             continue
 
         relative_name = source_name[len(uploads_prefix):]
@@ -508,7 +519,9 @@ def _remove_processing_uploads(
             copy_status = props.copy.status if props.copy else None
 
             if copy_status not in {"success", None}:
-                raise RuntimeError(f"Removal copy did not complete: {copy_status}")
+                raise RuntimeError(
+                    f"Removal copy did not complete: {copy_status}"
+                )
 
             source_blob.delete_blob()
 
@@ -520,6 +533,7 @@ def _remove_processing_uploads(
                     "status": "removed",
                 }
             )
+
         except Exception as exc:
             errors.append(
                 {
