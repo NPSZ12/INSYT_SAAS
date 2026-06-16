@@ -346,6 +346,12 @@ def _archive_uploads_for_job(
         project=project,
     )
 
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
     uploads_prefix = f"{base_path}/source/processing_center/uploads/"
     archive_prefix = f"{base_path}/processing_center/archive/{job_id}/uploads/"
 
@@ -427,6 +433,12 @@ def _remove_processing_uploads(
 
     blob_service = _processing_blob_service()
     container_client = blob_service.get_container_client(processing_container)
+
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
 
     base_path = _project_base_path(
         workspace=workspace,
@@ -833,19 +845,62 @@ def list_processing_uploads(
     client: str = Query(...),
     project: str = Query(...),
 ) -> dict[str, Any]:
-    routing = _routing(workspace=workspace, client=client, project=project)
-
     try:
-        uploads = azure_list_uploads(routing)
+        processing_account = _processing_account()
+        processing_container = _processing_container()
+
+        blob_service = _processing_blob_service()
+        container_client = blob_service.get_container_client(processing_container)
+
+        uploads_prefix = (
+            f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+            f"source/processing_center/uploads/"
+        )
+
+        uploads: list[dict[str, Any]] = []
+
+        for blob in container_client.list_blobs(name_starts_with=uploads_prefix):
+            blob_name = str(blob.name or "")
+
+            if blob_name.endswith("/"):
+                continue
+
+            file_name = blob_name.rsplit("/", 1)[-1]
+
+            if not file_name or file_name == ".keep":
+                continue
+
+            uploads.append(
+                {
+                    "name": file_name,
+                    "blob_name": blob_name,
+                    "size": int(getattr(blob, "size", 0) or 0),
+                    "last_modified": (
+                        blob.last_modified.isoformat()
+                        if getattr(blob, "last_modified", None)
+                        else None
+                    ),
+                    "content_type": getattr(
+                        getattr(blob, "content_settings", None),
+                        "content_type",
+                        None,
+                    ),
+                }
+            )
+
+        return {
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "storage_account": processing_account,
+            "container": processing_container,
+            "uploads_prefix": uploads_prefix,
+            "uploads": uploads,
+            "upload_count": len(uploads),
+        }
+
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    return {
-        "workspace": workspace,
-        "client": client,
-        "project": project,
-        "uploads": uploads,
-    }
 
 
 @router.post("/{workspace}/processing-center/uploads/upload")
