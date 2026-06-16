@@ -64,9 +64,14 @@ def run_review_promotion(
 ) -> None:
     """Promote final reviewable set into source/native and source/text style folders.
 
-    Local dev writes to an output folder. Production should replace local copy/write
-    operations with Azure Blob writes to {workspace}/{client}/{project}/source/native
-    and /source/text.
+    Local dev writes to an output folder. Production Azure Blob writes must use
+    the canonical INSYT project path:
+
+        {client}/{workspace}/{project_storage_key}/source/native
+        {client}/{workspace}/{project_storage_key}/source/text
+
+    Prefer AzureRoutingConfig.review_paths() for production blob paths instead
+    of rebuilding client/workspace/project paths in this stage.
     """
     rows = db.query(
         """

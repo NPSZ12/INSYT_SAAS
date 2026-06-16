@@ -1,5 +1,9 @@
 def clean_path_part(value: str | None) -> str:
-    return str(value or "").strip().strip("/")
+    return str(value or "").strip().replace("\\", "/").strip("/")
+
+
+def build_project_storage_key(value: str | None) -> str:
+    return clean_path_part(value).replace(" ", "_")
 
 
 def build_project_base_path(
@@ -7,9 +11,9 @@ def build_project_base_path(
     client: str,
     project: str,
 ) -> str:
-    workspace_name = clean_path_part(workspace)
+    workspace_name = clean_path_part(workspace).lower() or "capture"
     client_name = clean_path_part(client)
-    project_name = clean_path_part(project)
+    project_name = build_project_storage_key(project)
 
     return f"{client_name}/{workspace_name}/{project_name}"
 

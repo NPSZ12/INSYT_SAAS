@@ -124,10 +124,10 @@ class DualStorageBlobAdapter:
         """Archive pending Processing Center uploads after a successful worker run.
 
         Files are copied from:
-            {workspace}/{client}/{project}/source/processing_center/uploads/
+            {client}/{workspace}/{project}/source/processing_center/uploads/
 
         to:
-            {workspace}/{client}/{project}/processing_center/archive/{job_id}/uploads/
+            {client}/{workspace}/{project}/processing_center/archive/{job_id}/uploads/
 
         Then the original pending upload is deleted when delete_original=True.
         """
@@ -239,14 +239,14 @@ class DualStorageBlobAdapter:
 
         Default professional APC behavior is staged output:
 
-            {workspace}/{client}/{project}/processing_center/staged/{job_id}/native/
-            {workspace}/{client}/{project}/processing_center/staged/{job_id}/text/
+            {client}/{workspace}/{project}/processing_center/staged/{job_id}/native/
+            {client}/{workspace}/{project}/processing_center/staged/{job_id}/text/
 
         Final project source promotion happens later through an explicit admin
         promotion action, which copies selected staged pairs into:
 
-            {workspace}/{client}/{project}/source/native/
-            {workspace}/{client}/{project}/source/text/
+            {client}/{workspace}/{project}/source/native/
+            {client}/{workspace}/{project}/source/text/
         """
 
         root = Path(local_review_root)
@@ -421,10 +421,7 @@ def azure_upload_review_outputs(
         overwrite=overwrite,
         promote_to_source=False,
     )
-    staged_prefix = (
-        f"{routing.workspace}/{routing.client}/{routing.project}/"
-        f"processing_center/staged/{job_id}"
-    )
+    staged_prefix = f"{routing.prefix}/processing_center/staged/{job_id}"
 
     payload = {
         "generated_at": utc_now(),
@@ -447,10 +444,10 @@ def azure_upload_review_outputs(
             "text_prefix": f"{staged_prefix}/text",
             "promotion_required": True,
             "final_source_native_prefix": (
-                f"{routing.workspace}/{routing.client}/{routing.project}/source/native"
+                f"{routing.prefix}/source/native"
             ),
             "final_source_text_prefix": (
-                f"{routing.workspace}/{routing.client}/{routing.project}/source/text"
+                f"{routing.prefix}/source/text"
             ),
         },
         "uploads": uploads,
@@ -558,7 +555,7 @@ def upload_processing_job_status(
 
 def _processed_hash_index_blob_path(routing: AzureRoutingConfig) -> str:
     return (
-        f"{routing.workspace}/{routing.client}/{routing.project}/"
+        f"{routing.prefix}/"
         f"processing_center/index/processed_hash_index.json"
     )
 

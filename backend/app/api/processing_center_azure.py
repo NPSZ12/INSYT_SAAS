@@ -353,12 +353,6 @@ def _archive_uploads_for_job(
         project=project,
     )
 
-    base_path = _project_base_path(
-        workspace=workspace,
-        client=client,
-        project=project,
-    )
-
     uploads_prefix = f"{base_path}/source/processing_center/uploads/"
     archive_prefix = f"{base_path}/processing_center/archive/{job_id}/uploads/"
 
@@ -2345,7 +2339,7 @@ def get_processing_job_report(
     review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
 
     # New worker-generated report location:
-    # {workspace}/{client}/{project}/processing_center/reports/{job_id}/{job_id}.summary.json
+    # {client}/{workspace}/{project_storage_key}/processing_center/reports/{job_id}/{job_id}.summary.json
     if client and project:
         report_prefix = (
             f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
