@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiGet, apiPost } from "../../lib/api";
+import { apiGet } from "../../lib/api";
 import AzureProcessingCenterPromotionPanel from "./AzureProcessingCenterPromotionPanel";
 
 type UploadItem = {
@@ -145,8 +145,56 @@ export default function AzureProcessingCenterPanel({
   const [removeMessage, setRemoveMessage] = useState("");
   const [trackedJob, setTrackedJob] = useState<any>(null);
   const [pollingJob, setPollingJob] = useState(false);
-  
-  
+
+  function resolveApiBase() {
+    return (
+      apiBase ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      "https://api.insyt360.com"
+    ).replace(/\/+$/, "");
+  }
+
+  function getAuthHeaders(json = true): HeadersInit {
+    const token = localStorage.getItem("insyt_token");
+
+    return {
+      accept: "application/json",
+      ...(json ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
+
+  async function postJsonToApi<T = any>(
+    path: string,
+    body: Record<string, any>,
+    timeoutMessage: string,
+    timeoutMs = 30000
+  ): Promise<T> {
+    const resolvedApiBase = resolveApiBase();
+
+    const response = await withTimeout(
+      fetch(`${resolvedApiBase}${path}`, {
+        method: "POST",
+        headers: getAuthHeaders(true),
+        credentials: "include",
+        body: JSON.stringify(body),
+      }),
+      timeoutMessage,
+      timeoutMs
+    );
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(text || `POST ${path} failed with status ${response.status}.`);
+    }
+
+    try {
+      return (text ? JSON.parse(text) : {}) as T;
+    } catch {
+      return {} as T;
+    }
+  }
 
   const settingsUrl = useMemo(
     () => `/api/${workspace}/processing-center/settings`,
@@ -469,7 +517,7 @@ export default function AzureProcessingCenterPanel({
     setRemoveMessage("");
 
     try {
-      const result = (await apiPost(
+      const result = await postJsonToApi<any>(
         `/api/${workspace}/processing-center/uploads/remove`,
         {
           client: clientId,
@@ -479,8 +527,9 @@ export default function AzureProcessingCenterPanel({
           reason: clearAll
             ? "clear_all_pending_processing_uploads"
             : "remove_selected_pending_processing_uploads",
-        }
-      )) as any;
+        },
+        "Remove processing uploads request timed out."
+      );
 
       setRemoveMessage(
         clearAll
@@ -615,10 +664,7 @@ export default function AzureProcessingCenterPanel({
       return;
     }
 
-    const resolvedApiBase =
-      apiBase ||
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "https://api.insyt360.com";
+    const resolvedApiBase = resolveApiBase();
 
     setUploading(true);
     setError("");
@@ -723,7 +769,11 @@ export default function AzureProcessingCenterPanel({
         `&project=${encodeURIComponent(projectId)}` +
         `&job_id=${encodeURIComponent(job.job_id)}`;
 
-      const result = (await apiPost(archiveUrl, {})) as any;
+      const result = await postJsonToApi<any>(
+        archiveUrl,
+        {},
+        "Archive processing uploads request timed out."
+      );
 
       setArchiveMessage(
         `Archived ${result?.archived_count ?? 0} upload(s).`
@@ -755,18 +805,23 @@ export default function AzureProcessingCenterPanel({
     setTrackedJob(null);
 
     try {
-      const data = (await apiPost(trackedStartUrl, {
-        client: clientId,
-        project: projectId,
-        matter_id: `${projectId}-AZURE-RUN`,
-        doc_prefix: "INSYT",
-        enable_ocr_dry_run: true,
-        enable_live_ocr: false,
-        azure_write: true,
-        overwrite: true,
-        clean_staging: false,
-        auto_archive_uploads: true,
-      })) as any;
+      const data = await postJsonToApi<any>(
+        trackedStartUrl,
+        {
+          client: clientId,
+          project: projectId,
+          matter_id: `${projectId}-AZURE-RUN`,
+          doc_prefix: "INSYT",
+          enable_ocr_dry_run: true,
+          enable_live_ocr: false,
+          azure_write: true,
+          overwrite: true,
+          clean_staging: false,
+          auto_archive_uploads: true,
+        },
+        "Start Azure Processing request timed out.",
+        60000
+      );
 
       setTrackedJob(data);
       setJob(data);
