@@ -9,7 +9,7 @@ on:
 env:
   AZURE_FUNCTIONAPP_NAME: insyt-apc-worker-prod-v2
   AZURE_FUNCTIONAPP_PACKAGE_PATH: workers/insyt_processing_worker
-  PYTHON_VERSION: '3.12'
+  PYTHON_VERSION: '3.11'
 
 jobs:
   build-and-deploy:
@@ -24,12 +24,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install worker dependencies into function package
-        shell: bash
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install worker dependencies
         run: |
           cd "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
           python -m pip install --upgrade pip
-          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+          python -m pip install -r requirements.txt --target=".python_packages/lib/site-packages"
           python -c "from pathlib import Path; p=Path('.python_packages/lib/site-packages'); print('site-packages exists:', p.exists()); print('top-level entries:', len(list(p.iterdir())) if p.exists() else 0)"
 
       - name: Deploy APC Worker Function App
