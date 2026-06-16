@@ -113,51 +113,222 @@ class DualStorageBlobAdapter:
                 "status": status,
             })
         return downloaded
+    
+    def archive_processing_uploads(
+        self,
+        job_id: str,
+        uploads: list[dict[str, object]] | None = None,
+        blob_names: list[str] | None = None,
+        delete_original: bool = True,
+    ) -> dict[str, object]:
+        """Archive pending Processing Center uploads after a successful worker run.
+
+        Files are copied from:
+            {workspace}/{client}/{project}/source/processing_center/uploads/
+
+        to:
+            {workspace}/{client}/{project}/processing_center/archive/{job_id}/uploads/
+
+        Then the original pending upload is deleted when delete_original=True.
+        """
+
+        upload_prefix = self.routing.processing_paths()["uploads"].rstrip("/") + "/"
+        archive_prefix = (
+            f"{self.routing.prefix}/processing_center/archive/"
+            f"{job_id}/uploads"
+        ).rstrip("/") + "/"
+
+        names: list[str] = []
+
+        for item in uploads or []:
+            blob_name = str(item.get("blob_name") or "").strip()
+            if blob_name:
+                names.append(blob_name)
+
+        for blob_name in blob_names or []:
+            clean_name = str(blob_name or "").strip()
+            if clean_name:
+                names.append(clean_name)
+
+        # Preserve order while removing duplicates.
+        unique_names = list(dict.fromkeys(names))
+
+        archived: list[dict[str, object]] = []
+
+        for source_blob_name in unique_names:
+            if not source_blob_name.startswith(upload_prefix):
+                archived.append(
+                    {
+                        "source_blob_path": source_blob_name,
+                        "status": "skipped_not_processing_upload",
+                    }
+                )
+                continue
+
+            relative_name = source_blob_name[len(upload_prefix):].lstrip("/")
+            destination_blob_name = f"{archive_prefix}{relative_name}"
+
+            source_blob = self.processing_container.get_blob_client(
+                source_blob_name
+            )
+            destination_blob = self.processing_container.get_blob_client(
+                destination_blob_name
+            )
+
+            try:
+                props = source_blob.get_blob_properties()
+                content_settings = getattr(props, "content_settings", None)
+
+                stream = source_blob.download_blob()
+
+                destination_blob.upload_blob(
+                    stream.chunks(),
+                    overwrite=True,
+                    content_settings=content_settings,
+                )
+
+                deleted = False
+                if delete_original:
+                    source_blob.delete_blob()
+                    deleted = True
+
+                archived.append(
+                    {
+                        "source_blob_path": source_blob_name,
+                        "archive_blob_path": destination_blob_name,
+                        "status": "archived",
+                        "deleted_original": deleted,
+                        "bytes": int(getattr(props, "size", 0) or 0),
+                    }
+                )
+            except Exception as exc:
+                archived.append(
+                    {
+                        "source_blob_path": source_blob_name,
+                        "archive_blob_path": destination_blob_name,
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+
+        failed_count = sum(
+            1 for item in archived if item.get("status") == "failed"
+        )
+
+        return {
+            "status": "completed" if failed_count == 0 else "completed_with_errors",
+            "job_id": job_id,
+            "source_prefix": upload_prefix,
+            "archive_prefix": archive_prefix,
+            "archived_count": sum(
+                1 for item in archived if item.get("status") == "archived"
+            ),
+            "failed_count": failed_count,
+            "items": archived,
+        }
 
     def upload_review_promotion_outputs(
         self,
         promotion_plan: list[dict[str, object]],
         local_review_root: str,
+        job_id: str,
         overwrite: bool = False,
+        promote_to_source: bool = False,
     ) -> list[dict[str, object]]:
+        """Upload review-ready Native/Text pairs.
+
+        Default professional APC behavior is staged output:
+
+            {workspace}/{client}/{project}/processing_center/staged/{job_id}/native/
+            {workspace}/{client}/{project}/processing_center/staged/{job_id}/text/
+
+        Final project source promotion happens later through an explicit admin
+        promotion action, which copies selected staged pairs into:
+
+            {workspace}/{client}/{project}/source/native/
+            {workspace}/{client}/{project}/source/text/
+        """
+
         root = Path(local_review_root)
         results: list[dict[str, object]] = []
+
+        staged_prefix = (
+            f"{self.routing.prefix}/processing_center/staged/{job_id}"
+        ).rstrip("/")
+
         for row in promotion_plan:
             doc_id = str(row["doc_id"])
             ext = str(row.get("extension") or "bin").lstrip(".") or "bin"
+
             local_native = root / "source" / "native" / f"{doc_id}.{ext}"
             local_text = root / "source" / "text" / f"{doc_id}.txt"
 
+            if promote_to_source:
+                native_blob_path = str(row["native_blob_path"])
+                text_blob_path = str(row["text_blob_path"])
+                destination_mode = "source"
+            else:
+                native_blob_path = f"{staged_prefix}/native/{doc_id}.{ext}"
+                text_blob_path = f"{staged_prefix}/text/{doc_id}.txt"
+                destination_mode = "staged"
+
             for kind, local_path, blob_path in (
-                ("native", local_native, str(row["native_blob_path"])),
-                ("text", local_text, str(row["text_blob_path"])),
+                ("native", local_native, native_blob_path),
+                ("text", local_text, text_blob_path),
             ):
                 if not local_path.exists():
-                    results.append({
-                        "doc_id": doc_id,
-                        "kind": kind,
-                        "local_path": str(local_path),
-                        "blob_path": blob_path,
-                        "status": "missing_local_file",
-                        "bytes": 0,
-                    })
+                    results.append(
+                        {
+                            "doc_id": doc_id,
+                            "kind": kind,
+                            "local_path": str(local_path),
+                            "blob_path": blob_path,
+                            "status": "missing_local_file",
+                            "bytes": 0,
+                            "destination_mode": destination_mode,
+                            "final_source_blob_path": (
+                                str(row["native_blob_path"])
+                                if kind == "native"
+                                else str(row["text_blob_path"])
+                            ),
+                        }
+                    )
                     continue
-                content_type = "text/plain; charset=utf-8" if kind == "text" else "application/octet-stream"
+
+                content_type = (
+                    "text/plain; charset=utf-8"
+                    if kind == "text"
+                    else "application/octet-stream"
+                )
+
                 blob_client = self.review_container.get_blob_client(blob_path)
+
                 with local_path.open("rb") as fh:
                     blob_client.upload_blob(
                         fh,
                         overwrite=overwrite,
-                        content_settings=self._content_settings_cls(content_type=content_type),
+                        content_settings=self._content_settings_cls(
+                            content_type=content_type
+                        ),
                     )
-                results.append({
-                    "doc_id": doc_id,
-                    "kind": kind,
-                    "local_path": str(local_path),
-                    "blob_path": blob_path,
-                    "status": "uploaded",
-                    "bytes": local_path.stat().st_size,
-                })
+
+                results.append(
+                    {
+                        "doc_id": doc_id,
+                        "kind": kind,
+                        "local_path": str(local_path),
+                        "blob_path": blob_path,
+                        "status": "uploaded",
+                        "bytes": local_path.stat().st_size,
+                        "destination_mode": destination_mode,
+                        "final_source_blob_path": (
+                            str(row["native_blob_path"])
+                            if kind == "native"
+                            else str(row["text_blob_path"])
+                        ),
+                    }
+                )
+
         return results
 
     def upload_report_file(self, local_path: str, blob_path: str, overwrite: bool = True) -> dict[str, object]:
@@ -191,6 +362,32 @@ def azure_download_uploads(routing: AzureRoutingConfig, destination_root: str, o
         export_json(Path(export_dir) / "azure_processing_downloads.json", {"generated_at": utc_now(), "downloads": rows})
     return rows
 
+def azure_archive_processing_uploads(
+    routing: AzureRoutingConfig,
+    job_id: str,
+    uploads: list[dict[str, object]] | None = None,
+    blob_names: list[str] | None = None,
+    delete_original: bool = True,
+    export_dir: str | None = None,
+) -> dict[str, object]:
+    adapter = DualStorageBlobAdapter(routing)
+
+    payload = adapter.archive_processing_uploads(
+        job_id=job_id,
+        uploads=uploads,
+        blob_names=blob_names,
+        delete_original=delete_original,
+    )
+
+    payload["generated_at"] = utc_now()
+
+    if export_dir:
+        export_json(
+            Path(export_dir) / f"{job_id}.azure_archive_uploads.json",
+            payload,
+        )
+
+    return payload
 
 def azure_upload_review_outputs(
     db: LedgerDB,
@@ -217,14 +414,45 @@ def azure_upload_review_outputs(
     warnings = routing.validate()
     plan = build_review_promotion_blob_plan(db, job_id, routing)
     adapter = DualStorageBlobAdapter(routing)
-    uploads = adapter.upload_review_promotion_outputs(plan, local_review_root=local_review_root, overwrite=overwrite)
+    uploads = adapter.upload_review_promotion_outputs(
+        plan,
+        local_review_root=local_review_root,
+        job_id=job_id,
+        overwrite=overwrite,
+        promote_to_source=False,
+    )
+    staged_prefix = (
+        f"{routing.workspace}/{routing.client}/{routing.project}/"
+        f"processing_center/staged/{job_id}"
+    )
+
     payload = {
         "generated_at": utc_now(),
         "mode": "azure-write",
+        "destination_mode": "staged",
         "job_id": job_id,
-        "routing": build_azure_routing_summary(routing, job_id=job_id, promotion_count=len(plan)),
+        "routing": build_azure_routing_summary(
+            routing,
+            job_id=job_id,
+            promotion_count=len(plan),
+        ),
         "warnings": warnings,
         "planned_docs": len(plan),
+        "staged": {
+            "storage_account": routing.review_account,
+            "container": routing.review_container,
+            "job_id": job_id,
+            "prefix": staged_prefix,
+            "native_prefix": f"{staged_prefix}/native",
+            "text_prefix": f"{staged_prefix}/text",
+            "promotion_required": True,
+            "final_source_native_prefix": (
+                f"{routing.workspace}/{routing.client}/{routing.project}/source/native"
+            ),
+            "final_source_text_prefix": (
+                f"{routing.workspace}/{routing.client}/{routing.project}/source/text"
+            ),
+        },
         "uploads": uploads,
     }
     if export_dir:

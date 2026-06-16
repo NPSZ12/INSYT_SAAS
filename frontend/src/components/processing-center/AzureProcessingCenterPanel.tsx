@@ -225,6 +225,49 @@ export default function AzureProcessingCenterPanel({
         ? "Processing completed"
         : "Ready");
 
+  const processingStage =
+    activeJobStatus?.stage ||
+    activeJobStatus?.current_stage ||
+    activeJobStatus?.phase ||
+    "—";
+
+  const processingStep =
+    activeJobStatus?.current_step ||
+    activeJobStatus?.step ||
+    activeJobStatus?.message ||
+    "—";
+
+  const processingCurrentFile =
+    activeJobStatus?.current_file ||
+    activeJobStatus?.current_file_name ||
+    activeJobStatus?.latest_file_name ||
+    "—";
+
+  const processingUpdatedAt =
+    activeJobStatus?.updated_at ||
+    activeJobStatus?.last_updated_at ||
+    activeJobStatus?.completed_at ||
+    activeJobStatus?.created_at ||
+    "";
+
+  const processingEvents =
+    activeJobStatus?.events ||
+    activeJobStatus?.timeline ||
+    activeJobStatus?.recent_events ||
+    [];
+
+  function getStatusNumber(...values: any[]) {
+    for (const value of values) {
+      if (typeof value === "number") return value;
+      if (value !== undefined && value !== null && value !== "") {
+        const parsed = Number(value);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
+    }
+
+    return 0;
+  }
+  
   const reportSummary =
     jobReport?.report ||
     jobReport?.summary ||
@@ -818,6 +861,173 @@ export default function AzureProcessingCenterPanel({
               style={{ width: `${processingProgressPct}%` }}
             />
           </div>
+
+          {activeJobStatus ? (
+            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-100">
+                    APC Run Details
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Live status from the tracked processing job.
+                  </div>
+                </div>
+
+                <div className="rounded-full border border-slate-600 px-3 py-1 text-xs font-semibold text-slate-300">
+                  {processingStage}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Current step</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-100">
+                    {processingStep}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Current file</div>
+                  <div className="mt-1 break-all text-sm font-semibold text-slate-100">
+                    {processingCurrentFile}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Status</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-100">
+                    {activeJobStatus?.status || "—"}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Updated</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-100">
+                    {formatDateTime(processingUpdatedAt)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-8">
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Source</div>
+                  <div className="font-semibold text-slate-100">
+                    {getStatusNumber(
+                      activeJobStatus?.source_file_count,
+                      activeJobStatus?.source_files,
+                      activeJobStatus?.downloads?.length
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Expanded</div>
+                  <div className="font-semibold text-slate-100">
+                    {getStatusNumber(
+                      activeJobStatus?.expanded_file_count,
+                      activeJobStatus?.expanded_files
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Unique</div>
+                  <div className="font-semibold text-emerald-100">
+                    {getStatusNumber(
+                      activeJobStatus?.unique_doc_count,
+                      activeJobStatus?.unique_docs
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Duplicates</div>
+                  <div className="font-semibold text-amber-100">
+                    {getStatusNumber(
+                      activeJobStatus?.duplicate_doc_count,
+                      activeJobStatus?.duplicate_docs
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">OCR pages</div>
+                  <div className="font-semibold text-slate-100">
+                    {getStatusNumber(
+                      activeJobStatus?.ocr_page_count,
+                      activeJobStatus?.ocr_estimated_pages
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Uploaded</div>
+                  <div className="font-semibold text-slate-100">
+                    {getStatusNumber(
+                      activeJobStatus?.native_text_upload_count,
+                      activeJobStatus?.review_upload?.uploads?.length
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Reports</div>
+                  <div className="font-semibold text-slate-100">
+                    {getStatusNumber(
+                      activeJobStatus?.report_upload_count,
+                      activeJobStatus?.report_upload?.uploaded_reports?.length
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Warnings</div>
+                  <div className="font-semibold text-slate-100">
+                    {getStatusNumber(
+                      activeJobStatus?.warning_count,
+                      activeJobStatus?.warnings?.length
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {activeJobStatus?.status_blob_path ? (
+                <div className="mt-3 break-all rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-500">
+                  Status blob: {activeJobStatus.status_blob_path}
+                </div>
+              ) : null}
+
+              {Array.isArray(processingEvents) && processingEvents.length > 0 ? (
+                <div className="mt-4">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Recent events
+                  </div>
+
+                  <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
+                    {processingEvents.slice(-8).map((event: any, index: number) => (
+                      <div
+                        key={`${event?.at || event?.timestamp || index}-${index}`}
+                        className="rounded-lg bg-slate-900 px-3 py-2 text-xs"
+                      >
+                        <div className="font-semibold text-slate-200">
+                          {event?.stage || event?.step || event?.status || "Event"}
+                        </div>
+                        <div className="mt-1 text-slate-500">
+                          {event?.message || event?.detail || ""}
+                        </div>
+                        {(event?.at || event?.timestamp) ? (
+                          <div className="mt-1 text-slate-600">
+                            {formatDateTime(event?.at || event?.timestamp)}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {starting ? (
             <div className="mt-2 text-xs text-slate-500">
