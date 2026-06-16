@@ -26,6 +26,10 @@ def clean_segment(value: str | None) -> str:
     return str(value or "").strip().strip("/").replace("\\", "/")
 
 
+def storage_segment(value: str | None) -> str:
+    return clean_segment(value).replace(" ", "_")
+
+
 @dataclass(frozen=True)
 class AzureRoutingConfig:
     workspace: str
@@ -57,7 +61,7 @@ class AzureRoutingConfig:
         return cls(
             workspace=workspace_clean,
             client=clean_segment(client),
-            project=clean_segment(project),
+            project=storage_segment(project),
             processing_account=processing_account
             or os.getenv(
                 "INSYT_PROCESSING_STORAGE_ACCOUNT",
@@ -88,14 +92,14 @@ class AzureRoutingConfig:
         INSYT canonical project path.
 
         Standard:
-            client/workspace/project
+            client/workspace/project_storage_key_storage_key
 
         Example:
             Client1/capture/Project_Client1
         """
         client = clean_segment(self.client)
         workspace = clean_segment(self.workspace).lower() or "capture"
-        project = clean_segment(self.project)
+        project = storage_segment(self.project)
 
         return f"{client}/{workspace}/{project}"
 
