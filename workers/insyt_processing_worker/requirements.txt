@@ -1,8 +1,5 @@
-azure-functions
-azure-storage-blob>=12.19.0
-azure-storage-queue>=12.9.0
-azure-identity>=1.16.0
-azure-ai-documentintelligence
+﻿azure-functions
+azure-identity
+azure-storage-blob
+azure-storage-queue
 python-dotenv
-pydantic
-pypdf
