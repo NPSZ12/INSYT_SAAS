@@ -1,0 +1,21 @@
+﻿name: Build and deploy APC worker to Azure Function App - insyt-apc-worker-prod-v2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy APC Worker Function App
+        uses: Azure/functions-action@v1
+        with:
+          app-name: insyt-apc-worker-prod-v2
+          package: workers/insyt_processing_worker
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE_INSYT_APC_WORKER_PROD_V2 }}
