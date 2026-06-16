@@ -90,7 +90,7 @@ class AzureRoutingConfig:
         INSYT canonical project path.
 
         Standard:
-            client/workspace/project_storage_key
+            client/workspace/project_storage_key_storage_key
 
         Example:
             Client1/capture/Project_Client1
