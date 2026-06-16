@@ -135,16 +135,23 @@ def _queue_name() -> str:
 def _new_job_id() -> str:
     return f"JOB-{uuid4().hex[:16].upper()}"
 
+def _clean_path_segment(value: str | None) -> str:
+    return str(value or "").strip().strip("/").replace("\\", "/")
+
+
+def _storage_project_key(value: str | None) -> str:
+    return _clean_path_segment(value).replace(" ", "_")
+
+
 def _project_base_path(
-    *,
     workspace: str,
     client: str,
     project: str,
 ) -> str:
     return build_project_base_path(
-        workspace=workspace,
-        client=client,
-        project=project,
+        client=_clean_path_segment(client),
+        workspace=_clean_path_segment(workspace).lower() or "capture",
+        project=_storage_project_key(project),
     )
 
 def _job_base_path(
@@ -906,6 +913,13 @@ def list_processing_uploads(
             "workspace": workspace,
             "client": client,
             "project": project,
+            "project_storage_key": _storage_project_key(project),
+            "project_base_path": _project_base_path(
+                workspace=workspace,
+                client=client,
+                project=project,
+            ),
+            "apc_path_version": "project-storage-key-v2",
             "storage_account": processing_account,
             "container": processing_container,
             "uploads_prefix": uploads_prefix,
