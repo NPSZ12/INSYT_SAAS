@@ -218,7 +218,7 @@ def _cancel_if_requested(
 
 
 def _routing_from_payload(payload: dict[str, Any]) -> AzureRoutingConfig:
-    return AzureRoutingConfig.from_args(
+    routing = AzureRoutingConfig.from_args(
         workspace=payload["workspace"],
         client=payload["client"],
         project=payload["project"],
@@ -229,6 +229,8 @@ def _routing_from_payload(payload: dict[str, Any]) -> AzureRoutingConfig:
         azure_write=bool(payload.get("azure_write", True)),
         allow_same_account=False,
     )
+
+    return routing
 
 
 def _db_path(job_id: str) -> str:
@@ -340,6 +342,20 @@ def process_job_message(message_content: str):
     request_blob_path = payload.get("request_blob_path")
 
     routing = _routing_from_payload(payload)
+    
+    import apc.azure_layout as azure_layout_module
+
+    routing_debug = {
+        "azure_layout_file": routing_debug["azure_layout_file"],
+        "routing_debug": routing_debug,
+        "azure_layout_file": getattr(azure_layout_module, "__file__", ""),
+        "routing_prefix": routing.prefix,
+        "routing_processing_uploads": routing.processing_paths().get("uploads", ""),
+        "routing_processing_jobs": routing.processing_paths().get("jobs", ""),
+        "routing_review_native": routing.review_paths().get("native", ""),
+        "routing_review_text": routing.review_paths().get("text", ""),
+        "routing_review_reports": routing.review_paths().get("reports", ""),
+    }
 
     db = LedgerDB(_db_path(job_id))
 
@@ -523,6 +539,8 @@ def process_job_message(message_content: str):
             **final_status_existing,
             **result_dict,
             **_summarize_result_for_status(result_dict),
+            "azure_layout_file": final_status_existing.get("azure_layout_file"),
+            "routing_debug": final_status_existing.get("routing_debug"),
             "job_id": job_id,
             "status": result_dict.get("status", "completed"),
             "stage": "completed",
