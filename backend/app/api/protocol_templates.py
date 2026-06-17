@@ -14,16 +14,19 @@ router = APIRouter(
 
 TEMPLATE_BLOB_PATHS = {
     "capture": [
+        "_system/protocol_templates/capture/protocol_templates.xlsx",
         "System/ProtocolTemplates/Capture_Templates.xlsx",
         "System/ProtocolTemplates/Protocol_Templates.xlsx",
         "Protocol_Templates.xlsx",
     ],
     "summaries": [
+        "_system/protocol_templates/summaries/protocol_templates.xlsx",
         "System/ProtocolTemplates/Summaries_Templates.xlsx",
         "System/ProtocolTemplates/Protocol_Templates.xlsx",
         "Protocol_Templates.xlsx",
     ],
     "discovery": [
+        "_system/protocol_templates/discovery/protocol_templates.xlsx",
         "System/ProtocolTemplates/Discovery_Templates.xlsx",
         "System/ProtocolTemplates/Protocol_Templates.xlsx",
         "Protocol_Templates.xlsx",
@@ -32,16 +35,47 @@ TEMPLATE_BLOB_PATHS = {
 }
 
 
-def get_capture_container_client():
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-    container_name = os.getenv("AZURE_CAPTURE_CONTAINER", "insyt-capture")
+def get_container_name(workspace: str) -> str:
+    workspace_clean = workspace.lower().strip()
+
+    if workspace_clean == "capture":
+        return os.getenv("AZURE_CAPTURE_CONTAINER", "insyt-capture")
+
+    if workspace_clean == "discovery":
+        return os.getenv("AZURE_DISCOVERY_CONTAINER", "insyt-discovery")
+
+    if workspace_clean == "summaries":
+        return os.getenv("AZURE_SUMMARIES_CONTAINER", "insyt-summaries")
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported workspace: {workspace}",
+    )
+
+
+def get_protocol_template_container_client(workspace: str):
+    workspace = workspace.lower().strip()
+    validate_workspace(workspace)
+
+    connection_string = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
 
     if not connection_string:
-        raise RuntimeError("Missing AZURE_STORAGE_CONNECTION_STRING")
+        raise RuntimeError(
+            "Missing protocol template storage connection string. Set "
+            "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+            "CDS_STORAGE_CONNECTION_STRING, or "
+            "AZURE_STORAGE_CONNECTION_STRING."
+        )
 
     service_client = BlobServiceClient.from_connection_string(connection_string)
 
-    return service_client.get_container_client(container_name)
+    return service_client.get_container_client(
+        get_container_name(workspace)
+    )
 
 
 def clean_cell(value):
@@ -52,6 +86,8 @@ def clean_cell(value):
 
 
 def validate_workspace(workspace: str):
+    workspace = str(workspace or "").lower().strip()
+
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -70,9 +106,10 @@ def get_column(row, names):
 
 
 def load_protocol_template_workbook(workspace: str):
+    workspace = str(workspace or "").lower().strip()
     validate_workspace(workspace)
 
-    container = get_capture_container_client()
+    container = get_protocol_template_container_client(workspace)
     template_paths = TEMPLATE_BLOB_PATHS.get(workspace, [])
 
     for path in template_paths:
@@ -98,6 +135,7 @@ def load_protocol_template_workbook(workspace: str):
 
 
 def parse_protocol_templates(workspace: str):
+    workspace = str(workspace or "").lower().strip()
     loaded = load_protocol_template_workbook(workspace)
     blob_data = loaded["blob_data"]
     workbook = loaded["workbook"]
@@ -185,6 +223,7 @@ def parse_protocol_templates(workspace: str):
 @router.get("/{workspace}/protocol-templates")
 def get_protocol_templates(workspace: str):
     try:
+        workspace = str(workspace or "").lower().strip()
         return parse_protocol_templates(workspace)
 
     except HTTPException:
@@ -197,12 +236,12 @@ def get_protocol_templates(workspace: str):
         )
 
 
-@router.get("/{workspace}/protocol-templates/{protocol_name}")
 def get_protocol_template(
     workspace: str,
     protocol_name: str,
 ):
     try:
+        workspace = str(workspace or "").lower().strip()
         decoded_protocol_name = unquote(protocol_name)
 
         payload = parse_protocol_templates(workspace)
