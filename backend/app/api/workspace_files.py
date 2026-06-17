@@ -1,10 +1,13 @@
+import os
+
 from fastapi import APIRouter, HTTPException, Query
 
 from io import BytesIO
 
 import pandas as pd
 
-from app.services.batch_service import get_container_client
+from azure.storage.blob import BlobServiceClient
+
 from app.services.storage_paths import build_project_prefix
 
 try:
@@ -24,14 +27,52 @@ def clean_folder(value: str) -> str:
     return value.strip().strip("/")
 
 
+def get_container_name(workspace: str) -> str:
+    workspace_clean = workspace.lower().strip()
+
+    if workspace_clean == "capture":
+        return os.getenv("AZURE_CAPTURE_CONTAINER", "insyt-capture")
+
+    if workspace_clean == "discovery":
+        return os.getenv("AZURE_DISCOVERY_CONTAINER", "insyt-discovery")
+
+    if workspace_clean == "summaries":
+        return os.getenv("AZURE_SUMMARIES_CONTAINER", "insyt-summaries")
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported workspace: {workspace}",
+    )
+
+
 def get_workspace_container(workspace: str):
+    workspace = workspace.lower().strip()
+
     if workspace not in VALID_WORKSPACES:
         raise HTTPException(
             status_code=400,
             detail="Invalid workspace.",
         )
 
-    return get_container_client(workspace)
+    conn = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
+
+    if not conn:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Live source storage is not configured. Set "
+                "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+                "CDS_STORAGE_CONNECTION_STRING, or "
+                "AZURE_STORAGE_CONNECTION_STRING."
+            ),
+        )
+
+    service = BlobServiceClient.from_connection_string(conn)
+    return service.get_container_client(get_container_name(workspace))
 
 
 def build_prefix(
@@ -61,6 +102,8 @@ def list_workspace_files(
     client: str | None = Query(default=None),
     folder: str | None = Query(default=None),
 ):
+    workspace = workspace.lower().strip()
+
     container = get_workspace_container(workspace)
 
     project_name = clean_folder(project)
@@ -209,6 +252,8 @@ def preview_workspace_native_file(
     sheet_name: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
 ):
+    workspace = workspace.lower().strip()
+
     container = get_workspace_container(workspace)
 
     extension = get_file_extension(blob_path)

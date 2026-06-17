@@ -27,17 +27,34 @@ DEFAULT_CONTAINER_MAP = {
 
 
 def get_container_client(workspace: Workspace):
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    workspace = str(workspace or "").lower().strip()
+
+    if workspace not in CONTAINER_ENV_MAP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported workspace: {workspace}",
+        )
+
+    connection_string = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
 
     if not connection_string:
-        raise RuntimeError("Missing AZURE_STORAGE_CONNECTION_STRING")
+        raise RuntimeError(
+            "Missing live source storage connection string. Set "
+            "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+            "CDS_STORAGE_CONNECTION_STRING, or "
+            "AZURE_STORAGE_CONNECTION_STRING."
+        )
 
     container_name = os.getenv(
         CONTAINER_ENV_MAP[workspace],
         DEFAULT_CONTAINER_MAP[workspace],
     )
-    
-    print(f"WORKSPACE={workspace} CONTAINER={container_name}")
+
+    print(f"BATCH SERVICE LIVE STORAGE: WORKSPACE={workspace} CONTAINER={container_name}")
 
     service_client = BlobServiceClient.from_connection_string(
         connection_string
