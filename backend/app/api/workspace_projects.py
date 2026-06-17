@@ -265,6 +265,8 @@ def list_registered_clients():
 
 @router.get("/{workspace}/clients")
 def list_workspace_clients(workspace: str):
+    workspace = workspace.lower().strip()
+
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -277,21 +279,23 @@ def list_workspace_clients(workspace: str):
 
     for blob in container.list_blobs():
         blob_name = blob.name.strip("/")
-
-        if not blob_name.endswith("/project.json"):
-            continue
-
         parts = blob_name.split("/")
 
-        if len(parts) >= 4 and parts[1] == workspace:
-            client = parts[0]
+        if len(parts) < 3:
+            continue
 
-            if (
-                client
-                and not client.startswith("_")
-                and client.lower() != "system"
-            ):
-                clients.add(client)
+        client = parts[0]
+        blob_workspace = parts[1]
+
+        if blob_workspace != workspace:
+            continue
+
+        if (
+            client
+            and not client.startswith("_")
+            and client.lower() != "system"
+        ):
+            clients.add(client)
 
     return {
         "status": "success",
@@ -305,6 +309,9 @@ def list_workspace_client_projects(
     workspace: str,
     client_name: str,
 ):
+    workspace = workspace.lower().strip()
+    client_name = client_name.strip("/").strip()
+
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -313,27 +320,34 @@ def list_workspace_client_projects(
 
     container = get_container_client(workspace)
 
-    prefix = f"{client_name.strip('/')}/{workspace}/"
+    prefix = f"{client_name}/{workspace}/"
 
     projects = set()
 
     for blob in container.list_blobs(name_starts_with=prefix):
         blob_name = blob.name.strip("/")
 
-        if not blob_name.endswith("/project.json"):
-            continue
-
         parts = blob_name.split("/")
 
-        if len(parts) >= 4 and parts[1] == workspace:
-            project = parts[2]
+        if len(parts) < 3:
+            continue
 
-            if (
-                project
-                and not project.startswith("_")
-                and project.lower() != "system"
-            ):
-                projects.add(project)
+        client = parts[0]
+        blob_workspace = parts[1]
+        project = parts[2]
+
+        if client != client_name:
+            continue
+
+        if blob_workspace != workspace:
+            continue
+
+        if (
+            project
+            and not project.startswith("_")
+            and project.lower() != "system"
+        ):
+            projects.add(project)
 
     return {
         "status": "success",
@@ -342,10 +356,13 @@ def list_workspace_client_projects(
         "projects": sorted(projects),
     }
     
+    
 @router.post("/registry/workspace-projects/create")
 def create_registered_workspace_project(
     payload: RegistryCreateProjectRequest,
 ):
+    payload.workspace = payload.workspace.lower().strip()
+
     if payload.workspace not in VALID_WORKSPACES:
         raise HTTPException(
             status_code=400,
@@ -405,6 +422,8 @@ def create_workspace_project(
     payload: CreateProjectRequest,
     
 ):
+    workspace = workspace.lower().strip()
+
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -477,8 +496,8 @@ def create_workspace_project(
             f"{project_root}/source/protocol/.keep",
             f"{project_root}/source/metadata/.keep",
             f"{project_root}/source/preview/.keep",
-            f"{project_root}/source/processing_center/uploads/.keep",
 
+            f"{project_root}/processing_center/uploads/.keep",
             f"{project_root}/processing_center/jobs/.keep",
             f"{project_root}/processing_center/staged/.keep",
             f"{project_root}/processing_center/reports/.keep",
