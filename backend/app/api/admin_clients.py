@@ -122,6 +122,271 @@ def clients_overview(
     }
 
 
+@router.get("/clients-overview-storage-test")
+def clients_overview_storage_test(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    if admin.role not in ALLOWED_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied.",
+        )
+
+    workspace_names = ["capture", "discovery", "summaries"]
+
+    clients = defaultdict(
+        lambda: {
+            "client": "",
+            "workspaces": defaultdict(
+                lambda: {
+                    "workspace": "",
+                    "projects": defaultdict(
+                        lambda: {
+                            "project": "",
+                            "reviewers": [],
+                        }
+                    ),
+                }
+            ),
+        }
+    )
+
+    warnings = []
+
+    def add_project(
+        client: str,
+        workspace: str,
+        project: str,
+    ):
+        client = str(client or "").strip()
+        workspace = str(workspace or "").strip()
+        project = str(project or "").strip()
+
+        if not client or not workspace or not project:
+            return None
+
+        ignored_names = {
+            "source",
+            "native",
+            "natives",
+            "text",
+            "protocol",
+            "processing_center",
+            "uploads",
+            "jobs",
+            "preview",
+            "overlays",
+            "Batches",
+            "SearchFolders",
+            "QC",
+            "Audit",
+        }
+
+        if client in ignored_names:
+            return None
+
+        if project in ignored_names:
+            return None
+
+        if workspace not in workspace_names and workspace != "unknown":
+            return None
+
+        client_node = clients[client]
+        client_node["client"] = client
+
+        workspace_node = client_node["workspaces"][workspace]
+        workspace_node["workspace"] = workspace
+
+        project_node = workspace_node["projects"][project]
+        project_node["project"] = project
+
+        return project_node
+
+    def reviewer_payload(user: User):
+        return {
+            "username": user.username,
+            "display_name": user.display_name,
+            "email": user.email,
+            "role": user.role,
+            "status": user.status,
+            "auth_provider": user.auth_provider,
+        }
+
+    def reviewer_already_added(project_node: dict, username: str) -> bool:
+        return any(
+            reviewer.get("username") == username
+            for reviewer in project_node.get("reviewers", [])
+        )
+
+    # 1. First build from DB/project access so the endpoint always works
+    # even if Azure storage scan fails.
+    users = db.query(User).all()
+
+    for user in users:
+        if user.role in ["INSYT Admin", "Admin"]:
+            continue
+
+        client_access = safe_list(user.client_access)
+        project_access = safe_list(user.project_access)
+        workspace_access = safe_list(user.workspace_access)
+
+        if not project_access:
+            continue
+
+        for project_key in project_access:
+            project_key = str(project_key or "").strip()
+
+            if not project_key:
+                continue
+
+            parsed_client = None
+            parsed_workspace = None
+            parsed_project = None
+
+            parts = [
+                part
+                for part in project_key.split("/")
+                if part
+            ]
+
+            if len(parts) >= 3:
+                # Accept:
+                # capture/Client1/Project_Client1
+                # Client1/capture/Project_Client1
+                if parts[0] in workspace_names:
+                    parsed_workspace = parts[0]
+                    parsed_client = parts[1]
+                    parsed_project = parts[2]
+                elif parts[1] in workspace_names:
+                    parsed_client = parts[0]
+                    parsed_workspace = parts[1]
+                    parsed_project = parts[2]
+            elif len(parts) == 2:
+                parsed_client = parts[0]
+                parsed_project = parts[1]
+            else:
+                parsed_project = project_key
+
+            target_clients = (
+                [parsed_client]
+                if parsed_client
+                else client_access or ["Unassigned"]
+            )
+
+            target_workspaces = (
+                [parsed_workspace]
+                if parsed_workspace
+                else workspace_access or ["unknown"]
+            )
+
+            for client in target_clients:
+                for workspace in target_workspaces:
+                    project_node = add_project(
+                        client,
+                        workspace,
+                        parsed_project,
+                    )
+
+                    if not project_node:
+                        continue
+
+                    if not reviewer_already_added(
+                        project_node,
+                        user.username,
+                    ):
+                        project_node["reviewers"].append(
+                            reviewer_payload(user)
+                        )
+
+    # 2. Then try Azure storage discovery.
+    # IMPORTANT: import inside function so a bad storage import cannot break app startup/login.
+    try:
+        try:
+            from app.services.azure_blob_storage import get_container_client
+        except Exception:
+            from app.services.azure_storage import get_container_client
+
+        for workspace_name in workspace_names:
+            try:
+                container = get_container_client(workspace_name)
+
+                for blob in container.list_blobs():
+                    blob_name = blob.name or ""
+
+                    parts = [
+                        part
+                        for part in blob_name.split("/")
+                        if part
+                    ]
+
+                    if len(parts) < 3:
+                        continue
+
+                    # New/current path:
+                    # Client1/capture/Project_Client1/source/...
+                    if parts[1] in workspace_names:
+                        add_project(
+                            parts[0],
+                            parts[1],
+                            parts[2],
+                        )
+                        continue
+
+                    # Older path:
+                    # capture/Client1/Project_Client1/source/...
+                    if parts[0] in workspace_names:
+                        add_project(
+                            parts[1],
+                            parts[0],
+                            parts[2],
+                        )
+                        continue
+
+            except Exception as error:
+                warnings.append(
+                    f"Storage scan failed for {workspace_name}: {error}"
+                )
+
+    except Exception as error:
+        warnings.append(
+            f"Storage discovery unavailable: {error}"
+        )
+
+    result = []
+
+    for client_name in sorted(clients.keys(), key=str.lower):
+        client_node = clients[client_name]
+
+        workspaces = []
+
+        for workspace_name in sorted(
+            client_node["workspaces"].keys(),
+            key=str.lower,
+        ):
+            workspace_node = client_node["workspaces"][workspace_name]
+
+            projects = []
+
+            for project_name in sorted(
+                workspace_node["projects"].keys(),
+                key=str.lower,
+            ):
+                project_node = workspace_node["projects"][project_name]
+                projects.append(project_node)
+
+            workspace_node["projects"] = projects
+            workspaces.append(workspace_node)
+
+        client_node["workspaces"] = workspaces
+        result.append(client_node)
+
+    return {
+        "status": "success",
+        "clients": result,
+        "warnings": warnings,
+    }
+
 @router.get("/project-users")
 def project_users(
     workspace: str,
