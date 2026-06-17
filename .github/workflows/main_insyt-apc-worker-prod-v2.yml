@@ -32,6 +32,7 @@ jobs:
       - name: Install worker dependencies
         run: |
           cd "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
+          rm -rf .python_packages
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt --target=".python_packages/lib/site-packages"
           python -c "from pathlib import Path; p=Path('.python_packages/lib/site-packages'); print('site-packages exists:', p.exists()); print('top-level entries:', len(list(p.iterdir())) if p.exists() else 0)"
