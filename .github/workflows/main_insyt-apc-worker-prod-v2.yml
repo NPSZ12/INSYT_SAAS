@@ -9,7 +9,7 @@ on:
 env:
   AZURE_FUNCTIONAPP_NAME: insyt-apc-worker-prod-v2
   AZURE_FUNCTIONAPP_PACKAGE_PATH: workers/insyt_processing_worker
-  PYTHON_VERSION: '3.11'
+  PYTHON_VERSION: '3.9'
 
 jobs:
   build-and-deploy:
