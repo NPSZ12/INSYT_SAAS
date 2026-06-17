@@ -353,7 +353,7 @@ def _archive_uploads_for_job(
         project=project,
     )
 
-    uploads_prefix = f"{base_path}/source/processing_center/uploads/"
+    uploads_prefix = f"{base_path}/processing_center/uploads/"
     archive_prefix = f"{base_path}/processing_center/archive/{job_id}/uploads/"
 
     archived: list[dict[str, Any]] = []
@@ -441,7 +441,7 @@ def _remove_processing_uploads(
         project=project,
     )
 
-    uploads_prefix = f"{base_path}/source/processing_center/uploads/"
+    uploads_prefix = f"{base_path}/processing_center/uploads/"
 
     removed_at = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
@@ -869,7 +869,7 @@ def list_processing_uploads(
 
         uploads_prefix = (
             f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
-            f"source/processing_center/uploads/"
+            f"processing_center/uploads/"
         )
 
         uploads: list[dict[str, Any]] = []
@@ -948,7 +948,7 @@ async def upload_to_azure_processing_center(
 
     blob_path = (
         f"{_project_base_path(workspace=workspace, client=client, project=project_id)}/"
-        f"source/processing_center/uploads/{safe_filename}"
+        f"processing_center/uploads/{safe_filename}"
     )
 
     try:
