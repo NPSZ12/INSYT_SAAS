@@ -336,8 +336,29 @@ def _summarize_result_for_status(result_dict: dict[str, Any]) -> dict[str, Any]:
 def process_job_message(message_content: str):
     payload = json.loads(message_content)
 
-    job_id = payload["job_id"]
-    status_blob_path = payload["status_blob_path"]
+    job_id = payload.get("job_id")
+    workspace = payload.get("workspace", "capture")
+    client = payload.get("client")
+    project = payload.get("project")
+
+    if not job_id:
+        raise ValueError("APC queue message missing job_id")
+
+    if not client:
+        raise ValueError("APC queue message missing client")
+
+    if not project:
+        raise ValueError("APC queue message missing project")
+
+    request_blob_path = payload.get(
+        "request_blob_path",
+        f"{client}/{workspace}/{project}/processing_center/jobs/{job_id}/request.json",
+    )
+
+    status_blob_path = payload.get(
+        "status_blob_path",
+        f"{client}/{workspace}/{project}/processing_center/jobs/{job_id}/status.json",
+    )
     cancel_blob_path = payload.get("cancel_blob_path")
     request_blob_path = payload.get("request_blob_path")
 
@@ -346,8 +367,6 @@ def process_job_message(message_content: str):
     import apc.azure_layout as azure_layout_module
 
     routing_debug = {
-        "azure_layout_file": routing_debug["azure_layout_file"],
-        "routing_debug": routing_debug,
         "azure_layout_file": getattr(azure_layout_module, "__file__", ""),
         "routing_prefix": routing.prefix,
         "routing_processing_uploads": routing.processing_paths().get("uploads", ""),
