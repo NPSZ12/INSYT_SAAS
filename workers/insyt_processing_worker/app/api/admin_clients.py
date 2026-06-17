@@ -39,7 +39,7 @@ def clients_overview(
             detail="Access denied.",
         )
 
-    users = db.query(User).all()
+    workspace_names = ["capture", "discovery", "summaries"]
 
     clients = defaultdict(
         lambda: {
@@ -58,56 +58,239 @@ def clients_overview(
         }
     )
 
+    def add_project(
+        client: str,
+        workspace: str,
+        project: str,
+    ):
+        if not client or not workspace or not project:
+            return
+
+        if client in [
+            "source",
+            "Batches",
+            "SearchFolders",
+            "QC",
+            "Audit",
+            "processing_center",
+            "overlays",
+        ]:
+            return
+
+        if workspace not in workspace_names and workspace != "unknown":
+            return
+
+        if project in [
+            "source",
+            "native",
+            "natives",
+            "text",
+            "protocol",
+            "processing_center",
+            "uploads",
+            "jobs",
+            "preview",
+            "overlays",
+        ]:
+            return
+
+        client_node = clients[client]
+        client_node["client"] = client
+
+        workspace_node = client_node["workspaces"][workspace]
+        workspace_node["workspace"] = workspace
+
+        project_node = workspace_node["projects"][project]
+        project_node["project"] = project
+
+        return project_node
+
+    def reviewer_payload(user: User):
+        return {
+            "username": user.username,
+            "display_name": user.display_name,
+            "email": user.email,
+            "role": user.role,
+            "status": user.status,
+            "auth_provider": user.auth_provider,
+        }
+
+    def reviewer_already_added(project_node: dict, username: str) -> bool:
+        return any(
+            reviewer.get("username") == username
+            for reviewer in project_node.get("reviewers", [])
+        )
+
+    def project_access_matches(
+        access_key: str,
+        client: str,
+        workspace: str,
+        project: str,
+    ) -> bool:
+        normalized = str(access_key or "").strip()
+
+        if not normalized:
+            return False
+
+        possible_keys = {
+            project,
+            f"{client}/{project}",
+            f"{workspace}/{client}/{project}",
+            f"{client}/{workspace}/{project}",
+        }
+
+        return normalized in possible_keys
+
+    # 1. Discover real clients/projects from Azure blob paths.
+    #
+    # Supported new path:
+    #   Client1/capture/Project_Client1/source/...
+    #
+    # Supported older path:
+    #   capture/Client1/Project_Client1/source/...
+    for workspace_name in workspace_names:
+        try:
+            container = get_container_client(workspace_name)
+
+            for blob in container.list_blobs():
+                blob_name = blob.name or ""
+                parts = [
+                    part
+                    for part in blob_name.split("/")
+                    if part
+                ]
+
+                if len(parts) < 3:
+                    continue
+
+                # New/current path:
+                # Client/workspace/project/...
+                if parts[1] in workspace_names:
+                    client = parts[0]
+                    workspace = parts[1]
+                    project = parts[2]
+                    add_project(client, workspace, project)
+                    continue
+
+                # Older path:
+                # workspace/client/project/...
+                if parts[0] in workspace_names:
+                    workspace = parts[0]
+                    client = parts[1]
+                    project = parts[2]
+                    add_project(client, workspace, project)
+                    continue
+
+        except Exception as error:
+            print(
+                f"clients_overview storage scan failed for "
+                f"{workspace_name}: {error}"
+            )
+
+    # 2. Merge reviewer/project access from the database.
+    users = db.query(User).all()
+
     for user in users:
+        if user.role in ["INSYT Admin", "Admin"]:
+            continue
+
         client_access = safe_list(user.client_access)
         project_access = safe_list(user.project_access)
         workspace_access = safe_list(user.workspace_access)
 
-        if user.role in ["INSYT Admin", "Admin"]:
+        if not project_access:
             continue
 
-        for project_key in project_access:
-            if "/" in project_key:
-                client, project = project_key.split("/", 1)
+        user_workspaces = workspace_access or ["unknown"]
+
+        for access_key in project_access:
+            access_key = str(access_key or "").strip()
+
+            if not access_key:
+                continue
+
+            parsed_client = None
+            parsed_workspace = None
+            parsed_project = None
+
+            parts = [
+                part
+                for part in access_key.split("/")
+                if part
+            ]
+
+            if len(parts) >= 3:
+                # Accept either:
+                # workspace/client/project
+                # client/workspace/project
+                if parts[0] in workspace_names:
+                    parsed_workspace = parts[0]
+                    parsed_client = parts[1]
+                    parsed_project = parts[2]
+                elif parts[1] in workspace_names:
+                    parsed_client = parts[0]
+                    parsed_workspace = parts[1]
+                    parsed_project = parts[2]
+
+            elif len(parts) == 2:
+                parsed_client = parts[0]
+                parsed_project = parts[1]
+
             else:
-                client = client_access[0] if client_access else "Unassigned"
-                project = project_key
+                parsed_project = access_key
 
-            workspace = (
-                workspace_access[0]
-                if workspace_access
-                else "unknown"
+            target_clients = (
+                [parsed_client]
+                if parsed_client
+                else client_access or ["Unassigned"]
             )
 
-            client_node = clients[client]
-            client_node["client"] = client
-
-            workspace_node = client_node["workspaces"][workspace]
-            workspace_node["workspace"] = workspace
-
-            project_node = workspace_node["projects"][project]
-            project_node["project"] = project
-
-            project_node["reviewers"].append(
-                {
-                    "username": user.username,
-                    "display_name": user.display_name,
-                    "email": user.email,
-                    "role": user.role,
-                    "status": user.status,
-                    "auth_provider": user.auth_provider,
-                }
+            target_workspaces = (
+                [parsed_workspace]
+                if parsed_workspace
+                else user_workspaces
             )
 
+            for client in target_clients:
+                for workspace in target_workspaces:
+                    project_node = add_project(
+                        client,
+                        workspace,
+                        parsed_project,
+                    )
+
+                    if not project_node:
+                        continue
+
+                    if not reviewer_already_added(
+                        project_node,
+                        user.username,
+                    ):
+                        project_node["reviewers"].append(
+                            reviewer_payload(user)
+                        )
+
+    # 3. Convert nested defaultdicts into sorted lists for frontend.
     result = []
 
-    for client_node in clients.values():
+    for client_name in sorted(clients.keys(), key=str.lower):
+        client_node = clients[client_name]
+
         workspaces = []
 
-        for workspace_node in client_node["workspaces"].values():
+        for workspace_name in sorted(
+            client_node["workspaces"].keys(),
+            key=str.lower,
+        ):
+            workspace_node = client_node["workspaces"][workspace_name]
+
             projects = []
 
-            for project_node in workspace_node["projects"].values():
+            for project_name in sorted(
+                workspace_node["projects"].keys(),
+                key=str.lower,
+            ):
+                project_node = workspace_node["projects"][project_name]
                 projects.append(project_node)
 
             workspace_node["projects"] = projects
