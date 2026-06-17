@@ -14,18 +14,21 @@ router = APIRouter(
 
 TEMPLATE_BLOB_PATHS = {
     "capture": [
+        "_system/protocol_templates/capture/Capture_Templates.xlsx",
         "_system/protocol_templates/capture/protocol_templates.xlsx",
         "System/ProtocolTemplates/Capture_Templates.xlsx",
         "System/ProtocolTemplates/Protocol_Templates.xlsx",
         "Protocol_Templates.xlsx",
     ],
     "summaries": [
+        "_system/protocol_templates/summaries/Summaries_Templates.xlsx",
         "_system/protocol_templates/summaries/protocol_templates.xlsx",
         "System/ProtocolTemplates/Summaries_Templates.xlsx",
         "System/ProtocolTemplates/Protocol_Templates.xlsx",
         "Protocol_Templates.xlsx",
     ],
     "discovery": [
+        "_system/protocol_templates/discovery/Discovery_Templates.xlsx",
         "_system/protocol_templates/discovery/protocol_templates.xlsx",
         "System/ProtocolTemplates/Discovery_Templates.xlsx",
         "System/ProtocolTemplates/Protocol_Templates.xlsx",
