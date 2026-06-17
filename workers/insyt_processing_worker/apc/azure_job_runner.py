@@ -143,6 +143,7 @@ def run_azure_processing_job(
             input_dir=str(staging_dir),
             matter_id=matter_id,
             client_id=routing.client,
+            workspace=routing.workspace,
             doc_prefix=doc_prefix,
             enable_ocr_dry_run=enable_ocr_dry_run,
             enable_live_ocr=enable_live_ocr,
