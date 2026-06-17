@@ -1,4 +1,5 @@
 import json
+import os
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -302,14 +303,49 @@ def clients_overview_storage_test(
     # 2. Then try Azure storage discovery.
     # IMPORTANT: import inside function so a bad storage import cannot break app startup/login.
     try:
-        try:
-            from app.services.azure_blob_storage import get_container_client
-        except Exception:
-            from app.services.azure_storage import get_container_client
+        from azure.storage.blob import BlobServiceClient
+
+        source_connection_string = os.getenv(
+            "AZURE_STORAGE_CONNECTION_STRING"
+        )
+
+        if not source_connection_string:
+            warnings.append(
+                "AZURE_STORAGE_CONNECTION_STRING is not configured. "
+                "Clients overview storage scan cannot run."
+            )
+            source_blob_service = None
+        elif "AccountName=insytprodstorage" not in source_connection_string:
+            warnings.append(
+                "AZURE_STORAGE_CONNECTION_STRING is not pointing to "
+                "insytprodstorage. Clients overview scan skipped to avoid "
+                "reading from the wrong storage account."
+            )
+            source_blob_service = None
+        else:
+            source_blob_service = BlobServiceClient.from_connection_string(
+                source_connection_string
+            )
+
+        container_names_by_workspace = {
+            "capture": "insyt-capture",
+            "discovery": "insyt-discovery",
+            "summaries": "insyt-summaries",
+        }
 
         for workspace_name in workspace_names:
             try:
-                container = get_container_client(workspace_name)
+                if not source_blob_service:
+                    continue
+
+                container_name = container_names_by_workspace.get(
+                    workspace_name,
+                    f"insyt-{workspace_name}",
+                )
+
+                container = source_blob_service.get_container_client(
+                    container_name
+                )
 
                 for blob in container.list_blobs():
                     blob_name = blob.name or ""
