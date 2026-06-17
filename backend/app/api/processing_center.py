@@ -61,6 +61,24 @@ def get_container_name(workspace: str) -> str:
         detail=f"Unsupported workspace: {workspace}",
     )
 
+def get_apc_staging_blob_service_client() -> BlobServiceClient:
+    conn = (
+        os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_REVIEW_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
+
+    if not conn:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "APC staging storage is not configured. Set "
+                "INSYT_REVIEW_STORAGE_CONNECTION_STRING or "
+                "AZURE_STORAGE_CONNECTION_STRING."
+            ),
+        )
+
+    return BlobServiceClient.from_connection_string(conn)
 
 def get_blob_service_client() -> BlobServiceClient:
     conn = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
@@ -75,7 +93,8 @@ def get_blob_service_client() -> BlobServiceClient:
 
 def get_review_blob_service_client() -> BlobServiceClient:
     conn = (
-        os.getenv("AZURE_REVIEW_STORAGE_CONNECTION_STRING")
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
         or os.getenv("AZURE_FINAL_STORAGE_CONNECTION_STRING")
         or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
     )
@@ -84,8 +103,9 @@ def get_review_blob_service_client() -> BlobServiceClient:
         raise HTTPException(
             status_code=500,
             detail=(
-                "Review storage is not configured. Set "
-                "AZURE_REVIEW_STORAGE_CONNECTION_STRING or "
+                "Live source storage is not configured. Set "
+                "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+                "CDS_STORAGE_CONNECTION_STRING, or "
                 "AZURE_STORAGE_CONNECTION_STRING."
             ),
         )
@@ -569,6 +589,71 @@ def read_processing_job_blob(
             return job, path, candidate_paths
 
     return None, "", candidate_paths
+
+def build_job_from_staged_outputs(
+    staging_container,
+    workspace: str,
+    client: str,
+    project_id: str,
+    job_id: str,
+) -> dict | None:
+    staged_prefix = processing_staged_base_path(
+        workspace,
+        client,
+        project_id,
+        job_id,
+    )
+
+    native_prefix = f"{staged_prefix}/native/"
+    text_prefix = f"{staged_prefix}/text/"
+
+    staged_files = []
+
+    for blob in staging_container.list_blobs(name_starts_with=native_prefix):
+        file_name = blob.name.split("/")[-1].strip()
+
+        if not file_name or file_name == ".keep":
+            continue
+
+        doc_id = get_doc_id(file_name)
+        text_path = f"{text_prefix}{doc_id}.txt"
+
+        staged_files.append(
+            {
+                "file_name": file_name,
+                "doc_id": doc_id,
+                "status": "Ready",
+                "processed_native_path": blob.name,
+                "processed_text_path": text_path,
+                "staged_native_path": blob.name,
+                "staged_text_path": text_path,
+            }
+        )
+
+    if not staged_files:
+        return None
+
+    now = now_iso()
+
+    return {
+        "job_id": job_id,
+        "workspace": workspace,
+        "client": client,
+        "project_id": project_id,
+        "job_type": "processing",
+        "status": "Completed",
+        "promotion_status": "Ready",
+        "total_files": len(staged_files),
+        "processed_files": len(staged_files),
+        "error_files": 0,
+        "created_at": "",
+        "started_at": "",
+        "completed_at": "",
+        "last_updated_at": now,
+        "files": staged_files,
+        "message": "Job reconstructed from staged APC outputs.",
+        "staged_prefix": staged_prefix,
+    }
 
 def write_json_blob(container_client, blob_path: str, data: Any):
     blob_client = container_client.get_blob_client(blob_path)
@@ -1282,8 +1367,13 @@ def promote_processing_job(
             container_name
         )
 
-        review_service = get_review_blob_service_client()
-        review_container = review_service.get_container_client(
+        staging_service = get_apc_staging_blob_service_client()
+        staging_container = staging_service.get_container_client(
+            container_name
+        )
+
+        live_service = get_review_blob_service_client()
+        live_container = live_service.get_container_client(
             container_name
         )
 
@@ -1296,12 +1386,50 @@ def promote_processing_job(
         )
 
         if not job:
+            staging_job, staging_job_blob_path, staging_checked_paths = read_processing_job_blob(
+                staging_container,
+                payload.client,
+                payload.project_id,
+                job_id,
+                workspace,
+            )
+
+            checked_paths = checked_paths + staging_checked_paths
+
+            if staging_job:
+                job = staging_job
+                job_blob_path = staging_job_blob_path
+
+        if not job:
+            job = build_job_from_staged_outputs(
+                staging_container,
+                workspace,
+                payload.client,
+                payload.project_id,
+                job_id,
+            )
+
+            if job:
+                job_blob_path = processing_job_path(
+                    workspace,
+                    payload.client,
+                    payload.project_id,
+                    job_id,
+                )
+
+        if not job:
             raise HTTPException(
                 status_code=404,
                 detail={
-                    "message": "Processing job not found.",
+                    "message": "Processing job not found and no staged APC outputs were found.",
                     "job_id": job_id,
                     "checked_paths": checked_paths,
+                    "staged_prefix": processing_staged_base_path(
+                        workspace,
+                        payload.client,
+                        payload.project_id,
+                        job_id,
+                    ),
                 },
             )
 
@@ -1377,11 +1505,11 @@ def promote_processing_job(
                 doc_id,
             )
 
-            native_destination_blob = review_container.get_blob_client(
+            native_destination_blob = live_container.get_blob_client(
                 native_destination
             )
 
-            text_destination_blob = review_container.get_blob_client(
+            text_destination_blob = live_container.get_blob_client(
                 text_destination
             )
 
@@ -1439,16 +1567,16 @@ def promote_processing_job(
 
                 if not native_destination_exists:
                     copy_blob_between_containers(
-                        processing_container,
-                        review_container,
+                        staging_container,
+                        live_container,
                         source_native,
                         native_destination,
                     )
 
                 if not text_destination_exists:
                     copy_blob_between_containers(
-                        processing_container,
-                        review_container,
+                        staging_container,
+                        live_container,
                         source_text,
                         text_destination,
                     )
@@ -1554,11 +1682,12 @@ def promote_processing_job(
             job["promotion_status"] = "Promotion Error"
             job["message"] = "Promotion failed."
 
-        write_json_blob(
-            processing_container,
-            job_blob_path,
-            job,
-        )
+        if job_blob_path:
+            write_json_blob(
+                processing_container,
+                job_blob_path,
+                job,
+            )
 
         return {
             "ok": len(errors) == 0,
