@@ -117,7 +117,7 @@ class AzureRoutingConfig:
         p = self.prefix
 
         return {
-            "uploads": f"{p}/source/processing_center/uploads",
+            "uploads": f"{p}/processing_center/uploads",
             "work": f"{p}/processing_center/work",
             "temp": f"{p}/processing_center/temp",
             "jobs": f"{p}/processing_center/jobs",
