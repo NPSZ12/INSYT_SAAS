@@ -305,18 +305,21 @@ def clients_overview_storage_test(
     try:
         from azure.storage.blob import BlobServiceClient
 
-        source_connection_string = (
-            os.getenv("APC_SOURCE_STORAGE_CONNECTION_STRING")
-            or os.getenv("SOURCE_STORAGE_CONNECTION_STRING")
-            or os.getenv("PROCESSING_STORAGE_CONNECTION_STRING")
-            or os.getenv("AZURE_PROCESSING_STORAGE_CONNECTION_STRING")
-            or os.getenv("INSYT_STORAGE_CONNECTION_STRING")
+        source_connection_string = os.getenv(
+            "AZURE_STORAGE_CONNECTION_STRING"
         )
 
         if not source_connection_string:
             warnings.append(
-                "Source storage connection string not configured. "
-                "Expected APC_SOURCE_STORAGE_CONNECTION_STRING or equivalent."
+                "AZURE_STORAGE_CONNECTION_STRING is not configured. "
+                "Clients overview storage scan cannot run."
+            )
+            source_blob_service = None
+        elif "AccountName=insytprodstorage" not in source_connection_string:
+            warnings.append(
+                "AZURE_STORAGE_CONNECTION_STRING is not pointing to "
+                "insytprodstorage. Clients overview scan skipped to avoid "
+                "reading from the wrong storage account."
             )
             source_blob_service = None
         else:
