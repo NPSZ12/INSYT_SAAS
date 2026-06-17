@@ -70,7 +70,7 @@ function ClientsPageContent() {
   }, [user]);
 
   function loadClients() {
-    apiGet("/api/admin/clients-overview")
+    apiGet("/api/admin/clients-overview-storage-test")
       .then((response: any) => {
         setClients(response.clients || []);
       })
