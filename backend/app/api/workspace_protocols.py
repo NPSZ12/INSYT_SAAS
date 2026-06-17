@@ -1,12 +1,13 @@
 import io
 import json
+import os
 
 import pandas as pd
+from azure.storage.blob import BlobServiceClient
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from app.services.batch_service import get_container_client
 from app.services.storage_paths import build_project_path
 
 
@@ -31,6 +32,46 @@ def normalize_name(value: str | None) -> str:
         .lower()
     )
 
+def get_container_name(workspace: str) -> str:
+    workspace_clean = workspace.lower().strip()
+
+    if workspace_clean == "capture":
+        return os.getenv("AZURE_CAPTURE_CONTAINER", "insyt-capture")
+
+    if workspace_clean == "discovery":
+        return os.getenv("AZURE_DISCOVERY_CONTAINER", "insyt-discovery")
+
+    if workspace_clean == "summaries":
+        return os.getenv("AZURE_SUMMARIES_CONTAINER", "insyt-summaries")
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported workspace: {workspace}",
+    )
+
+
+def get_live_source_container_client(workspace: str):
+    workspace = workspace.lower().strip()
+
+    conn = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
+
+    if not conn:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Live source storage is not configured. Set "
+                "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+                "CDS_STORAGE_CONNECTION_STRING, or "
+                "AZURE_STORAGE_CONNECTION_STRING."
+            ),
+        )
+
+    service = BlobServiceClient.from_connection_string(conn)
+    return service.get_container_client(get_container_name(workspace))
 
 def resolve_client_for_project(
     workspace: str,
@@ -42,7 +83,7 @@ def resolve_client_for_project(
     if clean_client:
         return clean_client
 
-    container = get_container_client(workspace)
+    container = get_live_source_container_client(workspace)
 
     target_project = normalize_name(project_id)
     matches: list[str] = []
@@ -95,6 +136,8 @@ def get_workspace_protocol(
     project_id: str,
     client: str | None = Query(default=None),
 ):
+    workspace = workspace.lower().strip()
+
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -108,7 +151,7 @@ def get_workspace_protocol(
     )
 
     try:
-        container = get_container_client(workspace)
+        container = get_live_source_container_client(workspace)
 
         possible_protocol_files = [
             build_project_path(
@@ -297,6 +340,8 @@ def save_workspace_protocol(
     payload: SaveProtocolRequest,
     client: str | None = Query(default=None),
 ):
+    workspace = workspace.lower().strip()
+
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -309,7 +354,7 @@ def save_workspace_protocol(
         client=client or payload.client,
     )
 
-    container = get_container_client(workspace)
+    container = get_live_source_container_client(workspace)
 
     protocol_blob = build_project_path(
         workspace,
