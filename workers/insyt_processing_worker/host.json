@@ -6,6 +6,19 @@
         "isEnabled": true,
         "excludedTypes": "Request"
       }
+    },
+    "logLevel": {
+      "default": "Information",
+      "Function.apc_processing_queue_worker": "Information",
+      "Host.Results": "Information",
+      "Host.Aggregator": "Information"
+    }
+  },
+  "extensions": {
+    "queues": {
+      "messageEncoding": "none",
+      "maxDequeueCount": 3,
+      "visibilityTimeout": "00:10:00"
     }
   },
   "extensionBundle": {
