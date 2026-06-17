@@ -123,30 +123,118 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def processing_base_path(client: str, project_id: str) -> str:
+def workspace_project_root_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+) -> str:
     client = clean_path_part(client)
+    workspace = clean_path_part(workspace).lower()
     project_id = clean_path_part(project_id)
-    return f"{client}/{project_id}/source/processing_center"
+
+    return f"{client}/{workspace}/{project_id}"
 
 
-def upload_path(client: str, project_id: str, file_name: str) -> str:
-    return f"{processing_base_path(client, project_id)}/uploads/{file_name}"
+def source_base_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+) -> str:
+    return f"{workspace_project_root_path(workspace, client, project_id)}/source"
 
 
-def in_progress_path(client: str, project_id: str, file_name: str) -> str:
-    return f"{processing_base_path(client, project_id)}/in_progress/{file_name}"
+def source_native_base_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+) -> str:
+    return f"{source_base_path(workspace, client, project_id)}/native"
 
 
-def processed_native_path(client: str, project_id: str, file_name: str) -> str:
-    return f"{processing_base_path(client, project_id)}/processed/native/{file_name}"
+def source_text_base_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+) -> str:
+    return f"{source_base_path(workspace, client, project_id)}/text"
 
 
-def processed_text_path(client: str, project_id: str, doc_id: str) -> str:
-    return f"{processing_base_path(client, project_id)}/processed/text/{doc_id}.txt"
+def source_preview_base_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+) -> str:
+    return f"{source_base_path(workspace, client, project_id)}/preview"
 
 
-def processed_metadata_path(client: str, project_id: str, doc_id: str) -> str:
-    return f"{processing_base_path(client, project_id)}/processed/metadata/{doc_id}.json"
+def processing_base_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+) -> str:
+    return (
+        f"{workspace_project_root_path(workspace, client, project_id)}"
+        "/processing_center"
+    )
+
+
+def upload_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    file_name: str,
+) -> str:
+    file_name = clean_path_part(file_name)
+    return f"{processing_base_path(workspace, client, project_id)}/uploads/{file_name}"
+
+
+def in_progress_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    file_name: str,
+) -> str:
+    file_name = clean_path_part(file_name)
+    return f"{processing_base_path(workspace, client, project_id)}/in_progress/{file_name}"
+
+
+def processed_native_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    file_name: str,
+) -> str:
+    file_name = clean_path_part(file_name)
+    return (
+        f"{processing_base_path(workspace, client, project_id)}"
+        f"/processed/native/{file_name}"
+    )
+
+
+def processed_text_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    doc_id: str,
+) -> str:
+    doc_id = clean_path_part(doc_id)
+    return (
+        f"{processing_base_path(workspace, client, project_id)}"
+        f"/processed/text/{doc_id}.txt"
+    )
+
+
+def processed_metadata_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    doc_id: str,
+) -> str:
+    doc_id = clean_path_part(doc_id)
+    return (
+        f"{processing_base_path(workspace, client, project_id)}"
+        f"/processed/metadata/{doc_id}.json"
+    )
 
 
 def final_native_path(
@@ -155,12 +243,8 @@ def final_native_path(
     project_id: str,
     file_name: str,
 ) -> str:
-    workspace = clean_path_part(workspace).lower()
-    client = clean_path_part(client)
-    project_id = clean_path_part(project_id)
     file_name = clean_path_part(file_name)
-
-    return f"{workspace}/{client}/{project_id}/source/native/{file_name}"
+    return f"{source_native_base_path(workspace, client, project_id)}/{file_name}"
 
 
 def final_text_path(
@@ -169,27 +253,96 @@ def final_text_path(
     project_id: str,
     doc_id: str,
 ) -> str:
-    workspace = clean_path_part(workspace).lower()
-    client = clean_path_part(client)
-    project_id = clean_path_part(project_id)
     doc_id = clean_path_part(doc_id)
-
-    return f"{workspace}/{client}/{project_id}/source/text/{doc_id}.txt"
-
-
-def errors_path(client: str, project_id: str, file_name: str) -> str:
-    return f"{processing_base_path(client, project_id)}/errors/{file_name}"
+    return f"{source_text_base_path(workspace, client, project_id)}/{doc_id}.txt"
 
 
-def manifest_path(client: str, project_id: str) -> str:
-    return f"{processing_base_path(client, project_id)}/manifest.json"
+def errors_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    file_name: str,
+) -> str:
+    file_name = clean_path_part(file_name)
+    return f"{processing_base_path(workspace, client, project_id)}/errors/{file_name}"
 
-def processing_jobs_base_path(client: str, project_id: str) -> str:
-    return f"{processing_base_path(client, project_id)}/jobs"
+
+def manifest_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+) -> str:
+    return f"{processing_base_path(workspace, client, project_id)}/manifest.json"
 
 
-def processing_job_path(client: str, project_id: str, job_id: str) -> str:
-    return f"{processing_jobs_base_path(client, project_id)}/{job_id}.json"
+def processing_jobs_base_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+) -> str:
+    return f"{processing_base_path(workspace, client, project_id)}/jobs"
+
+
+def processing_job_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    job_id: str,
+) -> str:
+    job_id = clean_path_part(job_id)
+    return f"{processing_jobs_base_path(workspace, client, project_id)}/{job_id}/status.json"
+
+
+def processing_staged_base_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    job_id: str,
+) -> str:
+    job_id = clean_path_part(job_id)
+    return f"{processing_base_path(workspace, client, project_id)}/staged/{job_id}"
+
+
+def staged_native_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    job_id: str,
+    file_name: str,
+) -> str:
+    file_name = clean_path_part(file_name)
+    return f"{processing_staged_base_path(workspace, client, project_id, job_id)}/native/{file_name}"
+
+
+def staged_text_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    job_id: str,
+    doc_id: str,
+) -> str:
+    doc_id = clean_path_part(doc_id)
+    return f"{processing_staged_base_path(workspace, client, project_id, job_id)}/text/{doc_id}.txt"
+
+
+def preview_pdf_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    doc_id: str,
+) -> str:
+    doc_id = clean_path_part(doc_id)
+    return f"{source_preview_base_path(workspace, client, project_id)}/{doc_id}.pdf"
+
+
+def preview_html_path(
+    workspace: str,
+    client: str,
+    project_id: str,
+    doc_id: str,
+) -> str:
+    doc_id = clean_path_part(doc_id)
+    return f"{source_preview_base_path(workspace, client, project_id)}/{doc_id}.html"
 
 
 def get_processing_queue_client() -> QueueClient:
@@ -227,18 +380,6 @@ def get_extension(file_name: str) -> str:
         return ""
 
     return "." + file_name.rsplit(".", 1)[-1].lower().strip()
-
-
-def preview_pdf_path(client: str, project_id: str, doc_id: str) -> str:
-    client = clean_path_part(client)
-    project_id = clean_path_part(project_id)
-    return f"{client}/{project_id}/source/preview/{doc_id}.pdf"
-
-
-def preview_html_path(client: str, project_id: str, doc_id: str) -> str:
-    client = clean_path_part(client)
-    project_id = clean_path_part(project_id)
-    return f"{client}/{project_id}/source/preview/{doc_id}.html"
 
 
 def determine_viewer_type(file_name: str, extracted_text: str = "") -> str:
@@ -394,6 +535,40 @@ def read_json_blob(container_client, blob_path: str, fallback: Any):
 
     return json.loads(raw)
 
+def read_processing_job_blob(
+    container_client,
+    client: str,
+    project_id: str,
+    job_id: str,
+    workspace: str,
+):
+    candidate_paths = [
+        # Current APC worker layout.
+        processing_job_path(
+            workspace,
+            client,
+            project_id,
+            job_id,
+        ),
+
+        # Defensive fallback for current worker layout.
+        f"{clean_path_part(client)}/{clean_path_part(workspace).lower()}/{clean_path_part(project_id)}/processing_center/jobs/{job_id}/status.json",
+
+        # Legacy API-created job layout.
+        f"{clean_path_part(client)}/{clean_path_part(project_id)}/source/processing_center/jobs/{job_id}.json",
+    ]
+
+    for path in candidate_paths:
+        job = read_json_blob(
+            container_client,
+            path,
+            None,
+        )
+
+        if job:
+            return job, path, candidate_paths
+
+    return None, "", candidate_paths
 
 def write_json_blob(container_client, blob_path: str, data: Any):
     blob_client = container_client.get_blob_client(blob_path)
@@ -488,12 +663,13 @@ def extract_text_basic(local_file_path: str, file_name: str) -> dict:
 
 def update_manifest_item(
     container_client,
+    workspace: str,
     client: str,
     project_id: str,
     file_name: str,
     updates: Dict[str, Any],
 ):
-    path = manifest_path(client, project_id)
+    path = manifest_path(workspace, client, project_id)
     manifest = read_json_blob(
         container_client,
         path,
@@ -545,7 +721,7 @@ def get_processing_manifest(
 
     manifest = read_json_blob(
         container,
-        manifest_path(client, project_id),
+        manifest_path(workspace, client, project_id),
         {
             "client": client,
             "project_id": project_id,
@@ -569,7 +745,12 @@ async def upload_processing_file(
     container = service.get_container_client(container_name)
 
     file_name = file.filename or "uploaded_file"
-    destination = upload_path(client, project_id, file_name)
+    destination = upload_path(
+        workspace,
+        client,
+        project_id,
+        file_name,
+    )
 
     data = await file.read()
 
@@ -583,6 +764,7 @@ async def upload_processing_file(
 
     update_manifest_item(
         container,
+        workspace,
         client,
         project_id,
         file_name,
@@ -597,8 +779,18 @@ async def upload_processing_file(
             "processed_text_path": "",
             "final_native_path": "",
             "final_text_path": "",
-            "preview_pdf_path": preview_pdf_path(client, project_id, doc_id),
-            "preview_html_path": preview_html_path(client, project_id, doc_id),
+            "preview_pdf_path": preview_pdf_path(
+                workspace,
+                client,
+                project_id,
+                doc_id,
+            ),
+            "preview_html_path": preview_html_path(
+                workspace,
+                client,
+                project_id,
+                doc_id,
+            ),
             "viewer_type": determine_viewer_type(file_name),
             "preview_available": False,
             "error": "",
@@ -623,7 +815,11 @@ def start_processing(
     review_service = get_review_blob_service_client()
     review_container = review_service.get_container_client(container_name)
 
-    base = processing_base_path(payload.client, payload.project_id)
+    base = processing_base_path(
+        workspace,
+        payload.client,
+        payload.project_id,
+    )
     uploads_prefix = f"{base}/uploads/"
 
     processed = []
@@ -637,11 +833,17 @@ def start_processing(
             continue
 
         doc_id = get_doc_id(file_name)
-        progress_path = in_progress_path(payload.client, payload.project_id, file_name)
+        progress_path = in_progress_path(
+            workspace,
+            payload.client,
+            payload.project_id,
+            file_name,
+        )
 
         try:
             update_manifest_item(
                 container,
+                workspace,
                 payload.client,
                 payload.project_id,
                 file_name,
@@ -671,18 +873,21 @@ def start_processing(
                 extracted_text = extraction_result.get("text", "")
 
             processed_native = processed_native_path(
+                workspace,
                 payload.client,
                 payload.project_id,
                 file_name,
             )
 
             processed_text = processed_text_path(
+                workspace,
                 payload.client,
                 payload.project_id,
                 doc_id,
             )
 
             metadata_path = processed_metadata_path(
+                workspace,
                 payload.client,
                 payload.project_id,
                 doc_id,
@@ -724,12 +929,14 @@ def start_processing(
             viewer_type = determine_viewer_type(file_name, extracted_text)
 
             preview_pdf = preview_pdf_path(
+                workspace,
                 payload.client,
                 payload.project_id,
                 doc_id,
             )
 
             preview_html = preview_html_path(
+                workspace,
                 payload.client,
                 payload.project_id,
                 doc_id,
@@ -771,6 +978,7 @@ def start_processing(
 
             update_manifest_item(
                 container,
+                workspace,
                 payload.client,
                 payload.project_id,
                 file_name,
@@ -784,6 +992,7 @@ def start_processing(
 
         except Exception as exc:
             error_destination = errors_path(
+                workspace,
                 payload.client,
                 payload.project_id,
                 file_name,
@@ -798,6 +1007,7 @@ def start_processing(
 
             update_manifest_item(
                 container,
+                workspace,
                 payload.client,
                 payload.project_id,
                 file_name,
@@ -849,7 +1059,11 @@ def start_processing_job(
         job_id = str(uuid.uuid4())
         now = now_iso()
 
-        base = processing_base_path(payload.client, payload.project_id)
+        base = processing_base_path(
+            workspace,
+            payload.client,
+            payload.project_id,
+        )
         uploads_prefix = f"{base}/uploads/"
 
         upload_files = []
@@ -898,6 +1112,7 @@ def start_processing_job(
         }
 
         job_blob_path = processing_job_path(
+            workspace,
             payload.client,
             payload.project_id,
             job_id,
@@ -953,62 +1168,76 @@ def list_processing_jobs(
         service = get_blob_service_client()
         container = service.get_container_client(container_name)
 
-        jobs_prefix = processing_jobs_base_path(
-            client,
-            project_id,
-        ) + "/"
+        jobs_prefixes = [
+            processing_jobs_base_path(
+                workspace,
+                client,
+                project_id,
+            ) + "/",
+
+            # Legacy fallback only.
+            f"{clean_path_part(client)}/{clean_path_part(project_id)}/source/processing_center/jobs/",
+        ]
 
         jobs = []
 
-        for blob in container.list_blobs(name_starts_with=jobs_prefix):
-            if not blob.name.endswith(".json"):
-                continue
+        seen_job_paths = set()
 
-            try:
-                job = read_json_blob(
-                    container,
-                    blob.name,
-                    None,
-                )
+        for jobs_prefix in jobs_prefixes:
+            for blob in container.list_blobs(name_starts_with=jobs_prefix):
+                if blob.name in seen_job_paths:
+                    continue
 
-                if job:
-                    job_files = job.get("files", []) or []
+                seen_job_paths.add(blob.name)
 
-                    file_names = [
-                        str(item.get("file_name", ""))
-                        for item in job_files
-                        if str(item.get("file_name", "")).strip()
-                    ]
+                if not blob.name.endswith(".json"):
+                    continue
 
-                    latest_file_name = file_names[0] if file_names else ""
-
-                    jobs.append(
-                        {
-                            "job_id": job.get("job_id", ""),
-                            "workspace": job.get("workspace", workspace),
-                            "client": job.get("client", client),
-                            "project_id": job.get("project_id", project_id),
-                            "job_type": job.get("job_type", ""),
-                            "status": job.get("status", ""),
-                            "requested_by": job.get("requested_by", ""),
-                            "total_files": job.get("total_files", 0),
-                            "queued_files": job.get("queued_files", 0),
-                            "processed_files": job.get("processed_files", 0),
-                            "error_files": job.get("error_files", 0),
-                            "created_at": job.get("created_at", ""),
-                            "started_at": job.get("started_at", ""),
-                            "completed_at": job.get("completed_at", ""),
-                            "last_updated_at": job.get("last_updated_at", ""),
-                            "message": job.get("message", ""),
-                            "job_blob_path": blob.name,
-                            "latest_file_name": latest_file_name,
-                            "file_names": file_names,
-                            "files": job_files,
-                        }
+                try:
+                    job = read_json_blob(
+                        container,
+                        blob.name,
+                        None,
                     )
 
-            except Exception:
-                continue
+                    if job:
+                        job_files = job.get("files", []) or []
+
+                        file_names = [
+                            str(item.get("file_name", ""))
+                            for item in job_files
+                            if str(item.get("file_name", "")).strip()
+                        ]
+
+                        latest_file_name = file_names[0] if file_names else ""
+
+                        jobs.append(
+                            {
+                                "job_id": job.get("job_id", ""),
+                                "workspace": job.get("workspace", workspace),
+                                "client": job.get("client", client),
+                                "project_id": job.get("project_id", project_id),
+                                "job_type": job.get("job_type", ""),
+                                "status": job.get("status", ""),
+                                "requested_by": job.get("requested_by", ""),
+                                "total_files": job.get("total_files", 0),
+                                "queued_files": job.get("queued_files", 0),
+                                "processed_files": job.get("processed_files", 0),
+                                "error_files": job.get("error_files", 0),
+                                "created_at": job.get("created_at", ""),
+                                "started_at": job.get("started_at", ""),
+                                "completed_at": job.get("completed_at", ""),
+                                "last_updated_at": job.get("last_updated_at", ""),
+                                "message": job.get("message", ""),
+                                "job_blob_path": blob.name,
+                                "latest_file_name": latest_file_name,
+                                "file_names": file_names,
+                                "files": job_files,
+                            }
+                        )
+
+                except Exception:
+                    continue
 
         jobs.sort(
             key=lambda item: item.get("created_at", ""),
@@ -1058,16 +1287,12 @@ def promote_processing_job(
             container_name
         )
 
-        job_blob_path = processing_job_path(
+        job, job_blob_path, checked_paths = read_processing_job_blob(
+            processing_container,
             payload.client,
             payload.project_id,
             job_id,
-        )
-
-        job = read_json_blob(
-            processing_container,
-            job_blob_path,
-            None,
+            workspace,
         )
 
         if not job:
@@ -1076,7 +1301,7 @@ def promote_processing_job(
                 detail={
                     "message": "Processing job not found.",
                     "job_id": job_id,
-                    "job_blob_path": job_blob_path,
+                    "checked_paths": checked_paths,
                 },
             )
 
@@ -1117,22 +1342,25 @@ def promote_processing_job(
 
             selected_count += 1
 
+            staged_prefix = processing_staged_base_path(
+                workspace,
+                payload.client,
+                payload.project_id,
+                job_id,
+            )
+
             source_native = (
                 item.get("processed_native_path")
-                or processed_native_path(
-                    payload.client,
-                    payload.project_id,
-                    file_name,
-                )
+                or item.get("native_path")
+                or item.get("staged_native_path")
+                or f"{staged_prefix}/native/{file_name}"
             )
 
             source_text = (
                 item.get("processed_text_path")
-                or processed_text_path(
-                    payload.client,
-                    payload.project_id,
-                    doc_id,
-                )
+                or item.get("text_path")
+                or item.get("staged_text_path")
+                or f"{staged_prefix}/text/{doc_id}.txt"
             )
 
             native_destination = final_native_path(
@@ -1177,6 +1405,7 @@ def promote_processing_job(
 
                     update_manifest_item(
                         processing_container,
+                        workspace,
                         payload.client,
                         payload.project_id,
                         file_name,
@@ -1239,6 +1468,7 @@ def promote_processing_job(
 
                 update_manifest_item(
                     processing_container,
+                    workspace,
                     payload.client,
                     payload.project_id,
                     file_name,
@@ -1377,33 +1607,29 @@ def get_processing_job(
         service = get_blob_service_client()
         container = service.get_container_client(container_name)
 
-        job_blob_path = processing_job_path(
+        job, job_blob_path, checked_paths = read_processing_job_blob(
+            container,
             client,
             project_id,
             job_id,
+            workspace,
         )
 
-        blob_client = container.get_blob_client(job_blob_path)
-
-        if not blob_client.exists():
+        if not job:
             raise HTTPException(
                 status_code=404,
                 detail={
                     "message": "Processing job not found.",
                     "job_id": job_id,
-                    "job_blob_path": job_blob_path,
+                    "checked_paths": checked_paths,
                     "client": client,
                     "project_id": project_id,
                 },
             )
 
-        raw = (
-            blob_client.download_blob()
-            .readall()
-            .decode("utf-8")
-        )
+        job["job_blob_path"] = job_blob_path
 
-        return json.loads(raw)
+        return job
 
     except HTTPException:
         raise
