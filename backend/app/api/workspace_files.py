@@ -164,9 +164,17 @@ def list_workspace_files(
         files.append(
             {
                 "doc_id": doc_id,
+
+                # Existing INSYT fields
                 "file_name": file_name,
-                "extension": extension,
                 "blob_path": blob_path,
+
+                # Frontend compatibility aliases
+                "name": file_name,
+                "filename": file_name,
+                "path": blob_path,
+
+                "extension": extension,
                 "size": str(blob.size or ""),
                 "last_modified": (
                     blob.last_modified.isoformat()

@@ -13,9 +13,12 @@ import { apiGet } from "../../../lib/api";
 
 type ProjectFile = {
   doc_id: string;
-  file_name: string;
+  file_name?: string;
+  name?: string;
+  filename?: string;
   extension: string;
-  blob_path: string;
+  blob_path?: string;
+  path?: string;
   size: string;
   last_modified: string;
 };
@@ -29,23 +32,56 @@ function FilesPageContent() {
     searchParams.get("project") || "";
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [docIdSearch, setDocIdSearch] = useState("");
   const [fileNameSearch, setFileNameSearch] = useState("");
   const [extensionSearch, setExtensionSearch] = useState("");
   const [metadataSearch, setMetadataSearch] = useState("");
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!clientId || !projectId) {
+      setFiles([]);
+      return;
+    }
 
-    apiGet(
-      `/api/summaries/files?client=${encodeURIComponent(
-        clientId
-      )}&project=${encodeURIComponent(
-        projectId
-      )}&folder=${encodeURIComponent("source/native")}`
-    )
-      .then(setFiles)
-      .catch(console.error);
+    async function loadFiles() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const params = new URLSearchParams();
+
+        params.set("client", clientId);
+        params.set("project", projectId);
+        params.set("folder", "source/native");
+
+        const response = await apiGet(
+          `/api/summaries/files?${params.toString()}`
+        );
+
+        const nextFiles = Array.isArray(response)
+          ? response
+          : response?.files || [];
+
+        setFiles(nextFiles);
+      } catch (error: any) {
+        console.error("Failed to load Summaries files", error);
+
+        setError(
+          String(
+            error?.message ||
+              "Unable to load Summaries files."
+          )
+        );
+
+        setFiles([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadFiles();
   }, [clientId, projectId]);
 
   const filteredFiles = useMemo(() => {
@@ -54,7 +90,18 @@ function FilesPageContent() {
         .toLowerCase()
         .includes(docIdSearch.toLowerCase());
 
-      const fileNameMatch = file.file_name
+      const fileName =
+        file.file_name ||
+        file.filename ||
+        file.name ||
+        "";
+
+      const blobPath =
+        file.blob_path ||
+        file.path ||
+        "";
+
+      const fileNameMatch = fileName
         .toLowerCase()
         .includes(fileNameSearch.toLowerCase());
 
@@ -63,7 +110,7 @@ function FilesPageContent() {
         .includes(extensionSearch.toLowerCase());
 
       const metadataText = [
-        file.blob_path,
+        blobPath,
         file.size,
         file.last_modified,
       ]
@@ -154,6 +201,18 @@ function FilesPageContent() {
           </div>
         </ContentCard>
 
+        {loading && (
+          <div className="mt-4 text-sm text-slate-400">
+            Loading Summaries files...
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
         <div className="mt-6">
           <ContentCard title={`Project Files (${filteredFiles.length})`}>
             <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-auto max-h-[70vh]">
@@ -170,36 +229,60 @@ function FilesPageContent() {
                 </thead>
 
                 <tbody>
-                  {filteredFiles.map((file) => (
-                    <tr
-                      key={file.blob_path}
-                      className="border-t border-slate-800"
-                    >
-                      <td className="p-3 text-sky-400 whitespace-nowrap">
-                        {file.doc_id}
-                      </td>
+                  {filteredFiles.map((file) => {
+                    const fileName =
+                      file.file_name ||
+                      file.filename ||
+                      file.name ||
+                      "";
 
-                      <td className="p-3 text-slate-300 whitespace-nowrap">
-                        {file.file_name}
-                      </td>
+                    const blobPath =
+                      file.blob_path ||
+                      file.path ||
+                      "";
 
-                      <td className="p-3 text-slate-300 whitespace-nowrap">
-                        {file.extension}
-                      </td>
+                    return (
+                      <tr
+                        key={blobPath || `${file.doc_id}-${fileName}`}
+                        className="border-t border-slate-800"
+                      >
+                        <td className="p-3 text-sky-400 whitespace-nowrap">
+                          {file.doc_id}
+                        </td>
 
-                      <td className="p-3 text-slate-400 whitespace-nowrap">
-                        {file.blob_path}
-                      </td>
+                        <td className="p-3 text-slate-300 whitespace-nowrap">
+                          {fileName}
+                        </td>
 
-                      <td className="p-3 text-slate-300 whitespace-nowrap">
-                        {file.size}
-                      </td>
+                        <td className="p-3 text-slate-300 whitespace-nowrap">
+                          {file.extension}
+                        </td>
 
-                      <td className="p-3 text-slate-300 whitespace-nowrap">
-                        {file.last_modified}
+                        <td className="p-3 text-slate-400 whitespace-nowrap">
+                          {blobPath}
+                        </td>
+
+                        <td className="p-3 text-slate-300 whitespace-nowrap">
+                          {file.size}
+                        </td>
+
+                        <td className="p-3 text-slate-300 whitespace-nowrap">
+                          {file.last_modified}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {!loading && filteredFiles.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="p-6 text-center text-slate-500"
+                      >
+                        No files found for this Summaries project.
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
