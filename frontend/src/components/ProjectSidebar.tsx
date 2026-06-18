@@ -366,12 +366,20 @@ export default function ProjectSidebar() {
     },
     {
       label: "Files",
-      href: `${workspaceBase}/files${projectQuery}`,
+      href: isSummaries
+        ? `/summaries/files${projectQuery}`
+        : isDiscovery
+          ? `/discovery/files${projectQuery}`
+          : `/capture/files${projectQuery}`,
       icon: FileText,
     },
     {
       label: "Processing Center",
-      href: `${workspaceBase}/processing-center${projectQuery}`,
+      href: isSummaries
+        ? `/summaries/processing-center${projectQuery}`
+        : isDiscovery
+          ? `/discovery/processing-center${projectQuery}`
+          : `/capture/processing-center${projectQuery}`,
       icon: HardDriveUpload,
     },
     {
@@ -396,7 +404,11 @@ export default function ProjectSidebar() {
     },
     {
       label: "Review",
-      href: `${workspaceBase}/review${reviewQuery}`,
+      href: isSummaries
+        ? `/summaries/review${reviewQuery}`
+        : isDiscovery
+          ? `/discovery/review${reviewQuery}`
+          : `/capture/review${reviewQuery}`,
       icon: FileSearch,
     },
     {
@@ -541,6 +553,11 @@ export default function ProjectSidebar() {
                   key={item.href}
                   href={item.href}
                   title={item.label}
+                  onClick={() => {
+                    if (item.label === "Files") {
+                      console.log("PROJECT SIDEBAR FILES CLICK", item.href);
+                    }
+                  }}
                   className={`${linkClass} relative`}
                 >
                   <Icon size={18} />
