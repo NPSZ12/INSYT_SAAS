@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/AppShell";
@@ -45,10 +45,35 @@ function CyberUtilityLandingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  function openTool(path: string) {
-  if (!path) {
-    return;
+  const workspace = searchParams.get("workspace") || "";
+
+  useEffect(() => {
+    if (workspace !== "summaries") {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+
+    router.replace(`/summaries/files?${params.toString()}`);
+  }, [router, searchParams, workspace]);
+
+  if (workspace === "summaries") {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="Redirecting"
+            subtitle="Cyber² Utility is not available in INSYT Summaries."
+          />
+        </PageContainer>
+      </AppShell>
+    );
   }
+
+  function openTool(path: string) {
+    if (!path) {
+      return;
+    }
 
     const params = new URLSearchParams();
 

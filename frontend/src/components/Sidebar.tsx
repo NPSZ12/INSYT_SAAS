@@ -214,30 +214,32 @@ export default function Sidebar({
           )}
         </Link>
 
-        <Link
-          href={`${workspaceBase}/cyber-utility${projectQuery}`}
-          title={collapsed ? "Cyber² Utility" : undefined}
-          className={
-            collapsed
-              ? "flex items-center justify-center py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 transition mb-3"
-              : "flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-base font-semibold transition mb-3"
-          }
-        >
-          <Image
-            src="/Cyber2_Logo_White.svg"
-            alt="Cyber² Utility"
-            width={collapsed ? 24 : 22}
-            height={collapsed ? 24 : 22}
-            priority
-            style={{ width: collapsed ? "24px" : "22px", height: "auto" }}
-          />
+        {!isSummaries && (
+          <Link
+            href={`/cyber-utility${projectQuery}`}
+            title={collapsed ? "Cyber² Utility" : undefined}
+            className={
+              collapsed
+                ? "flex items-center justify-center py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 transition mb-3"
+                : "flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-base font-semibold transition mb-3"
+            }
+          >
+            <Image
+              src="/Cyber2_Logo_White.svg"
+              alt="Cyber² Utility"
+              width={collapsed ? 24 : 22}
+              height={collapsed ? 24 : 22}
+              priority
+              style={{ width: collapsed ? "24px" : "22px", height: "auto" }}
+            />
 
-          {!collapsed && (
-            <span className="insyt-workspace">
-              Cyber² Utility
-            </span>
-          )}
-        </Link>
+            {!collapsed && (
+              <span className="insyt-workspace">
+                Cyber² Utility
+              </span>
+            )}
+          </Link>
+        )}
       </div>
 
       <nav className="space-y-3 overflow-y-auto pr-1 flex-1">
