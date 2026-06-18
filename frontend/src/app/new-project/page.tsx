@@ -153,48 +153,57 @@ export default function NewProjectPage() {
   }, [workspace, selectedClient]);
 
   function createProject() {
-    const selectedRegistryClient = registryClients.find(
-      (client) => client.client_uuid === selectedClientUuid
-    );
+  setMessage("");
 
-    const clientName =
-      selectedRegistryClient?.client_name ||
-      newClientName;
+  const selectedRegistryClient = registryClients.find(
+    (client) => client.client_uuid === selectedClientUuid
+  );
 
-    if (!clientName.trim()) {
-      setMessage("Client name is required.");
-      return;
-    }
+  const clientName = (
+    selectedRegistryClient?.client_name ||
+    newClientName
+  ).trim();
 
-    if (!projectName.trim()) {
-      setMessage("Project name is required.");
-      return;
-    }
-
-    apiPost("/api/registry/workspace-projects/create", {
-      client_uuid: selectedRegistryClient?.client_uuid || "",
-      client_name: clientName,
-      workspace,
-      project_name: projectName,
-    })
-      .then((response) => {
-        setMessage(
-          `Created ${response.client}/${response.project} in ${response.workspace}. Client UUID: ${response.client_uuid}. Project UUID: ${response.project_uuid}.`
-        );
-
-        setProjectName("");
-        setNewClientName("");
-        setSelectedClientUuid(response.client_uuid || "");
-        setSelectedClient(response.client || clientName);
-
-        loadRegistryClients();
-        loadProjects(response.client || clientName);
-      })
-      .catch((error) => {
-        console.error(error);
-        setMessage("Project creation failed.");
-      });
+  if (!clientName) {
+    setMessage("Select an existing client or create a new client.");
+    return;
   }
+
+  if (!workspace) {
+    setMessage("Workspace is required.");
+    return;
+  }
+
+  if (!projectName.trim()) {
+    setMessage("Project name is required.");
+    return;
+  }
+
+  apiPost("/api/registry/workspace-projects/create", {
+    client_uuid: selectedRegistryClient?.client_uuid || "",
+    client_name: clientName,
+    workspace,
+    project_name: projectName.trim(),
+  })
+    .then((response) => {
+      setMessage(
+        `Created ${response.client}/${response.workspace}/${response.project}.`
+      );
+
+      setProjectName("");
+      setNewClientName("");
+      setSelectedClientUuid(response.client_uuid || "");
+      setSelectedClient(response.client || clientName);
+      setSelectedProject(response.project || "");
+
+      loadRegistryClients();
+      loadProjects(response.client || clientName);
+    })
+    .catch((error) => {
+      console.error(error);
+      setMessage("Project creation failed.");
+    });
+}
 
   function normalizeDefaultFormat(value: string) {
     const normalized = value.trim().toLowerCase();
@@ -307,11 +316,16 @@ export default function NewProjectPage() {
       return;
     }
 
-    apiPost(`/api/${workspace}/projects/${selectedProject}/protocol`, {
-      protocol_template: selectedTemplate,
-      fields: buildProtocolFields(),
-      override: false,
-    })
+    apiPost(
+      `/api/${workspace}/projects/${encodeURIComponent(
+        selectedProject
+      )}/protocol?client=${encodeURIComponent(selectedClient)}`,
+      {
+        protocol_template: selectedTemplate,
+        fields: buildProtocolFields(),
+        override: false,
+      }
+    )
       .then((response) => {
         console.log("PROTOCOL SAVE RESPONSE", response);
 
@@ -354,11 +368,16 @@ export default function NewProjectPage() {
             return;
           }
 
-          apiPost(`/api/${workspace}/projects/${selectedProject}/protocol`, {
-            protocol_template: selectedTemplate,
-            fields: buildProtocolFields(),
-            override: true,
-          })
+          apiPost(
+            `/api/${workspace}/projects/${encodeURIComponent(
+              selectedProject
+            )}/protocol?client=${encodeURIComponent(selectedClient)}`,
+            {
+              protocol_template: selectedTemplate,
+              fields: buildProtocolFields(),
+              override: true,
+            }
+          )
             .then((response) => {
               setMessage(response.message || "Protocol overridden.");
             })
@@ -400,16 +419,6 @@ export default function NewProjectPage() {
         <ContentCard title="Create Azure Project">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
-              <FormLabel>Target Workspace</FormLabel>
-
-              <Select value={workspace} onChange={setWorkspace}>
-                <option value="capture">INSYT Capture</option>
-                <option value="summaries">INSYT Summaries</option>
-                <option value="discovery">INSYT Discovery</option>
-              </Select>
-            </div>
-
-            <div>
               <FormLabel>Existing Client</FormLabel>
 
               <Select
@@ -424,8 +433,11 @@ export default function NewProjectPage() {
                   if (selected) {
                     setSelectedClient(selected.client_name);
                     setNewClientName("");
+                    loadProjects(selected.client_name);
                   } else {
                     setSelectedClient("");
+                    setProjects([]);
+                    setSelectedProject("");
                   }
                 }}
               >
@@ -450,28 +462,40 @@ export default function NewProjectPage() {
                 onChange={(value) => {
                   setNewClientName(value);
 
-                  if (value) {
+                  if (value.trim()) {
                     setSelectedClient("");
                     setSelectedClientUuid("");
+                    setProjects([]);
+                    setSelectedProject("");
                   }
                 }}
-                placeholder="Example: NLCP"
+                placeholder="Example: Client_1"
               />
             </div>
-            
+
+            <div>
+              <FormLabel>Workspace</FormLabel>
+
+              <Select value={workspace} onChange={setWorkspace}>
+                <option value="capture">INSYT Capture</option>
+                <option value="summaries">INSYT Summaries</option>
+                <option value="discovery">INSYT Discovery</option>
+              </Select>
+            </div>
+
             <div>
               <FormLabel>Project Name</FormLabel>
 
               <Input
                 value={projectName}
                 onChange={setProjectName}
-                placeholder="Example: Project_Merlin"
+                placeholder="Example: Project_2"
               />
             </div>
 
-            <div className="md:col-span-3">
+            <div className="md:col-span-4">
               <Button onClick={createProject}>
-                Create Project Folder
+                Create Azure Project
               </Button>
             </div>
           </div>

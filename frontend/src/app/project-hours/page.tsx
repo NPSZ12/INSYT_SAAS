@@ -66,17 +66,7 @@ function ProjectHoursPageContent() {
   const searchParams = useSearchParams();
 
   const workspace =
-    searchParams.get("workspace") || "capture";
-
-  const clientId =
-    searchParams.get("client") ||
-    searchParams.get("clientId") ||
-    "";
-
-  const projectId =
-    searchParams.get("project") ||
-    searchParams.get("projectId") ||
-    "";
+    searchParams.get("workspace") || "all";
 
   const [rows, setRows] = useState<ProjectHoursRow[]>([]);
   const [message, setMessage] = useState("");
@@ -86,7 +76,7 @@ function ProjectHoursPageContent() {
     useState<Record<string, string>>({});
 
   function getRowKey(row: ProjectHoursRow) {
-    return `${row.client_id}/${row.project_id}`;
+    return `${row.workspace}/${row.client_id}/${row.project_id}`;
   }
 
   function loadProjectHours() {
@@ -94,18 +84,16 @@ function ProjectHoursPageContent() {
 
     const params = new URLSearchParams();
 
-    params.set("workspace", workspace || "capture");
-
-    if (clientId) {
-      params.set("client", clientId);
+    if (workspace && workspace !== "all") {
+      params.set("workspace", workspace);
     }
 
-    if (projectId) {
-      params.set("project", projectId);
-    }
+    const queryString = params.toString();
 
     apiGet(
-      `/api/timesheet/project-hours-summary?${params.toString()}`
+      queryString
+        ? `/api/timesheet/project-hours-summary?${queryString}`
+        : "/api/timesheet/project-hours-summary"
     )
       .then((response: any) => {
         const incomingRows = response.rows || [];
@@ -134,16 +122,18 @@ function ProjectHoursPageContent() {
 
   useEffect(() => {
     loadProjectHours();
-  }, [workspace, clientId, projectId]);
+  }, [workspace]);
 
   return (
     <AppShell>
       <PageContainer>
         <PageHeader
           title="Project Hours"
-          subtitle={`${prettyWorkspace(
-            workspace
-          )} aggregate project-level review hours.`}
+          subtitle={
+            workspace === "all"
+              ? "All workspace aggregate project-level review hours."
+              : `${prettyWorkspace(workspace)} aggregate project-level review hours.`
+          }
         />
 
         {message && (
@@ -163,6 +153,7 @@ function ProjectHoursPageContent() {
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-slate-400">
                 <tr>
+                  <th className="p-3 text-left">Workspace</th>
                   <th className="p-3 text-left">Client</th>
                   <th className="p-3 text-left">Project</th>
                   <th className="p-3 text-right">Project Total</th>
@@ -195,6 +186,10 @@ function ProjectHoursPageContent() {
                         key={rowKey}
                         className="border-t border-slate-800"
                       >
+                        <td className="p-3 text-white">
+                          {prettyWorkspace(row.workspace)}
+                        </td>
+
                         <td className="p-3 text-white">
                           {row.client_id}
                         </td>
@@ -243,7 +238,7 @@ function ProjectHoursPageContent() {
                           key={`${rowKey}-expanded`}
                           className="border-t border-slate-800 bg-slate-950"
                         >
-                          <td colSpan={8} className="p-4">
+                          <td colSpan={9} className="p-4">
                             <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
                               <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
                                 <div>
@@ -385,7 +380,7 @@ function ProjectHoursPageContent() {
                 {rows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="p-6 text-center text-slate-500"
                     >
                       No project hours found.

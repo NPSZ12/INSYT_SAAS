@@ -115,7 +115,7 @@ export default function Sidebar({
         },
         {
           label: "Project Management",
-          href: `${workspaceBase}/new-project`,
+          href: "/new-project",
           icon: FolderPlus,
         },
         {
@@ -130,7 +130,7 @@ export default function Sidebar({
         },
         {
           label: "Project Hours",
-          href: `${workspaceBase}/project-hours${projectQuery}`,
+          href: "/project-hours",
           icon: Clock,
         },
       ]

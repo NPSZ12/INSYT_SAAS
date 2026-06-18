@@ -409,7 +409,7 @@ def parse_review_hours_blob_path(
 
     clean_workspace = str(workspace or "").strip("/")
 
-    # Current canonical path:
+    # Canonical path:
     # {client}/{workspace}/{project}/ReviewHours/time_entries.json
     if len(parts) >= 5 and parts[-4] == clean_workspace:
         return {
@@ -418,13 +418,25 @@ def parse_review_hours_blob_path(
             "path_style": "canonical",
         }
 
+    # If this looks like a canonical INSYT path for a different workspace,
+    # do not treat it as legacy.
+    if len(parts) >= 5 and parts[-4] in [
+        "capture",
+        "summaries",
+        "discovery",
+    ]:
+        return None
+
     # Legacy path:
     # {client}/{project}/ReviewHours/time_entries.json
-    return {
-        "client_id": parts[-4],
-        "project_id": parts[-3],
-        "path_style": "legacy",
-    }
+    if len(parts) >= 4:
+        return {
+            "client_id": parts[-4],
+            "project_id": parts[-3],
+            "path_style": "legacy",
+        }
+
+    return None
 
 
 def round_project_hours_row(row: dict):
@@ -492,105 +504,108 @@ def list_time(
 
 @router.get("/project-hours-summary")
 def project_hours_summary(
-    workspace: str = Query(...),
+    workspace: str = Query(default=""),
     client: str = Query(default=""),
     project: str = Query(default=""),
 ):
-    container = get_container_client(workspace)
+    requested_workspace = str(workspace or "").strip().lower()
+    clean_client = str(client or "").strip()
+    clean_project = str(project or "").strip()
+
+    if requested_workspace in ["", "all"]:
+        workspaces_to_scan = ["capture", "summaries", "discovery"]
+    elif requested_workspace in ["capture", "summaries", "discovery"]:
+        workspaces_to_scan = [requested_workspace]
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Workspace must be capture, summaries, discovery, or all.",
+        )
 
     rows_by_project: dict[str, dict] = {}
     all_week_endings = set()
 
-    for blob in container.list_blobs():
-        blob_name = blob.name
+    for active_workspace in workspaces_to_scan:
+        container = get_container_client(active_workspace)
 
-        if not blob_name.endswith("/ReviewHours/time_entries.json"):
-            continue
+        for blob in container.list_blobs():
+            blob_name = blob.name
 
-        parsed_path = parse_review_hours_blob_path(
-            blob_name=blob_name,
-            workspace=workspace,
-        )
-
-        if not parsed_path:
-            continue
-        
-        if parsed_path.get("path_style") == "legacy":
-            # Keep legacy support, but avoid treating another workspace segment
-            # as a client if the blob is actually in a different workspace path.
-            parts = blob_name.split("/")
-            if len(parts) >= 5 and parts[-4] in [
-                "capture",
-                "discovery",
-                "summaries",
-                "development",
-            ]:
+            if not blob_name.endswith("/ReviewHours/time_entries.json"):
                 continue
 
-        client_id = parsed_path["client_id"]
-        project_id = parsed_path["project_id"]
-
-        if client and client_id != client:
-            continue
-
-        if project and project_id != project:
-            continue
-
-        blob_client = container.get_blob_client(blob_name)
-
-        try:
-            data = blob_client.download_blob().readall()
-            entries = json.loads(data.decode("utf-8"))
-        except Exception:
-            entries = []
-
-        if not isinstance(entries, list):
-            entries = []
-
-        row_key = f"{client_id}/{project_id}"
-
-        if row_key not in rows_by_project:
-            rows_by_project[row_key] = make_empty_project_hours_row(
-                workspace=workspace,
-                client_id=client_id,
-                project_id=project_id,
+            parsed_path = parse_review_hours_blob_path(
+                blob_name=blob_name,
+                workspace=active_workspace,
             )
 
-        row = rows_by_project[row_key]
-
-        for entry in entries:
-            hours = float(entry.get("hours") or 0)
-
-            if hours <= 0:
+            if not parsed_path:
                 continue
 
-            role = entry.get("role") or ""
-            entry_date_raw = entry.get("date") or ""
+            client_id = parsed_path["client_id"]
+            project_id = parsed_path["project_id"]
+
+            if clean_client and client_id != clean_client:
+                continue
+
+            if clean_project and project_id != clean_project:
+                continue
+
+            blob_client = container.get_blob_client(blob_name)
 
             try:
-                entry_date = parse_date(entry_date_raw)
+                data = blob_client.download_blob().readall()
+                entries = json.loads(data.decode("utf-8"))
             except Exception:
-                continue
+                entries = []
 
-            week_ending = get_week_ending_for_entry_date(entry_date)
-            all_week_endings.add(week_ending)
+            if not isinstance(entries, list):
+                entries = []
 
-            add_hours_to_project_row(
-                row=row,
-                role=role,
-                hours=hours,
-            )
+            row_key = f"{active_workspace}/{client_id}/{project_id}"
 
-            if week_ending not in row["weekly_totals"]:
-                row["weekly_totals"][week_ending] = (
-                    make_empty_weekly_hours_row(week_ending)
+            if row_key not in rows_by_project:
+                rows_by_project[row_key] = make_empty_project_hours_row(
+                    workspace=active_workspace,
+                    client_id=client_id,
+                    project_id=project_id,
                 )
 
-            add_hours_to_weekly_row(
-                row=row["weekly_totals"][week_ending],
-                role=role,
-                hours=hours,
-            )
+            row = rows_by_project[row_key]
+
+            for entry in entries:
+                hours = float(entry.get("hours") or 0)
+
+                if hours <= 0:
+                    continue
+
+                role = entry.get("role") or ""
+                entry_date_raw = entry.get("date") or ""
+
+                try:
+                    entry_date = parse_date(entry_date_raw)
+                except Exception:
+                    continue
+
+                week_ending = get_week_ending_for_entry_date(entry_date)
+                all_week_endings.add(week_ending)
+
+                add_hours_to_project_row(
+                    row=row,
+                    role=role,
+                    hours=hours,
+                )
+
+                if week_ending not in row["weekly_totals"]:
+                    row["weekly_totals"][week_ending] = (
+                        make_empty_weekly_hours_row(week_ending)
+                    )
+
+                add_hours_to_weekly_row(
+                    row=row["weekly_totals"][week_ending],
+                    role=role,
+                    hours=hours,
+                )
 
     rows = [
         round_project_hours_row(row)
@@ -599,6 +614,7 @@ def project_hours_summary(
 
     rows.sort(
         key=lambda item: (
+            item.get("workspace") or "",
             item.get("client_id") or "",
             item.get("project_id") or "",
         )
@@ -610,12 +626,13 @@ def project_hours_summary(
     )
 
     return {
-        "workspace": workspace,
-        "client": client,
-        "project": project,
+        "workspace": requested_workspace or "all",
+        "client": clean_client,
+        "project": clean_project,
         "week_endings": week_endings,
         "rows": rows,
     }
+
 
 @router.post("/clock-in")
 def clock_in(
