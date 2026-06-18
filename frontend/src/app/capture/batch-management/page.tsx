@@ -1178,7 +1178,7 @@ function BatchGroupDirectory({
                 </span>
 
                 <span className="text-sky-300">
-                  In Progress: {group.inProgress}
+                  Checked Out: {group.inProgress}
                 </span>
 
                 <span className="text-lime-300">
@@ -1202,19 +1202,19 @@ function BatchGroupDirectory({
                     defaultOpen: true,
                   },
                   {
-                    key: "inProgress",
-                    label: "In Progress",
+                    key: "checkedOut",
+                    label: "Checked Out Batches",
                     count: group.inProgress,
                     batches: group.batches.filter(
                       (batch) =>
                         getBatchStatusBucketForMenu(batch.status) ===
                         "inProgress"
                     ),
-                    defaultOpen: false,
+                    defaultOpen: true,
                   },
                   {
                     key: "completed",
-                    label: "Completed",
+                    label: "Completed Batches",
                     count: group.completed,
                     batches: group.batches.filter(
                       (batch) =>
@@ -1337,6 +1337,27 @@ function BatchGroupDirectory({
                                         0
                                       );
 
+                                      const statusClean = String(batch.status || "")
+                                        .toLowerCase()
+                                        .replaceAll("_", " ");
+
+                                      const isAvailable =
+                                        statusClean === "available";
+
+                                      const isCheckedOut =
+                                        statusClean === "checked out" ||
+                                        statusClean === "in progress";
+
+                                      const isCompleted =
+                                        statusClean === "completed";
+
+                                      const canOpenThisBatch =
+                                        canOpenAnyBatch(user?.role) ||
+                                        (
+                                          isCheckedOut &&
+                                          batch.checked_out_by === user?.username
+                                        );
+
                                       return (
                                         <tr
                                           key={batch.batch_id}
@@ -1371,9 +1392,7 @@ function BatchGroupDirectory({
                                           {showDocumentList && (
                                             <td className="p-2 text-slate-300 max-w-[260px]">
                                               <div className="max-h-20 overflow-auto rounded border border-slate-800 bg-slate-900 p-2 text-[11px] leading-5">
-                                                {(batch.doc_ids || []).join(
-                                                  ", "
-                                                )}
+                                                {(batch.doc_ids || []).join(", ")}
                                               </div>
                                             </td>
                                           )}
@@ -1384,13 +1403,11 @@ function BatchGroupDirectory({
 
                                           <td className="p-2 align-top min-w-[220px]">
                                             <div className="flex flex-col gap-2">
-                                              {batch.status === "Available" && (
+                                              {isAvailable && (
                                                 <button
                                                   type="button"
                                                   onClick={() =>
-                                                    checkoutBatch(
-                                                      batch.batch_id
-                                                    )
+                                                    checkoutBatch(batch.batch_id)
                                                   }
                                                   className="rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 transition"
                                                 >
@@ -1398,15 +1415,17 @@ function BatchGroupDirectory({
                                                 </button>
                                               )}
 
-                                              {(
-                                                canOpenAnyBatch(user?.role) ||
-                                                (
-                                                  batch.status ===
-                                                    "Checked Out" &&
-                                                  batch.checked_out_by ===
-                                                    user?.username
-                                                )
-                                              ) && (
+                                              {isCheckedOut && (
+                                                <button
+                                                  type="button"
+                                                  disabled
+                                                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 opacity-90"
+                                                >
+                                                  Checked Out
+                                                </button>
+                                              )}
+
+                                              {canOpenThisBatch && (
                                                 <Button
                                                   variant="secondary"
                                                   onClick={() =>
@@ -1417,7 +1436,7 @@ function BatchGroupDirectory({
                                                 </Button>
                                               )}
 
-                                              {batch.status === "Completed" && (
+                                              {isCompleted && (
                                                 <Button variant="secondary">
                                                   Completed
                                                 </Button>
