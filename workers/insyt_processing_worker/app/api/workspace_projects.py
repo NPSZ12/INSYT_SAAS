@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -7,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services.batch_service import get_container_client
-
+from app.services.storage_paths import build_project_base_path
 
 router = APIRouter(prefix="/api", tags=["workspace-projects"])
 
@@ -189,7 +190,105 @@ def build_project_metadata(
         "workspace": workspace,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    
+
+def get_workspace_container_name(workspace: str):
+    container_names = {
+        "capture": "insyt-capture",
+        "summaries": "insyt-summaries",
+        "discovery": "insyt-discovery",
+    }
+
+    container_name = container_names.get(workspace)
+
+    if not container_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid workspace container.",
+        )
+
+    return container_name
+
+
+def get_project_storage_targets(workspace: str):
+    try:
+        from azure.storage.blob import BlobServiceClient
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Azure Blob SDK unavailable: {error}",
+        )
+
+    container_name = get_workspace_container_name(workspace)
+
+    processing_connection = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    review_connection = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+    live_connection = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+    )
+
+    required = [
+        ("processing", "insytprodstorage", processing_connection),
+        ("review", "insytreviewstorage", review_connection),
+        ("live", "cdsintakestorage", live_connection),
+    ]
+
+    missing = [
+        target_name
+        for target_name, _account_name, connection_string in required
+        if not connection_string
+    ]
+
+    if missing:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Missing required storage connection string(s): "
+                + ", ".join(missing)
+            ),
+        )
+
+    targets = []
+
+    for target_name, account_name, connection_string in required:
+        if f"AccountName={account_name}" not in connection_string:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"{target_name} storage is not pointing to "
+                    f"{account_name}."
+                ),
+            )
+
+        blob_service = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+
+        container = blob_service.get_container_client(container_name)
+
+        try:
+            container.create_container()
+        except Exception as error:
+            if "ContainerAlreadyExists" not in str(error):
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Failed to ensure container {container_name} "
+                        f"in {account_name}: {error}"
+                    ),
+                )
+
+        targets.append(
+            {
+                "target": target_name,
+                "account": account_name,
+                "container_name": container_name,
+                "container": container,
+            }
+        )
+
+    return targets
+  
 @router.get("/registry/workspace-clients")
 def list_registered_clients():
     clients = load_registry_list(CLIENT_REGISTRY_BLOB)
@@ -398,8 +497,9 @@ def create_registered_workspace_project(
 def create_workspace_project(
     workspace: str,
     payload: CreateProjectRequest,
-    
 ):
+    workspace = workspace.lower().strip()
+
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -407,7 +507,7 @@ def create_workspace_project(
         )
 
     try:
-        container = get_container_client(workspace)
+        storage_targets = get_project_storage_targets(workspace)
 
         incoming_project_name = (
             payload.project_name or payload.project_id or ""
@@ -438,7 +538,11 @@ def create_workspace_project(
         if not client_uuid:
             client_uuid, client_name = get_or_create_client_uuid(client_name)
 
-        project_root = f"{client_name}/{project_name}"
+        project_root = build_project_base_path(
+            workspace=workspace,
+            client=client_name,
+            project=project_name,
+        )
 
         metadata = build_project_metadata(
             workspace=workspace,
@@ -450,55 +554,69 @@ def create_workspace_project(
 
         marker_blob = f"{project_root}/project.json"
 
-        if container.get_blob_client(marker_blob).exists():
+        existing_targets = []
+
+        for target in storage_targets:
+            container = target["container"]
+
+            if container.get_blob_client(marker_blob).exists():
+                existing_targets.append(
+                    f"{target['target']}:{target['account']}"
+                )
+
+        if existing_targets:
             raise HTTPException(
                 status_code=400,
-                detail=f"Project already exists: {project_name}",
+                detail=(
+                    f"Project already exists: {project_name}. "
+                    f"Existing target(s): {', '.join(existing_targets)}"
+                ),
             )
 
-        container.upload_blob(
-            name=marker_blob,
-            data=json.dumps(metadata, indent=2),
-            overwrite=False,
-            content_type="application/json",
-        )
         project_folders = [
+            f"{project_root}/source/native/.keep",
+            f"{project_root}/source/text/.keep",
+            f"{project_root}/source/protocol/.keep",
+            f"{project_root}/source/metadata/.keep",
+            f"{project_root}/source/preview/.keep",
+
+            f"{project_root}/processing_center/uploads/.keep",
+            f"{project_root}/processing_center/jobs/.keep",
+            f"{project_root}/processing_center/staged/.keep",
+            f"{project_root}/processing_center/reports/.keep",
+            f"{project_root}/processing_center/archive/.keep",
+            f"{project_root}/processing_center/removed/.keep",
+
             f"{project_root}/Batches/.keep",
 
+            f"{project_root}/SearchFolders/.keep",
+            f"{project_root}/SearchFolderResults/.keep",
+
+            f"{project_root}/Review/documents/.keep",
+            f"{project_root}/Review/batches/.keep",
+            f"{project_root}/Review/exports/.keep",
+            f"{project_root}/Review/qc/.keep",
+            f"{project_root}/Review/saved_records/.keep",
+            f"{project_root}/Review/statistical_qc/.keep",
+            f"{project_root}/Review/linked_entities/.keep",
+            f"{project_root}/Review/captured_entities/.keep",
+            f"{project_root}/Review/audit/.keep",
+            f"{project_root}/Review/workproduct/.keep",
+
+            f"{project_root}/overlays/raw/.keep",
+            f"{project_root}/overlays/final/.keep",
+
+            f"{project_root}/Deleted Data/linked_entities/.keep",
+
+            f"{project_root}/Audit/Batches/.keep",
+
             f"{project_root}/analytics/.keep",
-
             f"{project_root}/archive/.keep",
-
             f"{project_root}/logs/.keep",
-
-            f"{project_root}/review/batches/.keep",
-            f"{project_root}/review/exports/.keep",
-            f"{project_root}/review/qc/.keep",
-            f"{project_root}/review/saved_records/.keep",
-            f"{project_root}/review/statistical_qc/.keep",
-            f"{project_root}/review/linked_entities/.keep",
-            f"{project_root}/review/captured_entities/.keep",
-            f"{project_root}/review/audit/.keep",
-            f"{project_root}/review/workproduct/.keep",
-
-            f"{project_root}/source/metadata/.keep",
-            f"{project_root}/source/native/.keep",
-            f"{project_root}/source/protocol/.keep",
-            f"{project_root}/source/text/.keep",
-
-            f"{project_root}/uploads/.keep",
-
             f"{project_root}/reports/.keep",
-
             f"{project_root}/exports/.keep",
         ]
 
-        for folder_blob in project_folders:
-            container.upload_blob(
-                name=folder_blob,
-                data=b"",
-                overwrite=True,
-            )
         protocol_payload = {
             "project_uuid": project_uuid,
             "client_uuid": client_uuid,
@@ -510,13 +628,64 @@ def create_workspace_project(
             "created_at": metadata["created_at"],
         }
 
-        protocol_blob = f"{project_root}/{project_name}_Protocol.json"
-
-        container.upload_blob(
-            name=protocol_blob,
-            data=json.dumps(protocol_payload, indent=2),
-            overwrite=True,
+        protocol_blob = (
+            f"{project_root}/source/protocol/"
+            f"{project_name}_Protocol.json"
         )
+
+        created_targets = []
+
+        for target in storage_targets:
+            target_name = target["target"]
+            account_name = target["account"]
+            container_name = target["container_name"]
+            container = target["container"]
+
+            target_created_paths = []
+
+            container.upload_blob(
+                name=marker_blob,
+                data=json.dumps(
+                    {
+                        **metadata,
+                        "storage_target": target_name,
+                        "storage_account": account_name,
+                        "container": container_name,
+                    },
+                    indent=2,
+                ),
+                overwrite=False,
+                content_type="application/json",
+            )
+
+            target_created_paths.append(marker_blob)
+
+            for folder_blob in project_folders:
+                container.upload_blob(
+                    name=folder_blob,
+                    data=b"",
+                    overwrite=True,
+                )
+
+                target_created_paths.append(folder_blob)
+
+            container.upload_blob(
+                name=protocol_blob,
+                data=json.dumps(protocol_payload, indent=2),
+                overwrite=True,
+                content_type="application/json",
+            )
+
+            target_created_paths.append(protocol_blob)
+
+            created_targets.append(
+                {
+                    "target": target_name,
+                    "account": account_name,
+                    "container": container_name,
+                    "created_paths": target_created_paths,
+                }
+            )
 
         update_client_workspace(
             client_uuid=client_uuid,
@@ -532,13 +701,17 @@ def create_workspace_project(
         )
 
         return {
-            "message": f"Project created: {client_name}/{project_name}",
+            "message": (
+                f"Project created: "
+                f"{client_name}/{workspace}/{project_name}"
+            ),
             "workspace": workspace,
             "client": client_name,
             "client_uuid": client_uuid,
             "project": project_name,
             "project_uuid": project_uuid,
             "project_metadata": metadata,
+            "storage_targets": created_targets,
         }
 
     except HTTPException:

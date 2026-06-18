@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -8,7 +9,6 @@ from pydantic import BaseModel
 
 from app.services.batch_service import get_container_client
 from app.services.storage_paths import build_project_base_path
-
 
 router = APIRouter(prefix="/api", tags=["workspace-projects"])
 
@@ -190,7 +190,105 @@ def build_project_metadata(
         "workspace": workspace,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    
+
+def get_workspace_container_name(workspace: str):
+    container_names = {
+        "capture": "insyt-capture",
+        "summaries": "insyt-summaries",
+        "discovery": "insyt-discovery",
+    }
+
+    container_name = container_names.get(workspace)
+
+    if not container_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid workspace container.",
+        )
+
+    return container_name
+
+
+def get_project_storage_targets(workspace: str):
+    try:
+        from azure.storage.blob import BlobServiceClient
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Azure Blob SDK unavailable: {error}",
+        )
+
+    container_name = get_workspace_container_name(workspace)
+
+    processing_connection = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    review_connection = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+    live_connection = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+    )
+
+    required = [
+        ("processing", "insytprodstorage", processing_connection),
+        ("review", "insytreviewstorage", review_connection),
+        ("live", "cdsintakestorage", live_connection),
+    ]
+
+    missing = [
+        target_name
+        for target_name, _account_name, connection_string in required
+        if not connection_string
+    ]
+
+    if missing:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Missing required storage connection string(s): "
+                + ", ".join(missing)
+            ),
+        )
+
+    targets = []
+
+    for target_name, account_name, connection_string in required:
+        if f"AccountName={account_name}" not in connection_string:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"{target_name} storage is not pointing to "
+                    f"{account_name}."
+                ),
+            )
+
+        blob_service = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+
+        container = blob_service.get_container_client(container_name)
+
+        try:
+            container.create_container()
+        except Exception as error:
+            if "ContainerAlreadyExists" not in str(error):
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Failed to ensure container {container_name} "
+                        f"in {account_name}: {error}"
+                    ),
+                )
+
+        targets.append(
+            {
+                "target": target_name,
+                "account": account_name,
+                "container_name": container_name,
+                "container": container,
+            }
+        )
+
+    return targets
+  
 @router.get("/registry/workspace-clients")
 def list_registered_clients():
     clients = load_registry_list(CLIENT_REGISTRY_BLOB)
@@ -212,14 +310,10 @@ def list_registered_clients():
 
             parts = blob_name.split("/")
 
-            if len(parts) < 4:
+            if len(parts) < 3:
                 continue
 
             client_name = parts[0]
-            workspace_name = parts[1]
-
-            if workspace_name not in VALID_WORKSPACES:
-                continue
 
             if (
                 not client_name
@@ -239,7 +333,7 @@ def list_registered_clients():
                         "client_name": client_name,
                         "normalized_name": normalized,
                         "created_at": datetime.now(timezone.utc).isoformat(),
-                        "workspaces": [workspace_name],
+                        "workspaces": [workspace],
                     }
                 )
 
@@ -247,8 +341,8 @@ def list_registered_clients():
             else:
                 workspaces = existing_by_name[normalized].get("workspaces") or []
 
-                if workspace_name not in workspaces:
-                    workspaces.append(workspace_name)
+                if workspace not in workspaces:
+                    workspaces.append(workspace)
 
                 existing_by_name[normalized]["workspaces"] = sorted(workspaces)
 
@@ -265,8 +359,6 @@ def list_registered_clients():
 
 @router.get("/{workspace}/clients")
 def list_workspace_clients(workspace: str):
-    workspace = workspace.lower().strip()
-
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -279,23 +371,21 @@ def list_workspace_clients(workspace: str):
 
     for blob in container.list_blobs():
         blob_name = blob.name.strip("/")
+
+        if not blob_name.endswith("/project.json"):
+            continue
+
         parts = blob_name.split("/")
 
-        if len(parts) < 3:
-            continue
+        if len(parts) >= 3:
+            client = parts[0]
 
-        client = parts[0]
-        blob_workspace = parts[1]
-
-        if blob_workspace != workspace:
-            continue
-
-        if (
-            client
-            and not client.startswith("_")
-            and client.lower() != "system"
-        ):
-            clients.add(client)
+            if (
+                client
+                and not client.startswith("_")
+                and client.lower() != "system"
+            ):
+                clients.add(client)
 
     return {
         "status": "success",
@@ -309,9 +399,6 @@ def list_workspace_client_projects(
     workspace: str,
     client_name: str,
 ):
-    workspace = workspace.lower().strip()
-    client_name = client_name.strip("/").strip()
-
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
@@ -320,34 +407,27 @@ def list_workspace_client_projects(
 
     container = get_container_client(workspace)
 
-    prefix = f"{client_name}/{workspace}/"
+    prefix = f"{client_name.strip('/')}/"
 
     projects = set()
 
     for blob in container.list_blobs(name_starts_with=prefix):
         blob_name = blob.name.strip("/")
 
+        if not blob_name.endswith("/project.json"):
+            continue
+
         parts = blob_name.split("/")
 
-        if len(parts) < 3:
-            continue
+        if len(parts) >= 3:
+            project = parts[1]
 
-        client = parts[0]
-        blob_workspace = parts[1]
-        project = parts[2]
-
-        if client != client_name:
-            continue
-
-        if blob_workspace != workspace:
-            continue
-
-        if (
-            project
-            and not project.startswith("_")
-            and project.lower() != "system"
-        ):
-            projects.add(project)
+            if (
+                project
+                and not project.startswith("_")
+                and project.lower() != "system"
+            ):
+                projects.add(project)
 
     return {
         "status": "success",
@@ -356,13 +436,10 @@ def list_workspace_client_projects(
         "projects": sorted(projects),
     }
     
-    
 @router.post("/registry/workspace-projects/create")
 def create_registered_workspace_project(
     payload: RegistryCreateProjectRequest,
 ):
-    payload.workspace = payload.workspace.lower().strip()
-
     if payload.workspace not in VALID_WORKSPACES:
         raise HTTPException(
             status_code=400,
@@ -420,7 +497,6 @@ def create_registered_workspace_project(
 def create_workspace_project(
     workspace: str,
     payload: CreateProjectRequest,
-    
 ):
     workspace = workspace.lower().strip()
 
@@ -431,7 +507,7 @@ def create_workspace_project(
         )
 
     try:
-        container = get_container_client(workspace)
+        storage_targets = get_project_storage_targets(workspace)
 
         incoming_project_name = (
             payload.project_name or payload.project_id or ""
@@ -478,18 +554,25 @@ def create_workspace_project(
 
         marker_blob = f"{project_root}/project.json"
 
-        if container.get_blob_client(marker_blob).exists():
+        existing_targets = []
+
+        for target in storage_targets:
+            container = target["container"]
+
+            if container.get_blob_client(marker_blob).exists():
+                existing_targets.append(
+                    f"{target['target']}:{target['account']}"
+                )
+
+        if existing_targets:
             raise HTTPException(
                 status_code=400,
-                detail=f"Project already exists: {project_name}",
+                detail=(
+                    f"Project already exists: {project_name}. "
+                    f"Existing target(s): {', '.join(existing_targets)}"
+                ),
             )
 
-        container.upload_blob(
-            name=marker_blob,
-            data=json.dumps(metadata, indent=2),
-            overwrite=False,
-            content_type="application/json",
-        )
         project_folders = [
             f"{project_root}/source/native/.keep",
             f"{project_root}/source/text/.keep",
@@ -534,12 +617,6 @@ def create_workspace_project(
             f"{project_root}/exports/.keep",
         ]
 
-        for folder_blob in project_folders:
-            container.upload_blob(
-                name=folder_blob,
-                data=b"",
-                overwrite=True,
-            )
         protocol_payload = {
             "project_uuid": project_uuid,
             "client_uuid": client_uuid,
@@ -551,13 +628,64 @@ def create_workspace_project(
             "created_at": metadata["created_at"],
         }
 
-        protocol_blob = f"{project_root}/source/protocol/{project_name}_Protocol.json"
-
-        container.upload_blob(
-            name=protocol_blob,
-            data=json.dumps(protocol_payload, indent=2),
-            overwrite=True,
+        protocol_blob = (
+            f"{project_root}/source/protocol/"
+            f"{project_name}_Protocol.json"
         )
+
+        created_targets = []
+
+        for target in storage_targets:
+            target_name = target["target"]
+            account_name = target["account"]
+            container_name = target["container_name"]
+            container = target["container"]
+
+            target_created_paths = []
+
+            container.upload_blob(
+                name=marker_blob,
+                data=json.dumps(
+                    {
+                        **metadata,
+                        "storage_target": target_name,
+                        "storage_account": account_name,
+                        "container": container_name,
+                    },
+                    indent=2,
+                ),
+                overwrite=False,
+                content_type="application/json",
+            )
+
+            target_created_paths.append(marker_blob)
+
+            for folder_blob in project_folders:
+                container.upload_blob(
+                    name=folder_blob,
+                    data=b"",
+                    overwrite=True,
+                )
+
+                target_created_paths.append(folder_blob)
+
+            container.upload_blob(
+                name=protocol_blob,
+                data=json.dumps(protocol_payload, indent=2),
+                overwrite=True,
+                content_type="application/json",
+            )
+
+            target_created_paths.append(protocol_blob)
+
+            created_targets.append(
+                {
+                    "target": target_name,
+                    "account": account_name,
+                    "container": container_name,
+                    "created_paths": target_created_paths,
+                }
+            )
 
         update_client_workspace(
             client_uuid=client_uuid,
@@ -573,13 +701,17 @@ def create_workspace_project(
         )
 
         return {
-            "message": f"Project created: {client_name}/{workspace}/{project_name}",
+            "message": (
+                f"Project created: "
+                f"{client_name}/{workspace}/{project_name}"
+            ),
             "workspace": workspace,
             "client": client_name,
             "client_uuid": client_uuid,
             "project": project_name,
             "project_uuid": project_uuid,
             "project_metadata": metadata,
+            "storage_targets": created_targets,
         }
 
     except HTTPException:
