@@ -85,7 +85,11 @@ function FilesPageContent() {
     params.set("project", projectId);
     params.set("doc", docId);
 
-    router.push(`/summaries/review/doc?${params.toString()}`);
+    const targetUrl = `/summaries/review/doc?${params.toString()}`;
+
+    console.log("SUMMARIES FILE ROW CLICK ROUTING TO:", targetUrl);
+
+    router.push(targetUrl);
   }
 
   useEffect(() => {

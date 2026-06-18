@@ -157,6 +157,17 @@ export default function ProjectSidebar() {
       return;
     }
 
+    // Do not passively fetch Summaries batches from every Summaries page.
+    // Summaries direct file review must be allowed to open by doc without
+    // the sidebar performing a background batch lookup.
+    //
+    // The Review button still refreshes the current batch on click inside
+    // refreshAndOpenReview().
+    if (workspaceName === "summaries") {
+      setCurrentUserBatch("");
+      return;
+    }
+
     apiGet(
       `/api/${workspaceName}/projects/${encodeURIComponent(
         projectId
