@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from app.services.batch_service import (
     create_project_batch,
     list_project_batches,
-    checkout_project_batch,
+    remove_docs_from_batch,
 )
 
 router = APIRouter(
@@ -19,10 +19,14 @@ class CreateBatchRequest(BaseModel):
     workflow_type: str = "standard"
     created_by: str = "admin"
     search_folder_doc_ids: list[str] | None = None
-    
-class CheckoutBatchRequest(BaseModel):
+    options: dict | None = None
+
+
+class BatchRemoveDocsRequest(BaseModel):
     batch_name: str
-    username: str
+    doc_ids: list[str] = []
+    username: str = "admin"
+    preserve_data: bool = True
 
 
 @router.get("/projects/{project_id}/batches")
@@ -53,13 +57,14 @@ def create_summaries_batch(
     try:
         return create_project_batch(
             workspace="summaries",
-            client_id=client,
             project_id=project_id,
+            client_id=client,
             batch_size=payload.batch_size,
             level=payload.level,
             workflow_type=payload.workflow_type,
             created_by=payload.created_by,
             search_folder_doc_ids=payload.search_folder_doc_ids,
+            options=payload.options,
         )
 
     except HTTPException:
@@ -70,20 +75,23 @@ def create_summaries_batch(
             status_code=500,
             detail=f"Unable to create summaries batch: {type(e).__name__}: {e}",
         )
-        
-@router.post("/projects/{project_id}/batches/checkout")
-def checkout_summaries_batch(
+
+
+@router.post("/projects/{project_id}/batches/remove-docs")
+def remove_docs_from_summaries_batch(
     project_id: str,
-    payload: CheckoutBatchRequest,
+    payload: BatchRemoveDocsRequest,
     client: str = "",
 ):
     try:
-        return checkout_project_batch(
+        return remove_docs_from_batch(
             workspace="summaries",
-            client_id=client,
             project_id=project_id,
             batch_name=payload.batch_name,
+            doc_ids=payload.doc_ids,
             username=payload.username,
+            preserve_captured_data=payload.preserve_data,
+            client_id=client,
         )
 
     except HTTPException:
@@ -92,5 +100,5 @@ def checkout_summaries_batch(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Unable to checkout summaries batch: {type(e).__name__}: {e}",
+            detail=f"Unable to remove docs from summaries batch: {type(e).__name__}: {e}",
         )

@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
@@ -13,31 +13,68 @@ import { apiGet } from "../../../lib/api";
 
 type ProjectFile = {
   doc_id: string;
+  coding?: string;
+
   file_name?: string;
   name?: string;
   filename?: string;
+
   extension: string;
+
   blob_path?: string;
   path?: string;
+
   size: string;
   last_modified: string;
 };
 
 function FilesPageContent() {
   const searchParams = useSearchParams();
-  const clientId =
-    searchParams.get("client") || "";
+  const router = useRouter();
 
-  const projectId =
-    searchParams.get("project") || "";
+  const clientId = searchParams.get("client") || "";
+  const projectId = searchParams.get("project") || "";
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
   const [docIdSearch, setDocIdSearch] = useState("");
+  const [codingSearch, setCodingSearch] = useState("");
   const [fileNameSearch, setFileNameSearch] = useState("");
   const [extensionSearch, setExtensionSearch] = useState("");
   const [metadataSearch, setMetadataSearch] = useState("");
+  const [codingMap, setCodingMap] = useState<Record<string, string>>({});
+
+  function getFileName(file: ProjectFile) {
+    return file.file_name || file.filename || file.name || "";
+  }
+
+  function getBlobPath(file: ProjectFile) {
+    return file.blob_path || file.path || "";
+  }
+
+  function openDocument(docId: string) {
+    const storedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("insyt_user")
+        : null;
+
+    const user = storedUser ? JSON.parse(storedUser) : null;
+    const role = String(user?.role || "").toLowerCase();
+
+    if (role === "1l" || role === "1lm") {
+      return;
+    }
+
+    const params = new URLSearchParams();
+
+    if (clientId) params.set("client", clientId);
+    if (projectId) params.set("project", projectId);
+    if (docId) params.set("doc", docId);
+
+    router.push(`/summaries/review/doc?${params.toString()}`);
+  }
 
   useEffect(() => {
     if (!clientId || !projectId) {
@@ -60,11 +97,13 @@ function FilesPageContent() {
           `/api/summaries/files?${params.toString()}`
         );
 
-        const nextFiles = Array.isArray(response)
+        console.log("SUMMARIES FILES RESPONSE", response);
+
+        const incomingFiles = Array.isArray(response)
           ? response
           : response?.files || [];
 
-        setFiles(nextFiles);
+        setFiles(incomingFiles);
       } catch (error: any) {
         console.error("Failed to load Summaries files", error);
 
@@ -84,28 +123,57 @@ function FilesPageContent() {
     loadFiles();
   }, [clientId, projectId]);
 
+  useEffect(() => {
+    if (!clientId || !projectId) {
+      setCodingMap({});
+      return;
+    }
+
+    apiGet(
+      `/api/review/coding-map?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}&workspace=summaries`
+    )
+      .then((response: Record<string, string>) => {
+        setCodingMap(response || {});
+      })
+      .catch((error) => {
+        console.error("Failed to load Summaries coding map", error);
+        setCodingMap({});
+      });
+  }, [clientId, projectId]);
+
+  function getFileCoding(file: ProjectFile) {
+    const docId = file.doc_id || "";
+    const docIdWithoutExtension = docId.replace(/\.[^/.]+$/, "");
+
+    return (
+      codingMap[docId] ||
+      codingMap[docIdWithoutExtension] ||
+      file.coding ||
+      ""
+    );
+  }
+
   const filteredFiles = useMemo(() => {
     return files.filter((file) => {
-      const docIdMatch = file.doc_id
+      const fileName = getFileName(file);
+      const blobPath = getBlobPath(file);
+
+      const docIdMatch = (file.doc_id || "")
         .toLowerCase()
         .includes(docIdSearch.toLowerCase());
 
-      const fileName =
-        file.file_name ||
-        file.filename ||
-        file.name ||
-        "";
-
-      const blobPath =
-        file.blob_path ||
-        file.path ||
-        "";
+      const coding = getFileCoding(file);
+      const codingMatch = coding
+        .toLowerCase()
+        .includes(codingSearch.toLowerCase());
 
       const fileNameMatch = fileName
         .toLowerCase()
         .includes(fileNameSearch.toLowerCase());
 
-      const extensionMatch = file.extension
+      const extensionMatch = (file.extension || "")
         .toLowerCase()
         .includes(extensionSearch.toLowerCase());
 
@@ -123,6 +191,7 @@ function FilesPageContent() {
 
       return (
         docIdMatch &&
+        codingMatch &&
         fileNameMatch &&
         extensionMatch &&
         metadataMatch
@@ -130,7 +199,9 @@ function FilesPageContent() {
     });
   }, [
     files,
+    codingMap,
     docIdSearch,
+    codingSearch,
     fileNameSearch,
     extensionSearch,
     metadataSearch,
@@ -162,13 +233,22 @@ function FilesPageContent() {
         />
 
         <ContentCard title="File Search">
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-5 gap-4">
             <div>
               <FormLabel>Search Doc ID</FormLabel>
               <Input
                 value={docIdSearch}
                 onChange={setDocIdSearch}
                 placeholder="Doc ID"
+              />
+            </div>
+
+            <div>
+              <FormLabel>Search Coding</FormLabel>
+              <Input
+                value={codingSearch}
+                onChange={setCodingSearch}
+                placeholder="Reviewed"
               />
             </div>
 
@@ -220,6 +300,7 @@ function FilesPageContent() {
                 <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
                   <tr>
                     <th className="p-3 text-left">Doc ID</th>
+                    <th className="p-3 text-left">Coding</th>
                     <th className="p-3 text-left">File Name</th>
                     <th className="p-3 text-left">Extension</th>
                     <th className="p-3 text-left">Blob Path</th>
@@ -230,24 +311,26 @@ function FilesPageContent() {
 
                 <tbody>
                   {filteredFiles.map((file) => {
-                    const fileName =
-                      file.file_name ||
-                      file.filename ||
-                      file.name ||
-                      "";
-
-                    const blobPath =
-                      file.blob_path ||
-                      file.path ||
-                      "";
+                    const fileName = getFileName(file);
+                    const blobPath = getBlobPath(file);
 
                     return (
                       <tr
                         key={blobPath || `${file.doc_id}-${fileName}`}
                         className="border-t border-slate-800"
                       >
-                        <td className="p-3 text-sky-400 whitespace-nowrap">
-                          {file.doc_id}
+                        <td className="p-3">
+                          <button
+                            type="button"
+                            onClick={() => openDocument(file.doc_id)}
+                            className="text-sky-400 hover:text-sky-300 underline"
+                          >
+                            {file.doc_id}
+                          </button>
+                        </td>
+
+                        <td className="p-3 text-slate-300 whitespace-nowrap">
+                          {getFileCoding(file)}
                         </td>
 
                         <td className="p-3 text-slate-300 whitespace-nowrap">
@@ -276,7 +359,7 @@ function FilesPageContent() {
                   {!loading && filteredFiles.length === 0 && (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="p-6 text-center text-slate-500"
                       >
                         No files found for this Summaries project.
@@ -300,14 +383,3 @@ export default function FilesPage() {
     </Suspense>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
