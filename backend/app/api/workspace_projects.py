@@ -89,6 +89,25 @@ def save_registry_list(blob_name: str, items: list[dict]):
 def normalize_registry_name(value: str):
     return str(value or "").strip().lower()
 
+def is_valid_registry_client_name(value: str):
+    clean = str(value or "").strip()
+
+    if not clean:
+        return False
+
+    if clean.startswith("_"):
+        return False
+
+    if clean.lower() in [
+        "system",
+        "capture",
+        "discovery",
+        "summaries",
+        "development",
+    ]:
+        return False
+
+    return True
 
 def get_or_create_client_uuid(client_name: str):
     clean_client_name = normalize_project_name(client_name)
@@ -333,14 +352,63 @@ def get_project_storage_targets(workspace: str):
 @router.get("/registry/workspace-clients")
 def list_registered_clients():
     clients = load_registry_list(CLIENT_REGISTRY_BLOB)
+    projects = load_registry_list(PROJECT_REGISTRY_BLOB)
+
+    clients_by_name: dict[str, dict] = {}
+
+    # Start with existing client registry, but clean bad/junk entries.
+    for client in clients:
+        client_name = client.get("client_name") or ""
+
+        if not is_valid_registry_client_name(client_name):
+            continue
+
+        normalized = normalize_registry_name(client_name)
+
+        if normalized not in clients_by_name:
+            clients_by_name[normalized] = {
+                **client,
+                "client_name": client_name,
+                "normalized_name": normalized,
+                "workspaces": sorted(
+                    set(client.get("workspaces") or [])
+                ),
+            }
+
+    # Merge from project registry.
+    for project in projects:
+        client_name = project.get("client_name") or ""
+        workspace = project.get("workspace") or ""
+
+        if workspace not in VALID_WORKSPACES:
+            continue
+
+        if not is_valid_registry_client_name(client_name):
+            continue
+
+        normalized = normalize_registry_name(client_name)
+
+        if normalized not in clients_by_name:
+            clients_by_name[normalized] = {
+                "client_uuid": project.get("client_uuid") or str(uuid.uuid4()),
+                "client_name": client_name,
+                "normalized_name": normalized,
+                "created_at": (
+                    project.get("created_at")
+                    or datetime.now(timezone.utc).isoformat()
+                ),
+                "workspaces": [],
+            }
+
+        workspaces = clients_by_name[normalized].get("workspaces") or []
+
+        if workspace not in workspaces:
+            workspaces.append(workspace)
+
+        clients_by_name[normalized]["workspaces"] = sorted(workspaces)
 
     # Also discover existing clients from canonical INSYT project markers only:
     # {client}/{workspace}/{project}/project.json
-    existing_by_name = {
-        normalize_registry_name(client.get("client_name")): client
-        for client in clients
-    }
-
     for workspace in VALID_WORKSPACES:
         container = get_container_client(workspace)
 
@@ -354,44 +422,39 @@ def list_registered_clients():
                 continue
 
             client_name = parsed["client"]
+
+            if not is_valid_registry_client_name(client_name):
+                continue
+
             normalized = normalize_registry_name(client_name)
 
-            if normalized not in existing_by_name:
-                client_uuid = str(uuid.uuid4())
+            if normalized not in clients_by_name:
+                clients_by_name[normalized] = {
+                    "client_uuid": str(uuid.uuid4()),
+                    "client_name": client_name,
+                    "normalized_name": normalized,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "workspaces": [],
+                }
 
-                clients.append(
-                    {
-                        "client_uuid": client_uuid,
-                        "client_name": client_name,
-                        "normalized_name": normalized,
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                        "workspaces": [workspace],
-                    }
-                )
+            workspaces = clients_by_name[normalized].get("workspaces") or []
 
-                existing_by_name[normalized] = clients[-1]
-            else:
-                workspaces = (
-                    existing_by_name[normalized].get("workspaces")
-                    or []
-                )
+            if workspace not in workspaces:
+                workspaces.append(workspace)
 
-                if workspace not in workspaces:
-                    workspaces.append(workspace)
+            clients_by_name[normalized]["workspaces"] = sorted(workspaces)
 
-                existing_by_name[normalized]["workspaces"] = sorted(
-                    workspaces
-                )
+    cleaned_clients = list(clients_by_name.values())
 
-    save_registry_list(CLIENT_REGISTRY_BLOB, clients)
-
-    clients.sort(
+    cleaned_clients.sort(
         key=lambda item: normalize_registry_name(item.get("client_name"))
     )
 
+    save_registry_list(CLIENT_REGISTRY_BLOB, cleaned_clients)
+
     return {
         "status": "success",
-        "clients": clients,
+        "clients": cleaned_clients,
     }
 
 @router.get("/{workspace}/clients")
