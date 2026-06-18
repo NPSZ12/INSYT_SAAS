@@ -208,6 +208,47 @@ def get_workspace_container_name(workspace: str):
 
     return container_name
 
+def parse_insyt_project_marker_path(
+    blob_name: str,
+    workspace: str,
+):
+    clean_blob_name = str(blob_name or "").strip("/")
+    parts = clean_blob_name.split("/")
+
+    # Canonical INSYT project marker:
+    # {client}/{workspace}/{project}/project.json
+    if len(parts) != 4:
+        return None
+
+    if parts[3] != "project.json":
+        return None
+
+    client_name = parts[0]
+    workspace_name = parts[1]
+    project_name = parts[2]
+
+    if workspace_name != workspace:
+        return None
+
+    if (
+        not client_name
+        or client_name.startswith("_")
+        or client_name.lower() == "system"
+    ):
+        return None
+
+    if (
+        not project_name
+        or project_name.startswith("_")
+        or project_name.lower() == "system"
+    ):
+        return None
+
+    return {
+        "client": client_name,
+        "workspace": workspace_name,
+        "project": project_name,
+    }
 
 def get_project_storage_targets(workspace: str):
     try:
@@ -293,7 +334,8 @@ def get_project_storage_targets(workspace: str):
 def list_registered_clients():
     clients = load_registry_list(CLIENT_REGISTRY_BLOB)
 
-    # Also discover existing clients from all workspaces and backfill registry.
+    # Also discover existing clients from canonical INSYT project markers only:
+    # {client}/{workspace}/{project}/project.json
     existing_by_name = {
         normalize_registry_name(client.get("client_name")): client
         for client in clients
@@ -303,25 +345,15 @@ def list_registered_clients():
         container = get_container_client(workspace)
 
         for blob in container.list_blobs():
-            blob_name = blob.name.strip("/")
+            parsed = parse_insyt_project_marker_path(
+                blob_name=blob.name,
+                workspace=workspace,
+            )
 
-            if not blob_name.endswith("/project.json"):
+            if not parsed:
                 continue
 
-            parts = blob_name.split("/")
-
-            if len(parts) < 3:
-                continue
-
-            client_name = parts[0]
-
-            if (
-                not client_name
-                or client_name.startswith("_")
-                or client_name.lower() == "system"
-            ):
-                continue
-
+            client_name = parsed["client"]
             normalized = normalize_registry_name(client_name)
 
             if normalized not in existing_by_name:
@@ -339,12 +371,17 @@ def list_registered_clients():
 
                 existing_by_name[normalized] = clients[-1]
             else:
-                workspaces = existing_by_name[normalized].get("workspaces") or []
+                workspaces = (
+                    existing_by_name[normalized].get("workspaces")
+                    or []
+                )
 
                 if workspace not in workspaces:
                     workspaces.append(workspace)
 
-                existing_by_name[normalized]["workspaces"] = sorted(workspaces)
+                existing_by_name[normalized]["workspaces"] = sorted(
+                    workspaces
+                )
 
     save_registry_list(CLIENT_REGISTRY_BLOB, clients)
 
@@ -370,22 +407,15 @@ def list_workspace_clients(workspace: str):
     clients = set()
 
     for blob in container.list_blobs():
-        blob_name = blob.name.strip("/")
+        parsed = parse_insyt_project_marker_path(
+            blob_name=blob.name,
+            workspace=workspace,
+        )
 
-        if not blob_name.endswith("/project.json"):
+        if not parsed:
             continue
 
-        parts = blob_name.split("/")
-
-        if len(parts) >= 3:
-            client = parts[0]
-
-            if (
-                client
-                and not client.startswith("_")
-                and client.lower() != "system"
-            ):
-                clients.add(client)
+        clients.add(parsed["client"])
 
     return {
         "status": "success",
@@ -407,27 +437,24 @@ def list_workspace_client_projects(
 
     container = get_container_client(workspace)
 
-    prefix = f"{client_name.strip('/')}/"
+    clean_client = client_name.strip("/")
+    prefix = f"{clean_client}/{workspace}/"
 
     projects = set()
 
     for blob in container.list_blobs(name_starts_with=prefix):
-        blob_name = blob.name.strip("/")
+        parsed = parse_insyt_project_marker_path(
+            blob_name=blob.name,
+            workspace=workspace,
+        )
 
-        if not blob_name.endswith("/project.json"):
+        if not parsed:
             continue
 
-        parts = blob_name.split("/")
+        if parsed["client"] != clean_client:
+            continue
 
-        if len(parts) >= 3:
-            project = parts[1]
-
-            if (
-                project
-                and not project.startswith("_")
-                and project.lower() != "system"
-            ):
-                projects.add(project)
+        projects.add(parsed["project"])
 
     return {
         "status": "success",

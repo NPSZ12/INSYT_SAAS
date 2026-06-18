@@ -68,6 +68,16 @@ function ProjectHoursPageContent() {
   const workspace =
     searchParams.get("workspace") || "capture";
 
+  const clientId =
+    searchParams.get("client") ||
+    searchParams.get("clientId") ||
+    "";
+
+  const projectId =
+    searchParams.get("project") ||
+    searchParams.get("projectId") ||
+    "";
+
   const [rows, setRows] = useState<ProjectHoursRow[]>([]);
   const [message, setMessage] = useState("");
   const [expandedRows, setExpandedRows] =
@@ -82,10 +92,20 @@ function ProjectHoursPageContent() {
   function loadProjectHours() {
     setMessage("");
 
+    const params = new URLSearchParams();
+
+    params.set("workspace", workspace || "capture");
+
+    if (clientId) {
+      params.set("client", clientId);
+    }
+
+    if (projectId) {
+      params.set("project", projectId);
+    }
+
     apiGet(
-      `/api/timesheet/project-hours-summary?workspace=${encodeURIComponent(
-        workspace
-      )}`
+      `/api/timesheet/project-hours-summary?${params.toString()}`
     )
       .then((response: any) => {
         const incomingRows = response.rows || [];
@@ -114,7 +134,7 @@ function ProjectHoursPageContent() {
 
   useEffect(() => {
     loadProjectHours();
-  }, [workspace]);
+  }, [workspace, clientId, projectId]);
 
   return (
     <AppShell>

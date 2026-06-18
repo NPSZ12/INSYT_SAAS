@@ -250,26 +250,31 @@ export default function ProjectSidebar() {
     encodeURIComponent(projectId);
 
 
-  const projectQuery = clientId
-    ? `?client=${encodedClientId}&project=${encodedProjectId}`
-    : `?project=${encodedProjectId}`;
+  const projectContextParams = new URLSearchParams();
 
-  const overlaysQuery =
-    `?workspace=${encodeURIComponent(workspaceName)}` +
-    `&client=${encodedClientId}` +
-    `&project=${encodedProjectId}`;
+  projectContextParams.set("workspace", workspaceName);
 
-  const reviewQuery = clientId
-    ? `?client=${encodedClientId}&project=${encodedProjectId}${
-        currentUserBatch
-          ? `&batch=${encodeURIComponent(currentUserBatch)}`
-          : ""
-      }`
-    : `?project=${encodedProjectId}${
-        currentUserBatch
-          ? `&batch=${encodeURIComponent(currentUserBatch)}`
-          : ""
-      }`;
+  if (clientId) {
+    projectContextParams.set("client", clientId);
+  }
+
+  if (projectId) {
+    projectContextParams.set("project", projectId);
+  }
+
+  const projectQuery = `?${projectContextParams.toString()}`;
+
+  const overlaysQuery = projectQuery;
+
+  const reviewContextParams = new URLSearchParams(
+    projectContextParams.toString()
+  );
+
+  if (currentUserBatch) {
+    reviewContextParams.set("batch", currentUserBatch);
+  }
+
+  const reviewQuery = `?${reviewContextParams.toString()}`;
 
   async function refreshAndOpenReview() {
     if (!projectId) return;
@@ -303,19 +308,27 @@ export default function ProjectSidebar() {
       console.error("Failed to refresh current user batch:", error);
     }
 
-    const query = clientId
-      ? `?client=${encodedClientId}&project=${encodedProjectId}${
-          latestBatch
-            ? `&batch=${encodeURIComponent(latestBatch)}`
-            : ""
-        }&refresh=${refreshToken}`
-      : `?project=${encodedProjectId}${
-          latestBatch
-            ? `&batch=${encodeURIComponent(latestBatch)}`
-            : ""
-        }&refresh=${refreshToken}`;
+    const reviewOpenParams = new URLSearchParams();
 
-    router.push(`${workspaceBase}/review${query}`);
+    reviewOpenParams.set("workspace", workspaceName);
+
+    if (clientId) {
+      reviewOpenParams.set("client", clientId);
+    }
+
+    if (projectId) {
+      reviewOpenParams.set("project", projectId);
+    }
+
+    if (latestBatch) {
+      reviewOpenParams.set("batch", latestBatch);
+    }
+
+    reviewOpenParams.set("refresh", String(refreshToken));
+
+    router.push(
+      `${workspaceBase}/review?${reviewOpenParams.toString()}`
+    );
   }
 
   function isHiddenFor1L(label: string) {
@@ -392,13 +405,13 @@ export default function ProjectSidebar() {
           ? "Captured Coding"
           : "Captured Entities",
       href: isSummaries
-        ? `/summaries/summary-data?client=${clientId}&project=${projectId}&view=raw`
-        : `${workspaceBase}/captured-entities?client=${clientId}&project=${projectId}&view=raw`,
+        ? `/summaries/summary-data${projectQuery}&view=raw`
+        : `${workspaceBase}/captured-entities${projectQuery}&view=raw`,
       icon: Database,
     },
     {
       label: "Review Hours",
-      href: `/review-hours?workspace=${workspaceName}&client=${encodeURIComponent(clientId)}&project=${encodeURIComponent(projectId || "")}`,
+      href: `/review-hours${projectQuery}`,
       icon: Clock,
     },
     {
@@ -408,9 +421,7 @@ export default function ProjectSidebar() {
     },
     {
       label: "Review Team",
-      href: `/project-users?workspace=${workspaceName}&client=${encodeURIComponent(
-        clientId
-      )}&project=${encodeURIComponent(projectId || "")}`,
+      href: `/project-users${projectQuery}`,
       icon: Users,
     },
     {

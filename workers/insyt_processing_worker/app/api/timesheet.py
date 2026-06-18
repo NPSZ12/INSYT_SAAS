@@ -50,17 +50,28 @@ class ReviewHoursClockRequest(BaseModel):
     auto_logout_at: str | None = None
 
 
-def get_entries_blob_name(client_id: str, project_id: str):
+def get_entries_blob_name(
+    workspace: str,
+    client_id: str,
+    project_id: str,
+):
+    clean_workspace = workspace.strip("/")
     clean_client = client_id.strip("/")
     clean_project = project_id.strip("/")
 
-    return f"{clean_client}/{clean_project}/ReviewHours/time_entries.json"
+    return (
+        f"{clean_client}/"
+        f"{clean_workspace}/"
+        f"{clean_project}/"
+        f"ReviewHours/time_entries.json"
+    )
 
 
 def load_entries(workspace: str, client_id: str, project_id: str):
     container = get_container_client(workspace)
 
     blob_name = get_entries_blob_name(
+        workspace=workspace,
         client_id=client_id,
         project_id=project_id,
     )
@@ -89,6 +100,7 @@ def save_entries(
     container = get_container_client(workspace)
 
     blob_name = get_entries_blob_name(
+        workspace=workspace,
         client_id=client_id,
         project_id=project_id,
     )
@@ -380,7 +392,10 @@ def get_week_ending_for_entry_date(entry_date: date):
     return week_sunday.isoformat()
 
 
-def parse_review_hours_blob_path(blob_name: str):
+def parse_review_hours_blob_path(
+    blob_name: str,
+    workspace: str,
+):
     parts = blob_name.split("/")
 
     if len(parts) < 4:
@@ -392,12 +407,23 @@ def parse_review_hours_blob_path(blob_name: str):
     if parts[-1] != "time_entries.json":
         return None
 
-    client_id = parts[-4]
-    project_id = parts[-3]
+    clean_workspace = str(workspace or "").strip("/")
 
+    # Current canonical path:
+    # {client}/{workspace}/{project}/ReviewHours/time_entries.json
+    if len(parts) >= 5 and parts[-4] == clean_workspace:
+        return {
+            "client_id": parts[-5],
+            "project_id": parts[-3],
+            "path_style": "canonical",
+        }
+
+    # Legacy path:
+    # {client}/{project}/ReviewHours/time_entries.json
     return {
-        "client_id": client_id,
-        "project_id": project_id,
+        "client_id": parts[-4],
+        "project_id": parts[-3],
+        "path_style": "legacy",
     }
 
 
@@ -481,10 +507,25 @@ def project_hours_summary(
         if not blob_name.endswith("/ReviewHours/time_entries.json"):
             continue
 
-        parsed_path = parse_review_hours_blob_path(blob_name)
+        parsed_path = parse_review_hours_blob_path(
+            blob_name=blob_name,
+            workspace=workspace,
+        )
 
         if not parsed_path:
             continue
+        
+        if parsed_path.get("path_style") == "legacy":
+            # Keep legacy support, but avoid treating another workspace segment
+            # as a client if the blob is actually in a different workspace path.
+            parts = blob_name.split("/")
+            if len(parts) >= 5 and parts[-4] in [
+                "capture",
+                "discovery",
+                "summaries",
+                "development",
+            ]:
+                continue
 
         client_id = parsed_path["client_id"]
         project_id = parsed_path["project_id"]

@@ -60,7 +60,7 @@ export default function Sidebar({
           localStorage.getItem("insyt_selected_workspace") ||
           "capture";
 
-  const projectsHref = `/projects?workspace=${workspaceName}`;
+  const projectsHref = `${workspaceBase}/projects`;
 
   const queryClient = searchParams.get("client");
   const queryProject = searchParams.get("project");
@@ -115,22 +115,22 @@ export default function Sidebar({
         },
         {
           label: "Project Management",
-          href: `/new-project?workspace=${workspaceName}`,
+          href: `${workspaceBase}/new-project`,
           icon: FolderPlus,
         },
         {
           label: "Clients",
-          href: `/clients?workspace=${workspaceName}`,
+          href: "/clients",
           icon: Building2,
         },
         {
           label: "User Accounts",
-          href: `/user-access?workspace=${workspaceName}`,
+          href: `${workspaceBase}/user-access`,
           icon: Users,
         },
         {
           label: "Project Hours",
-          href: `/project-hours?workspace=${workspaceName}`,
+          href: `${workspaceBase}/project-hours${projectQuery}`,
           icon: Clock,
         },
       ]
@@ -202,7 +202,7 @@ export default function Sidebar({
         </Link>
 
         <Link
-          href={`/cyber-utility${projectQuery}`}
+          href={`${workspaceBase}/cyber-utility${projectQuery}`}
           title={collapsed ? "Cyber² Utility" : undefined}
           className={
             collapsed
