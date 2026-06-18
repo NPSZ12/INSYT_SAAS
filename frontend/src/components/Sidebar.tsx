@@ -41,24 +41,37 @@ export default function Sidebar({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const isSummaries = pathname.startsWith("/summaries");
-  const isDiscovery = pathname.startsWith("/discovery");
+  const queryWorkspace =
+    searchParams.get("workspace") || "";
 
-  const workspaceBase = isSummaries
-    ? "/summaries"
-    : isDiscovery
-      ? "/discovery"
-      : "/capture";
+  const storedWorkspace =
+    typeof window !== "undefined"
+      ? localStorage.getItem("insyt_selected_workspace") || ""
+      : "";
 
-  const workspaceName = pathname.startsWith("/summaries")
+  const pathnameWorkspace = pathname.startsWith("/summaries")
     ? "summaries"
     : pathname.startsWith("/discovery")
       ? "discovery"
       : pathname.startsWith("/capture")
         ? "capture"
-        : searchParams.get("workspace") ||
-          localStorage.getItem("insyt_selected_workspace") ||
-          "capture";
+        : "";
+
+  const workspaceName =
+    pathnameWorkspace ||
+    queryWorkspace ||
+    storedWorkspace ||
+    "capture";
+
+  const workspaceBase =
+    workspaceName === "summaries"
+      ? "/summaries"
+      : workspaceName === "discovery"
+        ? "/discovery"
+        : "/capture";
+
+  const isSummaries = workspaceName === "summaries";
+  const isDiscovery = workspaceName === "discovery";
 
   const projectsHref = `${workspaceBase}/projects`;
 
