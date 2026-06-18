@@ -81,13 +81,19 @@ function FilesPageContent() {
 
     const params = new URLSearchParams();
 
+    params.set("workspace", "summaries");
     params.set("client", clientId);
     params.set("project", projectId);
     params.set("doc", docId);
 
     const targetUrl = `/summaries/review/doc?${params.toString()}`;
 
-    console.log("SUMMARIES FILE ROW CLICK ROUTING TO:", targetUrl);
+    console.log("SUMMARIES FILE ROW HARD NAVIGATION TO:", targetUrl);
+
+    if (typeof window !== "undefined") {
+      window.location.assign(targetUrl);
+      return;
+    }
 
     router.push(targetUrl);
   }
