@@ -401,7 +401,7 @@ function BatchesPageContent() {
     params.set("project", projectId);
     params.set("batch", batchId);
 
-    router.push(`/summaries/review?${params.toString()}`);
+    router.push(`/summaries/review/doc?${params.toString()}`);
   }
 
   if (!clientId || !projectId) {

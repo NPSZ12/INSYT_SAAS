@@ -18,7 +18,8 @@ function SummariesEntitiesPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
+  const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
 
   const [data, setData] = useState<SummariesEntitiesResponse>({
@@ -65,11 +66,25 @@ function SummariesEntitiesPageContent() {
   }
 
   function openDocument(docId: string) {
-    router.push(
-      `/summaries/review?project=${encodeURIComponent(
-        projectId || ""
-      )}&batch=${encodeURIComponent(batchId)}&doc=${encodeURIComponent(docId)}`
-    );
+    const params = new URLSearchParams();
+
+    if (clientId) {
+      params.set("client", clientId);
+    }
+
+    if (projectId) {
+      params.set("project", projectId);
+    }
+
+    if (batchId) {
+      params.set("batch", batchId);
+    }
+
+    if (docId) {
+      params.set("doc", docId);
+    }
+
+    router.push(`/summaries/review/doc?${params.toString()}`);
   }
 
   return (

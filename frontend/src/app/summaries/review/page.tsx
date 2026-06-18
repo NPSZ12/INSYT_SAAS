@@ -30,6 +30,7 @@ function ReviewBatchLandingPageContent() {
   const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
+  const docId = searchParams.get("doc") || "";
 
   const [files, setFiles] = useState<BatchFile[]>([]);
   const [message, setMessage] = useState("");
@@ -37,23 +38,43 @@ function ReviewBatchLandingPageContent() {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [resolvedBatchId, setResolvedBatchId] = useState(batchId);
 
-  function openReview(docId?: string) {
-    const firstDocId = docId || files[0]?.doc_id || "";
+  useEffect(() => {
+    if (!clientId || !projectId || !docId) {
+      return;
+    }
+
+    const params = new URLSearchParams();
+
+    params.set("client", clientId);
+    params.set("project", projectId);
+    params.set("doc", docId);
+
+    if (batchId) {
+      params.set("batch", batchId);
+    }
+
+    router.replace(`/summaries/review/doc?${params.toString()}`);
+  }, [router, clientId, projectId, batchId, docId]);
+
+  function openReview(docIdOverride?: string) {
+    const firstDocId = docIdOverride || files[0]?.doc_id || "";
 
     if (!firstDocId) {
       setMessage("No document selected for review.");
       return;
     }
 
-    router.push(
-      `/summaries/review/doc?client=${encodeURIComponent(
-        clientId
-      )}&project=${encodeURIComponent(
-        projectId
-      )}&batch=${encodeURIComponent(
-        resolvedBatchId
-      )}&doc=${encodeURIComponent(firstDocId)}`
-    );
+    const params = new URLSearchParams();
+
+    params.set("client", clientId);
+    params.set("project", projectId);
+    params.set("doc", firstDocId);
+
+    if (resolvedBatchId) {
+      params.set("batch", resolvedBatchId);
+    }
+
+    router.push(`/summaries/review/doc?${params.toString()}`);
   }
 
   useEffect(() => {
@@ -77,18 +98,18 @@ function ReviewBatchLandingPageContent() {
 
         const selectedBatchId =
           batchId ||
-          batches.find(
-            (batch: any) => {
-              const status = String(batch.status || "")
-                .toLowerCase()
-                .replaceAll("_", " ");
+          batches.find((batch: any) => {
+            const status = String(batch.status || "")
+              .toLowerCase()
+              .replaceAll("_", " ");
 
-              return (
-                status === "checked out" &&
-                batch.checked_out_by?.toLowerCase() === user.username?.toLowerCase()
-              );
-            }
-          )?.batch_name || "";
+            return (
+              status === "checked out" &&
+              batch.checked_out_by?.toLowerCase() ===
+                user.username?.toLowerCase()
+            );
+          })?.batch_name ||
+          "";
 
         setResolvedBatchId(selectedBatchId);
 
@@ -121,13 +142,39 @@ function ReviewBatchLandingPageContent() {
       });
   }, [clientId, projectId, batchId, user]);
 
-  if (!projectId || !resolvedBatchId) {
+  if (!clientId || !projectId) {
     return (
       <AppShell>
         <PageContainer>
           <PageHeader
-            title="No Batch Selected"
-            subtitle="Please select a batch before starting review."
+            title="No Project Selected"
+            subtitle="Please select a Summaries project before starting review."
+          />
+        </PageContainer>
+      </AppShell>
+    );
+  }
+
+  if (docId) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="Opening Review"
+            subtitle="Preparing the Summaries review workspace..."
+          />
+        </PageContainer>
+      </AppShell>
+    );
+  }
+
+  if (!resolvedBatchId) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="No Review Target Selected"
+            subtitle="Please select a batch or open a document directly from Files."
           />
         </PageContainer>
       </AppShell>
