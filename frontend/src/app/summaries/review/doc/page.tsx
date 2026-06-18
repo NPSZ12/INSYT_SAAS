@@ -21,6 +21,7 @@ import type { PdfOutlineItem } from "../../../../components/summaries/PdfOutline
 
 function ReviewPageContent() {
   const searchParams = useSearchParams();
+  const docId = searchParams.get("doc") || "";
 
   const clientId =
     searchParams.get("client") || "";

@@ -73,6 +73,12 @@ export default function ProjectSidebar() {
     workspaceParam === "discovery" ||
     pathname.startsWith("/discovery");
 
+  const isSummariesReviewDoc =
+    isSummaries &&
+    pathname.startsWith("/summaries/review/doc") &&
+    Boolean(selectedBatch) &&
+    Boolean(searchParams.get("doc"));
+
   const workspaceBase = isSummaries
     ? "/summaries"
     : isDiscovery
@@ -181,7 +187,7 @@ export default function ProjectSidebar() {
 
   useEffect(() => {
     if (
-      !isSummaries ||
+      !isSummariesReviewDoc ||
       !clientId ||
       !projectId ||
       !selectedBatch ||
@@ -223,7 +229,7 @@ export default function ProjectSidebar() {
         setSelectedOutlineItem(null);
       });
   }, [
-    isSummaries,
+    isSummariesReviewDoc,
     clientId,
     projectId,
     selectedBatch,
@@ -463,7 +469,7 @@ export default function ProjectSidebar() {
 
       <div
         className={
-          isSummaries
+          isSummariesReviewDoc
             ? "h-1/2 flex flex-col border-b border-slate-800"
             : "h-full flex flex-col"
         }
@@ -562,7 +568,7 @@ export default function ProjectSidebar() {
         </nav>
       </div>
 
-      {isSummaries && !collapsed && (
+      {isSummariesReviewDoc && !collapsed && (
         <div className="h-1/2 flex flex-col overflow-hidden">
           <PdfOutlinePane
             projectId={projectId}
@@ -598,7 +604,7 @@ export default function ProjectSidebar() {
         </div>
       )}
 
-      {isSummaries && collapsed && (
+      {isSummariesReviewDoc && collapsed && (
         <div className="h-1/2 flex items-center justify-center border-t border-slate-800">
           <div className="rotate-90 whitespace-nowrap text-[11px] uppercase tracking-[0.18em] text-slate-500">
             PDF Outline
