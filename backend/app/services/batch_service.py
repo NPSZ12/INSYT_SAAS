@@ -35,18 +35,18 @@ def get_container_client(workspace: Workspace):
             detail=f"Unsupported workspace: {workspace}",
         )
 
-    connection_string = (
-        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
-        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
-        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-    )
+    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 
     if not connection_string:
         raise RuntimeError(
-            "Missing live source storage connection string. Set "
-            "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
-            "CDS_STORAGE_CONNECTION_STRING, or "
-            "AZURE_STORAGE_CONNECTION_STRING."
+            "Missing INSYT project storage connection string. Set "
+            "AZURE_STORAGE_CONNECTION_STRING to insytprodstorage."
+        )
+
+    if "AccountName=insytprodstorage" not in connection_string:
+        raise RuntimeError(
+            "AZURE_STORAGE_CONNECTION_STRING must point to "
+            "insytprodstorage for INSYT workspace project storage."
         )
 
     container_name = os.getenv(
@@ -54,7 +54,10 @@ def get_container_client(workspace: Workspace):
         DEFAULT_CONTAINER_MAP[workspace],
     )
 
-    print(f"BATCH SERVICE LIVE STORAGE: WORKSPACE={workspace} CONTAINER={container_name}")
+    print(
+        "BATCH SERVICE INSYT STORAGE: "
+        f"WORKSPACE={workspace} CONTAINER={container_name}"
+    )
 
     service_client = BlobServiceClient.from_connection_string(
         connection_string
