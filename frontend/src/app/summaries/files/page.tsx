@@ -54,7 +54,7 @@ function FilesPageContent() {
     return file.blob_path || file.path || "";
   }
 
-  function openDocument(docId: string) {
+  function openDocument(file: ProjectFile) {
     const storedUser =
       typeof window !== "undefined"
         ? localStorage.getItem("insyt_user")
@@ -67,11 +67,23 @@ function FilesPageContent() {
       return;
     }
 
+    const docId =
+      file.doc_id ||
+      file.file_name?.replace(/\.[^/.]+$/, "") ||
+      file.filename?.replace(/\.[^/.]+$/, "") ||
+      file.name?.replace(/\.[^/.]+$/, "") ||
+      "";
+
+    if (!docId) {
+      console.error("Unable to open Summaries file because doc_id is missing", file);
+      return;
+    }
+
     const params = new URLSearchParams();
 
-    if (clientId) params.set("client", clientId);
-    if (projectId) params.set("project", projectId);
-    if (docId) params.set("doc", docId);
+    params.set("client", clientId);
+    params.set("project", projectId);
+    params.set("doc", docId);
 
     router.push(`/summaries/review/doc?${params.toString()}`);
   }
@@ -319,13 +331,17 @@ function FilesPageContent() {
                         key={blobPath || `${file.doc_id}-${fileName}`}
                         className="border-t border-slate-800"
                       >
-                        <td className="p-3">
+                        <td className="p-3 whitespace-nowrap">
                           <button
                             type="button"
-                            onClick={() => openDocument(file.doc_id)}
+                            onClick={() => openDocument(file)}
                             className="text-sky-400 hover:text-sky-300 underline"
                           >
-                            {file.doc_id}
+                            {file.doc_id ||
+                              file.file_name ||
+                              file.filename ||
+                              file.name ||
+                              "Open Document"}
                           </button>
                         </td>
 
