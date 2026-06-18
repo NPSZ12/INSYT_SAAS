@@ -34,93 +34,10 @@ def clients_overview(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    if admin.role not in ALLOWED_ROLES:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied.",
-        )
-
-    users = db.query(User).all()
-
-    clients = defaultdict(
-        lambda: {
-            "client": "",
-            "workspaces": defaultdict(
-                lambda: {
-                    "workspace": "",
-                    "projects": defaultdict(
-                        lambda: {
-                            "project": "",
-                            "reviewers": [],
-                        }
-                    ),
-                }
-            ),
-        }
+    return clients_overview_storage_test(
+        db=db,
+        admin=admin,
     )
-
-    for user in users:
-        client_access = safe_list(user.client_access)
-        project_access = safe_list(user.project_access)
-        workspace_access = safe_list(user.workspace_access)
-
-        if user.role in ["INSYT Admin", "Admin"]:
-            continue
-
-        for project_key in project_access:
-            if "/" in project_key:
-                client, project = project_key.split("/", 1)
-            else:
-                client = client_access[0] if client_access else "Unassigned"
-                project = project_key
-
-            workspace = (
-                workspace_access[0]
-                if workspace_access
-                else "unknown"
-            )
-
-            client_node = clients[client]
-            client_node["client"] = client
-
-            workspace_node = client_node["workspaces"][workspace]
-            workspace_node["workspace"] = workspace
-
-            project_node = workspace_node["projects"][project]
-            project_node["project"] = project
-
-            project_node["reviewers"].append(
-                {
-                    "username": user.username,
-                    "display_name": user.display_name,
-                    "email": user.email,
-                    "role": user.role,
-                    "status": user.status,
-                    "auth_provider": user.auth_provider,
-                }
-            )
-
-    result = []
-
-    for client_node in clients.values():
-        workspaces = []
-
-        for workspace_node in client_node["workspaces"].values():
-            projects = []
-
-            for project_node in workspace_node["projects"].values():
-                projects.append(project_node)
-
-            workspace_node["projects"] = projects
-            workspaces.append(workspace_node)
-
-        client_node["workspaces"] = workspaces
-        result.append(client_node)
-
-    return {
-        "status": "success",
-        "clients": result,
-    }
 
 
 @router.get("/clients-overview-storage-test")
@@ -220,88 +137,15 @@ def clients_overview_storage_test(
             for reviewer in project_node.get("reviewers", [])
         )
 
-    # 1. First build from DB/project access so the endpoint always works
-    # even if Azure storage scan fails.
-    users = db.query(User).all()
+    discovered_project_keys = set()
 
-    for user in users:
-        if user.role in ["INSYT Admin", "Admin"]:
-            continue
-
-        client_access = safe_list(user.client_access)
-        project_access = safe_list(user.project_access)
-        workspace_access = safe_list(user.workspace_access)
-
-        if not project_access:
-            continue
-
-        for project_key in project_access:
-            project_key = str(project_key or "").strip()
-
-            if not project_key:
-                continue
-
-            parsed_client = None
-            parsed_workspace = None
-            parsed_project = None
-
-            parts = [
-                part
-                for part in project_key.split("/")
-                if part
-            ]
-
-            if len(parts) >= 3:
-                # Accept:
-                # capture/Client1/Project_Client1
-                # Client1/capture/Project_Client1
-                if parts[0] in workspace_names:
-                    parsed_workspace = parts[0]
-                    parsed_client = parts[1]
-                    parsed_project = parts[2]
-                elif parts[1] in workspace_names:
-                    parsed_client = parts[0]
-                    parsed_workspace = parts[1]
-                    parsed_project = parts[2]
-            elif len(parts) == 2:
-                parsed_client = parts[0]
-                parsed_project = parts[1]
-            else:
-                parsed_project = project_key
-
-            target_clients = (
-                [parsed_client]
-                if parsed_client
-                else client_access or ["Unassigned"]
-            )
-
-            target_workspaces = (
-                [parsed_workspace]
-                if parsed_workspace
-                else workspace_access or ["unknown"]
-            )
-
-            for client in target_clients:
-                for workspace in target_workspaces:
-                    project_node = add_project(
-                        client,
-                        workspace,
-                        parsed_project,
-                    )
-
-                    if not project_node:
-                        continue
-
-                    if not reviewer_already_added(
-                        project_node,
-                        user.username,
-                    ):
-                        project_node["reviewers"].append(
-                            reviewer_payload(user)
-                        )
-
-    # 2. Then try Azure storage discovery.
-    # IMPORTANT: import inside function so a bad storage import cannot break app startup/login.
+    # 1. Discover real clients/projects from INSYT storage only.
+    # Source: AZURE_STORAGE_CONNECTION_STRING = insytprodstorage.
+    #
+    # Only accept the new path:
+    #   Client1/capture/Project_Client1/...
+    #
+    # Do not create clients/projects from DB-only legacy user access.
     try:
         from azure.storage.blob import BlobServiceClient
 
@@ -329,19 +173,31 @@ def clients_overview_storage_test(
 
         container_names_by_workspace = {
             "capture": "insyt-capture",
-            "discovery": "insyt-discovery",
             "summaries": "insyt-summaries",
+            "discovery": "insyt-discovery",
         }
 
-        for workspace_name in workspace_names:
+        ignored_top_level_names = {
+            "capture",
+            "discovery",
+            "summaries",
+            "development",
+            "System",
+            "_system",
+            "_registry",
+            "source",
+            "processing_center",
+            "Batches",
+            "SearchFolders",
+            "QC",
+            "Audit",
+            "overlays",
+        }
+
+        for workspace_name, container_name in container_names_by_workspace.items():
             try:
                 if not source_blob_service:
                     continue
-
-                container_name = container_names_by_workspace.get(
-                    workspace_name,
-                    f"insyt-{workspace_name}",
-                )
 
                 container = source_blob_service.get_container_client(
                     container_name
@@ -359,35 +215,126 @@ def clients_overview_storage_test(
                     if len(parts) < 3:
                         continue
 
-                    # New/current path:
-                    # Client1/capture/Project_Client1/source/...
-                    if parts[1] in workspace_names:
-                        add_project(
-                            parts[0],
-                            parts[1],
-                            parts[2],
-                        )
+                    # Correct current path:
+                    # Client1/capture/Project_Capture1/...
+                    # Client1/summaries/Project_Summaries1/...
+                    # Client1/discovery/Project_Discovery1/...
+                    if parts[1] != workspace_name:
                         continue
 
-                    # Older path:
-                    # capture/Client1/Project_Client1/source/...
-                    if parts[0] in workspace_names:
-                        add_project(
-                            parts[1],
-                            parts[0],
-                            parts[2],
-                        )
+                    client = parts[0]
+                    workspace = parts[1]
+                    project = parts[2]
+
+                    if client in ignored_top_level_names:
                         continue
+
+                    project_node = add_project(
+                        client,
+                        workspace,
+                        project,
+                    )
+
+                    if project_node:
+                        discovered_project_keys.add(
+                            f"{client}/{workspace}/{project}"
+                        )
 
             except Exception as error:
                 warnings.append(
-                    f"Storage scan failed for {workspace_name}: {error}"
+                    f"Storage scan failed for {container_name}: {error}"
                 )
 
     except Exception as error:
         warnings.append(
             f"Storage discovery unavailable: {error}"
         )
+
+    # 2. Merge reviewers from DB only onto projects already discovered
+    # in INSYT storage. Do not create DB-only clients/projects.
+    users = db.query(User).all()
+
+    for user in users:
+        if user.role in ["INSYT Admin", "Admin"]:
+            continue
+
+        project_access = safe_list(user.project_access)
+        workspace_access = safe_list(user.workspace_access)
+        client_access = safe_list(user.client_access)
+
+        if not project_access:
+            continue
+
+        for project_key in project_access:
+            project_key = str(project_key or "").strip()
+
+            if not project_key:
+                continue
+
+            parts = [
+                part
+                for part in project_key.split("/")
+                if part
+            ]
+
+            possible_matches = set()
+
+            # Supported access formats:
+            #   Project_Client1
+            #   Client1/Project_Client1
+            #   capture/Client1/Project_Client1
+            #   Client1/capture/Project_Client1
+            if len(parts) >= 3:
+                if parts[0] in workspace_names:
+                    possible_matches.add(
+                        f"{parts[1]}/{parts[0]}/{parts[2]}"
+                    )
+                elif parts[1] in workspace_names:
+                    possible_matches.add(
+                        f"{parts[0]}/{parts[1]}/{parts[2]}"
+                    )
+
+            elif len(parts) == 2:
+                access_client = parts[0]
+                access_project = parts[1]
+
+                for workspace in workspace_names:
+                    possible_matches.add(
+                        f"{access_client}/{workspace}/{access_project}"
+                    )
+
+            else:
+                access_project = parts[0]
+
+                for access_client in client_access or []:
+                    for workspace in workspace_access or workspace_names:
+                        possible_matches.add(
+                            f"{access_client}/{workspace}/{access_project}"
+                        )
+
+            matched_keys = possible_matches.intersection(
+                discovered_project_keys
+            )
+
+            for matched_key in matched_keys:
+                client, workspace, project = matched_key.split("/", 2)
+
+                project_node = add_project(
+                    client,
+                    workspace,
+                    project,
+                )
+
+                if not project_node:
+                    continue
+
+                if not reviewer_already_added(
+                    project_node,
+                    user.username,
+                ):
+                    project_node["reviewers"].append(
+                        reviewer_payload(user)
+                    )
 
     result = []
 
