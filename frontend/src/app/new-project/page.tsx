@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import AppShell from "../../components/AppShell";
 import PageContainer from "../../components/PageContainer";
@@ -153,57 +152,57 @@ export default function NewProjectPage() {
   }, [workspace, selectedClient]);
 
   function createProject() {
-  setMessage("");
+    setMessage("");
 
-  const selectedRegistryClient = registryClients.find(
-    (client) => client.client_uuid === selectedClientUuid
-  );
+    const selectedRegistryClient = registryClients.find(
+      (client) => client.client_uuid === selectedClientUuid
+    );
 
-  const clientName = (
-    selectedRegistryClient?.client_name ||
-    newClientName
-  ).trim();
+    const clientName = (
+      selectedRegistryClient?.client_name ||
+      newClientName
+    ).trim();
 
-  if (!clientName) {
-    setMessage("Select an existing client or create a new client.");
-    return;
-  }
+    if (!clientName) {
+      setMessage("Select an existing client or create a new client.");
+      return;
+    }
 
-  if (!workspace) {
-    setMessage("Workspace is required.");
-    return;
-  }
+    if (!workspace) {
+      setMessage("Workspace is required.");
+      return;
+    }
 
-  if (!projectName.trim()) {
-    setMessage("Project name is required.");
-    return;
-  }
+    if (!projectName.trim()) {
+      setMessage("Project name is required.");
+      return;
+    }
 
-  apiPost("/api/registry/workspace-projects/create", {
-    client_uuid: selectedRegistryClient?.client_uuid || "",
-    client_name: clientName,
-    workspace,
-    project_name: projectName.trim(),
-  })
-    .then((response) => {
-      setMessage(
-        `Created ${response.client}/${response.workspace}/${response.project}.`
-      );
-
-      setProjectName("");
-      setNewClientName("");
-      setSelectedClientUuid(response.client_uuid || "");
-      setSelectedClient(response.client || clientName);
-      setSelectedProject(response.project || "");
-
-      loadRegistryClients();
-      loadProjects(response.client || clientName);
+    apiPost("/api/registry/workspace-projects/create", {
+      client_uuid: selectedRegistryClient?.client_uuid || "",
+      client_name: clientName,
+      workspace,
+      project_name: projectName.trim(),
     })
-    .catch((error) => {
-      console.error(error);
-      setMessage("Project creation failed.");
-    });
-}
+      .then((response) => {
+        setMessage(
+          `Created ${response.client}/${response.workspace}/${response.project}.`
+        );
+
+        setProjectName("");
+        setNewClientName("");
+        setSelectedClientUuid(response.client_uuid || "");
+        setSelectedClient(response.client || clientName);
+        setSelectedProject(response.project || "");
+
+        loadRegistryClients();
+        loadProjects(response.client || clientName);
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage("Project creation failed.");
+      });
+  }
 
   function normalizeDefaultFormat(value: string) {
     const normalized = value.trim().toLowerCase();

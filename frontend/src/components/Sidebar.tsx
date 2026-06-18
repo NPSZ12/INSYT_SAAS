@@ -125,7 +125,7 @@ export default function Sidebar({
         },
         {
           label: "User Accounts",
-          href: `${workspaceBase}/user-access`,
+          href: `/user-access`,
           icon: Users,
         },
         {
