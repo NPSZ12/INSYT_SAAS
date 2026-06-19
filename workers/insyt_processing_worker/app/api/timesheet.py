@@ -192,6 +192,102 @@ def safe_json_list(value: str):
 def normalize_access_value(value: str):
     return str(value or "").strip().lower()
 
+def access_list_contains_all(values: list):
+    normalized = [
+        normalize_access_value(item)
+        for item in values
+    ]
+
+    return "all" in normalized or "*" in normalized
+
+
+def access_list_contains(values: list, *candidates: str):
+    normalized_values = [
+        normalize_access_value(item)
+        for item in values
+    ]
+
+    normalized_candidates = [
+        normalize_access_value(candidate)
+        for candidate in candidates
+        if candidate
+    ]
+
+    return any(
+        candidate in normalized_values
+        for candidate in normalized_candidates
+    )
+
+
+def normalize_reviewer_role(role: str):
+    clean = str(role or "").strip().lower()
+
+    if clean in [
+        "1l",
+        "1l reviewer",
+        "1lm",
+        "1l manager",
+        "reviewer",
+        "reviewer 1l",
+    ]:
+        return "1L"
+
+    if clean == "qc":
+        return "QC"
+
+    if clean == "tl":
+        return "TL"
+
+    if clean == "rm":
+        return "RM"
+
+    return str(role or "").strip()
+
+
+def is_review_hours_reviewer_role(role: str):
+    return normalize_reviewer_role(role) == "1L"
+
+
+def parse_project_access_item(value: str):
+    clean = str(value or "").strip().strip("/")
+
+    if not clean or normalize_access_value(clean) in ["all", "*"]:
+        return None
+
+    parts = [
+        part.strip()
+        for part in clean.split("/")
+        if part.strip()
+    ]
+
+    # Preferred/canonical project access path:
+    # client/project
+    if len(parts) == 2:
+        return {
+            "client_id": parts[0],
+            "project_id": parts[1],
+        }
+
+    # Some older records may store workspace/client/project.
+    if len(parts) == 3 and normalize_access_value(parts[0]) in [
+        "capture",
+        "summaries",
+        "discovery",
+    ]:
+        return {
+            "workspace": parts[0],
+            "client_id": parts[1],
+            "project_id": parts[2],
+        }
+
+    # Project-only access is useful only when the endpoint already passed
+    # a client filter.
+    if len(parts) == 1:
+        return {
+            "project_id": parts[0],
+        }
+
+    return None
 
 def user_has_project_access(
     user: User,
@@ -206,40 +302,42 @@ def user_has_project_access(
     clean_workspace = normalize_access_value(workspace)
     clean_client = normalize_access_value(client_id)
     clean_project = normalize_access_value(project_id)
-    clean_project_path = normalize_access_value(
+    clean_client_project = normalize_access_value(
         f"{client_id}/{project_id}"
+    )
+    clean_workspace_client_project = normalize_access_value(
+        f"{workspace}/{client_id}/{project_id}"
     )
 
     has_workspace = (
-        "ALL" in workspace_access
-        or workspace in workspace_access
-        or clean_workspace in [
-            normalize_access_value(item)
-            for item in workspace_access
-        ]
+        access_list_contains_all(workspace_access)
+        or access_list_contains(
+            workspace_access,
+            workspace,
+            clean_workspace,
+        )
     )
 
     has_client = (
-        "ALL" in client_access
-        or client_id in client_access
-        or clean_client in [
-            normalize_access_value(item)
-            for item in client_access
-        ]
+        access_list_contains_all(client_access)
+        or access_list_contains(
+            client_access,
+            client_id,
+            clean_client,
+        )
     )
 
     has_project = (
-        "ALL" in project_access
-        or project_id in project_access
-        or f"{client_id}/{project_id}" in project_access
-        or clean_project in [
-            normalize_access_value(item)
-            for item in project_access
-        ]
-        or clean_project_path in [
-            normalize_access_value(item)
-            for item in project_access
-        ]
+        access_list_contains_all(project_access)
+        or access_list_contains(
+            project_access,
+            project_id,
+            f"{client_id}/{project_id}",
+            f"{workspace}/{client_id}/{project_id}",
+            clean_project,
+            clean_client_project,
+            clean_workspace_client_project,
+        )
     )
 
     return has_workspace and has_client and has_project
@@ -249,7 +347,7 @@ def make_empty_review_hours_row(user: User):
     return {
         "username": user.username,
         "display_name": user.display_name or user.username,
-        "role": user.role or "",
+        "role": normalize_reviewer_role(user.role),
         "mon_hours": 0,
         "tue_hours": 0,
         "wed_hours": 0,
@@ -277,9 +375,7 @@ def load_project_1l_reviewers(
     reviewers = []
 
     for user in users:
-        role = str(user.role or "").strip()
-
-        if role not in ["1L", "1L Reviewer"]:
+        if not is_review_hours_reviewer_role(user.role):
             continue
 
         if user_has_project_access(
@@ -502,11 +598,79 @@ def list_time(
         if entry.get("username") == current_user
     ]
 
+def seed_project_hours_rows_from_assignments(
+    db: Session,
+    rows_by_project: dict[str, dict],
+    workspaces_to_scan: list[str],
+    clean_client: str,
+    clean_project: str,
+):
+    users = (
+        db.query(User)
+        .filter(User.status == "Active")
+        .all()
+    )
+
+    for user in users:
+        if not is_review_hours_reviewer_role(user.role):
+            continue
+
+        workspace_access = safe_json_list(user.workspace_access)
+        client_access = safe_json_list(user.client_access)
+        project_access = safe_json_list(user.project_access)
+
+        for active_workspace in workspaces_to_scan:
+            if not (
+                access_list_contains_all(workspace_access)
+                or access_list_contains(workspace_access, active_workspace)
+            ):
+                continue
+
+            for item in project_access:
+                parsed = parse_project_access_item(item)
+
+                if not parsed:
+                    continue
+
+                parsed_workspace = parsed.get("workspace")
+
+                if parsed_workspace and normalize_access_value(parsed_workspace) != normalize_access_value(active_workspace):
+                    continue
+
+                project_id = parsed.get("project_id") or ""
+
+                if clean_project and project_id != clean_project:
+                    continue
+
+                client_id = parsed.get("client_id") or clean_client
+
+                if not client_id:
+                    continue
+
+                if clean_client and client_id != clean_client:
+                    continue
+
+                if not (
+                    access_list_contains_all(client_access)
+                    or access_list_contains(client_access, client_id)
+                ):
+                    continue
+
+                row_key = f"{active_workspace}/{client_id}/{project_id}"
+
+                if row_key not in rows_by_project:
+                    rows_by_project[row_key] = make_empty_project_hours_row(
+                        workspace=active_workspace,
+                        client_id=client_id,
+                        project_id=project_id,
+                    )
+
 @router.get("/project-hours-summary")
 def project_hours_summary(
     workspace: str = Query(default=""),
     client: str = Query(default=""),
     project: str = Query(default=""),
+    db: Session = Depends(get_db),
 ):
     requested_workspace = str(workspace or "").strip().lower()
     clean_client = str(client or "").strip()
@@ -524,6 +688,14 @@ def project_hours_summary(
 
     rows_by_project: dict[str, dict] = {}
     all_week_endings = set()
+    
+    seed_project_hours_rows_from_assignments(
+        db=db,
+        rows_by_project=rows_by_project,
+        workspaces_to_scan=workspaces_to_scan,
+        clean_client=clean_client,
+        clean_project=clean_project,
+    )
 
     for active_workspace in workspaces_to_scan:
         container = get_container_client(active_workspace)
@@ -824,7 +996,7 @@ def review_hours(
             grouped[username] = {
                 "username": username,
                 "display_name": entry.get("display_name") or username,
-                "role": entry.get("role") or "",
+                "role": normalize_reviewer_role(entry.get("role") or ""),
                 "mon_hours": 0,
                 "tue_hours": 0,
                 "wed_hours": 0,
@@ -853,7 +1025,13 @@ def review_hours(
 
         row["week_total"] = round(float(row["week_total"] or 0), 2)
 
-    rows.sort(key=lambda item: item.get("display_name") or item.get("username"))
+    rows.sort(
+        key=lambda item: (
+            item.get("display_name")
+            or item.get("username")
+            or ""
+        ).lower()
+    )
 
     return {
         "workspace": workspace,
