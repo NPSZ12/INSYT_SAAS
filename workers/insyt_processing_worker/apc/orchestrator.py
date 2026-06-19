@@ -175,7 +175,13 @@ def run_local_pipeline(
         prefix=doc_prefix,
     )
 
-    run_text_extraction(db, settings, job_id, matter_id)
+    run_text_extraction(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        workspace=workspace,
+    )
     run_ocr_preflight(db, settings, job_id, matter_id)
 
     if enable_live_ocr:

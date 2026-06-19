@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 import csv
+import json
+import os
 import shutil
+
+try:
+    from pypdf import PdfReader
+except Exception:
+    PdfReader = None
+
 from pathlib import Path
 
 from ..config import Settings
@@ -9,8 +17,162 @@ from ..db import LedgerDB
 from ..telemetry import StageRunner
 from ..util import json_dumps, new_id, utc_now
 
+
+
 TEXT_EXTENSIONS = {"txt", "csv", "json", "xml", "html", "htm", "md", "log", "rtf"}
 
+DEFAULT_SUMMARIES_STOP_MARKER = "Original Source Medical Records Converted to Text"
+
+
+def _summaries_stop_marker() -> str:
+    return os.getenv(
+        "APC_SUMMARIES_STOP_MARKER",
+        DEFAULT_SUMMARIES_STOP_MARKER,
+    ).strip()
+
+
+def _summaries_text_max_pages() -> int:
+    try:
+        return max(
+            1,
+            int(os.getenv("APC_SUMMARIES_TEXT_MAX_PAGES", "400")),
+        )
+    except Exception:
+        return 400
+
+
+def _summaries_include_stop_marker_page() -> bool:
+    return os.getenv(
+        "APC_SUMMARIES_INCLUDE_STOP_MARKER_PAGE",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _get_stage_status(row) -> dict:
+    raw = row["stage_status_json"] if "stage_status_json" in row.keys() else None
+
+    if not raw:
+        return {}
+
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _get_text_window_from_row(row) -> dict:
+    status = _get_stage_status(row)
+    text_extraction = status.get("text_extraction") or {}
+    text_window = text_extraction.get("text_window") or {}
+
+    return text_window if isinstance(text_window, dict) else {}
+
+
+def _extract_pdf_text_window(
+    path: Path,
+    *,
+    max_pages: int,
+    stop_marker: str,
+    include_stop_marker_page: bool,
+) -> tuple[str, str]:
+    """
+    Extracts PDF text only through the Summaries text window.
+
+    The native PDF remains untouched/full length. This only controls the staged
+    .txt output used by Summaries panes and summary_extracts.
+    """
+
+    if PdfReader is None:
+        return (
+            "PDF text extraction unavailable because pypdf is not installed.\n"
+            f"Original Path: {path}\n",
+            "pdf_text_extraction_unavailable",
+        )
+
+    output_pages: list[str] = []
+    marker = (stop_marker or "").lower()
+    marker_found = False
+    stop_marker_page = None
+
+    reader = PdfReader(str(path))
+
+    for page_number, page in enumerate(reader.pages, start=1):
+        if page_number > max_pages:
+            break
+
+        page_text = page.extract_text() or ""
+        page_has_marker = bool(marker and marker in page_text.lower())
+
+        if page_has_marker:
+            marker_found = True
+            stop_marker_page = page_number
+
+            if include_stop_marker_page:
+                output_pages.append(
+                    f"\n\n--- Page {page_number} ---\n\n{page_text}"
+                )
+
+            break
+
+        output_pages.append(
+            f"\n\n--- Page {page_number} ---\n\n{page_text}"
+        )
+
+    text = "\n".join(output_pages).strip()
+
+    if not text:
+        text = (
+            "No extractable text found within Summaries text window.\n"
+            f"Original Path: {path}\n"
+            f"Max Pages: {max_pages}\n"
+        )
+
+    source = (
+        "summaries_pdf_text_until_stop_marker"
+        if marker_found
+        else "summaries_pdf_text_until_max_pages"
+    )
+
+    if marker_found:
+        source = f"{source}_page_{stop_marker_page}"
+
+    return text, source
+
+
+def _extract_pdf_native_text(path: Path) -> tuple[str, str]:
+    """
+    Generic PDF native text extraction for non-Summaries workspaces.
+    Kept conservative to avoid changing Capture/Discovery behavior too much.
+    """
+
+    if PdfReader is None:
+        return (
+            "PDF text extraction unavailable because pypdf is not installed.\n"
+            f"Original Path: {path}\n",
+            "pdf_text_extraction_unavailable",
+        )
+
+    reader = PdfReader(str(path))
+    pages = []
+
+    for page_number, page in enumerate(reader.pages, start=1):
+        page_text = page.extract_text() or ""
+
+        pages.append(
+            f"\n\n--- Page {page_number} ---\n\n{page_text}"
+        )
+
+    text = "\n".join(pages).strip()
+
+    if not text:
+        return (
+            "No extractable PDF text found.\n"
+            f"Original Path: {path}\n",
+            "pdf_no_extractable_text",
+        )
+
+    return text, "pdf_native_text"
 
 def _safe_ext(extension: str | None) -> str:
     ext = (extension or "bin").lower().lstrip(".")
@@ -26,11 +188,47 @@ def _read_textish(path: Path, ext: str) -> tuple[str, str]:
     return "", "none"
 
 
-def _build_text_output(row) -> tuple[str, str]:
+def _build_text_output(row, workspace: str = "capture") -> tuple[str, str]:
     path = Path(row["original_path"])
     ext = _safe_ext(row["extension"])
+    workspace_key = str(workspace or "capture").strip().lower()
+
     if ext in TEXT_EXTENSIONS:
         return _read_textish(path, ext)
+
+    if ext == "pdf":
+        if workspace_key == "summaries":
+            text_window = _get_text_window_from_row(row)
+
+            max_pages = int(
+                text_window.get("page_count")
+                or text_window.get("max_pages")
+                or _summaries_text_max_pages()
+            )
+
+            max_pages = max(1, max_pages)
+
+            stop_marker = (
+                text_window.get("stop_marker")
+                or _summaries_stop_marker()
+            )
+
+            include_stop_marker_page = bool(
+                text_window.get("include_stop_marker_page")
+                if "include_stop_marker_page" in text_window
+                else _summaries_include_stop_marker_page()
+            )
+
+            return _extract_pdf_text_window(
+                path,
+                max_pages=max_pages,
+                stop_marker=stop_marker,
+                include_stop_marker_page=include_stop_marker_page,
+            )
+
+        if int(row["has_native_text"] or 0):
+            return _extract_pdf_native_text(path)
+
     if int(row["requires_ocr"] or 0):
         return (
             "OCR dry-run placeholder. Live OCR has not been performed yet.\n"
@@ -39,14 +237,16 @@ def _build_text_output(row) -> tuple[str, str]:
             f"Estimated OCR Pages: {int(row['page_count'] or 0)}\n",
             "ocr_pending_placeholder",
         )
+
     if int(row["has_native_text"] or 0):
         return (
-            "Native text signal detected, but full parser extraction is not enabled in this local scaffold.\n"
+            "Native text signal detected, but parser extraction is not available for this file type.\n"
             f"Doc ID: {row['doc_id']}\n"
             f"Original Path: {row['normalized_path']}\n"
             f"Estimated Native Text Bytes: {int(row['text_bytes'] or 0)}\n",
             "native_text_signal_placeholder",
         )
+
     return (
         "No extracted text available in local dry-run scaffold.\n"
         f"Doc ID: {row['doc_id']}\n"
@@ -76,14 +276,27 @@ def run_review_promotion(
     rows = db.query(
         """
         SELECT file_id, doc_id, original_path, normalized_path, extension, source_bytes, page_count,
-               text_bytes, has_native_text, requires_ocr, is_duplicate, is_denisted, family_id,
-               parent_file_id, md5, sha1, sha256
+            text_bytes, has_native_text, requires_ocr, is_duplicate, is_denisted, family_id,
+            parent_file_id, md5, sha1, sha256, stage_status_json
         FROM file_processing_metrics
         WHERE job_id=? AND is_container=0 AND is_denisted=0 AND is_duplicate=0 AND doc_id IS NOT NULL
         ORDER BY doc_id
         """,
         (job_id,),
     )
+    
+    job = db.query_one(
+        "SELECT metadata_json FROM processing_job WHERE job_id=?",
+        (job_id,),
+    )
+
+    workspace = "capture"
+
+    try:
+        metadata = json.loads(job["metadata_json"] or "{}") if job else {}
+        workspace = str(metadata.get("workspace") or "capture").strip().lower()
+    except Exception:
+        workspace = "capture"
 
     root = Path(output_root).resolve() / job_id
     native_dir = root / "source" / "native"
@@ -111,7 +324,10 @@ def run_review_promotion(
             try:
                 shutil.copy2(row["original_path"], native_output)
                 native_bytes += native_output.stat().st_size
-                text_content, text_source = _build_text_output(row)
+                text_content, text_source = _build_text_output(
+                    row,
+                    workspace=workspace,
+                )
                 text_output.write_text(text_content, encoding="utf-8", errors="replace")
                 text_bytes += text_output.stat().st_size
                 promoted += 1
@@ -200,6 +416,7 @@ def run_review_promotion(
         stage.metrics.exceptions = len(exceptions)
         stage.metrics.extra.update(
             {
+                "workspace": workspace,
                 "output_root": str(root),
                 "native_dir": str(native_dir),
                 "text_dir": str(text_dir),

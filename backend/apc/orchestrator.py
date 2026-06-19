@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .azure_layout import AzureRoutingConfig
 from .config import Settings
 from .db import LedgerDB
 from .stages.container_expansion import run_container_expansion
@@ -106,6 +107,7 @@ def run_local_pipeline(
     input_dir: str,
     matter_id: str,
     client_id: str,
+    workspace: str = "capture",
     doc_prefix: str = "INSYT",
     custodian_id: str | None = None,
     denist_hash_file: str | None = None,
@@ -122,6 +124,9 @@ def run_local_pipeline(
         client_id=client_id,
         metadata={
             "input_dir": input_dir,
+            "workspace": workspace,
+            "client_id": client_id,
+            "project": matter_id,
             "doc_prefix": doc_prefix,
             "custodian_id": custodian_id,
             "enable_ocr_dry_run": enable_ocr_dry_run,
@@ -153,8 +158,30 @@ def run_local_pipeline(
         prior_processed_index=prior_processed_index,
     )
     run_family_detection(db, settings, job_id, matter_id)
-    run_doc_id_assignment(db, settings, job_id, matter_id, prefix=doc_prefix)
-    run_text_extraction(db, settings, job_id, matter_id)
+
+    routing = AzureRoutingConfig.from_args(
+        workspace=workspace,
+        client=client_id,
+        project=matter_id,
+        azure_write=True,
+    )
+
+    run_doc_id_assignment(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        routing=routing,
+        prefix=doc_prefix,
+    )
+
+    run_text_extraction(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        workspace=workspace,
+    )
     run_ocr_preflight(db, settings, job_id, matter_id)
 
     if enable_live_ocr:
