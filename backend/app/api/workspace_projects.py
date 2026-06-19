@@ -722,6 +722,8 @@ def create_workspace_project(
             f"{project_root}/source/preview/.keep",
 
             f"{project_root}/Batches/.keep",
+            f"{project_root}/Batches/summary_sets/.keep",
+            
 
             f"{project_root}/SearchFolders/.keep",
             f"{project_root}/SearchFolderResults/.keep",
@@ -730,12 +732,14 @@ def create_workspace_project(
             f"{project_root}/Review/batches/.keep",
             f"{project_root}/Review/exports/.keep",
             f"{project_root}/Review/qc/.keep",
+            f"{project_root}/QC/summary_sets/.keep",
             f"{project_root}/Review/saved_records/.keep",
             f"{project_root}/Review/statistical_qc/.keep",
             f"{project_root}/Review/linked_entities/.keep",
             f"{project_root}/Review/captured_entities/.keep",
             f"{project_root}/Review/audit/.keep",
             f"{project_root}/Review/workproduct/.keep",
+            
 
             f"{project_root}/overlays/raw/.keep",
             f"{project_root}/overlays/final/.keep",
@@ -743,6 +747,7 @@ def create_workspace_project(
             f"{project_root}/Deleted Data/linked_entities/.keep",
 
             f"{project_root}/Audit/Batches/.keep",
+            f"{project_root}/Audit/summary_sets/.keep",
 
             f"{project_root}/analytics/.keep",
             f"{project_root}/archive/.keep",

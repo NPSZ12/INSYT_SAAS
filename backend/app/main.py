@@ -26,6 +26,7 @@ from app.api.summaries_batches import router as summaries_batches_router
 from app.api.capture_batches import router as capture_batches_router
 from app.api.capture_review_batches import router as capture_review_batches_router
 from app.api.summaries_review_batches import router as summaries_review_batches_router
+from app.api.summaries_summary_sets import router as summaries_summary_sets_router
 from app.api.discovery_batches import router as discovery_batches_router
 from app.api.cyber_utility import router as cyber_utility_router
 from app.api.capture_clients import router as capture_clients_router
@@ -208,6 +209,7 @@ app.include_router(summaries_batches_router)
 app.include_router(capture_batches_router)
 app.include_router(capture_review_batches_router)
 app.include_router(summaries_review_batches_router)
+app.include_router(summaries_summary_sets_router)
 app.include_router(discovery_batches_router)
 app.include_router(cyber_utility_router)
 app.include_router(capture_clients_router)
