@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from azure.storage.blob import (
+    BlobServiceClient,
     generate_blob_sas,
     BlobSasPermissions,
 )
