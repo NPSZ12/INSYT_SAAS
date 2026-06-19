@@ -3,7 +3,8 @@ type ButtonProps = {
   variant?: "primary" | "secondary" | "danger";
   fullWidth?: boolean;
   onClick?: () => void;
-  type?: "button" | "submit";
+  type?: "button" | "submit" | "reset";
+  disabled?: boolean;
 };
 
 export default function Button({
@@ -12,6 +13,7 @@ export default function Button({
   fullWidth = false,
   onClick,
   type = "button",
+  disabled = false,
 }: ButtonProps) {
   const baseStyles =
     "px-5 py-3 rounded-xl font-semibold transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-slate-950";
@@ -27,6 +29,7 @@ export default function Button({
     <button
       type={type}
       onClick={onClick}
+      disabled={disabled}
       className={`${fullWidth ? "w-full" : ""} ${baseStyles} ${styles}`}
     >
       {children}
