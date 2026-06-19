@@ -51,6 +51,7 @@ from app.services.storage_paths import (
     build_project_path,
     build_project_prefix,
 )
+from app.services.summary_outline_service import build_summary_extract_payload
 
 router = APIRouter(prefix="/api", tags=["processing-center-azure"])
 
@@ -1741,6 +1742,104 @@ def _write_live_source_blob_bytes(
         "content_type": content_type,
     }
 
+def _build_summary_extract_blob_path_from_text_path(text_blob_path: str) -> str:
+    """
+    Converts:
+      source/text/INSYT000000001.txt
+
+    Into:
+      source/summary_extracts/INSYT000000001.json
+    """
+
+    extract_blob_path = str(text_blob_path or "").replace(
+        "/source/text/",
+        "/source/summary_extracts/",
+    )
+
+    if extract_blob_path.endswith(".txt"):
+        extract_blob_path = extract_blob_path[:-4] + ".json"
+    elif not extract_blob_path.endswith(".json"):
+        extract_blob_path = f"{extract_blob_path}.json"
+
+    return extract_blob_path
+
+
+def _write_live_source_json_blob(
+    *,
+    workspace: str,
+    blob_path: str,
+    payload: dict[str, Any],
+    overwrite: bool = True,
+) -> dict[str, Any]:
+    data = json.dumps(
+        payload,
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    ).encode("utf-8")
+
+    return _write_live_source_blob_bytes(
+        workspace=workspace,
+        blob_path=blob_path,
+        data=data,
+        overwrite=overwrite,
+        content_type="application/json; charset=utf-8",
+    )
+
+
+def _create_live_summary_extract_from_text(
+    *,
+    workspace: str,
+    doc_id: str,
+    native_dest: str,
+    text_dest: str,
+    native_source: str,
+    text_bytes: bytes,
+    overwrite: bool = True,
+) -> dict[str, Any] | None:
+    """
+    Summaries-only post-promotion step.
+
+    Uses the Processing Center staged/promoted text, which may include OCR,
+    to create:
+      source/summary_extracts/{doc_id}.json
+
+    Does not modify the native PDF.
+    """
+
+    if workspace != "summaries":
+        return None
+
+    text = (text_bytes or b"").decode("utf-8", errors="replace")
+
+    summary_extract_dest = _build_summary_extract_blob_path_from_text_path(
+        text_dest,
+    )
+
+    payload = build_summary_extract_payload(
+        text=text,
+        doc_id=doc_id,
+        source_pdf_name=str(native_source or native_dest or "").rsplit("/", 1)[-1],
+        native_pdf_path=native_dest,
+        text_path=text_dest,
+        workspace=workspace,
+    )
+
+    upload = _write_live_source_json_blob(
+        workspace=workspace,
+        blob_path=summary_extract_dest,
+        payload=payload,
+        overwrite=overwrite,
+    )
+
+    return {
+        "summary_extract_destination": summary_extract_dest,
+        "summary_extract_upload": upload,
+        "summary_extract_created": True,
+        "summary_extract_section_count": payload.get("section_count", 0),
+    }
+
+
 def _read_review_json_blob(
     *,
     container_name: str,
@@ -1973,6 +2072,11 @@ def _build_staged_results_payload(
             f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
             f"source/text/{doc_id}.txt"
         )
+        
+        final_summary_extract_blob_path = (
+            f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
+            f"source/summary_extracts/{doc_id}.json"
+        )
 
         final_native_exists = _live_source_blob_exists(
             workspace=workspace,
@@ -1982,6 +2086,15 @@ def _build_staged_results_payload(
         final_text_exists = _live_source_blob_exists(
             workspace=workspace,
             blob_path=final_text_blob_path,
+        )
+        
+        final_summary_extract_exists = (
+            _live_source_blob_exists(
+                workspace=workspace,
+                blob_path=final_summary_extract_blob_path,
+            )
+            if workspace == "summaries"
+            else False
         )
 
         already_promoted = final_native_exists and final_text_exists
@@ -2010,8 +2123,14 @@ def _build_staged_results_payload(
                 "text_staged_bytes": text_blob.get("size") if text_blob else 0,
                 "final_native_blob_path": final_native_blob_path,
                 "final_text_blob_path": final_text_blob_path,
+                "final_summary_extract_blob_path": (
+                    final_summary_extract_blob_path
+                    if workspace == "summaries"
+                    else None
+                ),
                 "final_native_exists": final_native_exists,
                 "final_text_exists": final_text_exists,
+                "final_summary_extract_exists": final_summary_extract_exists,
                 "promotion_status": "Promoted" if already_promoted else "",
                 "promotion_result": "already_promoted" if already_promoted else "",
                 "ready_to_promote": ready_to_promote,
@@ -2232,6 +2351,43 @@ def promote_processing_center_staged_results(
             )
 
             if (native_dest_exists or text_dest_exists) and not request.overwrite:
+                summary_extract_result = None
+
+                if workspace == "summaries" and native_dest_exists and text_dest_exists:
+                    try:
+                        summary_extract_dest = (
+                            doc.get("final_summary_extract_blob_path")
+                            or _build_summary_extract_blob_path_from_text_path(str(text_dest))
+                        )
+
+                        summary_extract_exists = _live_source_blob_exists(
+                            workspace=workspace,
+                            blob_path=str(summary_extract_dest),
+                        )
+
+                        if not summary_extract_exists:
+                            summary_extract_result = _create_live_summary_extract_from_text(
+                                workspace=workspace,
+                                doc_id=doc_id,
+                                native_dest=str(native_dest),
+                                text_dest=str(text_dest),
+                                native_source=str(native_source),
+                                text_bytes=text_bytes,
+                                overwrite=True,
+                            )
+                        else:
+                            summary_extract_result = {
+                                "summary_extract_destination": summary_extract_dest,
+                                "summary_extract_created": False,
+                                "summary_extract_exists": True,
+                            }
+
+                    except Exception as summary_extract_exc:
+                        summary_extract_result = {
+                            "summary_extract_created": False,
+                            "summary_extract_error": str(summary_extract_exc),
+                        }
+
                 skipped.append(
                     {
                         "doc_id": doc_id,
@@ -2244,6 +2400,7 @@ def promote_processing_center_staged_results(
                         "text_destination_exists": text_dest_exists,
                         "native_destination": native_dest,
                         "text_destination": text_dest,
+                        "summary_extract": summary_extract_result,
                         "message": (
                             "Final source file already exists. "
                             "Set overwrite=true to replace it."
@@ -2269,12 +2426,32 @@ def promote_processing_center_staged_results(
                     content_type="text/plain; charset=utf-8",
                 )
 
+                summary_extract_result = None
+
+                if workspace == "summaries":
+                    try:
+                        summary_extract_result = _create_live_summary_extract_from_text(
+                            workspace=workspace,
+                            doc_id=doc_id,
+                            native_dest=str(native_dest),
+                            text_dest=str(text_dest),
+                            native_source=str(native_source),
+                            text_bytes=text_bytes,
+                            overwrite=True,
+                        )
+                    except Exception as summary_extract_exc:
+                        summary_extract_result = {
+                            "summary_extract_created": False,
+                            "summary_extract_error": str(summary_extract_exc),
+                        }
+
                 promoted.append(
                     {
                         "doc_id": doc_id,
                         "status": "promoted",
                         "native": native_upload,
                         "text": text_upload,
+                        "summary_extract": summary_extract_result,
                     }
                 )
 
