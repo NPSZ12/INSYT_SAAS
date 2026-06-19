@@ -1,6 +1,7 @@
 import json
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
+from urllib.parse import unquote
 
 from app.services.batch_service import get_container_client
 from app.services.protocol_service import load_protocol_fields
@@ -519,19 +520,20 @@ def load_review_document_by_doc_id(
     client: str,
     project: str,
     doc_id: str,
+    native_blob: str = "",
 ):
     container = get_container_client(workspace)
-    base_path = project_base_path(
-        workspace,
-        client,
-        project,
-    )
+
     requested = normalize_doc_lookup(doc_id)
 
-    project_variants = [
+    project_variants = []
+    for value in [
         project,
         project.replace(" ", "_"),
-    ]
+    ]:
+        clean_value = str(value or "").strip()
+        if clean_value and clean_value not in project_variants:
+            project_variants.append(clean_value)
 
     base_paths = []
 
@@ -567,23 +569,59 @@ def load_review_document_by_doc_id(
     ]
 
     matched_native = ""
-    matched_doc_id = doc_id
+    matched_doc_id = (
+        str(doc_id or "")
+        .strip()
+        .split("/")[-1]
+        .rsplit(".", 1)[0]
+    )
 
-    for native_prefix in native_prefixes:
-        for blob in container.list_blobs(name_starts_with=native_prefix):
-            filename = blob.name.split("/")[-1]
+    clean_native_blob = unquote(
+        str(native_blob or "")
+        .strip()
+        .strip("/")
+    )
 
-            if not filename or filename == ".keep":
-                continue
+    if clean_native_blob:
+        allowed_native_path = any(
+            clean_native_blob.startswith(prefix)
+            for prefix in native_prefixes
+        )
 
-            if normalize_doc_lookup(filename) == requested:
-                matched_native = blob.name
-                matched_doc_id = filename.rsplit(".", 1)[0]
+        supported_native_type = clean_native_blob.lower().endswith(
+            SUPPORTED_REVIEW_EXTENSIONS
+        )
+
+        if allowed_native_path and supported_native_type:
+            native_blob_client = container.get_blob_client(
+                clean_native_blob
+            )
+
+            if native_blob_client.exists():
+                matched_native = clean_native_blob
+
+    if not matched_native:
+        for native_prefix in native_prefixes:
+            for blob in container.list_blobs(
+                name_starts_with=native_prefix
+            ):
+                filename = blob.name.split("/")[-1]
+
+                if not filename or filename == ".keep":
+                    continue
+
+                if not filename.lower().endswith(
+                    SUPPORTED_REVIEW_EXTENSIONS
+                ):
+                    continue
+
+                if normalize_doc_lookup(filename) == requested:
+                    matched_native = blob.name
+                    matched_doc_id = filename.rsplit(".", 1)[0]
+                    break
+
+            if matched_native:
                 break
-
-        if matched_native:
-            break
-
 
     if not matched_native:
         raise HTTPException(
@@ -593,21 +631,68 @@ def load_review_document_by_doc_id(
 
     matched_text = ""
 
+    native_file_name = matched_native.split("/")[-1]
+    native_stem = native_file_name.rsplit(".", 1)[0]
+
+    candidate_text_paths = []
+
+    try:
+        candidate_text_paths.append(
+            resolve_text_blob_path(matched_native)
+        )
+    except Exception:
+        pass
+
     for text_prefix in text_prefixes:
-        for blob in container.list_blobs(name_starts_with=text_prefix):
-            filename = blob.name.split("/")[-1]
+        candidate_text_paths.extend(
+            [
+                f"{text_prefix}{matched_doc_id}.txt",
+                f"{text_prefix}{native_stem}.txt",
+                f"{text_prefix}{doc_id}.txt",
+            ]
+        )
 
-            if not filename or filename == ".keep":
-                continue
+    seen_candidates = set()
 
-            if normalize_doc_lookup(filename) == requested:
-                matched_text = blob.name
-                break
+    for candidate_text_path in candidate_text_paths:
+        clean_candidate = str(candidate_text_path or "").strip()
 
-        if matched_text:
+        if not clean_candidate or clean_candidate in seen_candidates:
+            continue
+
+        seen_candidates.add(clean_candidate)
+
+        text_blob_client = container.get_blob_client(clean_candidate)
+
+        if text_blob_client.exists():
+            matched_text = clean_candidate
             break
 
+    if not matched_text:
+        accepted_text_names = {
+            requested,
+            normalize_doc_lookup(matched_doc_id),
+            normalize_doc_lookup(native_stem),
+        }
+
+        for text_prefix in text_prefixes:
+            for blob in container.list_blobs(
+                name_starts_with=text_prefix
+            ):
+                filename = blob.name.split("/")[-1]
+
+                if not filename or filename == ".keep":
+                    continue
+
+                if normalize_doc_lookup(filename) in accepted_text_names:
+                    matched_text = blob.name
+                    break
+
+            if matched_text:
+                break
+
     text = ""
+    outline_items = []
 
     if matched_text:
         text = (
@@ -618,11 +703,16 @@ def load_review_document_by_doc_id(
             .decode("utf-8", errors="replace")
         )
 
+        try:
+            outline_items = parse_summary_outline(text)
+        except Exception:
+            outline_items = []
+
     native_url = get_workspace_blob_url(
         workspace,
         matched_native,
     )
-    
+
     review_state = load_document_review_state(
         workspace=workspace,
         client=client,
@@ -640,7 +730,12 @@ def load_review_document_by_doc_id(
         "further_review_reason": review_state.get("further_review_reason", ""),
         "review_state": review_state,
         "blob_name": matched_text,
-        "text": text,
+        "text": text[:200000],
+        "text_truncated": len(text) > 200000,
+        "text_length": len(text),
+        "outline_items": outline_items,
+        "text_blob": matched_text,
+        "text_exists": bool(matched_text),
         "native_url": native_url,
         "native_blob": matched_native,
     }
@@ -651,6 +746,7 @@ def load_current_review_document(
     batch: str,
     client: str = "",
     doc: str = "",
+    native_blob: str = "",
 ):
     if doc and not batch:
         return load_review_document_by_doc_id(
@@ -658,6 +754,7 @@ def load_current_review_document(
             client=client,
             project=project,
             doc_id=doc,
+            native_blob=native_blob,
         )
 
     # existing batch-based logic continues below
@@ -806,6 +903,8 @@ def get_current_review_document_compat(
     batch: str = "",
     client: str = "",
     doc: str = "",
+    native_blob: str = "",
+    blob_path: str = "",
 ):
     try:
         return load_current_review_document(
@@ -814,7 +913,11 @@ def get_current_review_document_compat(
             project=project,
             batch=batch,
             doc=doc,
+            native_blob=native_blob or blob_path,
         )
+
+    except HTTPException:
+        raise
 
     except Exception as e:
         raise HTTPException(
@@ -965,6 +1068,8 @@ def get_workspace_current_review_document(
     batch: str = "",
     client: str = "",
     doc: str = "",
+    native_blob: str = "",
+    blob_path: str = "",
 ):
     try:
         return load_current_review_document(
@@ -973,7 +1078,11 @@ def get_workspace_current_review_document(
             project=project,
             batch=batch,
             doc=doc,
+            native_blob=native_blob or blob_path,
         )
+
+    except HTTPException:
+        raise
 
     except Exception as e:
         raise HTTPException(

@@ -35,7 +35,7 @@ function FilesPageContent() {
   const [metadataSearch, setMetadataSearch] = useState("");
   const [codingMap, setCodingMap] = useState<Record<string, string>>({});
 
-  function openDocument(docId: string) {
+  function openDocument(file: ProjectFile) {
     const storedUser =
       typeof window !== "undefined"
         ? localStorage.getItem("insyt_user")
@@ -48,11 +48,29 @@ function FilesPageContent() {
       return;
     }
 
+    const docId =
+      file.doc_id ||
+      file.file_name?.replace(/\.[^/.]+$/, "") ||
+      "";
+
+    const nativeBlob =
+      file.blob_path ||
+      "";
+
+    if (!docId) {
+      console.error("Unable to open Capture file because doc_id is missing", file);
+      return;
+    }
+
     const params = new URLSearchParams();
 
     if (clientId) params.set("client", clientId);
     if (projectId) params.set("project", projectId);
-    if (docId) params.set("doc", docId);
+    params.set("doc", docId);
+
+    if (nativeBlob) {
+      params.set("native_blob", nativeBlob);
+    }
 
     router.push(`/capture/review/doc?${params.toString()}`);
   }
@@ -245,7 +263,7 @@ function FilesPageContent() {
                       <td className="p-3">
                         <button
                           type="button"
-                          onClick={() => openDocument(file.doc_id)}
+                          onClick={() => openDocument(file)}
                           className="text-sky-400 hover:text-sky-300 underline"
                         >
                           {file.doc_id}

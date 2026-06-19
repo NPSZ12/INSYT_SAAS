@@ -73,11 +73,22 @@ export default function ProjectSidebar() {
     workspaceParam === "discovery" ||
     pathname.startsWith("/discovery");
 
-  const isSummariesReviewDoc =
+  const selectedDocId = searchParams.get("doc") || "";
+
+  const isSummariesBatchReviewDoc =
     isSummaries &&
     pathname.startsWith("/summaries/review/doc") &&
     Boolean(selectedBatch) &&
-    Boolean(searchParams.get("doc"));
+    Boolean(selectedDocId);
+
+  const isSummariesFileReviewDoc =
+    isSummaries &&
+    pathname.startsWith("/summaries/files/review") &&
+    Boolean(selectedDocId);
+
+  const isSummariesReviewDoc =
+    isSummariesBatchReviewDoc ||
+    isSummariesFileReviewDoc;
 
   const workspaceBase = isSummaries
     ? "/summaries"
@@ -194,14 +205,12 @@ export default function ProjectSidebar() {
       });
   }, [workspaceName, clientId, projectId, user?.username]);
 
-  const selectedDocId = searchParams.get("doc") || "";
 
   useEffect(() => {
     if (
       !isSummariesReviewDoc ||
       !clientId ||
       !projectId ||
-      !selectedBatch ||
       !selectedDocId
     ) {
       setOutlineItems([]);
@@ -209,15 +218,18 @@ export default function ProjectSidebar() {
       return;
     }
 
-    apiGet(
-      `/api/summaries/review/current?client=${encodeURIComponent(
-        clientId
-      )}&project=${encodeURIComponent(
-        projectId
-      )}&batch=${encodeURIComponent(
-        selectedBatch
-      )}&doc=${encodeURIComponent(selectedDocId)}`
-    )
+    const params = new URLSearchParams();
+
+    params.set("client", clientId);
+    params.set("project", projectId);
+
+    if (selectedBatch) {
+      params.set("batch", selectedBatch);
+    }
+
+    params.set("doc", selectedDocId);
+
+    apiGet(`/api/summaries/review/current?${params.toString()}`)
       .then((response: any) => {
         const incomingOutlineItems =
           response?.outline_items || [];

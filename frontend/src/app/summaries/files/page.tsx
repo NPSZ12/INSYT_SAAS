@@ -22,6 +22,7 @@ type ProjectFile = {
   extension: string;
 
   blob_path?: string;
+  blob_name?: string;
   path?: string;
 
   size: string;
@@ -51,7 +52,7 @@ function FilesPageContent() {
   }
 
   function getBlobPath(file: ProjectFile) {
-    return file.blob_path || file.path || "";
+    return file.blob_path || file.blob_name || file.path || "";
   }
 
   function openDocument(file: ProjectFile) {
@@ -67,15 +68,27 @@ function FilesPageContent() {
       return;
     }
 
+    const fileName = getFileName(file);
+    const nativeBlob = getBlobPath(file);
+
     const docId =
       file.doc_id ||
-      file.file_name?.replace(/\.[^/.]+$/, "") ||
-      file.filename?.replace(/\.[^/.]+$/, "") ||
-      file.name?.replace(/\.[^/.]+$/, "") ||
+      fileName.replace(/\.[^/.]+$/, "") ||
       "";
 
     if (!docId) {
-      console.error("Unable to open Summaries file because doc_id is missing", file);
+      console.error(
+        "Unable to open Summaries file because doc_id is missing",
+        file
+      );
+      return;
+    }
+
+    if (!nativeBlob) {
+      console.error(
+        "Unable to open Summaries file because native blob path is missing",
+        file
+      );
       return;
     }
 
@@ -85,10 +98,16 @@ function FilesPageContent() {
     params.set("client", clientId);
     params.set("project", projectId);
     params.set("doc", docId);
+    params.set("native_blob", nativeBlob);
 
-    const targetUrl = `/summaries/review/doc?${params.toString()}`;
+    const targetUrl = `/summaries/files/review?${params.toString()}`;
 
-    console.log("SUMMARIES FILE ROW HARD NAVIGATION TO:", targetUrl);
+    console.log("SUMMARIES FILE ROW DIRECT FILE REVIEW:", {
+      file,
+      docId,
+      nativeBlob,
+      targetUrl,
+    });
 
     if (typeof window !== "undefined") {
       window.location.assign(targetUrl);

@@ -96,6 +96,10 @@ function ReviewPageContent() {
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
   const docId = searchParams.get("doc") || "";
+  const nativeBlobParam =
+    searchParams.get("native_blob") ||
+    searchParams.get("blob_path") ||
+    "";
 
   const docSetParam = searchParams.get("docSet") || "";
   const sourceParam = searchParams.get("source") || "";
@@ -128,13 +132,17 @@ function ReviewPageContent() {
     setReviewDoc(null);
 
     if (docId && !batchId) {
-      apiGet(
-        `/api/review/current?client=${encodeURIComponent(
-          clientId
-        )}&project=${encodeURIComponent(
-          projectId
-        )}&doc=${encodeURIComponent(docId)}`
-      )
+      const params = new URLSearchParams();
+
+      params.set("client", clientId);
+      params.set("project", projectId);
+      params.set("doc", docId);
+
+      if (nativeBlobParam) {
+        params.set("native_blob", nativeBlobParam);
+      }
+
+      apiGet(`/api/review/current?${params.toString()}`)
         .then((response) => {
           setReviewDoc(response);
         })
