@@ -1,7 +1,10 @@
 import json
+import os
+from urllib.parse import unquote
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
-from urllib.parse import unquote
+
 
 from app.services.batch_service import get_container_client
 from app.services.protocol_service import load_protocol_fields
@@ -26,13 +29,93 @@ router = APIRouter(prefix="/api", tags=["Review"])
 
 VALID_WORKSPACES = ["capture", "summaries", "discovery"]
 
+def get_source_container_name(workspace: str) -> str:
+    workspace_clean = str(workspace or "").lower().strip()
+
+    if workspace_clean == "capture":
+        return os.getenv("AZURE_CAPTURE_CONTAINER", "insyt-capture")
+
+    if workspace_clean == "summaries":
+        return os.getenv("AZURE_SUMMARIES_CONTAINER", "insyt-summaries")
+
+    if workspace_clean == "discovery":
+        return os.getenv("AZURE_DISCOVERY_CONTAINER", "insyt-discovery")
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported workspace: {workspace}",
+    )
+
+
+def get_source_container_client(workspace: str):
+    workspace_clean = str(workspace or "").lower().strip()
+
+    if workspace_clean not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid workspace.",
+        )
+
+    connection_string = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
+
+    if not connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Live source storage is not configured. Set "
+                "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+                "CDS_STORAGE_CONNECTION_STRING, or "
+                "AZURE_STORAGE_CONNECTION_STRING."
+            ),
+        )
+
+    service = BlobServiceClient.from_connection_string(connection_string)
+
+    return service.get_container_client(
+        get_source_container_name(workspace_clean)
+    )
+
+
+def get_source_blob_url(
+    workspace: str,
+    blob_path: str,
+):
+    if not blob_path:
+        return ""
+
+    container = get_source_container_client(workspace)
+
+    blob_client = container.get_blob_client(blob_path)
+
+    account_name = container.account_name
+
+    account_key = (
+        container.credential.account_key
+        if hasattr(container.credential, "account_key")
+        else container.credential
+    )
+
+    sas_token = generate_blob_sas(
+        account_name=account_name,
+        container_name=container.container_name,
+        blob_name=blob_path,
+        account_key=account_key,
+        permission=BlobSasPermissions(read=True),
+        expiry=datetime.now(timezone.utc) + timedelta(hours=4),
+    )
+
+    return f"{blob_client.url}?{sas_token}"
 
 def list_workspace_project_files(
     workspace: str,
     project_id: str,
     client_id: str = "",
 ):
-    container = get_container_client(workspace)
+    container = get_source_container_client(workspace)
 
     clean_project_id = project_id.strip("/")
     clean_client_id = client_id.strip("/")
@@ -74,6 +157,7 @@ def read_workspace_blob_text(workspace: str, blob_path: str):
 from datetime import datetime, timedelta, timezone
 
 from azure.storage.blob import (
+    BlobServiceClient,
     generate_blob_sas,
     BlobSasPermissions,
 )
@@ -522,7 +606,7 @@ def load_review_document_by_doc_id(
     doc_id: str,
     native_blob: str = "",
 ):
-    container = get_container_client(workspace)
+    source_container = get_source_container_client(workspace)
 
     requested = normalize_doc_lookup(doc_id)
 
@@ -582,6 +666,26 @@ def load_review_document_by_doc_id(
         .strip("/")
     )
 
+    # Support accidental full Azure URLs by trimming to the project-relative path
+    # when the native blob is passed as a URL instead of a blob name.
+    if "/source/native/" in clean_native_blob and "://" in clean_native_blob:
+        marker = "/source/native/"
+        before, after = clean_native_blob.split(marker, 1)
+
+        path_parts = before.split("/")
+        if len(path_parts) >= 3:
+            client_part = path_parts[-3]
+            workspace_part = path_parts[-2]
+            project_part = path_parts[-1]
+
+            clean_native_blob = (
+                f"{client_part}/"
+                f"{workspace_part}/"
+                f"{project_part}"
+                f"{marker}"
+                f"{after}"
+            )
+
     if clean_native_blob:
         allowed_native_path = any(
             clean_native_blob.startswith(prefix)
@@ -593,7 +697,7 @@ def load_review_document_by_doc_id(
         )
 
         if allowed_native_path and supported_native_type:
-            native_blob_client = container.get_blob_client(
+            native_blob_client = source_container.get_blob_client(
                 clean_native_blob
             )
 
@@ -602,7 +706,7 @@ def load_review_document_by_doc_id(
 
     if not matched_native:
         for native_prefix in native_prefixes:
-            for blob in container.list_blobs(
+            for blob in source_container.list_blobs(
                 name_starts_with=native_prefix
             ):
                 filename = blob.name.split("/")[-1]
@@ -662,7 +766,7 @@ def load_review_document_by_doc_id(
 
         seen_candidates.add(clean_candidate)
 
-        text_blob_client = container.get_blob_client(clean_candidate)
+        text_blob_client = source_container.get_blob_client(clean_candidate)
 
         if text_blob_client.exists():
             matched_text = clean_candidate
@@ -676,7 +780,7 @@ def load_review_document_by_doc_id(
         }
 
         for text_prefix in text_prefixes:
-            for blob in container.list_blobs(
+            for blob in source_container.list_blobs(
                 name_starts_with=text_prefix
             ):
                 filename = blob.name.split("/")[-1]
@@ -696,7 +800,7 @@ def load_review_document_by_doc_id(
 
     if matched_text:
         text = (
-            container
+            source_container
             .get_blob_client(matched_text)
             .download_blob()
             .readall()
@@ -708,7 +812,7 @@ def load_review_document_by_doc_id(
         except Exception:
             outline_items = []
 
-    native_url = get_workspace_blob_url(
+    native_url = get_source_blob_url(
         workspace,
         matched_native,
     )
@@ -829,8 +933,8 @@ def load_current_review_document(
     native_blob = native_file["path"]
     text_blob_path = resolve_text_blob_path(native_blob)
 
-    container = get_container_client(workspace)
-    text_blob = container.get_blob_client(text_blob_path)
+    source_container = get_source_container_client(workspace)
+    text_blob = source_container.get_blob_client(text_blob_path)
 
     text_exists = text_blob.exists()
     text = ""
@@ -879,7 +983,7 @@ def load_current_review_document(
         "review_state": review_state,
         "blob_name": text_blob_path,
         "fields": protocol_fields,
-        "native_url": get_workspace_blob_url(workspace, native_blob),
+        "native_url": get_source_blob_url(workspace, native_blob),
         "native_blob": native_blob,
         "text": text[:200000],
         "text_truncated": len(text) > 200000,
@@ -931,6 +1035,8 @@ def get_workspace_review_preview(
     project: str,
     client: str = "",
     doc: str = "",
+    native_blob: str = "",
+    blob_path: str = "",
 ):
     if workspace not in VALID_WORKSPACES:
         raise HTTPException(
@@ -955,6 +1061,7 @@ def get_workspace_review_preview(
         client=client,
         project=project,
         doc_id=doc,
+        native_blob=native_blob or blob_path,
     )
 
     native_blob = document.get("native_blob", "")
@@ -976,22 +1083,22 @@ def get_workspace_review_preview(
     preview_pdf_url = ""
     preview_html_url = ""
 
-    container = get_container_client(workspace)
+    source_container = get_source_container_client(workspace)
 
     if preview_pdf:
-        preview_pdf_blob = container.get_blob_client(preview_pdf)
+        preview_pdf_blob = source_container.get_blob_client(preview_pdf)
 
         if preview_pdf_blob.exists():
-            preview_pdf_url = get_workspace_blob_url(
+            preview_pdf_url = get_source_blob_url(
                 workspace,
                 preview_pdf,
             )
 
     if preview_html:
-        preview_html_blob = container.get_blob_client(preview_html)
+        preview_html_blob = source_container.get_blob_client(preview_html)
 
         if preview_html_blob.exists():
-            preview_html_url = get_workspace_blob_url(
+            preview_html_url = get_source_blob_url(
                 workspace,
                 preview_html,
             )
@@ -999,7 +1106,7 @@ def get_workspace_review_preview(
     native_url = document.get("native_url", "")
 
     text_url = (
-        get_workspace_blob_url(workspace, text_blob)
+        get_source_blob_url(workspace, text_blob)
         if text_blob
         else ""
     )
