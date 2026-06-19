@@ -13,6 +13,7 @@ import Select from "../../../components/Select";
 import FormLabel from "../../../components/FormLabel";
 import StatusBadge from "../../../components/StatusBadge";
 import DataTable from "../../../components/DataTable";
+import SummarySetsPanel from "../../../components/summaries/SummarySetsPanel";
 import { apiGet, apiPost } from "../../../lib/api";
 
 type Batch = {
@@ -111,6 +112,13 @@ function BatchesPageContent() {
     user?.role === "RM" ||
     user?.role === "TL" ||
     user?.role === "QC";
+
+  const canManageSummarySets =
+    user?.role === "INSYT Admin" ||
+    user?.role === "CDS Admin" ||
+    user?.role === "Admin" ||
+    user?.role === "RM" ||
+    user?.role === "TL";
 
   function loadBatches() {
     if (!projectId) return;
@@ -736,6 +744,16 @@ function BatchesPageContent() {
           <p className="text-sm text-sky-400 mb-6">
             {message}
           </p>
+        )}
+
+        {canManageSummarySets && (
+          <div className="mb-6">
+            <SummarySetsPanel
+              clientId={clientId}
+              projectId={projectId}
+              user={user}
+            />
+          </div>
         )}
 
         {mode === "review" && (
