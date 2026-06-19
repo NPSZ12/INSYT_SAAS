@@ -295,52 +295,34 @@ def user_has_project_access(
     client_id: str,
     project_id: str,
 ):
-    workspace_access = safe_json_list(user.workspace_access)
-    client_access = safe_json_list(user.client_access)
     project_access = safe_json_list(user.project_access)
 
     clean_workspace = normalize_access_value(workspace)
     clean_client = normalize_access_value(client_id)
     clean_project = normalize_access_value(project_id)
-    clean_client_project = normalize_access_value(
-        f"{client_id}/{project_id}"
-    )
-    clean_workspace_client_project = normalize_access_value(
-        f"{workspace}/{client_id}/{project_id}"
-    )
 
-    has_workspace = (
-        access_list_contains_all(workspace_access)
-        or access_list_contains(
-            workspace_access,
-            workspace,
-            clean_workspace,
-        )
-    )
+    normalized_project_access = [
+        normalize_access_value(item)
+        for item in project_access
+    ]
 
-    has_client = (
-        access_list_contains_all(client_access)
-        or access_list_contains(
-            client_access,
-            client_id,
-            clean_client,
-        )
-    )
+    if "all" in normalized_project_access:
+        return True
 
-    has_project = (
-        access_list_contains_all(project_access)
-        or access_list_contains(
-            project_access,
-            project_id,
-            f"{client_id}/{project_id}",
-            f"{workspace}/{client_id}/{project_id}",
-            clean_project,
-            clean_client_project,
-            clean_workspace_client_project,
-        )
-    )
+    allowed_project_values = {
+        clean_project,
+        normalize_access_value(f"{client_id}/{project_id}"),
+        normalize_access_value(f"{workspace}/{client_id}/{project_id}"),
+        normalize_access_value(f"{clean_client}/{clean_project}"),
+        normalize_access_value(
+            f"{clean_workspace}/{clean_client}/{clean_project}"
+        ),
+    }
 
-    return has_workspace and has_client and has_project
+    return any(
+        value in normalized_project_access
+        for value in allowed_project_values
+    )
 
 
 def make_empty_review_hours_row(user: User):
@@ -375,7 +357,9 @@ def load_project_1l_reviewers(
     reviewers = []
 
     for user in users:
-        if not is_review_hours_reviewer_role(user.role):
+        role = str(user.role or "").strip()
+
+        if role not in ["1L", "1L Reviewer"]:
             continue
 
         if user_has_project_access(
