@@ -227,6 +227,33 @@ def get_workspace_container_name(workspace: str):
 
     return container_name
 
+def get_processing_container_name():
+    return os.getenv("INSYT_PROCESSING_CONTAINER", "insyt-processing")
+
+
+def get_review_container_name(workspace: str):
+    workspace_key = str(workspace or "capture").strip().lower()
+
+    return (
+        os.getenv(f"INSYT_REVIEW_CONTAINER_{workspace_key.upper()}")
+        or os.getenv("INSYT_REVIEW_CONTAINER")
+        or get_workspace_container_name(workspace_key)
+    )
+
+
+def get_live_source_container_name(workspace: str):
+    workspace_key = str(workspace or "capture").strip().lower()
+
+    return (
+        os.getenv(f"INSYT_LIVE_SOURCE_CONTAINER_{workspace_key.upper()}")
+        or os.getenv(f"INSYT_FILES_CONTAINER_{workspace_key.upper()}")
+        or os.getenv(f"CDS_INTAKE_CONTAINER_{workspace_key.upper()}")
+        or os.getenv("INSYT_LIVE_SOURCE_CONTAINER")
+        or os.getenv("INSYT_FILES_CONTAINER")
+        or os.getenv("CDS_INTAKE_CONTAINER")
+        or get_workspace_container_name(workspace_key)
+    )
+
 def parse_insyt_project_marker_path(
     blob_name: str,
     workspace: str,
@@ -278,24 +305,44 @@ def get_project_storage_targets(workspace: str):
             detail=f"Azure Blob SDK unavailable: {error}",
         )
 
-    container_name = get_workspace_container_name(workspace)
+    workspace = str(workspace or "").strip().lower()
 
-    processing_connection = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    processing_connection = (
+        os.getenv("INSYT_PROCESSING_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
+
     review_connection = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+
     live_connection = (
         os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
         or os.getenv("CDS_STORAGE_CONNECTION_STRING")
     )
 
     required = [
-        ("processing", "insytprodstorage", processing_connection),
-        ("review", "insytreviewstorage", review_connection),
-        ("live", "cdsintakestorage", live_connection),
+        (
+            "processing",
+            "insytprodstorage",
+            processing_connection,
+            get_processing_container_name(),
+        ),
+        (
+            "review",
+            "insytreviewstorage",
+            review_connection,
+            get_review_container_name(workspace),
+        ),
+        (
+            "live",
+            "cdsintakestorage",
+            live_connection,
+            get_live_source_container_name(workspace),
+        ),
     ]
 
     missing = [
         target_name
-        for target_name, _account_name, connection_string in required
+        for target_name, _account_name, connection_string, _container_name in required
         if not connection_string
     ]
 
@@ -310,7 +357,7 @@ def get_project_storage_targets(workspace: str):
 
     targets = []
 
-    for target_name, account_name, connection_string in required:
+    for target_name, account_name, connection_string, container_name in required:
         if f"AccountName={account_name}" not in connection_string:
             raise HTTPException(
                 status_code=500,
@@ -663,19 +710,10 @@ def create_workspace_project(
                 ),
             )
 
-        project_folders = [
-            f"{project_root}/source/native/.keep",
-            f"{project_root}/source/text/.keep",
+        common_project_folders = [
             f"{project_root}/source/protocol/.keep",
             f"{project_root}/source/metadata/.keep",
             f"{project_root}/source/preview/.keep",
-
-            f"{project_root}/processing_center/uploads/.keep",
-            f"{project_root}/processing_center/jobs/.keep",
-            f"{project_root}/processing_center/staged/.keep",
-            f"{project_root}/processing_center/reports/.keep",
-            f"{project_root}/processing_center/archive/.keep",
-            f"{project_root}/processing_center/removed/.keep",
 
             f"{project_root}/Batches/.keep",
 
@@ -706,6 +744,28 @@ def create_workspace_project(
             f"{project_root}/reports/.keep",
             f"{project_root}/exports/.keep",
         ]
+
+        processing_project_folders = [
+            f"{project_root}/processing_center/uploads/.keep",
+            f"{project_root}/processing_center/jobs/.keep",
+            f"{project_root}/processing_center/archive/.keep",
+            f"{project_root}/processing_center/removed/.keep",
+        ]
+
+        review_project_folders = [
+            f"{project_root}/processing_center/staged/.keep",
+            f"{project_root}/processing_center/reports/.keep",
+        ]
+
+        live_project_folders = [
+            f"{project_root}/source/native/.keep",
+            f"{project_root}/source/text/.keep",
+        ]
+
+        if workspace == "summaries":
+            live_project_folders.append(
+                f"{project_root}/source/summary_extracts/.keep"
+            )
 
         protocol_payload = {
             "project_uuid": project_uuid,
@@ -750,7 +810,22 @@ def create_workspace_project(
 
             target_created_paths.append(marker_blob)
 
-            for folder_blob in project_folders:
+            if target_name == "processing":
+                target_project_folders = processing_project_folders
+
+            elif target_name == "review":
+                target_project_folders = review_project_folders
+
+            elif target_name == "live":
+                target_project_folders = [
+                    *live_project_folders,
+                    *common_project_folders,
+                ]
+
+            else:
+                target_project_folders = []
+
+            for folder_blob in target_project_folders:
                 container.upload_blob(
                     name=folder_blob,
                     data=b"",
@@ -759,14 +834,15 @@ def create_workspace_project(
 
                 target_created_paths.append(folder_blob)
 
-            container.upload_blob(
-                name=protocol_blob,
-                data=json.dumps(protocol_payload, indent=2),
-                overwrite=True,
-                content_type="application/json",
-            )
+            if target_name == "live":
+                container.upload_blob(
+                    name=protocol_blob,
+                    data=json.dumps(protocol_payload, indent=2),
+                    overwrite=True,
+                    content_type="application/json",
+                )
 
-            target_created_paths.append(protocol_blob)
+                target_created_paths.append(protocol_blob)
 
             created_targets.append(
                 {
