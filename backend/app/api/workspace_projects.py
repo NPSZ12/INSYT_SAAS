@@ -321,6 +321,12 @@ def get_project_storage_targets(workspace: str):
 
     required = [
         (
+            "workspace",
+            "insytprodstorage",
+            processing_connection,
+            get_workspace_container_name(workspace),
+        ),
+        (
             "processing",
             "insytprodstorage",
             processing_connection,
@@ -810,7 +816,13 @@ def create_workspace_project(
 
             target_created_paths.append(marker_blob)
 
-            if target_name == "processing":
+            if target_name == "workspace":
+                target_project_folders = [
+                    *live_project_folders,
+                    *common_project_folders,
+                ]
+
+            elif target_name == "processing":
                 target_project_folders = processing_project_folders
 
             elif target_name == "review":
@@ -834,7 +846,7 @@ def create_workspace_project(
 
                 target_created_paths.append(folder_blob)
 
-            if target_name == "live":
+            if target_name in {"workspace", "live"}:
                 container.upload_blob(
                     name=protocol_blob,
                     data=json.dumps(protocol_payload, indent=2),
