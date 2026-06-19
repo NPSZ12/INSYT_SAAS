@@ -34,15 +34,23 @@ def _processing_account() -> str:
 
 
 def _processing_container() -> str:
-    return os.getenv("INSYT_PROCESSING_CONTAINER", "insyt-capture")
+    return os.getenv("INSYT_PROCESSING_CONTAINER", "insyt-processing")
 
 
 def _review_account() -> str:
     return os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "insytreviewstorage")
 
 
-def _review_container() -> str:
-    return os.getenv("INSYT_REVIEW_CONTAINER", "insyt-capture")
+def _review_container(workspace: str | None = None) -> str:
+    workspace_key = str(workspace or "capture").strip().lower()
+
+    workspace_env_name = f"INSYT_REVIEW_CONTAINER_{workspace_key.upper()}"
+
+    return (
+        os.getenv(workspace_env_name)
+        or os.getenv("INSYT_REVIEW_CONTAINER")
+        or f"insyt-{workspace_key}"
+    )
 
 
 def _blob_service() -> BlobServiceClient:
@@ -218,14 +226,16 @@ def _cancel_if_requested(
 
 
 def _routing_from_payload(payload: dict[str, Any]) -> AzureRoutingConfig:
+    workspace = str(payload.get("workspace") or "capture").strip().lower()
+
     routing = AzureRoutingConfig.from_args(
-        workspace=payload["workspace"],
+        workspace=workspace,
         client=payload["client"],
         project=payload["project"],
         processing_account=_processing_account(),
         review_account=_review_account(),
         processing_container=_processing_container(),
-        review_container=_review_container(),
+        review_container=_review_container(workspace),
         azure_write=bool(payload.get("azure_write", True)),
         allow_same_account=False,
     )

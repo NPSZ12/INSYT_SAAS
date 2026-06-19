@@ -13,10 +13,16 @@ Environment expected in production:
     APC_DB_PATH=/tmp/apc.api.db or Postgres-backed adapter later
 
     INSYT_PROCESSING_STORAGE_ACCOUNT=insytprodstorage
-    INSYT_PROCESSING_CONTAINER=insyt-capture
+    INSYT_PROCESSING_CONTAINER=insyt-processing
 
     INSYT_REVIEW_STORAGE_ACCOUNT=insytreviewstorage
-    INSYT_REVIEW_CONTAINER=insyt-capture
+    INSYT_REVIEW_CONTAINER_CAPTURE=insyt-capture
+    INSYT_REVIEW_CONTAINER_SUMMARIES=insyt-summaries
+    INSYT_REVIEW_CONTAINER_DISCOVERY=insyt-discovery
+    INSYT_LIVE_SOURCE_STORAGE_ACCOUNT=cdsintakestorage
+    INSYT_LIVE_SOURCE_CONTAINER_CAPTURE=insyt-capture
+    INSYT_LIVE_SOURCE_CONTAINER_SUMMARIES=insyt-summaries
+    INSYT_LIVE_SOURCE_CONTAINER_DISCOVERY=insyt-discovery
 """
 
 from __future__ import annotations
@@ -115,15 +121,23 @@ def _processing_account() -> str:
 
 
 def _processing_container() -> str:
-    return os.getenv("INSYT_PROCESSING_CONTAINER", "insyt-capture")
+    return os.getenv("INSYT_PROCESSING_CONTAINER", "insyt-processing")
 
 
 def _review_account() -> str:
     return os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "insytreviewstorage")
 
 
-def _review_container() -> str:
-    return os.getenv("INSYT_REVIEW_CONTAINER", "insyt-capture")
+def _review_container(workspace: str | None = None) -> str:
+    workspace_key = str(workspace or "capture").strip().lower()
+
+    workspace_env_name = f"INSYT_REVIEW_CONTAINER_{workspace_key.upper()}"
+
+    return (
+        os.getenv(workspace_env_name)
+        or os.getenv("INSYT_REVIEW_CONTAINER")
+        or f"insyt-{workspace_key}"
+    )
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -304,7 +318,7 @@ def _routing(
         processing_account=_processing_account(),
         review_account=_review_account(),
         processing_container=_processing_container(),
-        review_container=_review_container(),
+        review_container=_review_container(workspace),
         azure_write=azure_write,
         allow_same_account=False,
     )
@@ -617,10 +631,7 @@ def _list_processing_job_history(
             worker_report = None
 
             if apc_job_id:
-                review_container = os.getenv(
-                    "INSYT_REVIEW_CONTAINER",
-                    f"insyt-{workspace}",
-                )
+                review_container = _review_container(workspace)
 
                 summary_blob_path = (
                     f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
@@ -817,7 +828,7 @@ def processing_center_settings(
         "processing_account": _processing_account(),
         "review_account": _review_account(),
         "processing_container": _processing_container(),
-        "review_container": _review_container(),
+        "review_container": _review_container(workspace),
         "live_source_account": _live_source_account(),
         "live_source_container": _live_source_container(workspace),
     }
@@ -1362,10 +1373,7 @@ def _load_worker_report_summary_for_history(
 
     if not apc_job_id and status_blob_path:
         try:
-            tracked_status = _read_processing_json_blob(
-                container_name=os.getenv("INSYT_PROCESSING_CONTAINER", f"insyt-{workspace}"),
-                blob_path=status_blob_path,
-            )
+            tracked_status = _read_processing_json_blob(status_blob_path)
 
             if isinstance(tracked_status, dict):
                 expanded_job.update(tracked_status)
@@ -1382,7 +1390,7 @@ def _load_worker_report_summary_for_history(
     if not apc_job_id:
         return None
 
-    review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+    review_container = _review_container(workspace)
 
     summary_blob_path = (
         f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
@@ -1664,12 +1672,18 @@ def _live_source_account() -> str:
 
 
 def _live_source_container(workspace: str) -> str:
+    workspace_key = str(workspace or "capture").strip().lower()
+
+    workspace_env_name = f"INSYT_LIVE_SOURCE_CONTAINER_{workspace_key.upper()}"
+
     return (
-        os.getenv("INSYT_LIVE_SOURCE_CONTAINER")
+        os.getenv(workspace_env_name)
+        or os.getenv("INSYT_FILES_CONTAINER_" + workspace_key.upper())
+        or os.getenv("CDS_INTAKE_CONTAINER_" + workspace_key.upper())
+        or os.getenv("INSYT_LIVE_SOURCE_CONTAINER")
         or os.getenv("INSYT_FILES_CONTAINER")
         or os.getenv("CDS_INTAKE_CONTAINER")
-        or os.getenv("INSYT_REVIEW_CONTAINER")
-        or f"insyt-{workspace}"
+        or f"insyt-{workspace_key}"
     )
 
 
@@ -1984,7 +1998,7 @@ def _load_worker_report_for_job(
     project: str,
     job_id: str,
 ) -> dict[str, Any] | None:
-    review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+    review_container = _review_container(workspace)
 
     summary_blob_path = (
         f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
@@ -2004,7 +2018,7 @@ def _build_staged_results_payload(
     project: str,
     job_id: str,
 ) -> dict[str, Any]:
-    review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+    review_container = _review_container(workspace)
     review_account = os.getenv("INSYT_REVIEW_STORAGE_ACCOUNT", "insytreviewstorage")
 
     staged_prefix = (
@@ -2298,7 +2312,7 @@ def promote_processing_center_staged_results(
                 detail="No staged documents selected for promotion.",
             )
 
-        review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+        review_container = _review_container(workspace)
 
         promoted: list[dict[str, Any]] = []
         skipped: list[dict[str, Any]] = []
@@ -2513,7 +2527,7 @@ def get_processing_job_report(
     client: str | None = Query(default=None),
     project: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    review_container = os.getenv("INSYT_REVIEW_CONTAINER", f"insyt-{workspace}")
+    review_container = _review_container(workspace)
 
     # New worker-generated report location:
     # {client}/{workspace}/{project_storage_key}/processing_center/reports/{job_id}/{job_id}.summary.json
