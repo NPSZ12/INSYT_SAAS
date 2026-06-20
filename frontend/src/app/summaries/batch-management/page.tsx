@@ -676,6 +676,7 @@ function BatchesPageContent() {
           }${projectId.replaceAll("_", " ")}.`}
         />
 
+      {false && (
         <div className="grid grid-cols-4 gap-6 mb-6">
           <button
             type="button"
@@ -739,6 +740,7 @@ function BatchesPageContent() {
             </p>
           </button>
         </div>
+      )}
 
         {message && (
           <p className="text-sm text-sky-400 mb-6">
@@ -756,7 +758,7 @@ function BatchesPageContent() {
           </div>
         )}
 
-        {mode === "review" && (
+        {false && mode === "review" && (
           <ContentCard title="Create Review Batches">
             <BatchCreateControls
               batchName={batchName}

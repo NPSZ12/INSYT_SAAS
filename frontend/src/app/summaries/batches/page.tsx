@@ -65,6 +65,23 @@ function BatchesPageContent() {
     }
   }, []);
 
+  function normalizeSummarySetStatus(status: string | null | undefined) {
+    const clean = String(status || "available")
+      .toLowerCase()
+      .replaceAll("_", " ")
+      .trim();
+
+    if (clean === "checked out" || clean === "in progress") {
+      return "Checked Out";
+    }
+
+    if (clean === "completed") {
+      return "Completed";
+    }
+
+    return "Available";
+  }
+
   function loadBatches() {
     if (!clientId || !projectId) {
       setBatches([]);
@@ -72,46 +89,48 @@ function BatchesPageContent() {
     }
 
     apiGet(
-      `/api/summaries/projects/${encodeURIComponent(
-        projectId
-      )}/batches?client=${encodeURIComponent(clientId)}`
+      `/api/summaries/summary-sets/?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}`
     )
       .then((response) => {
-        const normalized = (response.batches || []).map((batch: any) => {
-          const batchName =
-            batch.batch_name ||
-            batch.batch_id ||
-            batch.name;
+        const normalized = (response.summary_sets || []).map((set: any) => {
+          const batchId =
+            set.batch_summary_set_id ||
+            set.batch_id ||
+            set.name;
 
           return {
-            project_id: batch.project_id,
-            batch_id: batchName,
-            name: batchName,
-            status: batch.status || "Available",
+            project_id: projectId,
+            batch_id: batchId,
+            name: batchId,
+
+            status: normalizeSummarySetStatus(set.status),
 
             document_count:
-              batch.document_count ||
-              batch.doc_ids?.length ||
-              Number(batch.documents || 0),
+              set.summary_count ||
+              set.document_count ||
+              0,
 
             completed_count:
-              batch.completed_count || 0,
+              set.completed_count ||
+              set.saved_count ||
+              0,
 
             checked_out_by:
-              batch.checked_out_by || null,
+              set.checked_out_by || null,
 
             checked_out_at:
-              batch.checked_out_at || "",
+              set.checked_out_at || "",
 
             completed_at:
-              batch.completed_at || "",
+              set.completed_at || "",
 
-            level: batch.level || "1L",
+            level: "1L",
 
-            workflow_type:
-              batch.workflow_type || "standard",
+            workflow_type: "summary_set",
 
-            doc_ids: batch.doc_ids || [],
+            doc_ids: set.source_doc_id ? [set.source_doc_id] : [],
           };
         });
 
@@ -119,7 +138,8 @@ function BatchesPageContent() {
       })
       .catch((error) => {
         console.error(error);
-        setMessage("Failed to load Summaries batches.");
+        setBatches([]);
+        setMessage("Failed to load Summary Sets.");
       });
   }
 
@@ -436,89 +456,91 @@ function BatchesPageContent() {
           </p>
         )}
 
-        <div
-          className={
-            canViewAdvancedBatchModes()
-              ? "grid grid-cols-4 gap-6 mb-6"
-              : "grid grid-cols-1 gap-6 mb-6 max-w-sm"
-          }
-        >
-          <button
-            type="button"
-            onClick={() => {
-              setMode("review");
-            }}
+        {false && (
+          <div
             className={
-              mode === "review"
-                ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
-                : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+              canViewAdvancedBatchModes()
+                ? "grid grid-cols-4 gap-6 mb-6"
+                : "grid grid-cols-1 gap-6 mb-6 max-w-sm"
             }
           >
-            <h2 className="text-xl font-semibold">Review Batches</h2>
-            <p className="text-sm mt-2 opacity-80">
-              First-pass summary review batch checkout and status.
-            </p>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("review");
+              }}
+              className={
+                mode === "review"
+                  ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                  : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+              }
+            >
+              <h2 className="text-xl font-semibold">Review Batches</h2>
+              <p className="text-sm mt-2 opacity-80">
+                First-pass summary review batch checkout and status.
+              </p>
+            </button>
 
-          {canViewAdvancedBatchModes() && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("qc");
-                }}
-                className={
-                  mode === "qc"
-                    ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
-                    : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
-                }
-              >
-                <h2 className="text-xl font-semibold">QC Batches</h2>
-                <p className="text-sm mt-2 opacity-80">
-                  Quality-control summary batch checkout and status.
-                </p>
-              </button>
+            {canViewAdvancedBatchModes() && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("qc");
+                  }}
+                  className={
+                    mode === "qc"
+                      ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                      : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+                  }
+                >
+                  <h2 className="text-xl font-semibold">QC Batches</h2>
+                  <p className="text-sm mt-2 opacity-80">
+                    Quality-control summary batch checkout and status.
+                  </p>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("alt");
-                }}
-                className={
-                  mode === "alt"
-                    ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
-                    : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
-                }
-              >
-                <h2 className="text-xl font-semibold">Alt Batches</h2>
-                <p className="text-sm mt-2 opacity-80">
-                  Supplemental summary workflow batches.
-                </p>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("alt");
+                  }}
+                  className={
+                    mode === "alt"
+                      ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                      : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+                  }
+                >
+                  <h2 className="text-xl font-semibold">Alt Batches</h2>
+                  <p className="text-sm mt-2 opacity-80">
+                    Supplemental summary workflow batches.
+                  </p>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("statqc");
-                }}
-                className={
-                  mode === "statqc"
-                    ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
-                    : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
-                }
-              >
-                <h2 className="insyt-workspace text-xl font-semibold">
-                  Statistical QC
-                </h2>
-                <p className="text-sm mt-2 opacity-80">
-                  Randomized quality-control sampling by confidence level.
-                </p>
-              </button>
-            </>
-          )}
-        </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("statqc");
+                  }}
+                  className={
+                    mode === "statqc"
+                      ? "bg-lime-50 text-slate-700 rounded-2xl p-5 text-left"
+                      : "bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl p-5 text-left hover:bg-slate-800"
+                  }
+                >
+                  <h2 className="insyt-workspace text-xl font-semibold">
+                    Statistical QC
+                  </h2>
+                  <p className="text-sm mt-2 opacity-80">
+                    Randomized quality-control sampling by confidence level.
+                  </p>
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
-        <ContentCard title={`${selectedLevel} Batches`}>
+        <ContentCard title="Review Summary Sets">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
             <div className="text-sm font-semibold text-white">
               Batch Status
@@ -557,7 +579,7 @@ function BatchesPageContent() {
 
           {modeBatches.length === 0 ? (
             <p className="text-slate-400">
-              No batches found for this category.
+              No Summary Sets found for this project.
             </p>
           ) : (
             <div className="space-y-3">

@@ -464,19 +464,21 @@ export default function SummarySetsPanel({
 
           <div className="flex items-end gap-2">
             <Button
+              unstyled
               fullWidth
               onClick={createSummaryExtracts}
               disabled={isBusy || !docId.trim()}
-              className="rounded-full bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-11 items-center justify-center rounded-full bg-sky-500 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Create Summary Extracts
             </Button>
 
             <Button
+              unstyled
               fullWidth
               onClick={createSummarySets}
               disabled={isBusy}
-              className="rounded-full bg-lime-500 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-sm hover:bg-lime-400 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-11 items-center justify-center rounded-full bg-lime-400 px-5 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Create Summary Sets
             </Button>
