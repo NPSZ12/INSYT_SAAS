@@ -342,22 +342,20 @@ function BatchesPageContent() {
   function completeBatch(batchId: string) {
     if (!clientId || !projectId || !user) return;
 
-    apiPost(
-      `/api/summaries/projects/${encodeURIComponent(
-        projectId
-      )}/batches/complete?client=${encodeURIComponent(clientId)}`,
-      {
-        batch_name: batchId,
-        username: user.username,
-      }
-    )
+    apiPost("/api/summaries/summary-sets/complete", {
+      client: clientId,
+      project: projectId,
+      batch_summary_set_id: batchId,
+      completed_by: user.username,
+      allow_incomplete: true,
+    })
       .then((response) => {
-        setMessage(response.message || "Batch marked completed.");
+        setMessage(response.message || "Summary Set marked completed.");
         loadBatches();
       })
       .catch((error) => {
         console.error(error);
-        setMessage("Failed to complete batch.");
+        setMessage("Failed to complete Summary Set.");
       });
   }
 

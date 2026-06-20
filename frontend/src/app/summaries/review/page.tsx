@@ -6,16 +6,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
 import PageHeader from "../../../components/PageHeader";
-import ContentCard from "../../../components/ContentCard";
-import Button from "../../../components/Button";
-import DataTable from "../../../components/DataTable";
 import { apiGet } from "../../../lib/api";
 
-type BatchFile = {
-  doc_id: string;
-  file_name: string;
-  status: string;
-};
 
 type StoredUser = {
   username: string;
@@ -32,11 +24,9 @@ function ReviewBatchLandingPageContent() {
   const batchId = searchParams.get("batch") || "";
   const docId = searchParams.get("doc") || "";
 
-  const [files, setFiles] = useState<BatchFile[]>([]);
   const [message, setMessage] = useState("");
-
   const [user, setUser] = useState<StoredUser | null>(null);
-  const [resolvedBatchId, setResolvedBatchId] = useState(batchId);
+  const [isResolving, setIsResolving] = useState(true);
 
   useEffect(() => {
     if (!clientId || !projectId || !docId) {
@@ -51,31 +41,14 @@ function ReviewBatchLandingPageContent() {
 
     if (batchId) {
       params.set("batch", batchId);
+      params.set("summarySet", batchId);
+      params.set("mode", "summary-set");
     }
 
     router.replace(`/summaries/review/doc?${params.toString()}`);
   }, [router, clientId, projectId, batchId, docId]);
 
-  function openReview(docIdOverride?: string) {
-    const firstDocId = docIdOverride || files[0]?.doc_id || "";
-
-    if (!firstDocId) {
-      setMessage("No document selected for review.");
-      return;
-    }
-
-    const params = new URLSearchParams();
-
-    params.set("client", clientId);
-    params.set("project", projectId);
-    params.set("doc", firstDocId);
-
-    if (resolvedBatchId) {
-      params.set("batch", resolvedBatchId);
-    }
-
-    router.push(`/summaries/review/doc?${params.toString()}`);
-  }
+  
 
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
@@ -86,61 +59,50 @@ function ReviewBatchLandingPageContent() {
   }, []);
 
   useEffect(() => {
-    if (!clientId || !projectId || !user) return;
+    if (!clientId || !projectId || !user || docId) {
+      return;
+    }
+
+    setIsResolving(true);
+    setMessage("");
 
     apiGet(
-      `/api/summaries/projects/${encodeURIComponent(
+      `/api/summaries/summary-sets/checked-out?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
         projectId
-      )}/batches?client=${encodeURIComponent(clientId)}`
+      )}&username=${encodeURIComponent(user.username)}`
     )
       .then((response) => {
-        const batches = response.batches || [];
+        const activeSummarySet =
+          response.active_summary_set ||
+          response.summary_sets?.[0];
 
-        const selectedBatchId =
-          batchId ||
-          batches.find((batch: any) => {
-            const status = String(batch.status || "")
-              .toLowerCase()
-              .replaceAll("_", " ");
-
-            return (
-              status === "checked out" &&
-              batch.checked_out_by?.toLowerCase() ===
-                user.username?.toLowerCase()
-            );
-          })?.batch_name ||
-          "";
-
-        setResolvedBatchId(selectedBatchId);
-
-        if (!selectedBatchId) {
-          setFiles([]);
+        if (!activeSummarySet?.batch_summary_set_id) {
+          setMessage("No Summary Set is currently checked out to you.");
           return;
         }
 
-        const selectedBatch = batches.find(
-          (batch: any) =>
-            batch.batch_name === selectedBatchId ||
-            batch.batch_id === selectedBatchId ||
-            batch.name === selectedBatchId
-        );
+        const summarySetId = activeSummarySet.batch_summary_set_id;
 
-        const docIds = selectedBatch?.doc_ids || [];
+        const params = new URLSearchParams();
 
-        setFiles(
-          docIds.map((docId: string) => ({
-            doc_id: docId,
-            file_name: docId,
-            status: selectedBatch?.status || "Ready",
-          }))
-        );
+        params.set("client", clientId);
+        params.set("project", projectId);
+        params.set("batch", summarySetId);
+        params.set("summarySet", summarySetId);
+        params.set("mode", "summary-set");
+
+        router.replace(`/summaries/review/doc?${params.toString()}`);
       })
       .catch((error) => {
         console.error(error);
-        setMessage("Failed to load checked-out batch.");
-        setFiles([]);
+        setMessage("Failed to load checked-out Summary Set.");
+      })
+      .finally(() => {
+        setIsResolving(false);
       });
-  }, [clientId, projectId, batchId, user]);
+  }, [router, clientId, projectId, user]);
 
   if (!clientId || !projectId) {
     return (
@@ -168,74 +130,39 @@ function ReviewBatchLandingPageContent() {
     );
   }
 
-  if (!resolvedBatchId) {
+  if (isResolving) {
     return (
       <AppShell>
         <PageContainer>
           <PageHeader
-            title="No Review Target Selected"
-            subtitle="Please select a batch or open a document directly from Files."
+            title="Opening Review"
+            subtitle="Checking for your checked-out Summary Set..."
           />
         </PageContainer>
       </AppShell>
     );
   }
 
-  const tableRows = files.map((file) => ({
-    doc_id: file.doc_id,
-    file_name: file.file_name || file.doc_id,
-    status: file.status || "Ready",
-    action: (
-      <Button
-        variant="secondary"
-        onClick={() => openReview(file.doc_id)}
-      >
-        Open
-      </Button>
-    ),
-  }));
-
-  const columns = [
-    { key: "doc_id", label: "Doc ID" },
-    { key: "file_name", label: "File Name" },
-    { key: "status", label: "Status" },
-    { key: "action", label: "Open" },
-  ];
+  if (message) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="No Summary Set Checked Out"
+            subtitle={message}
+          />
+        </PageContainer>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
       <PageContainer>
-        <div className="flex items-start justify-between mb-8">
-          <PageHeader
-            title={resolvedBatchId.replaceAll("_", " ")}
-            subtitle={`Documents available for ${projectId.replaceAll(
-              "_",
-              " "
-            )}.`}
-          />
-
-          <Button onClick={() => openReview()}>
-            Open Review
-          </Button>
-        </div>
-
-        {message && (
-          <p className="mb-4 text-sm text-sky-400">
-            {message}
-          </p>
-        )}
-
-        <ContentCard title="Batch Documents">
-          {files.length === 0 ? (
-            <p className="text-slate-500">
-              No documents found for this batch.
-            </p>
-          ) : (
-            <div className="max-h-[55vh] overflow-auto">
-              <DataTable columns={columns} data={tableRows} />
-            </div>
-          )}
-        </ContentCard>
+        <PageHeader
+          title="Opening Review"
+          subtitle="Preparing the Summaries review workspace..."
+        />
       </PageContainer>
     </AppShell>
   );
