@@ -75,6 +75,7 @@ export default function SummarySetsPanel({
   const [overwrite, setOverwrite] = useState(true);
 
   const [summarySets, setSummarySets] = useState<SummarySet[]>([]);
+  const [expandedDocIds, setExpandedDocIds] = useState<Record<string, boolean>>({});
   const [activeSetId, setActiveSetId] = useState("");
   const [activeSet, setActiveSet] = useState<SummarySetDetail | null>(null);
   const [activeSummaryId, setActiveSummaryId] = useState("");
@@ -367,6 +368,54 @@ export default function SummarySetsPanel({
     }
   }
 
+  const groupedSummarySets = summarySets.reduce<Record<string, SummarySet[]>>(
+    (groups, set) => {
+      const key = set.source_doc_id || "Unknown Doc ID";
+
+      if (!groups[key]) {
+        groups[key] = [];
+      }
+
+      groups[key].push(set);
+      return groups;
+    },
+    {}
+  );
+
+  const summarySetGroups = Object.entries(groupedSummarySets).map(
+    ([sourceDocId, sets]) => {
+      const totalSummaries = sets.reduce(
+        (total, set) => total + Number(set.summary_count || 0),
+        0
+      );
+
+      const completedCount = sets.filter(
+        (set) => String(set.status || "").toLowerCase() === "completed"
+      ).length;
+
+      const checkedOutCount = sets.filter((set) => set.checked_out_by).length;
+
+      const availableCount = sets.filter(
+        (set) =>
+          !set.checked_out_by &&
+          String(set.status || "available").toLowerCase() !== "completed"
+      ).length;
+
+      const firstSet = sets[0];
+
+      return {
+        sourceDocId,
+        sourcePdfName: firstSet?.source_pdf_name || "",
+        sets,
+        setCount: sets.length,
+        totalSummaries,
+        completedCount,
+        checkedOutCount,
+        availableCount,
+      };
+    }
+  );
+
   return (
     <ContentCard title="Summary Sets">
       <div className="mb-5 rounded-xl border border-slate-800 bg-slate-950 p-4">
@@ -413,19 +462,24 @@ export default function SummarySetsPanel({
             </select>
           </div>
 
-          <div className="flex items-end">
+          <div className="flex items-end gap-2">
             <Button
               fullWidth
               onClick={createSummaryExtracts}
               disabled={isBusy || !docId.trim()}
+              className="rounded-full bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Create Summary Extracts
             </Button>
-            
-            <Button fullWidth onClick={createSummarySets} disabled={isBusy}>
-              Create Sets
+
+            <Button
+              fullWidth
+              onClick={createSummarySets}
+              disabled={isBusy}
+              className="rounded-full bg-lime-500 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-sm hover:bg-lime-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Create Summary Sets
             </Button>
-            
           </div>
         </div>
 
@@ -455,51 +509,138 @@ export default function SummarySetsPanel({
           </Button>
         </div>
 
-        {summarySets.length === 0 ? (
+        {summarySetGroups.length === 0 ? (
           <p className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
             No Summary Sets found.
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {summarySets.map((set) => (
-              <div
-                key={set.batch_summary_set_id}
-                className={
-                  activeSetId === set.batch_summary_set_id
-                    ? "rounded-xl border border-lime-400 bg-slate-950 p-4"
-                    : "rounded-xl border border-slate-800 bg-slate-950 p-4"
-                }
-              >
-                <div className="mb-3 flex items-start justify-between gap-2">
-                  <div>
-                    <h4 className="font-semibold text-white">
-                      {set.batch_summary_set_id}
-                    </h4>
-                    <p className="text-xs text-slate-400">
-                      {set.source_doc_id} • {set.summary_start_index}–
-                      {set.summary_end_index}
-                    </p>
-                  </div>
+          <div className="space-y-3">
+            {summarySetGroups.map((group) => {
+              const isExpanded = !!expandedDocIds[group.sourceDocId];
 
-                  <StatusBadge>{set.status || "available"}</StatusBadge>
-                </div>
-
-                <div className="mb-3 text-xs text-slate-400">
-                  <p>Summaries: {set.summary_count}</p>
-                  <p>Source: {set.source_pdf_name || "—"}</p>
-                  <p>Checked Out By: {set.checked_out_by || "—"}</p>
-                </div>
-
-                <Button
-                  fullWidth
-                  variant="secondary"
-                  onClick={() => openSummarySet(set.batch_summary_set_id)}
-                  disabled={isBusy}
+              return (
+                <div
+                  key={group.sourceDocId}
+                  className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950"
                 >
-                  Open Summary Set
-                </Button>
-              </div>
-            ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedDocIds((current) => ({
+                        ...current,
+                        [group.sourceDocId]: !current[group.sourceDocId],
+                      }))
+                    }
+                    className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left hover:bg-slate-900"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-white">
+                          {group.sourceDocId}
+                        </span>
+
+                        <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300">
+                          {group.setCount} set{group.setCount === 1 ? "" : "s"}
+                        </span>
+
+                        <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300">
+                          {group.totalSummaries} summaries
+                        </span>
+
+                        <span className="rounded-full border border-emerald-700 bg-emerald-950 px-2.5 py-1 text-xs text-emerald-300">
+                          {group.availableCount} available
+                        </span>
+
+                        <span className="rounded-full border border-sky-700 bg-sky-950 px-2.5 py-1 text-xs text-sky-300">
+                          {group.checkedOutCount} checked out
+                        </span>
+
+                        <span className="rounded-full border border-lime-700 bg-lime-950 px-2.5 py-1 text-xs text-lime-300">
+                          {group.completedCount} completed
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-xs text-slate-400">
+                        Source: {group.sourcePdfName || "—"}
+                      </p>
+                    </div>
+
+                    <span className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-300">
+                      {isExpanded ? "Collapse" : "Expand"}
+                    </span>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-slate-800 p-3">
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[760px] text-left text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500">
+                              <th className="px-3 py-2">Summary Set</th>
+                              <th className="px-3 py-2">Range</th>
+                              <th className="px-3 py-2">Count</th>
+                              <th className="px-3 py-2">Status</th>
+                              <th className="px-3 py-2">Checked Out By</th>
+                              <th className="px-3 py-2">Completed By</th>
+                              <th className="px-3 py-2 text-right">Action</th>
+                            </tr>
+                          </thead>
+
+                          <tbody>
+                            {group.sets.map((set) => (
+                              <tr
+                                key={set.batch_summary_set_id}
+                                className={
+                                  activeSetId === set.batch_summary_set_id
+                                    ? "border-b border-slate-800 bg-lime-950/30"
+                                    : "border-b border-slate-800"
+                                }
+                              >
+                                <td className="px-3 py-3 font-semibold text-white">
+                                  {set.batch_summary_set_id}
+                                </td>
+
+                                <td className="px-3 py-3 text-slate-300">
+                                  {set.summary_start_index}–{set.summary_end_index}
+                                </td>
+
+                                <td className="px-3 py-3 text-slate-300">
+                                  {set.summary_count}
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  <StatusBadge>{set.status || "available"}</StatusBadge>
+                                </td>
+
+                                <td className="px-3 py-3 text-slate-300">
+                                  {set.checked_out_by || "—"}
+                                </td>
+
+                                <td className="px-3 py-3 text-slate-300">
+                                  {set.completed_by || "—"}
+                                </td>
+
+                                <td className="px-3 py-3 text-right">
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() =>
+                                      openSummarySet(set.batch_summary_set_id)
+                                    }
+                                    disabled={isBusy}
+                                  >
+                                    Open
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
