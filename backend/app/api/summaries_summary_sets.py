@@ -24,6 +24,12 @@ class CreateSummarySetsRequest(BaseModel):
     summaries_per_set: int = Field(default=10, ge=1)
     overwrite: bool = False
 
+class CreateSummaryExtractRequest(BaseModel):
+    client: str
+    project: str
+    doc_id: str
+    overwrite: bool = False
+    max_chars_per_section: int = Field(default=2500, ge=500, le=10000)
 
 class SaveQcSummaryRequest(BaseModel):
     client: str
@@ -121,6 +127,231 @@ def _read_json_blob(blob_path: str) -> dict[str, Any]:
     raw = blob_client.download_blob().readall()
     return json.loads(raw.decode("utf-8"))
 
+def _blob_exists(blob_path: str) -> bool:
+    return _container().get_blob_client(blob_path).exists()
+
+
+def _read_text_blob(blob_path: str) -> str:
+    blob_client = _container().get_blob_client(blob_path)
+
+    if not blob_client.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Blob not found: {blob_path}",
+        )
+
+    return blob_client.download_blob().readall().decode(
+        "utf-8",
+        errors="replace",
+    )
+
+
+def _source_text_path(client: str, project: str, doc_id: str) -> str:
+    return f"{_project_root(client, project)}/source/text/{doc_id}.txt"
+
+
+def _source_native_prefix(client: str, project: str) -> str:
+    return f"{_project_root(client, project)}/source/native/"
+
+
+def _find_source_native_path(client: str, project: str, doc_id: str) -> str:
+    prefix = _source_native_prefix(client, project)
+
+    exact_candidates = [
+        f"{prefix}{doc_id}.pdf",
+        f"{prefix}{doc_id}",
+    ]
+
+    for path in exact_candidates:
+        if _blob_exists(path):
+            return path
+
+    matches = [
+        path
+        for path in _list_blobs(prefix)
+        if os.path.basename(path).startswith(doc_id)
+    ]
+
+    return matches[0] if matches else ""
+
+
+def _split_text_into_summary_sections(
+    *,
+    text: str,
+    doc_id: str,
+    max_chars_per_section: int,
+) -> list[dict[str, Any]]:
+    clean_text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    if not clean_text:
+        return []
+
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in clean_text.split("\n\n")
+        if paragraph.strip()
+    ]
+
+    sections: list[dict[str, Any]] = []
+    buffer: list[str] = []
+    current_length = 0
+
+    def flush_buffer() -> None:
+        nonlocal buffer, current_length
+
+        if not buffer:
+            return
+
+        section_index = len(sections) + 1
+        section_text = "\n\n".join(buffer).strip()
+
+        title = ""
+        first_line = section_text.split("\n", 1)[0].strip()
+
+        if first_line and len(first_line) <= 120:
+            title = first_line
+
+        sections.append(
+            {
+                "summary_id": f"{doc_id}-SUMMARY{section_index:09d}",
+                "section_id": f"{doc_id}-SUMSEC{section_index:09d}",
+                "section_index": section_index,
+                "title": title or f"Summary Section {section_index}",
+                "citation": "",
+                "original_summary": section_text,
+                "qc_summary": section_text,
+                "page": None,
+                "page_start": None,
+                "page_end": None,
+                "pdf_page": None,
+                "status": "available",
+            }
+        )
+
+        buffer = []
+        current_length = 0
+
+    for paragraph in paragraphs:
+        paragraph_length = len(paragraph)
+
+        if buffer and current_length + paragraph_length > max_chars_per_section:
+            flush_buffer()
+
+        if paragraph_length > max_chars_per_section:
+            start = 0
+
+            while start < paragraph_length:
+                chunk = paragraph[start: start + max_chars_per_section].strip()
+
+                if chunk:
+                    buffer = [chunk]
+                    current_length = len(chunk)
+                    flush_buffer()
+
+                start += max_chars_per_section
+
+            continue
+
+        buffer.append(paragraph)
+        current_length += paragraph_length
+
+    flush_buffer()
+
+    return sections
+
+
+def _build_summary_extract_payload(
+    *,
+    client: str,
+    project: str,
+    doc_id: str,
+    max_chars_per_section: int,
+) -> dict[str, Any]:
+    text_path = _source_text_path(client, project, doc_id)
+
+    if not _blob_exists(text_path):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Cannot create Summary Extract for {doc_id}. "
+                f"Missing promoted source text at {text_path}. "
+                f"Confirm the PDF was promoted and text extraction completed."
+            ),
+        )
+
+    source_text = _read_text_blob(text_path)
+
+    if not source_text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot create Summary Extract for {doc_id}. "
+                f"The promoted text file exists but is empty. "
+                f"Run OCR or regenerate extracted text."
+            ),
+        )
+
+    native_path = _find_source_native_path(client, project, doc_id)
+
+    sections = _split_text_into_summary_sections(
+        text=source_text,
+        doc_id=doc_id,
+        max_chars_per_section=max_chars_per_section,
+    )
+
+    if not sections:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot create Summary Extract for {doc_id}. "
+                f"No usable summary sections could be generated from source text."
+            ),
+        )
+
+    return {
+        "workspace": WORKSPACE,
+        "client": client,
+        "project": project,
+        "doc_id": doc_id,
+        "source_pdf_name": os.path.basename(native_path) if native_path else "",
+        "native_pdf_path": native_path,
+        "text_path": text_path,
+        "summary_extract_path": _summary_extract_path(client, project, doc_id),
+        "extraction_method": "promoted_source_text_sectioned",
+        "created_at": _utc_now(),
+        "updated_at": _utc_now(),
+        "text_char_count": len(source_text),
+        "section_count": len(sections),
+        "max_chars_per_section": max_chars_per_section,
+        "sections": sections,
+        "warnings": [],
+    }
+
+
+def _get_or_create_summary_extract(
+    *,
+    client: str,
+    project: str,
+    doc_id: str,
+) -> tuple[dict[str, Any], str, bool]:
+    extract_path = _summary_extract_path(client, project, doc_id)
+
+    if _blob_exists(extract_path):
+        return _read_json_blob(extract_path), extract_path, False
+
+    extract_payload = _build_summary_extract_from_source_text(
+        client=client,
+        project=project,
+        doc_id=doc_id,
+    )
+
+    _write_json_blob(
+        extract_path,
+        extract_payload,
+        overwrite=True,
+    )
+
+    return extract_payload, extract_path, True
 
 def _write_json_blob(
     blob_path: str,
@@ -194,8 +425,9 @@ def _summary_set_audit_path(client: str, project: str, batch_summary_set_id: str
     )
 
 
-def _new_summary_set_id(index: int) -> str:
-    return f"SUMSET{index:09d}"
+def _new_summary_set_id(doc_id: str, index: int) -> str:
+    clean_doc_id = _clean_segment(doc_id).replace("/", "_")
+    return f"{clean_doc_id}-SUMSET{index:09d}"
 
 
 def _normalize_summary_item(item: dict[str, Any], index: int) -> dict[str, Any]:
@@ -256,14 +488,71 @@ def _list_blobs(prefix: str) -> list[str]:
         and not str(blob.name).endswith("/.keep")
     ]
 
-
-@router.post("/create")
-def create_summary_sets(request: CreateSummarySetsRequest):
+@router.post("/extracts/create")
+def create_summary_extract(request: CreateSummaryExtractRequest):
     extract_path = _summary_extract_path(
         request.client,
         request.project,
         request.doc_id,
     )
+
+    if _blob_exists(extract_path) and not request.overwrite:
+        existing = _read_json_blob(extract_path)
+
+        return {
+            "status": "exists",
+            "workspace": WORKSPACE,
+            "client": request.client,
+            "project": request.project,
+            "doc_id": request.doc_id,
+            "summary_extract_path": extract_path,
+            "section_count": len(existing.get("sections") or []),
+            "text_char_count": existing.get("text_char_count"),
+            "message": "Summary Extract already exists. Use overwrite=true to regenerate it.",
+        }
+
+    extract_payload = _build_summary_extract_payload(
+        client=request.client,
+        project=request.project,
+        doc_id=request.doc_id,
+        max_chars_per_section=request.max_chars_per_section,
+    )
+
+    upload = _write_json_blob(
+        extract_path,
+        extract_payload,
+        overwrite=True,
+    )
+
+    return {
+        "status": "created",
+        "workspace": WORKSPACE,
+        "client": request.client,
+        "project": request.project,
+        "doc_id": request.doc_id,
+        "summary_extract_path": extract_path,
+        "section_count": len(extract_payload.get("sections") or []),
+        "text_char_count": extract_payload.get("text_char_count"),
+        "upload": upload,
+    }
+
+@router.post("/create")
+def create_summary_sets(request: CreateSummarySetsRequest):
+    extract_payload, extract_path, created_extract = _get_or_create_summary_extract(
+        client=request.client,
+        project=request.project,
+        doc_id=request.doc_id,
+    )
+
+    if not _blob_exists(extract_path):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Summary Extract does not exist for {request.doc_id}. "
+                f"Create Summary Extracts first, then create Summary Sets. "
+                f"Expected path: {extract_path}"
+            ),
+        )
 
     extract_payload = _read_json_blob(extract_path)
 
@@ -292,7 +581,7 @@ def create_summary_sets(request: CreateSummarySetsRequest):
 
     for zero_index in range(0, len(sections), summaries_per_set):
         set_index = (zero_index // summaries_per_set) + 1
-        batch_summary_set_id = _new_summary_set_id(set_index)
+        batch_summary_set_id = _new_summary_set_id(request.doc_id, set_index)
 
         set_items = sections[zero_index: zero_index + summaries_per_set]
 
@@ -375,6 +664,7 @@ def create_summary_sets(request: CreateSummarySetsRequest):
         "project": request.project,
         "doc_id": request.doc_id,
         "source_extract": extract_path,
+        "created_source_extract": created_extract,
         "summaries_per_set": summaries_per_set,
         "summary_count": len(sections),
         "summary_set_count": len(created),

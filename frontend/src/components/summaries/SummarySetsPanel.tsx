@@ -332,6 +332,41 @@ export default function SummarySetsPanel({
   const savedCount =
     activeSet?.items?.filter((item) => item.saved).length || 0;
 
+  async function createSummaryExtracts() {
+    const trimmedDocId = docId.trim();
+
+    if (!clientId || !projectId || !trimmedDocId) {
+      setMessage("Enter the promoted PDF Doc ID before creating Summary Extracts.");
+      return;
+    }
+
+    setIsBusy(true);
+    setMessage("");
+
+    try {
+      const response = await apiPost("/api/summaries/summary-sets/extracts/create", {
+        client: clientId,
+        project: projectId,
+        doc_id: trimmedDocId,
+        overwrite: false,
+        max_chars_per_section: 2500,
+      });
+
+      setMessage(
+        `Summary Extract ${response.status}. Sections: ${
+          response.section_count || 0
+        }.`
+      );
+
+      loadSummarySets();
+    } catch (error) {
+      console.error(error);
+      setMessage("Failed to create Summary Extracts.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   return (
     <ContentCard title="Summary Sets">
       <div className="mb-5 rounded-xl border border-slate-800 bg-slate-950 p-4">
@@ -346,7 +381,7 @@ export default function SummarySetsPanel({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_160px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_260px]">
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Promoted PDF Doc ID
@@ -379,9 +414,18 @@ export default function SummarySetsPanel({
           </div>
 
           <div className="flex items-end">
+            <Button
+              fullWidth
+              onClick={createSummaryExtracts}
+              disabled={isBusy || !docId.trim()}
+            >
+              Create Summary Extracts
+            </Button>
+            
             <Button fullWidth onClick={createSummarySets} disabled={isBusy}>
               Create Sets
             </Button>
+            
           </div>
         </div>
 
