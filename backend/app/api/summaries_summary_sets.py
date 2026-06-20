@@ -31,6 +31,12 @@ class CreateSummaryExtractRequest(BaseModel):
     overwrite: bool = False
     max_chars_per_section: int = Field(default=2500, ge=500, le=10000)
 
+class CheckoutSummarySetRequest(BaseModel):
+    client: str
+    project: str
+    batch_summary_set_id: str
+    username: str
+
 class SaveQcSummaryRequest(BaseModel):
     client: str
     project: str
@@ -43,6 +49,12 @@ class SaveQcSummaryRequest(BaseModel):
     qc_summary: str
     saved_by: str | None = ""
 
+class ReleaseSummarySetRequest(BaseModel):
+    client: str
+    project: str
+    batch_summary_set_id: str
+    username: str
+    role: str | None = ""
 
 class SummarySetActionRequest(BaseModel):
     client: str
@@ -1003,6 +1015,181 @@ def _update_saved_summary_link_state(
         "upload": upload,
     }
 
+@router.post("/checkout")
+def checkout_summary_set(request: CheckoutSummarySetRequest):
+    set_path = _summary_set_path(
+        request.client,
+        request.project,
+        request.batch_summary_set_id,
+    )
+
+    qc_path = _summary_set_qc_path(
+        request.client,
+        request.project,
+        request.batch_summary_set_id,
+    )
+
+    set_payload = _read_json_blob(set_path)
+
+    status = str(set_payload.get("status") or "available").lower()
+    checked_out_by = set_payload.get("checked_out_by")
+
+    if checked_out_by and checked_out_by != request.username:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SUMMARY_SET_ALREADY_CHECKED_OUT",
+                "message": (
+                    f"Summary Set {request.batch_summary_set_id} is already "
+                    f"checked out by {checked_out_by}."
+                ),
+            },
+        )
+
+    if status == "completed":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SUMMARY_SET_ALREADY_COMPLETED",
+                "message": (
+                    f"Summary Set {request.batch_summary_set_id} is already completed."
+                ),
+            },
+        )
+
+    now = _utc_now()
+
+    set_payload["status"] = "checked_out"
+    set_payload["checked_out_by"] = request.username
+    set_payload["checked_out_at"] = now
+    set_payload["updated_at"] = now
+
+    set_upload = _write_json_blob(set_path, set_payload, overwrite=True)
+
+    try:
+        qc_payload = _read_json_blob(qc_path)
+    except HTTPException:
+        qc_payload = {
+            "batch_summary_set_id": request.batch_summary_set_id,
+            "workspace": WORKSPACE,
+            "client": request.client,
+            "project": request.project,
+            "source_doc_id": set_payload.get("source_doc_id"),
+            "source_pdf_name": set_payload.get("source_pdf_name"),
+            "source_pdf_path": set_payload.get("source_pdf_path"),
+            "status": "checked_out",
+            "saved_summaries": [],
+            "created_at": now,
+        }
+
+    qc_payload["status"] = "checked_out"
+    qc_payload["checked_out_by"] = request.username
+    qc_payload["checked_out_at"] = now
+    qc_payload["updated_at"] = now
+
+    qc_upload = _write_json_blob(qc_path, qc_payload, overwrite=True)
+
+    _append_jsonl_blob(
+        _summary_set_audit_path(
+            request.client,
+            request.project,
+            request.batch_summary_set_id,
+        ),
+        {
+            "event": "checkout_summary_set",
+            "at": now,
+            "batch_summary_set_id": request.batch_summary_set_id,
+            "checked_out_by": request.username,
+        },
+    )
+
+    return {
+        "status": "checked_out",
+        "message": "Summary Set checked out.",
+        "batch_summary_set_id": request.batch_summary_set_id,
+        "checked_out_by": request.username,
+        "checked_out_at": now,
+        "set_upload": set_upload,
+        "qc_upload": qc_upload,
+    }
+
+@router.post("/release")
+def release_summary_set(request: ReleaseSummarySetRequest):
+    set_path = _summary_set_path(
+        request.client,
+        request.project,
+        request.batch_summary_set_id,
+    )
+
+    qc_path = _summary_set_qc_path(
+        request.client,
+        request.project,
+        request.batch_summary_set_id,
+    )
+
+    set_payload = _read_json_blob(set_path)
+
+    checked_out_by = set_payload.get("checked_out_by")
+
+    leadership_roles = {
+        "RM",
+        "Admin",
+        "CDS Admin",
+        "INSYT Admin",
+    }
+
+    can_release = (
+        not checked_out_by
+        or checked_out_by == request.username
+        or request.role in leadership_roles
+    )
+
+    if not can_release:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the checked-out reviewer or leadership can release this Summary Set.",
+        )
+
+    now = _utc_now()
+
+    set_payload["status"] = "available"
+    set_payload["checked_out_by"] = None
+    set_payload["checked_out_at"] = None
+    set_payload["updated_at"] = now
+
+    set_upload = _write_json_blob(set_path, set_payload, overwrite=True)
+
+    try:
+        qc_payload = _read_json_blob(qc_path)
+        qc_payload["status"] = "available"
+        qc_payload["checked_out_by"] = None
+        qc_payload["checked_out_at"] = None
+        qc_payload["updated_at"] = now
+        qc_upload = _write_json_blob(qc_path, qc_payload, overwrite=True)
+    except HTTPException:
+        qc_upload = None
+
+    _append_jsonl_blob(
+        _summary_set_audit_path(
+            request.client,
+            request.project,
+            request.batch_summary_set_id,
+        ),
+        {
+            "event": "release_summary_set",
+            "at": now,
+            "batch_summary_set_id": request.batch_summary_set_id,
+            "released_by": request.username,
+        },
+    )
+
+    return {
+        "status": "available",
+        "message": "Summary Set released.",
+        "batch_summary_set_id": request.batch_summary_set_id,
+        "set_upload": set_upload,
+        "qc_upload": qc_upload,
+    }
 
 @router.post("/complete")
 def complete_summary_set(request: CompleteSummarySetRequest):

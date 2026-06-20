@@ -301,48 +301,41 @@ function BatchesPageContent() {
   function checkoutBatch(batchId: string) {
     if (!clientId || !projectId || !user) return;
 
-    apiPost(
-      `/api/summaries/projects/${encodeURIComponent(
-        projectId
-      )}/batches/checkout?client=${encodeURIComponent(clientId)}`,
-      {
-        batch_name: batchId,
-        username: user.username,
-      }
-    )
+    setMessage("");
+    setCheckoutWarning(null);
+
+    apiPost("/api/summaries/summary-sets/checkout", {
+      client: clientId,
+      project: projectId,
+      batch_summary_set_id: batchId,
+      username: user.username,
+    })
       .then((response) => {
-        setMessage(response.message || "Batch checked out.");
+        setMessage(response.message || "Summary Set checked out.");
+        setCheckoutWarning(null);
         loadBatches();
       })
       .catch((error) => {
-        console.error("Checkout failed:", error);
+        console.error("Summary Set checkout failed:", error);
 
         const rawMessage = String(error?.message || "");
 
-        let warningMessage =
-          "You already have a batch checked out. Complete or release your current batch before checking out another batch.";
-
-        try {
-          const jsonStart = rawMessage.indexOf("{");
-
-          if (jsonStart >= 0) {
-            const parsed = JSON.parse(rawMessage.slice(jsonStart));
-            const detail = parsed?.detail;
-
-            if (detail?.message) {
-              warningMessage = detail.message;
-            }
-          }
-        } catch {
-          // Use default warning message.
+        if (
+          rawMessage.includes("SUMMARY_SET_ALREADY_CHECKED_OUT") ||
+          rawMessage.includes("already checked out") ||
+          rawMessage.includes("409")
+        ) {
+          setCheckoutWarning({
+            title: "Summary Set Already Checked Out",
+            message:
+              "This Summary Set is already checked out. Complete or release that Summary Set before checking it out again.",
+          });
+          return;
         }
 
-        setCheckoutWarning({
-          title: "Batch Already Checked Out",
-          message: warningMessage,
-        });
-
-        setMessage("");
+        setMessage(
+          "Summary Set checkout failed. This appears to be a route/API issue, not an active checkout restriction."
+        );
       });
   }
 
@@ -371,23 +364,20 @@ function BatchesPageContent() {
   function markBatchAvailable(batchId: string) {
     if (!clientId || !projectId || !user) return;
 
-    apiPost(
-      `/api/summaries/projects/${encodeURIComponent(
-        projectId
-      )}/batches/release?client=${encodeURIComponent(clientId)}`,
-      {
-        batch_name: batchId,
-        username: user.username,
-        role: user.role,
-      }
-    )
+    apiPost("/api/summaries/summary-sets/release", {
+      client: clientId,
+      project: projectId,
+      batch_summary_set_id: batchId,
+      username: user.username,
+      role: user.role,
+    })
       .then((response) => {
-        setMessage(response.message || "Batch marked available.");
+        setMessage(response.message || "Summary Set marked available.");
         loadBatches();
       })
       .catch((error) => {
         console.error(error);
-        setMessage("Failed to mark batch available.");
+        setMessage("Failed to mark Summary Set available.");
       });
   }
 
