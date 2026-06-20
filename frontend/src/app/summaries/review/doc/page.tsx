@@ -192,6 +192,13 @@ function ReviewPageContent() {
         let effectiveSummarySetId = summarySetId;
 
         if (!effectiveSummarySetId && !docId && user?.username) {
+          
+          console.log("SUMMARIES CHECKED OUT SUMMARY SET LOOKUP:", {
+            clientId,
+            projectId,
+            username: user.username,
+          });
+
           const checkedOutResponse = await apiGet(
             `/api/summaries/summary-sets/checked-out?client=${encodeURIComponent(
               clientId
@@ -203,6 +210,11 @@ function ReviewPageContent() {
           const activeSummarySet =
             checkedOutResponse?.active_summary_set ||
             checkedOutResponse?.summary_sets?.[0];
+
+          console.log("SUMMARIES CHECKED OUT SUMMARY SET RESPONSE:", {
+            activeSummarySet,
+            count: checkedOutResponse?.count,
+          });
 
           if (!activeSummarySet?.batch_summary_set_id) {
             setError("No Summary Set is currently checked out to you.");
@@ -514,12 +526,19 @@ function ReviewPageContent() {
   if (!summarySetId && !docId && !user?.username) {
     return (
       <AppShell>
-        <PageContainer>
-          <PageHeader
-            title="No Batch or Document Selected"
-            subtitle="Please select a Summary Set from Batches or open a document from Files before starting review."
-          />
-        </PageContainer>
+        <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-md text-center">
+            <div className="mx-auto mb-6 h-12 w-12 rounded-full border-4 border-slate-700 border-t-sky-500 animate-spin" />
+
+            <h1 className="text-2xl font-bold mb-2">
+              Loading Summary Review Workspace
+            </h1>
+
+            <p className="text-slate-400">
+              Checking for your checked-out Summary Set.
+            </p>
+          </div>
+        </div>
       </AppShell>
     );
   }

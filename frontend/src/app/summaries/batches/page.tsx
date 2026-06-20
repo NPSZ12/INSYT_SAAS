@@ -434,10 +434,10 @@ function BatchesPageContent() {
     params.set("project", projectId);
     params.set("batch", batchId);
     params.set("summarySet", batchId);
+    params.set("mode", "summary-set");
 
     router.push(`/summaries/review/doc?${params.toString()}`);
   }
-
   if (!clientId || !projectId) {
     return (
       <AppShell>
