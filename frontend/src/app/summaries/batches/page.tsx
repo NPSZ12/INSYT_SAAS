@@ -25,6 +25,13 @@ type Batch = {
   level: string;
   workflow_type: string;
   doc_ids: string[];
+  source_doc_id?: string;
+  source_pdf_name?: string;
+  saved_count?: number;
+  pending_count?: number;
+  available_summary_count?: number;
+  summary_start_index?: number;
+  summary_end_index?: number;
 };
 
 type StoredUser = {
@@ -100,34 +107,45 @@ function BatchesPageContent() {
             set.batch_id ||
             set.name;
 
+          const summaryCount = Number(set.summary_count || 0);
+          const savedCount = Number(set.saved_count || 0);
+
+          const pendingCount = Number(
+            set.pending_count ??
+              Math.max(summaryCount - savedCount, 0)
+          );
+
+          const availableSummaryCount = Number(
+            set.available_summary_count ??
+              set.pending_count ??
+              Math.max(summaryCount - savedCount, 0)
+          );
+
           return {
             project_id: projectId,
             batch_id: batchId,
             name: batchId,
 
+            source_doc_id: set.source_doc_id || "",
+            source_pdf_name: set.source_pdf_name || "",
+
             status: normalizeSummarySetStatus(set.status),
 
-            document_count:
-              set.summary_count ||
-              set.document_count ||
-              0,
+            document_count: summaryCount,
+            completed_count: savedCount,
 
-            completed_count:
-              set.completed_count ||
-              set.saved_count ||
-              0,
+            saved_count: savedCount,
+            pending_count: pendingCount,
+            available_summary_count: availableSummaryCount,
 
-            checked_out_by:
-              set.checked_out_by || null,
+            summary_start_index: set.summary_start_index,
+            summary_end_index: set.summary_end_index,
 
-            checked_out_at:
-              set.checked_out_at || "",
-
-            completed_at:
-              set.completed_at || "",
+            checked_out_by: set.checked_out_by || null,
+            checked_out_at: set.checked_out_at || "",
+            completed_at: set.completed_at || "",
 
             level: "1L",
-
             workflow_type: "summary_set",
 
             doc_ids: set.source_doc_id ? [set.source_doc_id] : [],
@@ -208,9 +226,13 @@ function BatchesPageContent() {
 
   const totalBatchCount = modeBatches.length;
 
-  function getBatchGroupKey(batchName: string) {
-    const clean = String(batchName || "").trim();
-    const match = clean.match(/^(.*?_)\d+$/);
+  function getBatchGroupKey(batch: Batch) {
+    if (batch.source_doc_id) {
+      return batch.source_doc_id;
+    }
+
+    const clean = String(batch.name || batch.batch_id || "").trim();
+    const match = clean.match(/^(INSYT\d+)-SUMSET\d+$/);
 
     if (match) {
       return match[1];
@@ -240,7 +262,7 @@ function BatchesPageContent() {
 
   const batchGroups = Object.entries(
     modeBatches.reduce<Record<string, Batch[]>>((groups, batch) => {
-      const groupKey = getBatchGroupKey(batch.name || batch.batch_id);
+      const groupKey = getBatchGroupKey(batch);
 
       if (!groups[groupKey]) {
         groups[groupKey] = [];
@@ -604,11 +626,11 @@ function BatchesPageContent() {
                     >
                       <div className="flex flex-wrap items-center gap-4 text-sm">
                         <span className="text-white font-semibold">
-                          {isExpanded ? "▾" : "▸"} {group.groupKey}
+                          {isExpanded ? "▾" : "▸"} Batch Set: {group.groupKey}
                         </span>
 
                         <span className="text-slate-300">
-                          Total Batches: {group.total}
+                          Available Sets: {group.total}
                         </span>
 
                         <span className="text-emerald-300">
@@ -705,13 +727,12 @@ function BatchesPageContent() {
                                   ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                       {section.batches.map((batch) => {
-                                        const totalDocs =
-                                          batch.document_count || 0;
-                                        const reviewed =
-                                          batch.completed_count || 0;
-                                        const pending = Math.max(
-                                          totalDocs - reviewed,
-                                          0
+                                        const totalSummaries = batch.document_count || 0;
+                                        const savedLinks = Number(batch.saved_count ?? batch.completed_count ?? 0);
+                                        const availableSummaries = Number(
+                                          batch.available_summary_count ??
+                                            batch.pending_count ??
+                                            Math.max(totalSummaries - savedLinks, 0)
                                         );
 
                                         return (
@@ -737,28 +758,28 @@ function BatchesPageContent() {
                                             <div className="grid grid-cols-3 gap-2 text-center mb-4">
                                               <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
                                                 <p className="text-[10px] text-slate-500 uppercase">
-                                                  Docs
+                                                  Total Summaries
                                                 </p>
                                                 <p className="text-white font-semibold">
-                                                  {totalDocs}
+                                                  {totalSummaries}
                                                 </p>
                                               </div>
 
                                               <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
                                                 <p className="text-[10px] text-slate-500 uppercase">
-                                                  Reviewed
+                                                  Saved QC Links
                                                 </p>
-                                                <p className="text-white font-semibold">
-                                                  {reviewed}
+                                                <p className="text-sky-300 font-semibold">
+                                                  {savedLinks}
                                                 </p>
                                               </div>
 
                                               <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">
                                                 <p className="text-[10px] text-slate-500 uppercase">
-                                                  Pending
+                                                  Available Summaries
                                                 </p>
-                                                <p className="text-white font-semibold">
-                                                  {pending}
+                                                <p className="text-emerald-300 font-semibold">
+                                                  {availableSummaries}
                                                 </p>
                                               </div>
                                             </div>

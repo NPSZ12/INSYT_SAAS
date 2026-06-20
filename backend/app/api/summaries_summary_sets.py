@@ -681,6 +681,29 @@ def list_summary_sets(client: str, project: str):
     for blob_path in _list_blobs(prefix):
         try:
             payload = _read_json_blob(blob_path)
+            qc_payload = {}
+
+            try:
+                qc_payload = _read_json_blob(
+                    _summary_set_qc_path(
+                        payload.get("client") or client,
+                        payload.get("project") or project,
+                        payload.get("batch_summary_set_id"),
+                    )
+                )
+            except Exception:
+                qc_payload = {}
+
+            saved_summaries = [
+                item
+                for item in qc_payload.get("saved_summaries") or []
+                if isinstance(item, dict) and item.get("linked", True)
+            ]
+
+            summary_count = int(payload.get("summary_count") or 0)
+            saved_count = len(saved_summaries)
+            pending_count = max(summary_count - saved_count, 0)
+
             sets.append(
                 {
                     "batch_summary_set_id": payload.get("batch_summary_set_id"),
@@ -688,7 +711,10 @@ def list_summary_sets(client: str, project: str):
                     "source_pdf_name": payload.get("source_pdf_name"),
                     "summary_start_index": payload.get("summary_start_index"),
                     "summary_end_index": payload.get("summary_end_index"),
-                    "summary_count": payload.get("summary_count"),
+                    "summary_count": summary_count,
+                    "saved_count": saved_count,
+                    "pending_count": pending_count,
+                    "available_summary_count": pending_count,
                     "status": payload.get("status"),
                     "checked_out_by": payload.get("checked_out_by"),
                     "checked_out_at": payload.get("checked_out_at"),

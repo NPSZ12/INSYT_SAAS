@@ -14,6 +14,9 @@ type SummarySet = {
   summary_start_index: number;
   summary_end_index: number;
   summary_count: number;
+  saved_count?: number;
+  pending_count?: number;
+  available_summary_count?: number;
   status: string;
   checked_out_by?: string | null;
   checked_out_at?: string | null;
@@ -389,17 +392,36 @@ export default function SummarySetsPanel({
         0
       );
 
-      const completedCount = sets.filter(
+      const savedSummaries = sets.reduce(
+        (total, set) => total + Number(set.saved_count || 0),
+        0
+      );
+
+      const availableSummaries = sets.reduce(
+        (total, set) =>
+          total +
+          Number(
+            set.available_summary_count ??
+              set.pending_count ??
+              Math.max(
+                Number(set.summary_count || 0) - Number(set.saved_count || 0),
+                0
+              )
+          ),
+        0
+      );
+
+      const completedSetCount = sets.filter(
         (set) => String(set.status || "").toLowerCase() === "completed"
       ).length;
 
-      const checkedOutCount = sets.filter((set) => set.checked_out_by).length;
+      const checkedOutSetCount = sets.filter((set) => set.checked_out_by).length;
 
-      const availableCount = sets.filter(
-        (set) =>
-          !set.checked_out_by &&
-          String(set.status || "available").toLowerCase() !== "completed"
-      ).length;
+      const availableSetCount = sets.filter((set) => {
+        const clean = String(set.status || "available").toLowerCase();
+
+        return !set.checked_out_by && clean !== "completed";
+      }).length;
 
       const firstSet = sets[0];
 
@@ -409,9 +431,11 @@ export default function SummarySetsPanel({
         sets,
         setCount: sets.length,
         totalSummaries,
-        completedCount,
-        checkedOutCount,
-        availableCount,
+        savedSummaries,
+        availableSummaries,
+        completedSetCount,
+        checkedOutSetCount,
+        availableSetCount,
       };
     }
   );
@@ -538,27 +562,31 @@ export default function SummarySetsPanel({
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-semibold text-white">
-                          {group.sourceDocId}
+                          Batch Set: {group.sourceDocId}
                         </span>
 
                         <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300">
-                          {group.setCount} set{group.setCount === 1 ? "" : "s"}
+                          Batch Set
                         </span>
 
                         <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300">
-                          {group.totalSummaries} summaries
+                          {group.setCount} Available Set{group.setCount === 1 ? "" : "s"}
+                        </span>
+
+                        <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300">
+                          {group.totalSummaries} Total Summaries
                         </span>
 
                         <span className="rounded-full border border-emerald-700 bg-emerald-950 px-2.5 py-1 text-xs text-emerald-300">
-                          {group.availableCount} available
+                          {group.availableSummaries} Available Summaries
                         </span>
 
                         <span className="rounded-full border border-sky-700 bg-sky-950 px-2.5 py-1 text-xs text-sky-300">
-                          {group.checkedOutCount} checked out
+                          {group.savedSummaries} Saved QC Links
                         </span>
 
                         <span className="rounded-full border border-lime-700 bg-lime-950 px-2.5 py-1 text-xs text-lime-300">
-                          {group.completedCount} completed
+                          {group.completedSetCount} Completed Set{group.completedSetCount === 1 ? "" : "s"}
                         </span>
                       </div>
 
@@ -578,9 +606,11 @@ export default function SummarySetsPanel({
                         <table className="w-full min-w-[760px] text-left text-sm">
                           <thead>
                             <tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500">
-                              <th className="px-3 py-2">Summary Set</th>
+                              <th className="px-3 py-2">Available Set</th>
                               <th className="px-3 py-2">Range</th>
-                              <th className="px-3 py-2">Count</th>
+                              <th className="px-3 py-2">Total Summaries</th>
+                              <th className="px-3 py-2">Saved QC Links</th>
+                              <th className="px-3 py-2">Available Summaries</th>
                               <th className="px-3 py-2">Status</th>
                               <th className="px-3 py-2">Checked Out By</th>
                               <th className="px-3 py-2">Completed By</th>
@@ -589,52 +619,68 @@ export default function SummarySetsPanel({
                           </thead>
 
                           <tbody>
-                            {group.sets.map((set) => (
-                              <tr
-                                key={set.batch_summary_set_id}
-                                className={
-                                  activeSetId === set.batch_summary_set_id
-                                    ? "border-b border-slate-800 bg-lime-950/30"
-                                    : "border-b border-slate-800"
-                                }
-                              >
-                                <td className="px-3 py-3 font-semibold text-white">
-                                  {set.batch_summary_set_id}
-                                </td>
+                            {group.sets.map((set) => {
+                              const savedCount = Number(set.saved_count || 0);
+                              const totalCount = Number(set.summary_count || 0);
+                              const availableSummaryCount = Number(
+                                set.available_summary_count ??
+                                  set.pending_count ??
+                                  Math.max(totalCount - savedCount, 0)
+                              );
 
-                                <td className="px-3 py-3 text-slate-300">
-                                  {set.summary_start_index}–{set.summary_end_index}
-                                </td>
+                              return (
+                                <tr
+                                  key={set.batch_summary_set_id}
+                                  className={
+                                    activeSetId === set.batch_summary_set_id
+                                      ? "border-b border-slate-800 bg-lime-950/30"
+                                      : "border-b border-slate-800"
+                                  }
+                                >
+                                  <td className="px-3 py-3 font-semibold text-white">
+                                    {set.batch_summary_set_id}
+                                  </td>
 
-                                <td className="px-3 py-3 text-slate-300">
-                                  {set.summary_count}
-                                </td>
+                                  <td className="px-3 py-3 text-slate-300">
+                                    {set.summary_start_index}–{set.summary_end_index}
+                                  </td>
 
-                                <td className="px-3 py-3">
-                                  <StatusBadge>{set.status || "available"}</StatusBadge>
-                                </td>
+                                  <td className="px-3 py-3 text-slate-300">
+                                    {totalCount}
+                                  </td>
 
-                                <td className="px-3 py-3 text-slate-300">
-                                  {set.checked_out_by || "—"}
-                                </td>
+                                  <td className="px-3 py-3 text-sky-300">
+                                    {savedCount}
+                                  </td>
 
-                                <td className="px-3 py-3 text-slate-300">
-                                  {set.completed_by || "—"}
-                                </td>
+                                  <td className="px-3 py-3 text-emerald-300">
+                                    {availableSummaryCount}
+                                  </td>
 
-                                <td className="px-3 py-3 text-right">
-                                  <Button
-                                    variant="secondary"
-                                    onClick={() =>
-                                      openSummarySet(set.batch_summary_set_id)
-                                    }
-                                    disabled={isBusy}
-                                  >
-                                    Open
-                                  </Button>
-                                </td>
-                              </tr>
-                            ))}
+                                  <td className="px-3 py-3">
+                                    <StatusBadge>{set.status || "available"}</StatusBadge>
+                                  </td>
+
+                                  <td className="px-3 py-3 text-slate-300">
+                                    {set.checked_out_by || "—"}
+                                  </td>
+
+                                  <td className="px-3 py-3 text-slate-300">
+                                    {set.completed_by || "—"}
+                                  </td>
+
+                                  <td className="px-3 py-3 text-right">
+                                    <Button
+                                      variant="secondary"
+                                      onClick={() => openSummarySet(set.batch_summary_set_id)}
+                                      disabled={isBusy}
+                                    >
+                                      Open
+                                    </Button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
