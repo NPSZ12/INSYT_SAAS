@@ -433,6 +433,7 @@ function BatchesPageContent() {
     params.set("client", clientId);
     params.set("project", projectId);
     params.set("batch", batchId);
+    params.set("summarySet", batchId);
 
     router.push(`/summaries/review/doc?${params.toString()}`);
   }
