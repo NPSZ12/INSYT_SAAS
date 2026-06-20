@@ -550,11 +550,13 @@ def create_summary_extract(request: CreateSummaryExtractRequest):
 
 @router.post("/create")
 def create_summary_sets(request: CreateSummarySetsRequest):
-    extract_payload, extract_path, created_extract = _get_or_create_summary_extract(
-        client=request.client,
-        project=request.project,
-        doc_id=request.doc_id,
+    extract_path = _summary_extract_path(
+        request.client,
+        request.project,
+        request.doc_id,
     )
+
+    created_extract = False
 
     if not _blob_exists(extract_path):
         raise HTTPException(
@@ -749,6 +751,76 @@ def list_summary_sets(client: str, project: str):
         "count": len(sets),
     }
 
+@router.get("/checked-out")
+def get_checked_out_summary_set(
+    client: str,
+    project: str,
+    username: str,
+):
+    prefix = f"{_project_root(client, project)}/Batches/summary_sets/"
+
+    checked_out_sets = []
+
+    requested_user = str(username or "").strip().lower()
+
+    for blob_path in _list_blobs(prefix):
+        try:
+            payload = _read_json_blob(blob_path)
+        except Exception:
+            continue
+
+        status = (
+            str(payload.get("status") or "")
+            .lower()
+            .replace("_", " ")
+            .strip()
+        )
+
+        checked_out_by = str(payload.get("checked_out_by") or "").strip()
+        checked_out_by_clean = checked_out_by.lower()
+
+        if checked_out_by_clean != requested_user:
+            continue
+
+        if status not in {"checked out", "in progress"}:
+            continue
+
+        checked_out_sets.append(
+            {
+                "batch_summary_set_id": payload.get("batch_summary_set_id"),
+                "source_doc_id": payload.get("source_doc_id"),
+                "source_pdf_name": payload.get("source_pdf_name"),
+                "source_pdf_path": payload.get("source_pdf_path"),
+                "text_path": payload.get("text_path"),
+                "summary_start_index": payload.get("summary_start_index"),
+                "summary_end_index": payload.get("summary_end_index"),
+                "summary_count": payload.get("summary_count"),
+                "status": payload.get("status"),
+                "checked_out_by": payload.get("checked_out_by"),
+                "checked_out_at": payload.get("checked_out_at"),
+                "completed_by": payload.get("completed_by"),
+                "completed_at": payload.get("completed_at"),
+                "blob_path": blob_path,
+            }
+        )
+
+    checked_out_sets.sort(
+        key=lambda item: item.get("checked_out_at") or "",
+        reverse=True,
+    )
+
+    return {
+        "status": "success",
+        "workspace": WORKSPACE,
+        "client": client,
+        "project": project,
+        "username": username,
+        "summary_sets": checked_out_sets,
+        "count": len(checked_out_sets),
+        "active_summary_set": checked_out_sets[0] if checked_out_sets else None,
+    }
+
+
 @router.get("/review/{batch_summary_set_id}")
 def get_summary_set_for_review(
     batch_summary_set_id: str,
@@ -816,6 +888,7 @@ def get_summary_set_for_review(
         },
         "qc": qc_payload,
     }
+    
 
 @router.get("/{batch_summary_set_id}")
 def get_summary_set(
@@ -1178,66 +1251,6 @@ def checkout_summary_set(request: CheckoutSummarySetRequest):
         "checked_out_at": now,
         "set_upload": set_upload,
         "qc_upload": qc_upload,
-    }
-
-@router.get("/checked-out")
-def get_checked_out_summary_set(
-    client: str,
-    project: str,
-    username: str,
-):
-    prefix = f"{_project_root(client, project)}/Batches/summary_sets/"
-
-    checked_out_sets = []
-
-    for blob_path in _list_blobs(prefix):
-        try:
-            payload = _read_json_blob(blob_path)
-        except Exception:
-            continue
-
-        status = str(payload.get("status") or "").lower()
-        checked_out_by = payload.get("checked_out_by") or ""
-
-        if checked_out_by != username:
-            continue
-
-        if status not in {"checked_out", "in_progress", "checked out"}:
-            continue
-
-        checked_out_sets.append(
-            {
-                "batch_summary_set_id": payload.get("batch_summary_set_id"),
-                "source_doc_id": payload.get("source_doc_id"),
-                "source_pdf_name": payload.get("source_pdf_name"),
-                "source_pdf_path": payload.get("source_pdf_path"),
-                "text_path": payload.get("text_path"),
-                "summary_start_index": payload.get("summary_start_index"),
-                "summary_end_index": payload.get("summary_end_index"),
-                "summary_count": payload.get("summary_count"),
-                "status": payload.get("status"),
-                "checked_out_by": payload.get("checked_out_by"),
-                "checked_out_at": payload.get("checked_out_at"),
-                "completed_by": payload.get("completed_by"),
-                "completed_at": payload.get("completed_at"),
-                "blob_path": blob_path,
-            }
-        )
-
-    checked_out_sets.sort(
-        key=lambda item: item.get("checked_out_at") or "",
-        reverse=True,
-    )
-
-    return {
-        "status": "success",
-        "workspace": WORKSPACE,
-        "client": client,
-        "project": project,
-        "username": username,
-        "summary_sets": checked_out_sets,
-        "count": len(checked_out_sets),
-        "active_summary_set": checked_out_sets[0] if checked_out_sets else None,
     }
 
 @router.post("/release")
