@@ -46,7 +46,7 @@ export default function ProjectSidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const projectId = searchParams.get("project");
+  const projectId = searchParams.get("project") || "";
   const clientId = searchParams.get("client") || "";
   const selectedBatch = searchParams.get("batch");
   const workspaceParam = searchParams.get("workspace");
@@ -74,12 +74,20 @@ export default function ProjectSidebar() {
     pathname.startsWith("/discovery");
 
   const selectedDocId = searchParams.get("doc") || "";
+  const selectedSummarySet =
+    searchParams.get("summarySet") ||
+    selectedBatch ||
+    "";
+
+  const isSummarySetReview =
+    Boolean(selectedSummarySet) &&
+    selectedSummarySet.includes("-SUMSET");
 
   const isSummariesBatchReviewDoc =
     isSummaries &&
     pathname.startsWith("/summaries/review/doc") &&
     Boolean(selectedBatch) &&
-    Boolean(selectedDocId);
+    (Boolean(selectedDocId) || isSummarySetReview);
 
   const isSummariesFileReviewDoc =
     isSummaries &&
@@ -208,31 +216,93 @@ export default function ProjectSidebar() {
 
   useEffect(() => {
     if (
-      !isSummariesReviewDoc ||
+      !isSummaries ||
       !clientId ||
       !projectId ||
-      !selectedDocId
+      !selectedBatch
     ) {
       setOutlineItems([]);
       setSelectedOutlineItem(null);
       return;
     }
 
-    const params = new URLSearchParams();
+    const loadPdfOutline = async () => {
+      try {
+        let incomingOutlineItems: PdfOutlineItem[] = [];
 
-    params.set("client", clientId);
-    params.set("project", projectId);
+        if (selectedSummarySet.includes("-SUMSET")) {
+          const response = await apiGet(
+            `/api/summaries/summary-sets/review/${encodeURIComponent(
+              selectedSummarySet
+            )}?client=${encodeURIComponent(
+              clientId
+            )}&project=${encodeURIComponent(projectId)}`
+          );
 
-    if (selectedBatch) {
-      params.set("batch", selectedBatch);
-    }
+          const batch = response?.batch || response?.summary_set || {};
+          const items = batch?.items || response?.summary_set?.items || [];
 
-    params.set("doc", selectedDocId);
+          incomingOutlineItems = items.map((item: any, index: number) => ({
+            id: item.summary_id || `summary-${index + 1}`,
+            title:
+              item.title ||
+              item.section_id ||
+              `Summary ${index + 1}`,
+            citation:
+              item.citation ||
+              item.saved_row?.citation ||
+              "",
+            originalSummary:
+              item.original_summary ||
+              item.originalSummary ||
+              "",
+            qcSummary:
+              item.saved_row?.qc_summary ||
+              item.qc_summary ||
+              item.qcSummary ||
+              item.original_summary ||
+              "",
+            page:
+              item.pdf_page ||
+              item.pdfPage ||
+              item.page ||
+              item.page_start ||
+              item.pageStart ||
+              null,
+            pageStart:
+              item.page_start ||
+              item.pageStart ||
+              item.page ||
+              null,
+            pageEnd:
+              item.page_end ||
+              item.pageEnd ||
+              item.page ||
+              null,
+            pdfPage:
+              item.pdf_page ||
+              item.pdfPage ||
+              item.page ||
+              null,
+            summaryPdfPage:
+              item.pdf_page ||
+              item.pdfPage ||
+              item.page ||
+              null,
+          }));
+        } else if (selectedDocId) {
+          const response = await apiGet(
+            `/api/summaries/review/current?client=${encodeURIComponent(
+              clientId
+            )}&project=${encodeURIComponent(
+              projectId
+            )}&batch=${encodeURIComponent(
+              selectedBatch
+            )}&doc=${encodeURIComponent(selectedDocId)}`
+          );
 
-    apiGet(`/api/summaries/review/current?${params.toString()}`)
-      .then((response: any) => {
-        const incomingOutlineItems =
-          response?.outline_items || [];
+          incomingOutlineItems = response?.outline_items || [];
+        }
 
         setOutlineItems(incomingOutlineItems);
 
@@ -241,27 +311,22 @@ export default function ProjectSidebar() {
         } else {
           setSelectedOutlineItem(null);
         }
-      })
-      .catch((error: any) => {
-        console.error(
-          "Failed to load PDF Outline:",
-          error
-        );
-
+      } catch (error: any) {
+        console.error("Failed to load PDF Outline:", error);
         setOutlineItems([]);
         setSelectedOutlineItem(null);
-      });
+      }
+    };
+
+    loadPdfOutline();
   }, [
-    isSummariesReviewDoc,
+    isSummaries,
     clientId,
     projectId,
     selectedBatch,
+    selectedSummarySet,
     selectedDocId,
   ]);
-
-  if (!projectId) {
-    return null;
-  }
 
   function handleOutlineSelect(item: PdfOutlineItem) {
     setSelectedOutlineItem(item);

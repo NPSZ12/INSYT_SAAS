@@ -805,10 +805,6 @@ function ReviewPageContent() {
               citation={currentCitation}
               originalSummary={originalSummary}
               qcSummary={qcSummary}
-              outlineItems={outlineItems}
-              selectedOutlineId={selectedSummaryDocId}
-              onSelectOutlineItem={handleOutlineSelect}
-              isSummarySetReview={Boolean(summarySetId)}
               onSaveQcSummary={saveQcSummary}
             />
           </div>
