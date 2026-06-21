@@ -89,6 +89,8 @@ async def upload_workspace_files(
         )
 
         text_blob_path = None
+        summary_extract_path = None
+        large_text_extract = None
         text_created = False
 
         if (
@@ -96,11 +98,18 @@ async def upload_workspace_files(
             and folder_name == "source/native"
             and file_name.lower().endswith(".pdf")
         ):
-            text_blob_path = create_summary_text_file(
+            summary_text_result = create_summary_text_file(
                 container=container,
                 native_blob_name=blob_path,
                 pdf_bytes=content,
             )
+
+            if isinstance(summary_text_result, dict):
+                text_blob_path = summary_text_result.get("text_blob_name")
+                summary_extract_path = summary_text_result.get("extract_blob_name")
+                large_text_extract = summary_text_result.get("large_text_extract")
+            else:
+                text_blob_path = summary_text_result
 
             text_created = bool(text_blob_path)
 
@@ -110,6 +119,8 @@ async def upload_workspace_files(
                 "blob_path": blob_path,
                 "size": len(content),
                 "text_blob_path": text_blob_path,
+                "summary_extract_path": summary_extract_path,
+                "large_text_extract": large_text_extract,
                 "text_created": text_created,
             }
         )

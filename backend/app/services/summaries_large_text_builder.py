@@ -452,3 +452,139 @@ def serialize_summaries_large_text_result(
     )
 
     return full_text, sections_json, manifest_json
+
+def _safe_blob_folder_name(value: str) -> str:
+    """
+    Makes a PDF name safe for use as a blob folder segment while preserving
+    enough of the original name for debugging.
+    """
+
+    value = (value or "unknown_pdf").strip()
+
+    value = value.replace("\\", "_").replace("/", "_")
+    value = value.replace(":", "_").replace("*", "_")
+    value = value.replace("?", "_").replace('"', "_")
+    value = value.replace("<", "_").replace(">", "_")
+    value = value.replace("|", "_")
+
+    value = re.sub(r"\s+", " ", value).strip()
+
+    return value or "unknown_pdf"
+
+
+def _join_blob_path(*parts: str) -> str:
+    return "/".join(
+        str(part).strip("/")
+        for part in parts
+        if str(part or "").strip("/")
+    )
+
+
+def upload_summaries_large_text_result_to_blob(
+    *,
+    container_client: Any,
+    base_project_path: str,
+    result: dict[str, Any],
+    overwrite: bool = True,
+) -> dict[str, Any]:
+    """
+    Writes Summaries large PDF extraction output to Azure Blob Storage.
+
+    Expected base_project_path:
+        {client}/summaries/{project}
+
+    Outputs:
+        source/text_extract/{safe_pdf_name}/full_text.txt
+        source/text_extract/{safe_pdf_name}/sections.json
+        source/text_extract/{safe_pdf_name}/manifest.json
+        source/text_extract/{safe_pdf_name}/chunks/chunk_0001_pages_0001_0010.txt
+
+    The caller decides which Summaries container to use.
+    """
+
+    if container_client is None:
+        raise ValueError("container_client is required.")
+
+    if not base_project_path:
+        raise ValueError("base_project_path is required.")
+
+    pdf_name = result.get("pdf_name") or "unknown_pdf"
+    safe_pdf_name = _safe_blob_folder_name(pdf_name)
+
+    root_prefix = _join_blob_path(
+        base_project_path,
+        "source",
+        "text_extract",
+        safe_pdf_name,
+    )
+
+    full_text, sections_json, manifest_json = serialize_summaries_large_text_result(
+        result
+    )
+
+    uploaded: list[dict[str, Any]] = []
+
+    def upload_text_blob(blob_path: str, content: str):
+        blob_client = container_client.get_blob_client(blob_path)
+
+        encoded = (content or "").encode("utf-8")
+
+        blob_client.upload_blob(
+            encoded,
+            overwrite=overwrite,
+        )
+
+        uploaded.append(
+            {
+                "blob_path": blob_path,
+                "bytes": len(encoded),
+            }
+        )
+
+    full_text_blob_path = _join_blob_path(root_prefix, "full_text.txt")
+    sections_blob_path = _join_blob_path(root_prefix, "sections.json")
+    manifest_blob_path = _join_blob_path(root_prefix, "manifest.json")
+
+    upload_text_blob(full_text_blob_path, full_text)
+    upload_text_blob(sections_blob_path, sections_json)
+    upload_text_blob(manifest_blob_path, manifest_json)
+
+    chunks = result.get("chunks") or []
+
+    chunk_blob_paths: list[str] = []
+
+    for chunk in chunks:
+        chunk_index = int(chunk.get("chunk_index") or 0)
+        start_page = int(chunk.get("start_page") or 0)
+        end_page = int(chunk.get("end_page") or 0)
+
+        chunk_name = (
+            f"chunk_{chunk_index:04d}_"
+            f"pages_{start_page:04d}_{end_page:04d}.txt"
+        )
+
+        chunk_blob_path = _join_blob_path(
+            root_prefix,
+            "chunks",
+            chunk_name,
+        )
+
+        upload_text_blob(
+            chunk_blob_path,
+            chunk.get("text") or "",
+        )
+
+        chunk_blob_paths.append(chunk_blob_path)
+
+    return {
+        "status": "uploaded",
+        "pdf_name": pdf_name,
+        "safe_pdf_name": safe_pdf_name,
+        "root_prefix": root_prefix,
+        "full_text_blob_path": full_text_blob_path,
+        "sections_blob_path": sections_blob_path,
+        "manifest_blob_path": manifest_blob_path,
+        "chunk_blob_paths": chunk_blob_paths,
+        "uploaded": uploaded,
+        "uploaded_count": len(uploaded),
+    }
