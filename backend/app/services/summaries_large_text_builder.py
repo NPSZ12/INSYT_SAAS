@@ -26,11 +26,13 @@ SUMMARY_QC_TITLES = [
     "Record Summaries",
 ]
 
-SUMMARIES_EXTRACTION_STOP_MARKER = (
-    "Original Source Medical Records (converted to text)"
-)
+SUMMARIES_EXTRACTION_STOP_MARKERS = [
+    "Original Source Medical Records (converted to text)",
+    "Original Source Medical Records Converted to Text",
+]
 
 DEFAULT_CHUNK_SIZE = 10
+DEFAULT_STOP_MARKER_MIN_PAGE = 2
 
 
 @dataclass
@@ -97,19 +99,39 @@ def _clean_extracted_text(text: str) -> str:
     return cleaned.strip()
 
 
-def _truncate_at_stop_marker(text: str) -> tuple[str, bool]:
+def _truncate_at_stop_marker(
+    text: str,
+    *,
+    start_page: int,
+    stop_marker_min_page: int = DEFAULT_STOP_MARKER_MIN_PAGE,
+) -> tuple[str, bool]:
     """
-    Stop at the exact marker. This intentionally searches the full extracted
-    text from each chunk because the stop marker may appear mid-page.
+    Stop at the original-source-records section, but ignore early
+    table-of-contents references.
+
+    The PDFs may use either:
+    - Original Source Medical Records (converted to text)
+    - Original Source Medical Records Converted to Text
     """
 
     if not text:
         return "", False
 
-    marker_index = text.find(SUMMARIES_EXTRACTION_STOP_MARKER)
-
-    if marker_index < 0:
+    if start_page < stop_marker_min_page:
         return text, False
+
+    marker_indexes: list[int] = []
+
+    for marker in SUMMARIES_EXTRACTION_STOP_MARKERS:
+        marker_index = text.find(marker)
+
+        if marker_index >= 0:
+            marker_indexes.append(marker_index)
+
+    if not marker_indexes:
+        return text, False
+
+    marker_index = min(marker_indexes)
 
     return text[:marker_index].rstrip(), True
 
@@ -161,6 +183,7 @@ def build_summaries_large_pdf_text_from_bytes(
     *,
     pdf_name: str,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
+    stop_marker_min_page: int = DEFAULT_STOP_MARKER_MIN_PAGE,
 ) -> dict[str, Any]:
     """
     Summaries-only large PDF text builder.
@@ -210,7 +233,9 @@ def build_summaries_large_pdf_text_from_bytes(
             )
 
             raw_chunk_text, chunk_stopped = _truncate_at_stop_marker(
-                raw_chunk_text
+                raw_chunk_text,
+                start_page=start_page,
+                stop_marker_min_page=stop_marker_min_page,
             )
 
             cleaned_chunk_text = _clean_extracted_text(raw_chunk_text)
@@ -255,10 +280,11 @@ def build_summaries_large_pdf_text_from_bytes(
             "status": "completed",
             "created_at": _utc_now_iso(),
             "chunk_size": chunk_size,
+            "stop_marker_min_page": stop_marker_min_page,
             "total_pdf_pages": total_pages,
             "chunks_created": len(chunks),
             "stopped_on_marker": stopped_on_marker,
-            "stop_marker": SUMMARIES_EXTRACTION_STOP_MARKER,
+            "stop_markers": SUMMARIES_EXTRACTION_STOP_MARKERS,
             "stopped_at_chunk_index": stopped_at_chunk_index,
             "stopped_at_page_range": stopped_at_page_range,
             "configured_qc_titles": SUMMARY_QC_TITLES,
