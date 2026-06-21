@@ -6,3 +6,4 @@ python-dotenv
 cryptography==43.0.3
 cffi==1.16.0
 pypdf
+pymupdf
