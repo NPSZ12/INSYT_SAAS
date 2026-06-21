@@ -284,7 +284,13 @@ def _split_text_into_summary_sections(
 
         title = re.sub(r"\s+", " ", title).strip()
         citation = re.sub(r"\s+", " ", citation).strip()
-        original_summary = "\n".join(summary_lines).strip()
+        original_summary = " ".join(
+            line.strip()
+            for line in summary_lines
+            if line.strip()
+        )
+
+        original_summary = re.sub(r"\s+", " ", original_summary).strip()
 
         if not title and not original_summary:
             continue
@@ -304,7 +310,7 @@ def _split_text_into_summary_sections(
                 "summary_id": f"{doc_id}-SUMMARY{summary_number:09d}",
                 "section_id": f"{doc_id}-SUMSEC{summary_number:09d}",
                 "section_index": summary_number,
-                "title": title or f"{summary_number}: Record Summary {summary_number}",
+                "title": title,
                 "citation": citation,
                 "original_summary": original_summary,
                 "qc_summary": original_summary,
@@ -396,31 +402,6 @@ def _build_summary_extract_payload(
         "warnings": [],
     }
 
-
-def _get_or_create_summary_extract(
-    *,
-    client: str,
-    project: str,
-    doc_id: str,
-) -> tuple[dict[str, Any], str, bool]:
-    extract_path = _summary_extract_path(client, project, doc_id)
-
-    if _blob_exists(extract_path):
-        return _read_json_blob(extract_path), extract_path, False
-
-    extract_payload = _build_summary_extract_from_source_text(
-        client=client,
-        project=project,
-        doc_id=doc_id,
-    )
-
-    _write_json_blob(
-        extract_path,
-        extract_payload,
-        overwrite=True,
-    )
-
-    return extract_payload, extract_path, True
 
 def _write_json_blob(
     blob_path: str,
@@ -857,6 +838,7 @@ def get_checked_out_summary_set(
                 "checked_out_at": payload.get("checked_out_at"),
                 "completed_by": payload.get("completed_by"),
                 "completed_at": payload.get("completed_at"),
+                "items": payload.get("items") or [],
                 "blob_path": blob_path,
             }
         )

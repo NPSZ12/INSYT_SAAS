@@ -244,19 +244,57 @@ export default function ProjectSidebar() {
 
           incomingOutlineItems = items.map((item: any, index: number) => ({
             id: item.summary_id || `summary-${index + 1}`,
-            title: item.title || `${index + 1}: Record Summary ${index + 1}`,
+
+            title:
+              item.title ||
+              `${index + 1}: Record Summary ${index + 1}`,
+
             citation: item.citation || "",
-            originalSummary: item.original_summary || "",
+
+            originalSummary:
+              item.original_summary ||
+              item.originalSummary ||
+              "",
+
             qcSummary:
               item.saved_row?.qc_summary ||
               item.qc_summary ||
+              item.qcSummary ||
               item.original_summary ||
               "",
-            page: item.pdf_page || item.page || item.page_start || null,
-            pageStart: item.page_start || item.page || null,
-            pageEnd: item.page_end || item.page || null,
-            pdfPage: item.pdf_page || item.page || null,
-            summaryPdfPage: item.summary_pdf_page || item.pdf_page || item.page || null,
+
+            page:
+              item.summary_pdf_page ||
+              item.pdf_page ||
+              item.pdfPage ||
+              item.page ||
+              item.page_start ||
+              null,
+
+            pageStart:
+              item.page_start ||
+              item.pageStart ||
+              item.page ||
+              null,
+
+            pageEnd:
+              item.page_end ||
+              item.pageEnd ||
+              item.page ||
+              null,
+
+            pdfPage:
+              item.pdf_page ||
+              item.pdfPage ||
+              item.page ||
+              null,
+
+            summaryPdfPage:
+              item.summary_pdf_page ||
+              item.pdf_page ||
+              item.pdfPage ||
+              item.page ||
+              null,
           }));
         } else if (selectedDocId) {
           const response = await apiGet(

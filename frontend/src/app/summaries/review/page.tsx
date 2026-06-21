@@ -28,6 +28,12 @@ function ReviewBatchLandingPageContent() {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [isResolving, setIsResolving] = useState(true);
 
+  const [resolvedSummarySet, setResolvedSummarySet] =
+    useState<any>(null);
+
+  const [assignedSummaries, setAssignedSummaries] =
+    useState<any[]>([]);
+
   useEffect(() => {
     if (!clientId || !projectId || !docId) {
       return;
@@ -84,6 +90,9 @@ function ReviewBatchLandingPageContent() {
         }
 
         const summarySetId = activeSummarySet.batch_summary_set_id;
+
+        setResolvedSummarySet(activeSummarySet);
+        setAssignedSummaries(activeSummarySet.items || []);
 
         const params = new URLSearchParams();
 

@@ -18,6 +18,22 @@ import { apiGet, apiPost } from "../../../../lib/api";
 import type { ReviewDocument } from "../../../../types";
 import type { PdfOutlineItem } from "../../../../components/summaries/PdfOutlinePane";
 
+type SavedSummaryLink = {
+  link_id?: string;
+  batch_summary_set_id?: string;
+  source_doc_id?: string;
+  summary_id?: string;
+  section_id?: string;
+  title?: string;
+  citation?: string;
+  original_summary?: string;
+  qc_summary?: string;
+  linked?: boolean;
+  status?: string;
+  saved_by?: string;
+  saved_at?: string;
+  updated_at?: string;
+};
 
 function ReviewPageContent() {
   const searchParams = useSearchParams();
@@ -74,9 +90,12 @@ function ReviewPageContent() {
   const isFileView = Boolean(docId && !summarySetId);
 
   const [currentCitation, setCurrentCitation] = useState("");
+  const [savedSummaryLinks, setSavedSummaryLinks] =
+    useState<SavedSummaryLink[]>([]);
 
   const outlineId = searchParams.get("outline") || "";
   const pageParam = searchParams.get("page") || "";
+  const activePdfPage = pageParam ? Number(pageParam) : undefined;
 
   const [qcPaneWidth, setQcPaneWidth] = useState(544);
   const [isResizing, setIsResizing] = useState(false);
@@ -237,6 +256,12 @@ function ReviewPageContent() {
           const batch = response?.batch || response?.summary_set || {};
           const items = batch?.items || response?.summary_set?.items || [];
 
+          setSavedSummaryLinks(
+            (response?.qc?.saved_summaries || []).filter(
+              (item: SavedSummaryLink) => item?.linked !== false
+            )
+          );
+
           const incomingOutlineItems =
             items.map((item: any, index: number) => ({
               id: item.summary_id || `summary-${index + 1}`,
@@ -358,6 +383,7 @@ function ReviewPageContent() {
         );
 
         setReviewDoc(response);
+        setSavedSummaryLinks([]);
 
         const incomingOutlineItems =
           response?.outline_items || [];
@@ -452,7 +478,7 @@ function ReviewPageContent() {
       summaryDocId;
 
     if (summarySetId) {
-      await apiPost("/api/summaries/summary-sets/save", {
+      const response = await apiPost("/api/summaries/summary-sets/save", {
         client: clientId,
         project: projectId,
         batch_summary_set_id: summarySetId,
@@ -466,6 +492,18 @@ function ReviewPageContent() {
           JSON.parse(localStorage.getItem("insyt_user") || "{}")?.username ||
           "",
       });
+
+      const savedRow = response?.saved_row;
+
+      if (savedRow) {
+        setSavedSummaryLinks((current) => {
+          const others = current.filter(
+            (item) => item.summary_id !== savedRow.summary_id
+          );
+
+          return [...others, savedRow];
+        });
+      }
 
       setQcSummary(updatedQcSummary);
       return;
@@ -763,7 +801,7 @@ function ReviewPageContent() {
               text={reviewDoc.text}
               nativeUrl={reviewDoc.native_url}
               nativeBlob={reviewDoc.native_blob}
-              targetPage={targetPdfPage}
+              targetPage={activePdfPage || targetPdfPage}
             />
           </div>
 
