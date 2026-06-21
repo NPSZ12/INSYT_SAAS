@@ -140,6 +140,128 @@ function makeEmptyForm(defaultWorkspace = "summaries"): UserAccessForm {
   };
 }
 
+type FilterOption = {
+  value: string;
+  label: string;
+};
+
+type CheckboxDropdownFilterProps = {
+  label: string;
+  options: FilterOption[];
+  draftValues: string[];
+  appliedValues: string[];
+  onDraftChange: (values: string[]) => void;
+  onApply: () => void;
+  onClear: () => void;
+};
+
+function CheckboxDropdownFilter({
+  label,
+  options,
+  draftValues,
+  appliedValues,
+  onDraftChange,
+  onApply,
+  onClear,
+}: CheckboxDropdownFilterProps) {
+  const [open, setOpen] = useState(false);
+
+  function toggleValue(value: string) {
+    onDraftChange(
+      draftValues.includes(value)
+        ? draftValues.filter((item) => item !== value)
+        : [...draftValues, value]
+    );
+  }
+
+  const appliedCount = appliedValues.length;
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-left text-[11px] text-slate-300 hover:border-sky-500"
+      >
+        {appliedCount > 0
+          ? `${label}: ${appliedCount}`
+          : `Filter ${label}`}
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-950 p-3 shadow-2xl">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-xs font-semibold text-white">
+              {label}
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                onDraftChange(options.map((option) => option.value))
+              }
+              className="text-[11px] text-sky-400 hover:text-sky-300"
+            >
+              Select All
+            </button>
+          </div>
+
+          <div className="max-h-56 overflow-auto space-y-1">
+            {options.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                No values found.
+              </p>
+            ) : (
+              options.map((option) => (
+                <label
+                  key={option.value}
+                  className="flex items-center gap-2 rounded px-1 py-1 text-xs text-slate-300 hover:bg-slate-900"
+                >
+                  <input
+                    type="checkbox"
+                    checked={draftValues.includes(option.value)}
+                    onChange={() => toggleValue(option.value)}
+                    className="accent-sky-600"
+                  />
+
+                  <span className="break-words">
+                    {option.label}
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+
+          <div className="mt-3 flex justify-end gap-2 border-t border-slate-800 pt-3">
+            <button
+              type="button"
+              onClick={() => {
+                onDraftChange([]);
+                onClear();
+                setOpen(false);
+              }}
+              className="rounded-full border border-slate-700 px-3 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+            >
+              Clear
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                onApply();
+                setOpen(false);
+              }}
+              className="rounded-full bg-sky-500 px-4 py-1 text-[11px] font-semibold text-white hover:bg-sky-400"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UserAccessPageContent() {
   const searchParams = useSearchParams();
 
@@ -167,6 +289,21 @@ function UserAccessPageContent() {
   const [form, setForm] = useState<UserAccessForm>(
     makeEmptyForm(defaultWorkspace)
   );
+
+  const [userSearchFilter, setUserSearchFilter] = useState("");
+  const [emailSearchFilter, setEmailSearchFilter] = useState("");
+
+  const [draftLevelFilters, setDraftLevelFilters] = useState<string[]>([]);
+  const [appliedLevelFilters, setAppliedLevelFilters] = useState<string[]>([]);
+
+  const [draftWorkspaceFilters, setDraftWorkspaceFilters] = useState<string[]>([]);
+  const [appliedWorkspaceFilters, setAppliedWorkspaceFilters] = useState<string[]>([]);
+
+  const [draftClientFilters, setDraftClientFilters] = useState<string[]>([]);
+  const [appliedClientFilters, setAppliedClientFilters] = useState<string[]>([]);
+
+  const [draftProjectFilters, setDraftProjectFilters] = useState<string[]>([]);
+  const [appliedProjectFilters, setAppliedProjectFilters] = useState<string[]>([]);
 
   const isInsytAdminLevel =
     form.role === "INSYT Admin";
@@ -646,6 +783,116 @@ function UserAccessPageContent() {
     });
   }
 
+  function makeUniqueOptions(values: string[]): FilterOption[] {
+  return Array.from(
+    new Set(values.filter((value) => value && value.trim()))
+  )
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => ({
+      value,
+      label: value.replaceAll("_", " "),
+    }));
+}
+
+function getUserWorkspaceValues(user: AccessUser) {
+  return user.workspace_access || [];
+}
+
+function getUserClientValues(user: AccessUser) {
+  return user.client_access || [];
+}
+
+function getUserProjectValues(user: AccessUser) {
+  return user.project_access || [];
+}
+
+function matchesAnySelected(
+  userValues: string[],
+  selectedValues: string[]
+) {
+  if (selectedValues.length === 0) return true;
+
+  return selectedValues.some((selectedValue) =>
+    userValues.includes(selectedValue)
+  );
+}
+
+const levelFilterOptions = makeUniqueOptions(
+  users.map((user) => user.role)
+);
+
+const workspaceFilterOptions = makeUniqueOptions(
+  users.flatMap((user) => getUserWorkspaceValues(user))
+);
+
+const clientFilterOptions = makeUniqueOptions(
+  users.flatMap((user) => getUserClientValues(user))
+);
+
+const projectFilterOptions = makeUniqueOptions(
+  users.flatMap((user) => getUserProjectValues(user))
+);
+
+const filteredUsers = users.filter((user) => {
+  const userSearch = userSearchFilter.trim().toLowerCase();
+  const emailSearch = emailSearchFilter.trim().toLowerCase();
+
+  const displayName = user.display_name || "";
+  const username = user.username || "";
+  const email = user.email || "";
+
+  if (
+    userSearch &&
+    !displayName.toLowerCase().includes(userSearch) &&
+    !username.toLowerCase().includes(userSearch)
+  ) {
+    return false;
+  }
+
+  if (
+    emailSearch &&
+    !email.toLowerCase().includes(emailSearch)
+  ) {
+    return false;
+  }
+
+  if (
+    appliedLevelFilters.length > 0 &&
+    !appliedLevelFilters.includes(user.role)
+  ) {
+    return false;
+  }
+
+  if (
+    !matchesAnySelected(
+      getUserWorkspaceValues(user),
+      appliedWorkspaceFilters
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    !matchesAnySelected(
+      getUserClientValues(user),
+      appliedClientFilters
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    !matchesAnySelected(
+      getUserProjectValues(user),
+      appliedProjectFilters
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+});
+
 
   return (
     <AppShell>
@@ -1090,6 +1337,10 @@ function UserAccessPageContent() {
               </Button>
             </div>
 
+            <p className="mb-3 text-xs text-slate-500">
+              Showing {filteredUsers.length} of {users.length} user(s).
+            </p>
+
             <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-auto max-h-[65vh] w-full">
               <table className="w-full text-xs table-auto">
                 <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
@@ -1106,10 +1357,135 @@ function UserAccessPageContent() {
                     <th className="p-3 text-left">Project</th>
                     <th className="p-3 text-left">Permissions</th>
                   </tr>
+
+                  <tr className="bg-slate-950 text-slate-400 sticky top-[41px] z-20">
+                    <th className="p-2 text-left">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserSearchFilter("");
+                          setEmailSearchFilter("");
+
+                          setDraftLevelFilters([]);
+                          setAppliedLevelFilters([]);
+
+                          setDraftWorkspaceFilters([]);
+                          setAppliedWorkspaceFilters([]);
+
+                          setDraftClientFilters([]);
+                          setAppliedClientFilters([]);
+
+                          setDraftProjectFilters([]);
+                          setAppliedProjectFilters([]);
+                        }}
+                        className="rounded-full border border-slate-700 px-3 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                      >
+                        Clear
+                      </button>
+                    </th>
+
+                    <th className="p-2 text-left">
+                      <input
+                        value={userSearchFilter}
+                        onChange={(event) =>
+                          setUserSearchFilter(event.target.value)
+                        }
+                        placeholder="Search user"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-300 outline-none focus:border-sky-500"
+                      />
+                    </th>
+
+                    <th className="p-2 text-left">
+                      <input
+                        value={emailSearchFilter}
+                        onChange={(event) =>
+                          setEmailSearchFilter(event.target.value)
+                        }
+                        placeholder="Search email"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-300 outline-none focus:border-sky-500"
+                      />
+                    </th>
+
+                    <th className="p-2 text-left">
+                      <CheckboxDropdownFilter
+                        label="Level"
+                        options={levelFilterOptions}
+                        draftValues={draftLevelFilters}
+                        appliedValues={appliedLevelFilters}
+                        onDraftChange={setDraftLevelFilters}
+                        onApply={() =>
+                          setAppliedLevelFilters(draftLevelFilters)
+                        }
+                        onClear={() => {
+                          setDraftLevelFilters([]);
+                          setAppliedLevelFilters([]);
+                        }}
+                      />
+                    </th>
+
+                    <th className="p-2 text-left" />
+
+                    <th className="p-2 text-left" />
+
+                    <th className="p-2 text-left" />
+
+                    <th className="p-2 text-left">
+                      <CheckboxDropdownFilter
+                        label="Workspace"
+                        options={workspaceFilterOptions}
+                        draftValues={draftWorkspaceFilters}
+                        appliedValues={appliedWorkspaceFilters}
+                        onDraftChange={setDraftWorkspaceFilters}
+                        onApply={() =>
+                          setAppliedWorkspaceFilters(draftWorkspaceFilters)
+                        }
+                        onClear={() => {
+                          setDraftWorkspaceFilters([]);
+                          setAppliedWorkspaceFilters([]);
+                        }}
+                      />
+                    </th>
+
+                    <th className="p-2 text-left">
+                      <CheckboxDropdownFilter
+                        label="Client"
+                        options={clientFilterOptions}
+                        draftValues={draftClientFilters}
+                        appliedValues={appliedClientFilters}
+                        onDraftChange={setDraftClientFilters}
+                        onApply={() =>
+                          setAppliedClientFilters(draftClientFilters)
+                        }
+                        onClear={() => {
+                          setDraftClientFilters([]);
+                          setAppliedClientFilters([]);
+                        }}
+                      />
+                    </th>
+
+                    <th className="p-2 text-left">
+                      <CheckboxDropdownFilter
+                        label="Project"
+                        options={projectFilterOptions}
+                        draftValues={draftProjectFilters}
+                        appliedValues={appliedProjectFilters}
+                        onDraftChange={setDraftProjectFilters}
+                        onApply={() =>
+                          setAppliedProjectFilters(draftProjectFilters)
+                        }
+                        onClear={() => {
+                          setDraftProjectFilters([]);
+                          setAppliedProjectFilters([]);
+                        }}
+                      />
+                    </th>
+
+                    <th className="p-2 text-left" />
+                  </tr>
                 </thead>
 
                 <tbody>
-                  {users.map((user) => (
+                  {filteredUsers.map((user) => (
                     <tr
                       key={user.username}
                       className="border-t border-slate-800"
