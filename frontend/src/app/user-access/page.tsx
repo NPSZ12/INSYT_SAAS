@@ -54,8 +54,65 @@ const workspaces = [
   { value: "capture", label: "INSYT Capture" },
   { value: "discovery", label: "INSYT Discovery" },
   { value: "summaries", label: "INSYT Summaries" },
-  { value: "development", label: "INSYT Development" },
 ];
+
+type WorkspaceTree = Record<string, string[]>;
+
+type AccessTree = Record<string, WorkspaceTree>;
+
+function makeClientAccessKey(workspace: string, client: string) {
+  return `${workspace}/${client}`;
+}
+
+function makeProjectAccessKey(
+  workspace: string,
+  client: string,
+  project: string
+) {
+  return `${workspace}/${client}/${project}`;
+}
+
+function parseClientAccessKey(value: string) {
+  const parts = value.split("/");
+
+  if (parts.length >= 2) {
+    return {
+      workspace: parts[0],
+      client: parts.slice(1).join("/"),
+    };
+  }
+
+  return {
+    workspace: "",
+    client: value,
+  };
+}
+
+function parseProjectAccessKey(value: string) {
+  const parts = value.split("/");
+
+  if (parts.length >= 3) {
+    return {
+      workspace: parts[0],
+      client: parts[1],
+      project: parts.slice(2).join("/"),
+    };
+  }
+
+  if (parts.length === 2) {
+    return {
+      workspace: "",
+      client: parts[0],
+      project: parts[1],
+    };
+  }
+
+  return {
+    workspace: "",
+    client: "",
+    project: value,
+  };
+}
 
 const permissions = [
   "Download Docs",
@@ -90,10 +147,11 @@ function UserAccessPageContent() {
     searchParams.get("workspace") || "summaries";
 
   const [users, setUsers] = useState<AccessUser[]>([]);
-  const [clients, setClients] = useState<string[]>([]);
-  const [projectsByClient, setProjectsByClient] = useState<
-    Record<string, string[]>
-  >({});
+  const [accessTree, setAccessTree] = useState<AccessTree>({});
+  const [expandedWorkspaces, setExpandedWorkspaces] =
+    useState<Record<string, boolean>>({});
+  const [expandedClients, setExpandedClients] =
+    useState<Record<string, boolean>>({});
 
   const [selectedUsers, setSelectedUsers] =
     useState<Record<string, boolean>>({});
@@ -107,9 +165,6 @@ function UserAccessPageContent() {
   const [form, setForm] = useState<UserAccessForm>(
     makeEmptyForm(defaultWorkspace)
   );
-
-  const selectedWorkspace =
-    form.workspace_access[0] || defaultWorkspace;
 
   const isInsytAdminLevel =
     form.role === "INSYT Admin";
@@ -131,47 +186,46 @@ function UserAccessPageContent() {
       .catch(console.error);
   }
 
-  function loadClients(workspace: string) {
-    if (!workspace) {
-      setClients([]);
-      return;
-    }
+  async function loadAccessTree() {
+    const nextTree: AccessTree = {};
 
-    apiGet(`/api/${workspace}/clients`)
-      .then((response: any) => {
-        setClients(response.clients || []);
+    await Promise.all(
+      workspaces.map(async (workspace) => {
+        try {
+          const clientsResponse: any = await apiGet(
+            `/api/${workspace.value}/clients`
+          );
+
+          const workspaceClients: string[] =
+            clientsResponse.clients || [];
+
+          nextTree[workspace.value] = {};
+
+          await Promise.all(
+            workspaceClients.map(async (client) => {
+              try {
+                const projectsResponse: any = await apiGet(
+                  `/api/${workspace.value}/clients/${encodeURIComponent(
+                    client
+                  )}/projects`
+                );
+
+                nextTree[workspace.value][client] =
+                  projectsResponse.projects || [];
+              } catch (error) {
+                console.error(error);
+                nextTree[workspace.value][client] = [];
+              }
+            })
+          );
+        } catch (error) {
+          console.error(error);
+          nextTree[workspace.value] = {};
+        }
       })
-      .catch((error) => {
-        console.error(error);
-        setClients([]);
-        setMessage("Failed to load clients for workspace.");
-      });
-  }
+    );
 
-  function loadProjectsForClient(
-    workspace: string,
-    client: string
-  ) {
-    if (!workspace || !client) return;
-
-    apiGet(
-      `/api/${workspace}/clients/${encodeURIComponent(
-        client
-      )}/projects`
-    )
-      .then((response: any) => {
-        setProjectsByClient((current) => ({
-          ...current,
-          [client]: response.projects || [],
-        }));
-      })
-      .catch((error) => {
-        console.error(error);
-        setProjectsByClient((current) => ({
-          ...current,
-          [client]: [],
-        }));
-      });
+    setAccessTree(nextTree);
   }
 
   useEffect(() => {
@@ -179,34 +233,9 @@ function UserAccessPageContent() {
   }, []);
 
   useEffect(() => {
-    loadClients(selectedWorkspace);
+    loadAccessTree();
+  }, []);
 
-    setForm((current) => ({
-      ...current,
-      client_access: [],
-      project_access: [],
-    }));
-
-    setProjectsByClient({});
-  }, [selectedWorkspace]);
-
-  useEffect(() => {
-    form.client_access.forEach((client) => {
-      if (!projectsByClient[client]) {
-        loadProjectsForClient(selectedWorkspace, client);
-      }
-    });
-  }, [form.client_access, selectedWorkspace]);
-
-  function setWorkspace(value: string) {
-    setForm((current) => ({
-      ...current,
-      workspace_access: [value],
-      client_access: [],
-      project_access: [],
-    }));
-    setProjectsByClient({});
-  }
 
   function toggleArrayValue(
     key: "client_access" | "project_access" | "permissions",
@@ -220,6 +249,153 @@ function UserAccessPageContent() {
         [key]: exists
           ? current[key].filter((item) => item !== value)
           : [...current[key], value],
+      };
+    });
+  }
+
+  function toggleExpandedWorkspace(workspace: string) {
+    setExpandedWorkspaces((current) => ({
+      ...current,
+      [workspace]: !current[workspace],
+    }));
+  }
+
+  function toggleExpandedClient(workspace: string, client: string) {
+    const clientKey = makeClientAccessKey(workspace, client);
+
+    setExpandedClients((current) => ({
+      ...current,
+      [clientKey]: !current[clientKey],
+    }));
+  }
+
+  function getWorkspaceProjectKeys(workspace: string) {
+    const clientsForWorkspace = accessTree[workspace] || {};
+
+    return Object.entries(clientsForWorkspace).flatMap(
+      ([client, projects]) =>
+        projects.map((project) =>
+          makeProjectAccessKey(workspace, client, project)
+        )
+    );
+  }
+
+  function getClientProjectKeys(workspace: string, client: string) {
+    return (accessTree[workspace]?.[client] || []).map((project) =>
+      makeProjectAccessKey(workspace, client, project)
+    );
+  }
+
+  function getSelectionState(keys: string[]) {
+    const selectedCount = keys.filter((key) =>
+      form.project_access.includes(key)
+    ).length;
+
+    return {
+      checked: keys.length > 0 && selectedCount === keys.length,
+      indeterminate:
+        keys.length > 0 &&
+        selectedCount > 0 &&
+        selectedCount < keys.length,
+    };
+  }
+
+  function syncAccessFromProjects(projectAccess: string[]) {
+    const workspaceSet = new Set<string>();
+    const clientSet = new Set<string>();
+
+    projectAccess.forEach((projectKey) => {
+      const parsed = parseProjectAccessKey(projectKey);
+
+      if (parsed.workspace) {
+        workspaceSet.add(parsed.workspace);
+      }
+
+      if (parsed.workspace && parsed.client) {
+        clientSet.add(
+          makeClientAccessKey(parsed.workspace, parsed.client)
+        );
+      }
+    });
+
+    return {
+      workspace_access: Array.from(workspaceSet),
+      client_access: Array.from(clientSet),
+      project_access: projectAccess,
+    };
+  }
+
+  function toggleProjectAccess(
+    workspace: string,
+    client: string,
+    project: string
+  ) {
+    const projectKey = makeProjectAccessKey(
+      workspace,
+      client,
+      project
+    );
+
+    setForm((current) => {
+      const exists = current.project_access.includes(projectKey);
+
+      const nextProjectAccess = exists
+        ? current.project_access.filter((item) => item !== projectKey)
+        : [...current.project_access, projectKey];
+
+      return {
+        ...current,
+        ...syncAccessFromProjects(nextProjectAccess),
+      };
+    });
+  }
+
+  function toggleClientAccess(workspace: string, client: string) {
+    const projectKeys = getClientProjectKeys(workspace, client);
+
+    setForm((current) => {
+      const allSelected =
+        projectKeys.length > 0 &&
+        projectKeys.every((key) =>
+          current.project_access.includes(key)
+        );
+
+      const projectSet = new Set(current.project_access);
+
+      if (allSelected) {
+        projectKeys.forEach((key) => projectSet.delete(key));
+      } else {
+        projectKeys.forEach((key) => projectSet.add(key));
+      }
+
+      return {
+        ...current,
+        ...syncAccessFromProjects(Array.from(projectSet)),
+      };
+    });
+  }
+
+  function toggleWorkspaceAccess(workspace: string) {
+    const projectKeys = getWorkspaceProjectKeys(workspace);
+
+    setForm((current) => {
+      const allSelected =
+        projectKeys.length > 0 &&
+        projectKeys.every((key) =>
+          current.project_access.includes(key)
+        );
+
+      const projectSet = new Set(current.project_access);
+
+      if (allSelected) {
+        projectKeys.forEach((key) => projectSet.delete(key));
+      } else {
+        projectKeys.forEach((key) => projectSet.add(key));
+      }
+
+      return {
+        ...current,
+        ...syncAccessFromProjects(Array.from(projectSet)),
       };
     });
   }
@@ -368,22 +544,47 @@ function UserAccessPageContent() {
 
     if (!selectedUser) return;
 
-    const userWorkspace =
-      selectedUser.workspace_access?.[0] || defaultWorkspace;
+    const savedProjectAccess = selectedUser.project_access || [];
+
+    const normalizedProjectAccess = savedProjectAccess.map(
+      (projectKey) => {
+        const parsed = parseProjectAccessKey(projectKey);
+
+        if (parsed.workspace) {
+          return projectKey;
+        }
+
+        const fallbackWorkspace =
+          selectedUser.workspace_access?.[0] || defaultWorkspace;
+
+        if (parsed.client && parsed.project) {
+          return makeProjectAccessKey(
+            fallbackWorkspace,
+            parsed.client,
+            parsed.project
+          );
+        }
+
+        return projectKey;
+      }
+    );
+
+    const syncedAccess = syncAccessFromProjects(
+      normalizedProjectAccess
+    );
 
     setForm({
-        display_name: selectedUser.display_name,
-        username: selectedUser.username,
-        password: "",
-        role: selectedUser.role,
-        auth_provider:
-            selectedUser.auth_provider || "entra",
-        workspace_access: [userWorkspace],
-        client_access: selectedUser.client_access || [],
-        project_access: selectedUser.project_access || [],
-        permissions: selectedUser.permissions || [],
-        email: selectedUser.email || "",
-        });
+      display_name: selectedUser.display_name,
+      username: selectedUser.username,
+      password: "",
+      role: selectedUser.role,
+      auth_provider: selectedUser.auth_provider || "entra",
+      workspace_access: syncedAccess.workspace_access,
+      client_access: syncedAccess.client_access,
+      project_access: syncedAccess.project_access,
+      permissions: selectedUser.permissions || [],
+      email: selectedUser.email || "",
+    });
 
     window.scrollTo({
       top: 0,
@@ -414,14 +615,6 @@ function UserAccessPageContent() {
     });
   }
 
-  const visibleProjects = form.client_access.flatMap(
-    (client) =>
-      (projectsByClient[client] || []).map((project) => ({
-        client,
-        project,
-        key: `${client}/${project}`,
-      }))
-  );
 
   return (
     <AppShell>
@@ -558,108 +751,213 @@ function UserAccessPageContent() {
                 </div>
             </div>
             ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-6">
-                <div>
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+              <div className="xl:col-span-2">
                 <h3 className="font-semibold mb-3">
-                    Workspace
+                  Workspace / Client / Project Access
                 </h3>
 
-                <Select
-                    value={selectedWorkspace}
-                    onChange={setWorkspace}
-                >
-                    {workspaces.map((workspace) => (
-                    <option
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 max-h-[420px] overflow-auto">
+                  {workspaces.map((workspace) => {
+                    const clientsForWorkspace =
+                      accessTree[workspace.value] || {};
+                    const clientEntries = Object.entries(
+                      clientsForWorkspace
+                    );
+                    const workspaceProjectKeys =
+                      getWorkspaceProjectKeys(workspace.value);
+                    const workspaceState = getSelectionState(
+                      workspaceProjectKeys
+                    );
+                    const workspaceExpanded =
+                      expandedWorkspaces[workspace.value] ?? true;
+
+                    return (
+                      <div
                         key={workspace.value}
-                        value={workspace.value}
-                    >
-                        {workspace.label}
-                    </option>
-                    ))}
-                </Select>
-                </div>
+                        className="border-b border-slate-800 last:border-b-0 py-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toggleExpandedWorkspace(workspace.value)
+                            }
+                            className="w-6 rounded text-slate-300 hover:bg-slate-800"
+                          >
+                            {workspaceExpanded ? "▾" : "▸"}
+                          </button>
 
-                <div>
-                <h3 className="font-semibold mb-3">
-                    Clients
-                </h3>
+                          <input
+                            type="checkbox"
+                            checked={workspaceState.checked}
+                            ref={(input) => {
+                              if (input) {
+                                input.indeterminate =
+                                  workspaceState.indeterminate;
+                              }
+                            }}
+                            onChange={() =>
+                              toggleWorkspaceAccess(workspace.value)
+                            }
+                            className="accent-sky-600"
+                          />
 
-                {clients.length === 0 ? (
-                    <p className="text-sm text-slate-500">
-                    No clients found for this workspace.
-                    </p>
-                ) : (
-                    clients.map((client) => (
-                    <Checkbox
-                        key={client}
-                        label={client}
-                        checked={form.client_access.includes(client)}
-                        onChange={() =>
-                        toggleArrayValue(
-                            "client_access",
-                            client
-                        )
-                        }
-                    />
-                    ))
-                )}
-                </div>
+                          <span className="font-semibold text-white">
+                            {workspace.label}
+                          </span>
 
-                <div>
-                <h3 className="font-semibold mb-3">
-                    Projects
-                </h3>
+                          <span className="text-xs text-slate-500">
+                            {workspaceProjectKeys.length} project(s)
+                          </span>
+                        </div>
 
-                {visibleProjects.length === 0 ? (
-                    <p className="text-sm text-slate-500">
-                    Select one or more clients to load
-                    projects.
-                    </p>
-                ) : (
-                    visibleProjects.map(
-                    ({ client, project, key }) => (
-                        <Checkbox
-                        key={key}
-                        label={`${client} / ${project.replaceAll(
-                            "_",
-                            " "
-                        )}`}
-                        checked={form.project_access.includes(
-                            key
+                        {workspaceExpanded && (
+                          <div className="mt-2 ml-8 space-y-2">
+                            {clientEntries.length === 0 ? (
+                              <p className="text-sm text-slate-500">
+                                No clients found for this workspace.
+                              </p>
+                            ) : (
+                              clientEntries.map(([client, projects]) => {
+                                const clientKey = makeClientAccessKey(
+                                  workspace.value,
+                                  client
+                                );
+                                const clientProjectKeys =
+                                  getClientProjectKeys(
+                                    workspace.value,
+                                    client
+                                  );
+                                const clientState = getSelectionState(
+                                  clientProjectKeys
+                                );
+                                const clientExpanded =
+                                  expandedClients[clientKey] ?? false;
+
+                                return (
+                                  <div key={clientKey}>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          toggleExpandedClient(
+                                            workspace.value,
+                                            client
+                                          )
+                                        }
+                                        className="w-6 rounded text-slate-300 hover:bg-slate-800"
+                                      >
+                                        {clientExpanded ? "▾" : "▸"}
+                                      </button>
+
+                                      <input
+                                        type="checkbox"
+                                        checked={clientState.checked}
+                                        ref={(input) => {
+                                          if (input) {
+                                            input.indeterminate =
+                                              clientState.indeterminate;
+                                          }
+                                        }}
+                                        onChange={() =>
+                                          toggleClientAccess(
+                                            workspace.value,
+                                            client
+                                          )
+                                        }
+                                        className="accent-sky-600"
+                                      />
+
+                                      <span className="text-slate-200">
+                                        {client}
+                                      </span>
+
+                                      <span className="text-xs text-slate-500">
+                                        {projects.length} project(s)
+                                      </span>
+                                    </div>
+
+                                    {clientExpanded && (
+                                      <div className="mt-1 ml-8 space-y-1">
+                                        {projects.length === 0 ? (
+                                          <p className="text-sm text-slate-500">
+                                            No projects found for this client.
+                                          </p>
+                                        ) : (
+                                          projects.map((project) => {
+                                            const projectKey =
+                                              makeProjectAccessKey(
+                                                workspace.value,
+                                                client,
+                                                project
+                                              );
+
+                                            return (
+                                              <label
+                                                key={projectKey}
+                                                className="flex items-center gap-2 text-sm text-slate-300"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={form.project_access.includes(
+                                                    projectKey
+                                                  )}
+                                                  onChange={() =>
+                                                    toggleProjectAccess(
+                                                      workspace.value,
+                                                      client,
+                                                      project
+                                                    )
+                                                  }
+                                                  className="accent-sky-600"
+                                                />
+
+                                                <span>
+                                                  {project.replaceAll(
+                                                    "_",
+                                                    " "
+                                                  )}
+                                                </span>
+                                              </label>
+                                            );
+                                          })
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
                         )}
-                        onChange={() =>
-                            toggleArrayValue(
-                            "project_access",
-                            key
-                            )
-                        }
-                        />
-                    )
-                    )
-                )}
+                      </div>
+                    );
+                  })}
                 </div>
 
-                <div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Select workspaces, clients, or individual projects.
+                  Partial selections are shown automatically.
+                </p>
+              </div>
+
+              <div>
                 <h3 className="font-semibold mb-3">
-                    Permissions
+                  Permissions
                 </h3>
 
                 {permissions.map((permission) => (
-                    <Checkbox
+                  <Checkbox
                     key={permission}
                     label={permission}
-                    checked={form.permissions.includes(
-                        permission
-                    )}
+                    checked={form.permissions.includes(permission)}
                     onChange={() =>
-                        toggleArrayValue(
-                        "permissions",
-                        permission
-                        )
+                      toggleArrayValue("permissions", permission)
                     }
-                    />
+                  />
                 ))}
-                </div>
+              </div>
             </div>
             )}
 
@@ -772,9 +1070,22 @@ function UserAccessPageContent() {
 
                       <td className="p-3 text-slate-300 max-w-[260px] break-words">
                         {(user.project_access || [])
-                          .map((project) =>
-                            project.replaceAll("_", " ")
-                          )
+                          .map((project) => {
+                            const parsed = parseProjectAccessKey(project);
+
+                            if (
+                              parsed.workspace &&
+                              parsed.client &&
+                              parsed.project
+                            ) {
+                              return `${parsed.workspace} / ${parsed.client} / ${parsed.project.replaceAll(
+                                "_",
+                                " "
+                              )}`;
+                            }
+
+                            return project.replaceAll("_", " ");
+                          })
                           .join(", ") || "—"}
                       </td>
 
