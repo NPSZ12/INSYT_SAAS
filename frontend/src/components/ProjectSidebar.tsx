@@ -510,6 +510,10 @@ export default function ProjectSidebar() {
     },
   ];
 
+  if (!projectId) {
+    return null;
+  }
+
   return (
     <aside
       className={`relative bg-slate-950 border-r border-slate-800 min-h-screen h-screen flex flex-col transition-all duration-300 ${
