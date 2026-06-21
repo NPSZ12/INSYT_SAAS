@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -193,81 +194,137 @@ def _split_text_into_summary_sections(
     doc_id: str,
     max_chars_per_section: int,
 ) -> list[dict[str, Any]]:
-    clean_text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    clean_text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
 
-    if not clean_text:
-        return []
+    marker = "Record Summaries"
+    marker_index = clean_text.lower().find(marker.lower())
 
-    paragraphs = [
-        paragraph.strip()
-        for paragraph in clean_text.split("\n\n")
-        if paragraph.strip()
-    ]
+    if marker_index < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot create Summary Extract for {doc_id}. "
+                "The text does not contain the required 'Record Summaries' marker."
+            ),
+        )
+
+    summaries_text = clean_text[marker_index + len(marker):].strip()
+
+    entry_matches = list(
+        re.finditer(
+            r"(?m)^\s*(\d+)\s*:\s*",
+            summaries_text,
+        )
+    )
+
+    if not entry_matches:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot create Summary Extract for {doc_id}. "
+                "No numbered Record Summaries were found after the 'Record Summaries' marker."
+            ),
+        )
 
     sections: list[dict[str, Any]] = []
-    buffer: list[str] = []
-    current_length = 0
 
-    def flush_buffer() -> None:
-        nonlocal buffer, current_length
+    for match_index, match in enumerate(entry_matches):
+        start = match.start()
+        end = (
+            entry_matches[match_index + 1].start()
+            if match_index + 1 < len(entry_matches)
+            else len(summaries_text)
+        )
 
-        if not buffer:
-            return
+        block = summaries_text[start:end].strip()
 
-        section_index = len(sections) + 1
-        section_text = "\n\n".join(buffer).strip()
+        if not block:
+            continue
+
+        lines = [
+            line.strip()
+            for line in block.split("\n")
+            if line.strip()
+        ]
+
+        if not lines:
+            continue
+
+        first_line = lines[0]
+
+        date_match = re.search(
+            r"\d{4}/\d{2}/\d{2}",
+            first_line,
+        )
 
         title = ""
-        first_line = section_text.split("\n", 1)[0].strip()
+        citation = ""
+        summary_lines: list[str] = []
 
-        if first_line and len(first_line) <= 120:
-            title = first_line
+        if date_match:
+            title = first_line[: date_match.start()].strip()
+            citation = first_line[date_match.start():].strip()
+            summary_lines = lines[1:]
+        else:
+            title = first_line.strip()
+
+            citation_index = None
+
+            for line_index, line in enumerate(lines[1:], start=1):
+                if re.match(r"^\d{4}/\d{2}/\d{2}", line):
+                    citation_index = line_index
+                    break
+
+            if citation_index is not None:
+                citation = lines[citation_index].strip()
+                summary_lines = lines[citation_index + 1:]
+            else:
+                citation = ""
+                summary_lines = lines[1:]
+
+        title = re.sub(r"\s+", " ", title).strip()
+        citation = re.sub(r"\s+", " ", citation).strip()
+        original_summary = "\n".join(summary_lines).strip()
+
+        if not title and not original_summary:
+            continue
+
+        summary_number = len(sections) + 1
+
+        page_match = re.search(
+            r"\bp\.\s*(\d+)",
+            citation,
+            flags=re.IGNORECASE,
+        )
+
+        parsed_page = int(page_match.group(1)) if page_match else None
 
         sections.append(
             {
-                "summary_id": f"{doc_id}-SUMMARY{section_index:09d}",
-                "section_id": f"{doc_id}-SUMSEC{section_index:09d}",
-                "section_index": section_index,
-                "title": title or f"Summary Section {section_index}",
-                "citation": "",
-                "original_summary": section_text,
-                "qc_summary": section_text,
-                "page": None,
-                "page_start": None,
-                "page_end": None,
-                "pdf_page": None,
+                "summary_id": f"{doc_id}-SUMMARY{summary_number:09d}",
+                "section_id": f"{doc_id}-SUMSEC{summary_number:09d}",
+                "section_index": summary_number,
+                "title": title or f"{summary_number}: Record Summary {summary_number}",
+                "citation": citation,
+                "original_summary": original_summary,
+                "qc_summary": original_summary,
+                "page": parsed_page,
+                "page_start": parsed_page,
+                "page_end": parsed_page,
+                "pdf_page": parsed_page,
+                "summary_pdf_page": parsed_page,
                 "status": "available",
             }
         )
 
-        buffer = []
-        current_length = 0
-
-    for paragraph in paragraphs:
-        paragraph_length = len(paragraph)
-
-        if buffer and current_length + paragraph_length > max_chars_per_section:
-            flush_buffer()
-
-        if paragraph_length > max_chars_per_section:
-            start = 0
-
-            while start < paragraph_length:
-                chunk = paragraph[start: start + max_chars_per_section].strip()
-
-                if chunk:
-                    buffer = [chunk]
-                    current_length = len(chunk)
-                    flush_buffer()
-
-                start += max_chars_per_section
-
-            continue
-
-        buffer.append(paragraph)
-        current_length += paragraph_length
-
-    flush_buffer()
+    if not sections:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot create Summary Extract for {doc_id}. "
+                "Record Summaries were found, but no usable Title / Citation / Summary sections could be parsed."
+            ),
+        )
 
     return sections
 

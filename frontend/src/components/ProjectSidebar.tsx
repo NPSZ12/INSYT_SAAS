@@ -244,12 +244,19 @@ export default function ProjectSidebar() {
 
           incomingOutlineItems = items.map((item: any, index: number) => ({
             id: item.summary_id || `summary-${index + 1}`,
-            title: `${index + 1}: ${
-              item.title ||
-              item.section_title ||
-              item.section_id ||
-              `Record Summary ${index + 1}`
-            }`,
+            title: item.title || `${index + 1}: Record Summary ${index + 1}`,
+            citation: item.citation || "",
+            originalSummary: item.original_summary || "",
+            qcSummary:
+              item.saved_row?.qc_summary ||
+              item.qc_summary ||
+              item.original_summary ||
+              "",
+            page: item.pdf_page || item.page || item.page_start || null,
+            pageStart: item.page_start || item.page || null,
+            pageEnd: item.page_end || item.page || null,
+            pdfPage: item.pdf_page || item.page || null,
+            summaryPdfPage: item.summary_pdf_page || item.pdf_page || item.page || null,
           }));
         } else if (selectedDocId) {
           const response = await apiGet(
