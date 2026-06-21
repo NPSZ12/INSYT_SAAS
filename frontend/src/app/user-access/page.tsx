@@ -152,6 +152,8 @@ function UserAccessPageContent() {
     useState<Record<string, boolean>>({});
   const [expandedClients, setExpandedClients] =
     useState<Record<string, boolean>>({});
+  const [permissionsExpanded, setPermissionsExpanded] =
+    useState(false);
 
   const [selectedUsers, setSelectedUsers] =
     useState<Record<string, boolean>>({});
@@ -298,6 +300,35 @@ function UserAccessPageContent() {
         selectedCount > 0 &&
         selectedCount < keys.length,
     };
+  }
+
+  function getPermissionSelectionState() {
+    const selectedCount = permissions.filter((permission) =>
+      form.permissions.includes(permission)
+    ).length;
+
+    return {
+      checked:
+        permissions.length > 0 &&
+        selectedCount === permissions.length,
+      indeterminate:
+        permissions.length > 0 &&
+        selectedCount > 0 &&
+        selectedCount < permissions.length,
+    };
+  }
+
+  function toggleAllPermissions() {
+    setForm((current) => {
+      const allSelected = permissions.every((permission) =>
+        current.permissions.includes(permission)
+      );
+
+      return {
+        ...current,
+        permissions: allSelected ? [] : [...permissions],
+      };
+    });
   }
 
   function syncAccessFromProjects(projectAccess: string[]) {
@@ -770,7 +801,7 @@ function UserAccessPageContent() {
                       workspaceProjectKeys
                     );
                     const workspaceExpanded =
-                      expandedWorkspaces[workspace.value] ?? true;
+                      expandedWorkspaces[workspace.value] ?? false;
 
                     return (
                       <div
@@ -947,16 +978,82 @@ function UserAccessPageContent() {
                   Permissions
                 </h3>
 
-                {permissions.map((permission) => (
-                  <Checkbox
-                    key={permission}
-                    label={permission}
-                    checked={form.permissions.includes(permission)}
-                    onChange={() =>
-                      toggleArrayValue("permissions", permission)
-                    }
-                  />
-                ))}
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                  {(() => {
+                    const permissionState = getPermissionSelectionState();
+
+                    return (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPermissionsExpanded(
+                                (current) => !current
+                              )
+                            }
+                            className="w-6 rounded text-slate-300 hover:bg-slate-800"
+                          >
+                            {permissionsExpanded ? "▾" : "▸"}
+                          </button>
+
+                          <input
+                            type="checkbox"
+                            checked={permissionState.checked}
+                            ref={(input) => {
+                              if (input) {
+                                input.indeterminate =
+                                  permissionState.indeterminate;
+                              }
+                            }}
+                            onChange={toggleAllPermissions}
+                            className="accent-sky-600"
+                          />
+
+                          <span className="font-semibold text-white">
+                            Permissions
+                          </span>
+
+                          <span className="text-xs text-slate-500">
+                            {form.permissions.length} selected
+                          </span>
+                        </div>
+
+                        {permissionsExpanded && (
+                          <div className="mt-3 ml-8 space-y-1">
+                            {permissions.map((permission) => (
+                              <label
+                                key={permission}
+                                className="flex items-center gap-2 text-sm text-slate-300"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={form.permissions.includes(
+                                    permission
+                                  )}
+                                  onChange={() =>
+                                    toggleArrayValue(
+                                      "permissions",
+                                      permission
+                                    )
+                                  }
+                                  className="accent-sky-600"
+                                />
+
+                                <span>{permission}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  Expand to select individual permissions, or use
+                  the parent checkbox to select all.
+                </p>
               </div>
             </div>
             )}
