@@ -23,6 +23,22 @@ type SummaryReadyFile = {
   last_modified?: string;
 };
 
+type AvailableSummaryItem = {
+  id?: string;
+  doc_id?: string;
+  summary_key?: string;
+  title?: string;
+  pdf_name?: string;
+  native_blob?: string;
+  text_blob?: string;
+  outline_blob?: string;
+  status?: string;
+  source?: string;
+  start_page?: number | null;
+  end_page?: number | null;
+  page?: number | null;
+};
+
 type OutlineBuildResult = {
   status?: string;
   message?: string;
@@ -85,6 +101,12 @@ export default function SummariesProcessingCenterPanel({
   const [lastBuildResult, setLastBuildResult] =
     useState<OutlineBuildResult | null>(null);
 
+  const [availableSummaries, setAvailableSummaries] = useState<
+    AvailableSummaryItem[]
+  >([]);
+  const [loadingAvailableSummaries, setLoadingAvailableSummaries] =
+    useState(false);
+
   function resolveApiBase() {
     return (
       apiBase ||
@@ -143,6 +165,14 @@ export default function SummariesProcessingCenterPanel({
     [clientId, projectId]
   );
 
+  const availableSummariesUrl = useMemo(
+    () =>
+      `/api/summaries/processing-center/available-summaries?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}`,
+    [clientId, projectId]
+  );
+
   async function refreshSummariesReadyFiles() {
     setLoadingReadyFiles(true);
     setSummaryError("");
@@ -166,6 +196,34 @@ export default function SummariesProcessingCenterPanel({
       );
     } finally {
       setLoadingReadyFiles(false);
+    }
+  }
+
+  async function refreshAvailableSummaries() {
+    setLoadingAvailableSummaries(true);
+    setSummaryError("");
+    setSummaryMessage("");
+
+    try {
+      const data = (await withTimeout(
+        apiGet(availableSummariesUrl),
+        "Available Summaries lookup timed out."
+      )) as {
+        items?: AvailableSummaryItem[];
+        available_count?: number;
+        outline_count?: number;
+      };
+
+      setAvailableSummaries(data.items || []);
+      setSummaryMessage(
+        `Loaded ${data.available_count ?? (data.items || []).length} available summary item(s) from ${data.outline_count ?? 0} outline file(s).`
+      );
+    } catch (err: any) {
+      setSummaryError(
+        cleanError(err?.message || "Unable to load available summaries.")
+      );
+    } finally {
+      setLoadingAvailableSummaries(false);
     }
   }
 
@@ -200,6 +258,7 @@ export default function SummariesProcessingCenterPanel({
       );
 
       await refreshSummariesReadyFiles();
+      await refreshAvailableSummaries();
     } catch (err: any) {
       setSummaryError(
         cleanError(err?.message || "Unable to build Summaries outlines.")
@@ -265,6 +324,20 @@ export default function SummariesProcessingCenterPanel({
               className="inline-flex h-10 min-w-[170px] items-center justify-center whitespace-nowrap rounded-full border border-cyan-400/60 bg-cyan-500/15 px-5 text-sm font-semibold text-cyan-100 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {buildingOutlines ? "Building..." : "Build PDF Outlines"}
+            </button>
+            <button
+              type="button"
+              onClick={refreshAvailableSummaries}
+              disabled={
+                loadingReadyFiles ||
+                buildingOutlines ||
+                loadingAvailableSummaries
+              }
+              className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-emerald-400/60 bg-emerald-500/15 px-5 text-sm font-semibold text-emerald-100 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loadingAvailableSummaries
+                ? "Loading..."
+                : "Refresh Available Summaries"}
             </button>
           </div>
         </div>
@@ -387,6 +460,91 @@ export default function SummariesProcessingCenterPanel({
                         Updated: {formatDateTime(file.last_modified)}
                       </div>
                     ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-medium">Available Summary Items</div>
+              <div className="mt-1 text-sm text-slate-400">
+                Outline-level summary items available for Summary Set batching.
+              </div>
+            </div>
+
+            <div className="rounded-full border border-slate-600 px-3 py-1 text-xs font-semibold text-slate-300">
+              {availableSummaries.length} item(s)
+            </div>
+          </div>
+
+          {availableSummaries.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No available summary items loaded yet. Build PDF Outlines, then click
+              Refresh Available Summaries.
+            </p>
+          ) : (
+            <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {availableSummaries.map((item, index) => {
+                const displayTitle =
+                  item.title ||
+                  item.summary_key ||
+                  `Summary Item ${index + 1}`;
+
+                return (
+                  <div
+                    key={`${item.id || item.doc_id || "summary"}-${item.summary_key || index}`}
+                    className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-slate-100">
+                          {displayTitle}
+                        </div>
+
+                        <div className="mt-1 text-xs text-slate-500">
+                          Doc ID: {item.doc_id || "—"} · Summary Key:{" "}
+                          {item.summary_key || "—"} · Status:{" "}
+                          {item.status || "available"}
+                        </div>
+
+                        {item.pdf_name ? (
+                          <div className="mt-1 text-xs text-slate-500">
+                            PDF: {item.pdf_name}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+                        Batchable
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 md:grid-cols-3">
+                      <div className="rounded-lg bg-slate-900 px-3 py-2">
+                        <div className="text-xs text-slate-500">Page Range</div>
+                        <div className="mt-1 text-xs text-slate-300">
+                          {item.start_page || item.page || "—"} -{" "}
+                          {item.end_page || item.page || "—"}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg bg-slate-900 px-3 py-2">
+                        <div className="text-xs text-slate-500">Source</div>
+                        <div className="mt-1 break-all text-xs text-slate-300">
+                          {item.source || "outline"}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg bg-slate-900 px-3 py-2">
+                        <div className="text-xs text-slate-500">Outline</div>
+                        <div className="mt-1 break-all text-xs text-slate-300">
+                          {item.outline_blob || "—"}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 );
               })}

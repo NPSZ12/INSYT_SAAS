@@ -91,6 +91,13 @@ def upload_json_blob(container, blob_name: str, payload: dict[str, Any]) -> None
         content_settings=None,
     )
 
+def read_json_blob(container, blob_name: str) -> dict[str, Any]:
+    text = read_blob_text(container, blob_name)
+
+    if not text.strip():
+        return {}
+
+    return json.loads(text)
 
 def build_starter_outline_items(text: str) -> list[dict[str, Any]]:
     cleaned = (text or "").strip()
@@ -242,6 +249,102 @@ def get_summaries_ready_files(
         "outline_count": len(outline_blobs),
     }
 
+@router.get("/available-summaries")
+def get_available_summaries(
+    client: str = Query(...),
+    project: str | None = Query(default=None),
+    project_id: str | None = Query(default=None),
+):
+    resolved_project_id = project_id or project
+
+    if not resolved_project_id:
+        raise HTTPException(status_code=400, detail="project or project_id is required")
+
+    container = get_summaries_container()
+    base = get_project_base(client, resolved_project_id)
+
+    outline_prefix = f"{base}/review/summary-outlines/"
+
+    try:
+        outline_blobs = [
+            blob.name
+            for blob in container.list_blobs(name_starts_with=outline_prefix)
+            if not blob.name.endswith("/")
+        ]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to list Summaries outlines: {type(exc).__name__}: {exc}",
+        )
+
+    items: list[dict[str, Any]] = []
+    outline_count = 0
+    failed_outlines: list[dict[str, Any]] = []
+
+    for outline_blob in outline_blobs:
+        try:
+            outline = read_json_blob(container, outline_blob)
+        except Exception as exc:
+            failed_outlines.append(
+                {
+                    "outline_blob": outline_blob,
+                    "reason": f"read_failed: {type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+
+        outline_count += 1
+
+        doc_id = outline.get("doc_id") or os.path.splitext(
+            os.path.basename(outline_blob)
+        )[0]
+
+        pdf_name = outline.get("pdf_name") or ""
+        native_blob = outline.get("native_blob") or ""
+        text_blob = outline.get("text_blob") or ""
+
+        outline_items = outline.get("items") or []
+
+        for index, item in enumerate(outline_items):
+            summary_key = (
+                item.get("summary_key")
+                or item.get("id")
+                or f"summary-{index + 1:03d}"
+            )
+
+            summary_status = str(item.get("status") or "available").lower()
+
+            if summary_status not in ["available", "ready", "unassigned"]:
+                continue
+
+            items.append(
+                {
+                    "id": f"{doc_id}:{summary_key}",
+                    "doc_id": doc_id,
+                    "summary_key": summary_key,
+                    "title": item.get("title") or f"Summary {index + 1}",
+                    "pdf_name": pdf_name,
+                    "native_blob": native_blob,
+                    "text_blob": text_blob,
+                    "outline_blob": outline_blob,
+                    "status": "available",
+                    "source": item.get("source") or outline.get("source") or "outline",
+                    "start_page": item.get("start_page") or item.get("page_start"),
+                    "end_page": item.get("end_page") or item.get("page_end"),
+                    "page": item.get("page"),
+                    "line_index": item.get("line_index"),
+                }
+            )
+
+    return {
+        "status": "ok",
+        "client": client,
+        "project_id": resolved_project_id,
+        "outline_count": outline_count,
+        "available_count": len(items),
+        "items": items,
+        "failed_outlines": failed_outlines,
+    }
 
 @router.post("/build-outlines")
 def build_summaries_pdf_outlines(payload: dict[str, Any]):
