@@ -32,7 +32,16 @@ def safe_name(value: str) -> str:
 
 
 def get_summaries_container():
-    return get_container_client("summaries")
+    try:
+        return get_container_client("summaries")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to resolve Summaries storage container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
 
 
 def get_project_base(client: str, project_id: str) -> str:
@@ -174,7 +183,16 @@ def get_summaries_ready_files(
     if not resolved_project_id:
         raise HTTPException(status_code=400, detail="project or project_id is required")
 
-    container = get_summaries_container()
+    try:
+        container = get_summaries_container()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+        )
+
     base = get_project_base(client, resolved_project_id)
 
     native_prefix = f"{base}/source/native/"
@@ -260,7 +278,16 @@ def get_available_summaries(
     if not resolved_project_id:
         raise HTTPException(status_code=400, detail="project or project_id is required")
 
-    container = get_summaries_container()
+    try:
+        container = get_summaries_container()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+        )
+
     base = get_project_base(client, resolved_project_id)
 
     outline_prefix = f"{base}/review/summary-outlines/"
@@ -358,7 +385,16 @@ def build_summaries_pdf_outlines(payload: dict[str, Any]):
             detail="client and project_id are required",
         )
 
-    container = get_summaries_container()
+    try:
+        container = get_summaries_container()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+        )
+
     base = get_project_base(client, project_id)
 
     native_prefix = f"{base}/source/native/"
