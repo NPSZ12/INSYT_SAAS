@@ -56,6 +56,8 @@ type Props = {
   clientId: string;
   projectId: string;
   apiBase?: string;
+  title?: string;
+  subtitle?: string;
 };
 
 
@@ -120,6 +122,8 @@ export default function AzureProcessingCenterPanel({
   clientId,
   projectId,
   apiBase = "",
+  title = "Azure Processing Center",
+  subtitle = "Upload files, run Azure processing, review staged outputs, and promote review-ready Native/Text files for this workspace.",
 }: Props) {
   const [settings, setSettings] = useState<ProcessingSettings | null>(null);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -848,11 +852,8 @@ export default function AzureProcessingCenterPanel({
     <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-5 text-slate-100 shadow-xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">Azure Processing Center</h2>
-          <p className="text-sm text-slate-400">
-            Intake from insytprodstorage; review-ready Native/Text outputs to
-            insytreviewstorage.
-          </p>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="text-sm text-slate-400">{subtitle}</p>
         </div>
 
         <div className="flex flex-wrap gap-2">

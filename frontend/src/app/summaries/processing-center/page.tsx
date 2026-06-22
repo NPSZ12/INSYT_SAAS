@@ -2,10 +2,10 @@
 
 import { Suspense } from "react";
 
-import ProcessingCenterPage from "../../../components/ProcessingCenterPage";
+import SummariesProcessingCenterPage from "../../../components/SummariesProcessingCenterPage";
 
 function SummariesProcessingCenterContent() {
-  return <ProcessingCenterPage workspace="summaries" />;
+  return <SummariesProcessingCenterPage />;
 }
 
 export default function SummariesProcessingCenterRoute() {
@@ -13,7 +13,7 @@ export default function SummariesProcessingCenterRoute() {
     <Suspense
       fallback={
         <div className="min-h-screen bg-slate-950 p-8 text-slate-300">
-          Loading Processing Center...
+          Loading Summaries Processing Center...
         </div>
       }
     >

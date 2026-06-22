@@ -8,6 +8,7 @@ import PageContainer from "./PageContainer";
 import PageHeader from "./PageHeader";
 import ContentCard from "./ContentCard";
 import AzureProcessingCenterPanel from "./processing-center/AzureProcessingCenterPanel";
+import SummariesProcessingCenterPanel from "./processing-center/SummariesProcessingCenterPanel";
 
 type ProcessingCenterPageProps = {
   workspace: "capture" | "discovery" | "summaries";
@@ -61,11 +62,18 @@ function ProcessingCenterPageContent({
         ) : null}
 
         {clientId && projectId ? (
-          <AzureProcessingCenterPanel
-            workspace={workspace}
-            clientId={clientId}
-            projectId={projectId}
-          />
+          workspace === "summaries" ? (
+            <SummariesProcessingCenterPanel
+              clientId={clientId}
+              projectId={projectId}
+            />
+          ) : (
+            <AzureProcessingCenterPanel
+              workspace={workspace}
+              clientId={clientId}
+              projectId={projectId}
+            />
+          )
         ) : null}
       </PageContainer>
     </AppShell>
