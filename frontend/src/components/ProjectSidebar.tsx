@@ -74,6 +74,9 @@ export default function ProjectSidebar() {
     pathname.startsWith("/discovery");
 
   const selectedDocId = searchParams.get("doc") || "";
+  const nativeBlobParam = searchParams.get("native_blob") || "";
+  const textBlobParam = searchParams.get("text_blob") || "";
+  const outlineBlobParam = searchParams.get("outline_blob") || "";
   const selectedSummarySet =
     searchParams.get("summarySet") ||
     selectedBatch ||
@@ -219,7 +222,7 @@ export default function ProjectSidebar() {
       !isSummaries ||
       !clientId ||
       !projectId ||
-      !selectedBatch
+      !isSummariesReviewDoc
     ) {
       setOutlineItems([]);
       setSelectedOutlineItem(null);
@@ -297,14 +300,30 @@ export default function ProjectSidebar() {
               null,
           }));
         } else if (selectedDocId) {
+          const params = new URLSearchParams();
+
+          params.set("client", clientId);
+          params.set("project", projectId);
+          params.set("doc", selectedDocId);
+
+          if (selectedBatch) {
+            params.set("batch", selectedBatch);
+          }
+
+          if (nativeBlobParam) {
+            params.set("native_blob", nativeBlobParam);
+          }
+
+          if (textBlobParam) {
+            params.set("text_blob", textBlobParam);
+          }
+
+          if (outlineBlobParam) {
+            params.set("outline_blob", outlineBlobParam);
+          }
+
           const response = await apiGet(
-            `/api/summaries/review/current?client=${encodeURIComponent(
-              clientId
-            )}&project=${encodeURIComponent(
-              projectId
-            )}&batch=${encodeURIComponent(
-              selectedBatch
-            )}&doc=${encodeURIComponent(selectedDocId)}`
+            `/api/summaries/review/current?${params.toString()}`
           );
 
           incomingOutlineItems = response?.outline_items || [];
@@ -329,9 +348,13 @@ export default function ProjectSidebar() {
     isSummaries,
     clientId,
     projectId,
+    isSummariesReviewDoc,
     selectedBatch,
     selectedSummarySet,
     selectedDocId,
+    nativeBlobParam,
+    textBlobParam,
+    outlineBlobParam,
   ]);
 
   function handleOutlineSelect(item: PdfOutlineItem) {

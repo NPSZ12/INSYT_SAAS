@@ -15,9 +15,7 @@ import ContentCard from "../../../../components/ContentCard";
 import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
-import PdfOutlinePane, {
-  type PdfOutlineItem,
-} from "../../../../components/summaries/PdfOutlinePane";
+import type { PdfOutlineItem } from "../../../../components/summaries/PdfOutlinePane";
 
 function normalizeDocLookup(value: string) {
   return decodeURIComponent(value || "")
@@ -514,30 +512,18 @@ function SummariesFileReviewContent() {
             className="shrink-0 self-stretch min-h-[760px] h-full overflow-hidden"
             style={{ width: qcPaneWidth }}
           >
-            <div className="flex h-full flex-col gap-4 overflow-hidden">
-              <div className="min-h-[260px] max-h-[42%] overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
-                <PdfOutlinePane
-                  items={outlineItems}
-                  selectedId={selectedSummaryDocId}
-                  onSelect={handleOutlineSelect}
-                />
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <SummariesRightPane
-                  summaryDocId={selectedSummaryDocId || reviewDoc.doc_id}
-                  title={
-                    currentOutlineTitle ||
-                    reviewDoc.doc_id ||
-                    "Summary Review"
-                  }
-                  citation={currentCitation}
-                  originalSummary={originalSummary}
-                  qcSummary={qcSummary}
-                  onSaveQcSummary={saveQcSummary}
-                />
-              </div>
-            </div>
+            <SummariesRightPane
+              summaryDocId={selectedSummaryDocId || reviewDoc.doc_id}
+              title={
+                currentOutlineTitle ||
+                reviewDoc.doc_id ||
+                "Summary Review"
+              }
+              citation={currentCitation}
+              originalSummary={originalSummary}
+              qcSummary={qcSummary}
+              onSaveQcSummary={saveQcSummary}
+            />
           </div>
         </section>
       </div>
