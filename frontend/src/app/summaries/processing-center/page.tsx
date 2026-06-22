@@ -2,10 +2,16 @@
 
 import { Suspense } from "react";
 
-import SummariesProcessingCenterPage from "../../../components/SummariesProcessingCenterPage";
+import ProcessingCenterPage from "../../../components/ProcessingCenterPage";
 
 function SummariesProcessingCenterContent() {
-  return <SummariesProcessingCenterPage />;
+  return (
+    <ProcessingCenterPage
+      workspace="summaries"
+      title="INSYT Summaries Processing Center"
+      subtitle="Upload source PDFs, run Summaries processing, prepare review-ready text, and build the foundation for PDF outline and summary-level batching."
+    />
+  );
 }
 
 export default function SummariesProcessingCenterRoute() {
