@@ -39,6 +39,45 @@ type AvailableSummaryItem = {
   page?: number | null;
 };
 
+type SummaryExtractionFile = {
+  doc_id: string;
+  pdf_name: string;
+  native_blob: string;
+  text_blob?: string | null;
+  outline_blob?: string | null;
+  status: string;
+};
+
+type SummaryExtractionListResult = {
+  status: string;
+  client: string;
+  project_id: string;
+  storage_account?: string;
+  container?: string;
+  pending_count?: number;
+  result_count?: number;
+  files: SummaryExtractionFile[];
+  manifest_count?: number;
+  manifests?: unknown[];
+};
+
+type SummaryExtractionRunResult = {
+  status: string;
+  message: string;
+  client: string;
+  project_id: string;
+  run_id: string;
+  storage_account?: string;
+  container?: string;
+  manifest_blob: string;
+  processed_count: number;
+  skipped_count: number;
+  error_count: number;
+  processed: unknown[];
+  skipped: unknown[];
+  errors: unknown[];
+};
+
 type OutlineBuildResult = {
   status?: string;
   message?: string;
@@ -106,6 +145,22 @@ export default function SummariesProcessingCenterPanel({
   >([]);
   const [loadingAvailableSummaries, setLoadingAvailableSummaries] =
     useState(false);
+
+  const [pendingExtractionFiles, setPendingExtractionFiles] = useState<
+    SummaryExtractionFile[]
+  >([]);
+  const [loadingPendingExtraction, setLoadingPendingExtraction] =
+    useState(false);
+
+  const [extractionResults, setExtractionResults] = useState<
+    SummaryExtractionFile[]
+  >([]);
+  const [loadingExtractionResults, setLoadingExtractionResults] =
+    useState(false);
+
+  const [runningExtraction, setRunningExtraction] = useState(false);
+  const [lastExtractionRun, setLastExtractionRun] =
+    useState<SummaryExtractionRunResult | null>(null);
 
   function resolveApiBase() {
     return (
@@ -226,6 +281,93 @@ export default function SummariesProcessingCenterPanel({
       setLoadingAvailableSummaries(false);
     }
   }
+
+  const refreshExtractionPending = async () => {
+    setLoadingPendingExtraction(true);
+    setSummaryError("");
+
+    try {
+      const params = new URLSearchParams({
+        client: clientId,
+        project: projectId,
+      });
+
+      const result = (await apiGet(
+        `/api/summaries/processing-center/extraction-pending?${params.toString()}`
+      )) as SummaryExtractionListResult;
+
+      setPendingExtractionFiles(result.files || []);
+    } catch (error) {
+      setSummaryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load Summary Extraction pending files."
+      );
+    } finally {
+      setLoadingPendingExtraction(false);
+    }
+  };
+
+  const refreshExtractionResults = async () => {
+    setLoadingExtractionResults(true);
+    setSummaryError("");
+
+    try {
+      const params = new URLSearchParams({
+        client: clientId,
+        project: projectId,
+      });
+
+      const result = (await apiGet(
+        `/api/summaries/processing-center/extraction-pending?${params.toString()}`
+      )) as SummaryExtractionListResult;
+
+      setExtractionResults(result.files || []);
+    } catch (error) {
+      setSummaryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load Summary Extraction result files."
+      );
+    } finally {
+      setLoadingExtractionResults(false);
+    }
+  };
+
+  const runSummaryExtraction = async () => {
+    setRunningExtraction(true);
+    setSummaryMessage("");
+    setSummaryError("");
+
+    try {
+      const result = await postJsonToApi<SummaryExtractionRunResult>(
+        "/api/summaries/processing-center/run-summary-extraction",
+        {
+          client: clientId,
+          project_id: projectId,
+          run_all: true,
+          doc_ids: [],
+          overwrite: true,
+        },
+        "Run Summary Extraction request timed out.",
+        120000
+      );
+
+      setLastExtractionRun(result);
+      setSummaryMessage(result.message || "Summary Extraction completed.");
+
+      await refreshExtractionPending();
+      await refreshExtractionResults();
+    } catch (error) {
+      setSummaryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to run Summary Extraction."
+      );
+    } finally {
+      setRunningExtraction(false);
+    }
+  };
 
   async function buildPdfOutlines() {
     if (!clientId || !projectId) {
@@ -552,6 +694,147 @@ export default function SummariesProcessingCenterPanel({
           )}
         </div>
       </div>
+
+      <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5 shadow-xl">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300">
+              Summary Extraction
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-white">
+              Pending Extraction / Results
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+              Files uploaded from Azure Source Processing land in pending first.
+              Run Summary Extraction to create result Native/Text/Outline files
+              before final promotion into Summaries review.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={refreshExtractionPending}
+              disabled={loadingPendingExtraction}
+              className="rounded-xl border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:border-cyan-300 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loadingPendingExtraction ? "Loading..." : "Refresh Pending"}
+            </button>
+
+            <button
+              type="button"
+              onClick={runSummaryExtraction}
+              disabled={runningExtraction || pendingExtractionFiles.length === 0}
+              className="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {runningExtraction ? "Running..." : "Run Summary Extraction"}
+            </button>
+
+            <button
+              type="button"
+              onClick={refreshExtractionResults}
+              disabled={loadingExtractionResults}
+              className="rounded-xl border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:border-cyan-300 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loadingExtractionResults ? "Loading..." : "Refresh Results"}
+            </button>
+          </div>
+        </div>
+
+        {lastExtractionRun ? (
+          <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+            <div className="font-semibold">{lastExtractionRun.message}</div>
+            <div className="mt-1 text-xs text-emerald-200">
+              Processed: {lastExtractionRun.processed_count} | Skipped:{" "}
+              {lastExtractionRun.skipped_count} | Errors:{" "}
+              {lastExtractionRun.error_count}
+            </div>
+            <div className="mt-1 break-all text-xs text-emerald-200">
+              Manifest: {lastExtractionRun.manifest_blob}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">
+                Pending Files
+              </h3>
+              <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">
+                {pendingExtractionFiles.length}
+              </span>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {pendingExtractionFiles.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  No pending Summary Extraction files loaded.
+                </p>
+              ) : (
+                pendingExtractionFiles.map((file) => (
+                  <div
+                    key={file.doc_id}
+                    className="rounded-lg border border-slate-800 bg-slate-900 p-3"
+                  >
+                    <div className="text-sm font-semibold text-slate-100">
+                      {file.doc_id}
+                    </div>
+                    <div className="mt-1 break-all text-xs text-slate-400">
+                      {file.pdf_name}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      Status: {file.status}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">
+                Extraction Results
+              </h3>
+              <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">
+                {extractionResults.length}
+              </span>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {extractionResults.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  No Summary Extraction results loaded.
+                </p>
+              ) : (
+                extractionResults.map((file) => (
+                  <div
+                    key={file.doc_id}
+                    className="rounded-lg border border-slate-800 bg-slate-900 p-3"
+                  >
+                    <div className="text-sm font-semibold text-slate-100">
+                      {file.doc_id}
+                    </div>
+                    <div className="mt-1 break-all text-xs text-slate-400">
+                      {file.pdf_name}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      Status: {file.status}
+                    </div>
+                    {file.outline_blob ? (
+                      <div className="mt-1 break-all text-xs text-cyan-300">
+                        Outline: {file.outline_blob}
+                      </div>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <AzureProcessingCenterPanel
         workspace="summaries"
         clientId={clientId}

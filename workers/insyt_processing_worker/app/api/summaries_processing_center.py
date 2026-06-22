@@ -1,9 +1,12 @@
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+
+from azure.storage.blob import BlobServiceClient
 
 from app.services.azure_blob_service import get_container_client
 
@@ -43,6 +46,71 @@ def get_summaries_container():
             ),
         )
 
+def get_summaries_review_container():
+    connection_string = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+
+    if not connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail="Missing INSYT_REVIEW_STORAGE_CONNECTION_STRING.",
+        )
+
+    if "AccountName=insytreviewstorage" not in connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "INSYT_REVIEW_STORAGE_CONNECTION_STRING is not pointing to "
+                "insytreviewstorage."
+            ),
+        )
+
+    try:
+        service_client = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+
+        return service_client.get_container_client("insyt-summaries")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to resolve Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+def get_summaries_review_container():
+    connection_string = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+
+    if not connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail="Missing INSYT_REVIEW_STORAGE_CONNECTION_STRING.",
+        )
+
+    if "AccountName=insytreviewstorage" not in connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "INSYT_REVIEW_STORAGE_CONNECTION_STRING is not pointing to "
+                "insytreviewstorage."
+            ),
+        )
+
+    try:
+        service_client = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+
+        return service_client.get_container_client("insyt-summaries")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to resolve Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
 
 def get_project_base(client: str, project_id: str) -> str:
     return f"{client}/summaries/{project_id}"
@@ -107,6 +175,7 @@ def read_json_blob(container, blob_name: str) -> dict[str, Any]:
         return {}
 
     return json.loads(text)
+
 
 def copy_blob_within_container(
     container,
@@ -233,6 +302,130 @@ def find_staged_blob_by_doc_id(
             continue
 
     return None
+
+def list_summary_extraction_files(
+    container,
+    client: str,
+    project_id: str,
+    stage: str,
+) -> list[dict[str, Any]]:
+    base = get_project_base(client, project_id)
+
+    native_prefix = f"{base}/summary_extraction/{stage}/native/"
+    text_prefix = f"{base}/summary_extraction/{stage}/text/"
+    outline_prefix = f"{base}/summary_extraction/{stage}/outlines/"
+
+    native_blobs = [
+        blob.name
+        for blob in container.list_blobs(name_starts_with=native_prefix)
+        if not blob.name.endswith("/")
+    ]
+
+    text_blobs = [
+        blob.name
+        for blob in container.list_blobs(name_starts_with=text_prefix)
+        if not blob.name.endswith("/")
+    ]
+
+    outline_blobs = [
+        blob.name
+        for blob in container.list_blobs(name_starts_with=outline_prefix)
+        if not blob.name.endswith("/")
+    ]
+
+    outline_by_doc_id: dict[str, str] = {}
+
+    for outline_blob in outline_blobs:
+        doc_id = os.path.splitext(os.path.basename(outline_blob))[0]
+        outline_by_doc_id[doc_id] = outline_blob
+
+    files: list[dict[str, Any]] = []
+
+    for native_blob in native_blobs:
+        doc_id = guess_doc_id_from_blob(native_blob)
+        text_blob = find_matching_text_blob(text_blobs, native_blob, doc_id)
+
+        files.append(
+            {
+                "doc_id": doc_id,
+                "pdf_name": normalize_pdf_name(native_blob),
+                "native_blob": native_blob,
+                "text_blob": text_blob,
+                "outline_blob": outline_by_doc_id.get(doc_id),
+                "status": "ready" if text_blob else "missing_text",
+            }
+        )
+
+    return files
+
+
+def list_summary_extraction_manifests(
+    container,
+    client: str,
+    project_id: str,
+    stage: str,
+) -> list[dict[str, Any]]:
+    base = get_project_base(client, project_id)
+    manifest_prefix = f"{base}/summary_extraction/{stage}/manifest/"
+
+    manifests: list[dict[str, Any]] = []
+
+    for blob in container.list_blobs(name_starts_with=manifest_prefix):
+        if blob.name.endswith("/"):
+            continue
+
+        manifest_data: dict[str, Any] = {}
+
+        try:
+            manifest_data = read_json_blob(container, blob.name)
+        except Exception as exc:
+            manifest_data = {
+                "status": "read_failed",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+        manifests.append(
+            {
+                "manifest_blob": blob.name,
+                "manifest": manifest_data,
+            }
+        )
+
+    return manifests
+
+
+def build_summary_extraction_result_payload(
+    client: str,
+    project_id: str,
+    doc_id: str,
+    pdf_name: str,
+    native_blob: str,
+    text_blob: str | None,
+    result_native_blob: str,
+    result_text_blob: str,
+    outline_blob: str,
+    text: str,
+) -> dict[str, Any]:
+    items = build_starter_outline_items(text)
+
+    return {
+        "status": "extracted",
+        "client": client,
+        "project_id": project_id,
+        "doc_id": doc_id,
+        "pdf_name": pdf_name,
+        "source_native_blob": native_blob,
+        "source_text_blob": text_blob,
+        "result_native_blob": result_native_blob,
+        "result_text_blob": result_text_blob,
+        "outline_blob": outline_blob,
+        "item_count": len(items),
+        "items": items,
+        "created_at": utc_now_iso(),
+        "updated_at": utc_now_iso(),
+        "source": "summary_extraction",
+        "version": 1,
+    }
 
 def build_starter_outline_items(text: str) -> list[dict[str, Any]]:
     cleaned = (text or "").strip()
@@ -499,6 +692,119 @@ def get_available_summaries(
         "failed_outlines": failed_outlines,
     }
 
+@router.get("/extraction-pending")
+def get_summary_extraction_pending(
+    client: str = Query(...),
+    project: str | None = Query(default=None),
+    project_id: str | None = Query(default=None),
+):
+    resolved_project_id = project_id or project
+
+    if not resolved_project_id:
+        raise HTTPException(status_code=400, detail="project or project_id is required")
+
+    try:
+        container = get_summaries_review_container()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to initialize Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+    try:
+        files = list_summary_extraction_files(
+            container,
+            client,
+            resolved_project_id,
+            "pending",
+        )
+
+        manifests = list_summary_extraction_manifests(
+            container,
+            client,
+            resolved_project_id,
+            "pending",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to list Summary Extraction pending files: {type(exc).__name__}: {exc}",
+        )
+
+    return {
+        "status": "ok",
+        "client": client,
+        "project_id": resolved_project_id,
+        "storage_account": getattr(container, "account_name", ""),
+        "container": getattr(container, "container_name", ""),
+        "pending_count": len(files),
+        "files": files,
+        "manifest_count": len(manifests),
+        "manifests": manifests,
+    }
+
+
+@router.get("/extraction-results")
+def get_summary_extraction_results(
+    client: str = Query(...),
+    project: str | None = Query(default=None),
+    project_id: str | None = Query(default=None),
+):
+    resolved_project_id = project_id or project
+
+    if not resolved_project_id:
+        raise HTTPException(status_code=400, detail="project or project_id is required")
+
+    try:
+        container = get_summaries_review_container()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to initialize Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+    try:
+        files = list_summary_extraction_files(
+            container,
+            client,
+            resolved_project_id,
+            "results",
+        )
+
+        manifests = list_summary_extraction_manifests(
+            container,
+            client,
+            resolved_project_id,
+            "results",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to list Summary Extraction result files: {type(exc).__name__}: {exc}",
+        )
+
+    return {
+        "status": "ok",
+        "client": client,
+        "project_id": resolved_project_id,
+        "storage_account": getattr(container, "account_name", ""),
+        "container": getattr(container, "container_name", ""),
+        "result_count": len(files),
+        "files": files,
+        "manifest_count": len(manifests),
+        "manifests": manifests,
+    }
+
 @router.post("/upload-to-summary-extraction")
 def upload_to_summary_extraction(payload: dict[str, Any]):
     client = payload.get("client")
@@ -642,7 +948,7 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
                 ),
             }
         )
-
+    
     for doc in selected_docs:
         doc_id = doc["doc_id"]
         original_filename = doc.get("original_filename") or f"{doc_id}.pdf"
@@ -769,6 +1075,244 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         "skipped_count": len(skipped),
         "error_count": len(errors),
         "uploaded": uploaded,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+@router.post("/run-summary-extraction")
+def run_summary_extraction(payload: dict[str, Any]):
+    client = payload.get("client")
+    project_id = payload.get("project_id") or payload.get("project")
+    run_all = bool(payload.get("run_all", False))
+    requested_doc_ids = payload.get("doc_ids") or []
+    overwrite = bool(payload.get("overwrite", True))
+
+    if not client or not project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="client and project_id are required",
+        )
+
+    requested_doc_id_set = {
+        str(doc_id)
+        for doc_id in requested_doc_ids
+        if str(doc_id).strip()
+    }
+
+    try:
+        container = get_summaries_review_container()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to initialize Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+    try:
+        pending_files = list_summary_extraction_files(
+            container,
+            client,
+            project_id,
+            "pending",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to list pending Summary Extraction files: {type(exc).__name__}: {exc}",
+        )
+
+    selected_files: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    processed: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    for file_item in pending_files:
+        doc_id = str(file_item.get("doc_id") or "").strip()
+
+        if not doc_id:
+            skipped.append(
+                {
+                    "doc_id": "",
+                    "status": "skipped",
+                    "message": "missing_doc_id",
+                }
+            )
+            continue
+
+        if not run_all and doc_id not in requested_doc_id_set:
+            continue
+
+        if not file_item.get("native_blob") or not file_item.get("text_blob"):
+            skipped.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "skipped",
+                    "message": "missing_pending_native_or_text_blob",
+                    "native_blob": file_item.get("native_blob"),
+                    "text_blob": file_item.get("text_blob"),
+                }
+            )
+            continue
+
+        selected_files.append(file_item)
+
+    if not selected_files:
+        skipped.append(
+            {
+                "doc_id": "",
+                "status": "skipped",
+                "message": (
+                    "no_matching_pending_docs_selected"
+                    if not run_all
+                    else "no_pending_docs_ready"
+                ),
+            }
+        )
+
+    base = get_project_base(client, project_id)
+
+    result_native_prefix = f"{base}/summary_extraction/results/native/"
+    result_text_prefix = f"{base}/summary_extraction/results/text/"
+    result_outline_prefix = f"{base}/summary_extraction/results/outlines/"
+    result_manifest_prefix = f"{base}/summary_extraction/results/manifest/"
+
+    run_id = f"RUN-{uuid.uuid4().hex[:16].upper()}"
+
+    for file_item in selected_files:
+        doc_id = str(file_item["doc_id"])
+        native_blob = str(file_item["native_blob"])
+        text_blob = str(file_item["text_blob"])
+        pdf_name = file_item.get("pdf_name") or f"{doc_id}.pdf"
+
+        native_ext = os.path.splitext(native_blob)[1] or ".pdf"
+        text_ext = os.path.splitext(text_blob)[1] or ".txt"
+
+        result_native_blob = f"{result_native_prefix}{safe_name(doc_id)}{native_ext}"
+        result_text_blob = f"{result_text_prefix}{safe_name(doc_id)}{text_ext}"
+        result_outline_blob = f"{result_outline_prefix}{safe_name(doc_id)}.json"
+
+        try:
+            if (
+                not overwrite
+                and container.get_blob_client(result_native_blob).exists()
+                and container.get_blob_client(result_text_blob).exists()
+                and container.get_blob_client(result_outline_blob).exists()
+            ):
+                skipped.append(
+                    {
+                        "doc_id": doc_id,
+                        "status": "skipped",
+                        "message": "result_exists",
+                        "native_result": result_native_blob,
+                        "text_result": result_text_blob,
+                        "outline_result": result_outline_blob,
+                    }
+                )
+                continue
+
+            text = read_blob_text(container, text_blob)
+
+            copy_blob_within_container(
+                container,
+                native_blob,
+                result_native_blob,
+                overwrite=True,
+            )
+
+            container.upload_blob(
+                name=result_text_blob,
+                data=text,
+                overwrite=True,
+            )
+
+            outline_payload = build_summary_extraction_result_payload(
+                client=client,
+                project_id=project_id,
+                doc_id=doc_id,
+                pdf_name=pdf_name,
+                native_blob=native_blob,
+                text_blob=text_blob,
+                result_native_blob=result_native_blob,
+                result_text_blob=result_text_blob,
+                outline_blob=result_outline_blob,
+                text=text,
+            )
+
+            upload_json_blob(container, result_outline_blob, outline_payload)
+
+            processed.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "extracted",
+                    "pdf_name": pdf_name,
+                    "pending_native_blob": native_blob,
+                    "pending_text_blob": text_blob,
+                    "result_native_blob": result_native_blob,
+                    "result_text_blob": result_text_blob,
+                    "result_outline_blob": result_outline_blob,
+                    "summary_count": len(outline_payload.get("items") or []),
+                }
+            )
+
+        except Exception as exc:
+            errors.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "error",
+                    "message": f"summary_extraction_failed: {type(exc).__name__}: {exc}",
+                    "pending_native_blob": native_blob,
+                    "pending_text_blob": text_blob,
+                }
+            )
+
+    manifest = {
+        "status": "completed" if not errors else "completed_with_errors",
+        "client": client,
+        "project_id": project_id,
+        "run_id": run_id,
+        "run_all": run_all,
+        "requested_doc_ids": list(requested_doc_id_set),
+        "processed_count": len(processed),
+        "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "processed": processed,
+        "skipped": skipped,
+        "errors": errors,
+        "created_at": utc_now_iso(),
+        "source": "summary_extraction_runner",
+        "version": 1,
+    }
+
+    manifest_blob = f"{result_manifest_prefix}{safe_name(run_id)}.json"
+
+    try:
+        upload_json_blob(container, manifest_blob, manifest)
+    except Exception as exc:
+        errors.append(
+            {
+                "doc_id": "",
+                "status": "error",
+                "message": f"result_manifest_upload_failed: {type(exc).__name__}: {exc}",
+            }
+        )
+
+    return {
+        "status": "ok",
+        "message": f"Ran Summary Extraction for {len(processed)} doc(s).",
+        "client": client,
+        "project_id": project_id,
+        "run_id": run_id,
+        "storage_account": getattr(container, "account_name", ""),
+        "container": getattr(container, "container_name", ""),
+        "manifest_blob": manifest_blob,
+        "processed_count": len(processed),
+        "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "processed": processed,
         "skipped": skipped,
         "errors": errors,
     }
