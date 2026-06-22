@@ -514,13 +514,16 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         )
 
     try:
-        container = get_summaries_container()
+        container = get_summaries_review_container()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+            detail=(
+                "Unable to initialize Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
         )
 
     requested_doc_id_set = {
@@ -575,6 +578,8 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
     pending_native_prefix = f"{base}/summary_extraction/pending/native/"
     pending_text_prefix = f"{base}/summary_extraction/pending/text/"
     manifest_prefix = f"{base}/summary_extraction/pending/manifest/"
+    container_name = getattr(container, "container_name", "")
+    account_name = getattr(container, "account_name", "")
 
     selected_docs = []
 
@@ -757,6 +762,8 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         "client": client,
         "project_id": project_id,
         "job_id": job_id,
+        "storage_account": account_name,
+        "container": container_name,
         "manifest_blob": manifest_blob,
         "uploaded_count": len(uploaded),
         "skipped_count": len(skipped),

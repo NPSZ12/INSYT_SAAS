@@ -5,6 +5,10 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from azure.storage.blob import BlobServiceClient
+
+from azure.storage.blob import BlobServiceClient
+
 from app.services.azure_blob_service import get_container_client
 
 router = APIRouter(
@@ -39,6 +43,72 @@ def get_summaries_container():
             status_code=500,
             detail=(
                 "Unable to resolve Summaries storage container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+def get_summaries_review_container():
+    connection_string = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+
+    if not connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail="Missing INSYT_REVIEW_STORAGE_CONNECTION_STRING.",
+        )
+
+    if "AccountName=insytreviewstorage" not in connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "INSYT_REVIEW_STORAGE_CONNECTION_STRING is not pointing to "
+                "insytreviewstorage."
+            ),
+        )
+
+    try:
+        service_client = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+
+        return service_client.get_container_client("insyt-summaries")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to resolve Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+def get_summaries_review_container():
+    connection_string = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+
+    if not connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail="Missing INSYT_REVIEW_STORAGE_CONNECTION_STRING.",
+        )
+
+    if "AccountName=insytreviewstorage" not in connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "INSYT_REVIEW_STORAGE_CONNECTION_STRING is not pointing to "
+                "insytreviewstorage."
+            ),
+        )
+
+    try:
+        service_client = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+
+        return service_client.get_container_client("insyt-summaries")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to resolve Summaries review/staging container: "
                 f"{type(exc).__name__}: {exc}"
             ),
         )
@@ -514,13 +584,16 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         )
 
     try:
-        container = get_summaries_container()
+        container = get_summaries_review_container()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+            detail=(
+                "Unable to initialize Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
         )
 
     requested_doc_id_set = {
@@ -576,11 +649,7 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
     pending_text_prefix = f"{base}/summary_extraction/pending/text/"
     manifest_prefix = f"{base}/summary_extraction/pending/manifest/"
     container_name = getattr(container, "container_name", "")
-    account_name = getattr(
-        getattr(container, "account_name", None),
-        "__str__",
-        lambda: "",
-    )()
+    account_name = getattr(container, "account_name", "")
 
     selected_docs = []
 
@@ -763,8 +832,8 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         "client": client,
         "project_id": project_id,
         "job_id": job_id,
-        "container_name": container_name,
-        "account_name": account_name,
+        "storage_account": account_name,
+        "container": container_name,
         "manifest_blob": manifest_blob,
         "uploaded_count": len(uploaded),
         "skipped_count": len(skipped),
