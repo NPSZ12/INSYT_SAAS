@@ -1317,6 +1317,266 @@ def run_summary_extraction(payload: dict[str, Any]):
         "errors": errors,
     }
 
+@router.post("/promote-extraction-results")
+def promote_summary_extraction_results(payload: dict[str, Any]):
+    client = payload.get("client")
+    project_id = payload.get("project_id") or payload.get("project")
+    promote_all = bool(payload.get("promote_all", False))
+    requested_doc_ids = payload.get("doc_ids") or []
+    overwrite = bool(payload.get("overwrite", True))
+
+    if not client or not project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="client and project_id are required",
+        )
+
+    requested_doc_id_set = {
+        str(doc_id)
+        for doc_id in requested_doc_ids
+        if str(doc_id).strip()
+    }
+
+    try:
+        container = get_summaries_review_container()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to initialize Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+    try:
+        result_files = list_summary_extraction_files(
+            container,
+            client,
+            project_id,
+            "results",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to list Summary Extraction results: {type(exc).__name__}: {exc}",
+        )
+
+    selected_files: list[dict[str, Any]] = []
+    promoted: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    for file_item in result_files:
+        doc_id = str(file_item.get("doc_id") or "").strip()
+
+        if not doc_id:
+            skipped.append(
+                {
+                    "doc_id": "",
+                    "status": "skipped",
+                    "message": "missing_doc_id",
+                }
+            )
+            continue
+
+        if not promote_all and doc_id not in requested_doc_id_set:
+            continue
+
+        native_blob = file_item.get("native_blob")
+        text_blob = file_item.get("text_blob")
+        outline_blob = file_item.get("outline_blob")
+
+        if not native_blob or not text_blob or not outline_blob:
+            skipped.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "skipped",
+                    "message": "missing_result_native_text_or_outline_blob",
+                    "native_blob": native_blob,
+                    "text_blob": text_blob,
+                    "outline_blob": outline_blob,
+                }
+            )
+            continue
+
+        selected_files.append(file_item)
+
+    if not selected_files:
+        skipped.append(
+            {
+                "doc_id": "",
+                "status": "skipped",
+                "message": (
+                    "no_matching_extraction_results_selected"
+                    if not promote_all
+                    else "no_extraction_results_ready"
+                ),
+            }
+        )
+
+    base = get_project_base(client, project_id)
+
+    source_native_prefix = f"{base}/source/native/"
+    source_text_prefix = f"{base}/source/text/"
+    review_outline_prefix = f"{base}/review/summary-outlines/"
+    promotion_manifest_prefix = f"{base}/summary_extraction/promoted/manifest/"
+
+    promotion_id = f"PROMOTE-{uuid.uuid4().hex[:16].upper()}"
+
+    for file_item in selected_files:
+        doc_id = str(file_item["doc_id"])
+        result_native_blob = str(file_item["native_blob"])
+        result_text_blob = str(file_item["text_blob"])
+        result_outline_blob = str(file_item["outline_blob"])
+        pdf_name = file_item.get("pdf_name") or f"{doc_id}.pdf"
+
+        native_ext = os.path.splitext(result_native_blob)[1] or ".pdf"
+        text_ext = os.path.splitext(result_text_blob)[1] or ".txt"
+
+        source_native_blob = f"{source_native_prefix}{safe_name(doc_id)}{native_ext}"
+        source_text_blob = f"{source_text_prefix}{safe_name(doc_id)}{text_ext}"
+        review_outline_blob = f"{review_outline_prefix}{safe_name(doc_id)}.json"
+
+        try:
+            if not overwrite:
+                existing_paths = [
+                    source_native_blob,
+                    source_text_blob,
+                    review_outline_blob,
+                ]
+
+                if any(
+                    container.get_blob_client(path).exists()
+                    for path in existing_paths
+                ):
+                    skipped.append(
+                        {
+                            "doc_id": doc_id,
+                            "status": "skipped",
+                            "message": "destination_exists",
+                            "source_native_blob": source_native_blob,
+                            "source_text_blob": source_text_blob,
+                            "review_outline_blob": review_outline_blob,
+                        }
+                    )
+                    continue
+
+            copy_blob_within_container(
+                container,
+                result_native_blob,
+                source_native_blob,
+                overwrite=True,
+            )
+
+            copy_blob_within_container(
+                container,
+                result_text_blob,
+                source_text_blob,
+                overwrite=True,
+            )
+
+            outline_payload = read_json_blob(container, result_outline_blob)
+
+            if outline_payload:
+                outline_payload["status"] = "ready"
+                outline_payload["native_blob"] = source_native_blob
+                outline_payload["text_blob"] = source_text_blob
+                outline_payload["outline_blob"] = review_outline_blob
+                outline_payload["promoted_from_native_blob"] = result_native_blob
+                outline_payload["promoted_from_text_blob"] = result_text_blob
+                outline_payload["promoted_from_outline_blob"] = result_outline_blob
+                outline_payload["promoted_at"] = utc_now_iso()
+                outline_payload["updated_at"] = utc_now_iso()
+
+                upload_json_blob(
+                    container,
+                    review_outline_blob,
+                    outline_payload,
+                )
+            else:
+                copy_blob_within_container(
+                    container,
+                    result_outline_blob,
+                    review_outline_blob,
+                    overwrite=True,
+                )
+
+            promoted.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "promoted_to_summaries_review",
+                    "pdf_name": pdf_name,
+                    "result_native_blob": result_native_blob,
+                    "result_text_blob": result_text_blob,
+                    "result_outline_blob": result_outline_blob,
+                    "source_native_blob": source_native_blob,
+                    "source_text_blob": source_text_blob,
+                    "review_outline_blob": review_outline_blob,
+                }
+            )
+
+        except Exception as exc:
+            errors.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "error",
+                    "message": f"promotion_failed: {type(exc).__name__}: {exc}",
+                    "result_native_blob": result_native_blob,
+                    "result_text_blob": result_text_blob,
+                    "result_outline_blob": result_outline_blob,
+                }
+            )
+
+    manifest = {
+        "status": "completed" if not errors else "completed_with_errors",
+        "client": client,
+        "project_id": project_id,
+        "promotion_id": promotion_id,
+        "promote_all": promote_all,
+        "requested_doc_ids": list(requested_doc_id_set),
+        "promoted_count": len(promoted),
+        "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "promoted": promoted,
+        "skipped": skipped,
+        "errors": errors,
+        "created_at": utc_now_iso(),
+        "source": "summary_extraction_promotion",
+        "version": 1,
+    }
+
+    manifest_blob = f"{promotion_manifest_prefix}{safe_name(promotion_id)}.json"
+
+    try:
+        upload_json_blob(container, manifest_blob, manifest)
+    except Exception as exc:
+        errors.append(
+            {
+                "doc_id": "",
+                "status": "error",
+                "message": f"promotion_manifest_upload_failed: {type(exc).__name__}: {exc}",
+            }
+        )
+
+    return {
+        "status": "ok",
+        "message": f"Promoted {len(promoted)} Summary Extraction result(s) to Summaries review.",
+        "client": client,
+        "project_id": project_id,
+        "promotion_id": promotion_id,
+        "storage_account": getattr(container, "account_name", ""),
+        "container": getattr(container, "container_name", ""),
+        "manifest_blob": manifest_blob,
+        "promoted_count": len(promoted),
+        "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "promoted": promoted,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
 @router.post("/build-outlines")
 def build_summaries_pdf_outlines(payload: dict[str, Any]):
     client = payload.get("client")

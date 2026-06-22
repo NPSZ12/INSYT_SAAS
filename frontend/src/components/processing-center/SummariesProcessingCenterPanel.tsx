@@ -78,6 +78,23 @@ type SummaryExtractionRunResult = {
   errors: unknown[];
 };
 
+type SummaryExtractionPromoteResult = {
+  status: string;
+  message: string;
+  client: string;
+  project_id: string;
+  promotion_id: string;
+  storage_account?: string;
+  container?: string;
+  manifest_blob: string;
+  promoted_count: number;
+  skipped_count: number;
+  error_count: number;
+  promoted: unknown[];
+  skipped: unknown[];
+  errors: unknown[];
+};
+
 type OutlineBuildResult = {
   status?: string;
   message?: string;
@@ -161,6 +178,11 @@ export default function SummariesProcessingCenterPanel({
   const [runningExtraction, setRunningExtraction] = useState(false);
   const [lastExtractionRun, setLastExtractionRun] =
     useState<SummaryExtractionRunResult | null>(null);
+
+  const [promotingExtractionResults, setPromotingExtractionResults] =
+    useState(false);
+  const [lastExtractionPromotion, setLastExtractionPromotion] =
+    useState<SummaryExtractionPromoteResult | null>(null);
 
   function resolveApiBase() {
     return (
@@ -366,6 +388,44 @@ export default function SummariesProcessingCenterPanel({
       );
     } finally {
       setRunningExtraction(false);
+    }
+  };
+
+  const promoteExtractionResults = async () => {
+    setPromotingExtractionResults(true);
+    setSummaryMessage("");
+    setSummaryError("");
+
+    try {
+      const result = await postJsonToApi<SummaryExtractionPromoteResult>(
+        "/api/summaries/processing-center/promote-extraction-results",
+        {
+          client: clientId,
+          project_id: projectId,
+          promote_all: true,
+          doc_ids: [],
+          overwrite: true,
+        },
+        "Promote Summary Extraction results request timed out.",
+        120000
+      );
+
+      setLastExtractionPromotion(result);
+      setSummaryMessage(
+        result.message || "Summary Extraction results promoted."
+      );
+
+      await refreshExtractionResults();
+      await refreshSummariesReadyFiles();
+      await refreshAvailableSummaries();
+    } catch (error) {
+      setSummaryError(
+        error instanceof Error
+          ? cleanError(error.message)
+          : "Unable to promote Summary Extraction results."
+      );
+    } finally {
+      setPromotingExtractionResults(false);
     }
   };
 
@@ -732,6 +792,21 @@ export default function SummariesProcessingCenterPanel({
 
             <button
               type="button"
+              onClick={promoteExtractionResults}
+              disabled={
+                promotingExtractionResults ||
+                runningExtraction ||
+                extractionResults.length === 0
+              }
+              className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {promotingExtractionResults
+                ? "Promoting..."
+                : "Promote Extraction Results"}
+            </button>
+
+            <button
+              type="button"
               onClick={refreshExtractionResults}
               disabled={loadingExtractionResults}
               className="rounded-xl border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:border-cyan-300 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -751,6 +826,22 @@ export default function SummariesProcessingCenterPanel({
             </div>
             <div className="mt-1 break-all text-xs text-emerald-200">
               Manifest: {lastExtractionRun.manifest_blob}
+            </div>
+          </div>
+        ) : null}
+
+        {lastExtractionPromotion ? (
+          <div className="mt-4 rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-4 text-sm text-cyan-100">
+            <div className="font-semibold">
+              {lastExtractionPromotion.message}
+            </div>
+            <div className="mt-1 text-xs text-cyan-200">
+              Promoted: {lastExtractionPromotion.promoted_count} | Skipped:{" "}
+              {lastExtractionPromotion.skipped_count} | Errors:{" "}
+              {lastExtractionPromotion.error_count}
+            </div>
+            <div className="mt-1 break-all text-xs text-cyan-200">
+              Manifest: {lastExtractionPromotion.manifest_blob}
             </div>
           </div>
         ) : null}
