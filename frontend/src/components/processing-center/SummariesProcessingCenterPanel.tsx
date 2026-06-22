@@ -211,14 +211,29 @@ export default function SummariesProcessingCenterPanel({
 
   return (
     <div className="space-y-5">
-      <AzureProcessingCenterPanel
-        workspace="summaries"
-        clientId={clientId}
-        projectId={projectId}
-        apiBase={apiBase}
-        title="INSYT Summaries Processing Center"
-        subtitle="Upload source PDFs, run Summaries processing, prepare review-ready text, and build PDF outline and summary-level batching outputs."
-      />
+      <div className="rounded-2xl border border-cyan-500/30 bg-cyan-950/20 p-5 text-slate-100 shadow-xl">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+              INSYT Summaries
+            </div>
+
+            <h2 className="mt-2 text-xl font-semibold">
+              Summaries Processing Center
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-400">
+              Prepare promoted PDFs/Text for PDF Outline review, Available Summaries,
+              and summary-level batching. Use Azure processing below only when new
+              source PDFs still need to be uploaded, processed, or promoted.
+            </p>
+          </div>
+
+          <div className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-100">
+            Summary workflow
+          </div>
+        </div>
+      </div>
 
       <div className="rounded-2xl border border-cyan-500/30 bg-slate-950/80 p-5 text-slate-100 shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -379,6 +394,14 @@ export default function SummariesProcessingCenterPanel({
           )}
         </div>
       </div>
+      <AzureProcessingCenterPanel
+        workspace="summaries"
+        clientId={clientId}
+        projectId={projectId}
+        apiBase={apiBase}
+        title="Azure Source Processing"
+        subtitle="Optional upstream processing for Summaries source PDFs. Use this only when PDFs still need to be uploaded, processed, promoted, or archived before outline preparation."
+      />
     </div>
   );
 }
