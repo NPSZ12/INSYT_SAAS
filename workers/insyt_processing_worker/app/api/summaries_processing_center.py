@@ -503,13 +503,13 @@ def get_summaries_ready_files(
         raise HTTPException(status_code=400, detail="project or project_id is required")
 
     try:
-        container = get_summaries_container()
+        container = get_summaries_review_container()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+            detail=f"Unable to initialize Summaries review/staging container: {type(exc).__name__}: {exc}",
         )
 
     base = get_project_base(client, resolved_project_id)
@@ -598,13 +598,13 @@ def get_available_summaries(
         raise HTTPException(status_code=400, detail="project or project_id is required")
 
     try:
-        container = get_summaries_container()
+        container = get_summaries_review_container()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+            detail=f"Unable to initialize Summaries review/staging container: {type(exc).__name__}: {exc}",
         )
 
     base = get_project_base(client, resolved_project_id)
@@ -1590,13 +1590,13 @@ def build_summaries_pdf_outlines(payload: dict[str, Any]):
         )
 
     try:
-        container = get_summaries_container()
+        container = get_summaries_review_container()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+            detail=f"Unable to initialize Summaries review/staging container: {type(exc).__name__}: {exc}",
         )
 
     base = get_project_base(client, project_id)

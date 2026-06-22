@@ -46,6 +46,38 @@ def get_summaries_container():
             ),
         )
 
+def get_summaries_live_container():
+    connection_string = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
+
+    if not connection_string:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Live Summaries source storage is not configured. Set "
+                "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+                "CDS_STORAGE_CONNECTION_STRING, or AZURE_STORAGE_CONNECTION_STRING."
+            ),
+        )
+
+    try:
+        service_client = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+
+        return service_client.get_container_client("insyt-summaries")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to resolve live Summaries source container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
 def get_summaries_review_container():
     connection_string = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
 
@@ -223,6 +255,25 @@ def load_staged_job_detail(
                 continue
 
     return {}
+
+def copy_blob_between_containers(
+    source_container,
+    source_blob_name: str,
+    destination_container,
+    destination_blob_name: str,
+    overwrite: bool = True,
+) -> None:
+    source_blob = source_container.get_blob_client(source_blob_name)
+    destination_blob = destination_container.get_blob_client(destination_blob_name)
+
+    if not source_blob.exists():
+        raise FileNotFoundError(f"Source blob not found: {source_blob_name}")
+
+    if destination_blob.exists() and not overwrite:
+        return
+
+    data = source_blob.download_blob().readall()
+    destination_blob.upload_blob(data, overwrite=overwrite)
 
 def list_staged_docs_from_paths(
     container,
@@ -503,7 +554,7 @@ def get_summaries_ready_files(
         raise HTTPException(status_code=400, detail="project or project_id is required")
 
     try:
-        container = get_summaries_review_container()
+        container = get_summaries_live_container()
     except HTTPException:
         raise
     except Exception as exc:
@@ -598,7 +649,7 @@ def get_available_summaries(
         raise HTTPException(status_code=400, detail="project or project_id is required")
 
     try:
-        container = get_summaries_review_container()
+        container = get_summaries_live_container()
     except HTTPException:
         raise
     except Exception as exc:
@@ -1338,21 +1389,22 @@ def promote_summary_extraction_results(payload: dict[str, Any]):
     }
 
     try:
-        container = get_summaries_review_container()
+        review_container = get_summaries_review_container()
+        live_container = get_summaries_live_container()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
             detail=(
-                "Unable to initialize Summaries review/staging container: "
+                "Unable to initialize Summaries promotion containers: "
                 f"{type(exc).__name__}: {exc}"
             ),
         )
 
     try:
         result_files = list_summary_extraction_files(
-            container,
+            review_container,
             client,
             project_id,
             "results",
@@ -1448,7 +1500,7 @@ def promote_summary_extraction_results(payload: dict[str, Any]):
                 ]
 
                 if any(
-                    container.get_blob_client(path).exists()
+                    live_container.get_blob_client(path).exists()
                     for path in existing_paths
                 ):
                     skipped.append(
@@ -1463,21 +1515,23 @@ def promote_summary_extraction_results(payload: dict[str, Any]):
                     )
                     continue
 
-            copy_blob_within_container(
-                container,
+            copy_blob_between_containers(
+                review_container,
                 result_native_blob,
+                live_container,
                 source_native_blob,
                 overwrite=True,
             )
 
-            copy_blob_within_container(
-                container,
+            copy_blob_between_containers(
+                review_container,
                 result_text_blob,
+                live_container,
                 source_text_blob,
                 overwrite=True,
             )
 
-            outline_payload = read_json_blob(container, result_outline_blob)
+            outline_payload = read_json_blob(review_container, result_outline_blob)
 
             if outline_payload:
                 outline_payload["status"] = "ready"
@@ -1491,14 +1545,15 @@ def promote_summary_extraction_results(payload: dict[str, Any]):
                 outline_payload["updated_at"] = utc_now_iso()
 
                 upload_json_blob(
-                    container,
+                    live_container,
                     review_outline_blob,
                     outline_payload,
                 )
             else:
-                copy_blob_within_container(
-                    container,
+                copy_blob_between_containers(
+                    review_container,
                     result_outline_blob,
+                    live_container,
                     review_outline_blob,
                     overwrite=True,
                 )
@@ -1550,7 +1605,7 @@ def promote_summary_extraction_results(payload: dict[str, Any]):
     manifest_blob = f"{promotion_manifest_prefix}{safe_name(promotion_id)}.json"
 
     try:
-        upload_json_blob(container, manifest_blob, manifest)
+        upload_json_blob(review_container, manifest_blob, manifest)
     except Exception as exc:
         errors.append(
             {
@@ -1566,8 +1621,10 @@ def promote_summary_extraction_results(payload: dict[str, Any]):
         "client": client,
         "project_id": project_id,
         "promotion_id": promotion_id,
-        "storage_account": getattr(container, "account_name", ""),
-        "container": getattr(container, "container_name", ""),
+        "source_storage_account": getattr(review_container, "account_name", ""),
+        "source_container": getattr(review_container, "container_name", ""),
+        "destination_storage_account": getattr(live_container, "account_name", ""),
+        "destination_container": getattr(live_container, "container_name", ""),
         "manifest_blob": manifest_blob,
         "promoted_count": len(promoted),
         "skipped_count": len(skipped),
@@ -1590,7 +1647,7 @@ def build_summaries_pdf_outlines(payload: dict[str, Any]):
         )
 
     try:
-        container = get_summaries_review_container()
+        container = get_summaries_live_container()
     except HTTPException:
         raise
     except Exception as exc:

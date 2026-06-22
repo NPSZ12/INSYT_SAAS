@@ -54,30 +54,6 @@ def get_workspace_container(workspace: str):
             detail="Invalid workspace.",
         )
 
-    if workspace == "summaries":
-        conn = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
-
-        if not conn:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "Summaries review storage is not configured. Set "
-                    "INSYT_REVIEW_STORAGE_CONNECTION_STRING."
-                ),
-            )
-
-        if "AccountName=insytreviewstorage" not in conn:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "INSYT_REVIEW_STORAGE_CONNECTION_STRING is not pointing "
-                    "to insytreviewstorage."
-                ),
-            )
-
-        service = BlobServiceClient.from_connection_string(conn)
-        return service.get_container_client(get_container_name(workspace))
-
     conn = (
         os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
         or os.getenv("CDS_STORAGE_CONNECTION_STRING")
