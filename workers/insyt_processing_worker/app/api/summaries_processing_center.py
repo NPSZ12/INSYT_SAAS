@@ -108,6 +108,94 @@ def read_json_blob(container, blob_name: str) -> dict[str, Any]:
 
     return json.loads(text)
 
+def copy_blob_within_container(
+    container,
+    source_blob_name: str,
+    destination_blob_name: str,
+    overwrite: bool = True,
+) -> None:
+    source_blob = container.get_blob_client(source_blob_name)
+    destination_blob = container.get_blob_client(destination_blob_name)
+
+    if not source_blob.exists():
+        raise FileNotFoundError(f"Source blob not found: {source_blob_name}")
+
+    if destination_blob.exists() and not overwrite:
+        return
+
+    data = source_blob.download_blob().readall()
+    destination_blob.upload_blob(data, overwrite=overwrite)
+
+def load_staged_job_detail(
+    container,
+    client: str,
+    project_id: str,
+    job_id: str,
+) -> dict[str, Any]:
+    base = get_project_base(client, project_id)
+
+    report_candidates = [
+        f"{base}/processing_center/staged/{job_id}/reports/job_detail.json",
+        f"{base}/processing_center/staged/{job_id}/report/job_detail.json",
+        f"{base}/processing_center/staged/{job_id}/job_detail.json",
+        f"{base}/processing_center/jobs/{job_id}/job_detail.json",
+        f"{base}/processing_center/jobs/{job_id}/status.json",
+    ]
+
+    for report_blob in report_candidates:
+        blob = container.get_blob_client(report_blob)
+
+        if blob.exists():
+            try:
+                detail = read_json_blob(container, report_blob)
+                detail["_detail_blob"] = report_blob
+                return detail
+            except Exception:
+                continue
+
+    return {}
+
+def list_staged_docs_from_paths(
+    container,
+    client: str,
+    project_id: str,
+    job_id: str,
+) -> list[dict[str, Any]]:
+    base = get_project_base(client, project_id)
+
+    native_prefix = f"{base}/processing_center/staged/{job_id}/native/"
+    text_prefix = f"{base}/processing_center/staged/{job_id}/text/"
+
+    native_blobs = [
+        blob.name
+        for blob in container.list_blobs(name_starts_with=native_prefix)
+        if not blob.name.endswith("/")
+    ]
+
+    text_blobs = [
+        blob.name
+        for blob in container.list_blobs(name_starts_with=text_prefix)
+        if not blob.name.endswith("/")
+    ]
+
+    docs: list[dict[str, Any]] = []
+
+    for native_blob in native_blobs:
+        doc_id = guess_doc_id_from_blob(native_blob)
+        text_blob = find_matching_text_blob(text_blobs, native_blob, doc_id)
+
+        docs.append(
+            {
+                "doc_id": doc_id,
+                "original_filename": os.path.basename(native_blob),
+                "native_staged_blob_path": native_blob,
+                "text_staged_blob_path": text_blob,
+                "ready_to_promote": bool(native_blob and text_blob),
+            }
+        )
+
+    return docs
+
 def build_starter_outline_items(text: str) -> list[dict[str, Any]]:
     cleaned = (text or "").strip()
 
@@ -371,6 +459,204 @@ def get_available_summaries(
         "available_count": len(items),
         "items": items,
         "failed_outlines": failed_outlines,
+    }
+
+@router.post("/upload-to-summary-extraction")
+def upload_to_summary_extraction(payload: dict[str, Any]):
+    client = payload.get("client")
+    project_id = payload.get("project_id") or payload.get("project")
+    job_id = payload.get("job_id")
+    upload_all = bool(payload.get("upload_all", False))
+    requested_doc_ids = payload.get("doc_ids") or []
+
+    if not client or not project_id or not job_id:
+        raise HTTPException(
+            status_code=400,
+            detail="client, project_id, and job_id are required",
+        )
+
+    try:
+        container = get_summaries_container()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+        )
+
+    requested_doc_id_set = {
+        str(doc_id)
+        for doc_id in requested_doc_ids
+        if str(doc_id).strip()
+    }
+
+    detail = load_staged_job_detail(container, client, project_id, job_id)
+
+    docs = detail.get("docs") or detail.get("documents") or []
+
+    if not docs:
+        try:
+            docs = list_staged_docs_from_paths(container, client, project_id, job_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unable to list staged Summary Extraction candidates: {type(exc).__name__}: {exc}",
+            )
+
+    uploaded: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    base = get_project_base(client, project_id)
+
+    pending_native_prefix = f"{base}/summary_extraction/pending/native/"
+    pending_text_prefix = f"{base}/summary_extraction/pending/text/"
+    manifest_prefix = f"{base}/summary_extraction/pending/manifest/"
+
+    selected_docs = []
+
+    for doc in docs:
+        doc_id = str(doc.get("doc_id") or "").strip()
+
+        if not doc_id:
+            skipped.append(
+                {
+                    "doc_id": "",
+                    "status": "skipped",
+                    "message": "missing_doc_id",
+                }
+            )
+            continue
+
+        if not upload_all and doc_id not in requested_doc_id_set:
+            continue
+
+        native_blob = (
+            doc.get("native_staged_blob_path")
+            or doc.get("native_blob_path")
+            or doc.get("native_blob")
+        )
+
+        text_blob = (
+            doc.get("text_staged_blob_path")
+            or doc.get("text_blob_path")
+            or doc.get("text_blob")
+        )
+
+        if not native_blob or not text_blob:
+            skipped.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "skipped",
+                    "message": "missing_native_or_text_staged_blob",
+                }
+            )
+            continue
+
+        selected_docs.append(
+            {
+                "doc_id": doc_id,
+                "original_filename": doc.get("original_filename") or "",
+                "native_staged_blob_path": native_blob,
+                "text_staged_blob_path": text_blob,
+            }
+        )
+
+    for doc in selected_docs:
+        doc_id = doc["doc_id"]
+        original_filename = doc.get("original_filename") or f"{doc_id}.pdf"
+
+        native_ext = os.path.splitext(doc["native_staged_blob_path"])[1] or ".pdf"
+        text_ext = os.path.splitext(doc["text_staged_blob_path"])[1] or ".txt"
+
+        native_destination = (
+            f"{pending_native_prefix}{safe_name(doc_id)}{native_ext}"
+        )
+        text_destination = (
+            f"{pending_text_prefix}{safe_name(doc_id)}{text_ext}"
+        )
+
+        try:
+            copy_blob_within_container(
+                container,
+                doc["native_staged_blob_path"],
+                native_destination,
+                overwrite=True,
+            )
+
+            copy_blob_within_container(
+                container,
+                doc["text_staged_blob_path"],
+                text_destination,
+                overwrite=True,
+            )
+        except Exception as exc:
+            errors.append(
+                {
+                    "doc_id": doc_id,
+                    "status": "error",
+                    "message": f"copy_failed: {type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+
+        uploaded.append(
+            {
+                "doc_id": doc_id,
+                "status": "uploaded_to_summary_extraction",
+                "original_filename": original_filename,
+                "native_source": doc["native_staged_blob_path"],
+                "text_source": doc["text_staged_blob_path"],
+                "native_destination": native_destination,
+                "text_destination": text_destination,
+            }
+        )
+
+    manifest = {
+        "status": "pending_summary_extraction",
+        "client": client,
+        "project_id": project_id,
+        "job_id": job_id,
+        "upload_all": upload_all,
+        "requested_doc_ids": list(requested_doc_id_set),
+        "uploaded_count": len(uploaded),
+        "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "uploaded": uploaded,
+        "skipped": skipped,
+        "errors": errors,
+        "created_at": utc_now_iso(),
+        "source": "summaries_processing_center",
+        "version": 1,
+    }
+
+    manifest_blob = f"{manifest_prefix}{safe_name(job_id)}.json"
+
+    try:
+        upload_json_blob(container, manifest_blob, manifest)
+    except Exception as exc:
+        errors.append(
+            {
+                "doc_id": "",
+                "status": "error",
+                "message": f"manifest_upload_failed: {type(exc).__name__}: {exc}",
+            }
+        )
+
+    return {
+        "status": "ok",
+        "message": f"Uploaded {len(uploaded)} doc(s) to Summary Extraction.",
+        "client": client,
+        "project_id": project_id,
+        "job_id": job_id,
+        "manifest_blob": manifest_blob,
+        "uploaded_count": len(uploaded),
+        "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "uploaded": uploaded,
+        "skipped": skipped,
+        "errors": errors,
     }
 
 @router.post("/build-outlines")

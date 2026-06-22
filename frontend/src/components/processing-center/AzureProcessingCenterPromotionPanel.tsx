@@ -84,6 +84,24 @@ type PromotionResult = {
   }>;
 };
 
+type SummaryExtractionUploadResult = {
+  uploaded_count?: number;
+  skipped_count?: number;
+  error_count?: number;
+  message?: string;
+  uploaded?: Array<{
+    doc_id?: string;
+    status?: string;
+    native_destination?: string;
+    text_destination?: string;
+  }>;
+  skipped?: Array<{
+    doc_id?: string;
+    status?: string;
+    message?: string;
+  }>;
+};
+
 type Props = {
   workspace: Workspace;
   clientId: string;
@@ -201,12 +219,16 @@ export default function AzureProcessingCenterPromotionPanel({
   projectId,
   onPromoted,
 }: Props) {
+  const isSummaries = workspace === "summaries";
+
   const [jobs, setJobs] = useState<StagedJobSummary[]>([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [selectedJob, setSelectedJob] = useState<StagedJobDetail | null>(null);
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [promotionResult, setPromotionResult] =
     useState<PromotionResult | null>(null);
+  const [summaryExtractionResult, setSummaryExtractionResult] =
+    useState<SummaryExtractionUploadResult | null>(null);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [promoting, setPromoting] = useState(false);
@@ -295,6 +317,7 @@ export default function AzureProcessingCenterPromotionPanel({
     setLoadingDetail(true);
     setError("");
     setPromotionResult(null);
+    setSummaryExtractionResult(null);
 
     try {
       const data = (await apiGet(stagedJobDetailUrl(jobId))) as StagedJobDetail;
@@ -358,6 +381,59 @@ export default function AzureProcessingCenterPromotionPanel({
     }
   }
 
+  async function uploadToSummaryExtraction(uploadAll: boolean) {
+    if (!isInsytAdmin()) {
+      setError("Only INSYT Admin users can upload staged APC results to Summary Extraction.");
+      return;
+    }
+
+    if (!selectedJobId) {
+      setError("Select a staged processing job before uploading to Summary Extraction.");
+      return;
+    }
+
+    if (!uploadAll && selectedDocIds.length === 0) {
+      setError("Select at least one staged document to upload to Summary Extraction.");
+      return;
+    }
+
+    setPromoting(true);
+    setError("");
+    setPromotionResult(null);
+    setSummaryExtractionResult(null);
+
+    try {
+      const result = (await apiPost(
+        "/api/summaries/processing-center/upload-to-summary-extraction",
+        {
+          client: clientId,
+          project_id: projectId,
+          job_id: selectedJobId,
+          doc_ids: uploadAll ? [] : selectedDocIds,
+          upload_all: uploadAll,
+        }
+      )) as SummaryExtractionUploadResult;
+
+      setSummaryExtractionResult(result);
+      setSelectedDocIds([]);
+
+      await loadStagedJob(selectedJobId);
+      await refreshStagedJobs();
+
+      if (onPromoted) {
+        await onPromoted();
+      }
+    } catch (err: any) {
+      setError(
+        cleanError(
+          err?.message || "Unable to upload staged results to Summary Extraction."
+        )
+      );
+    } finally {
+      setPromoting(false);
+    }
+  }
+
   useEffect(() => {
     refreshStagedJobs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -367,10 +443,15 @@ export default function AzureProcessingCenterPromotionPanel({
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="font-medium">Processed Results / Promotion Landing</div>
+          <div className="font-medium">
+            {isSummaries
+              ? "Processed Results / Summary Extraction Landing"
+              : "Processed Results / Promotion Landing"}
+          </div>
           <div className="mt-1 text-sm text-slate-400">
-            Review staged APC Native/Text outputs before promoting them into live
-            project source folders.
+            {isSummaries
+              ? "Review staged APC Native/Text outputs before uploading them into the Summaries extraction workflow."
+              : "Review staged APC Native/Text outputs before promoting them into live project source folders."}
           </div>
         </div>
 
@@ -397,6 +478,14 @@ export default function AzureProcessingCenterPromotionPanel({
         </div>
       ) : null}
 
+      {summaryExtractionResult ? (
+        <div className="mb-3 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
+          Summary Extraction upload completed. Uploaded{" "}
+          {summaryExtractionResult.uploaded_count ?? 0} doc(s).{" "}
+          {summaryExtractionResult.skipped_count ?? 0} skipped.
+        </div>
+      ) : null}
+
       {jobs.length === 0 ? (
         <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-4 text-sm text-slate-500">
           No staged review-ready documents are waiting for promotion.
@@ -406,7 +495,7 @@ export default function AzureProcessingCenterPromotionPanel({
           <div className="space-y-4">
             <div>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Ready for Promotion
+                {isSummaries ? "Ready for Summary Extraction" : "Ready for Promotion"}
               </div>
 
               {readyJobs.length === 0 ? (
@@ -465,7 +554,7 @@ export default function AzureProcessingCenterPromotionPanel({
 
             <div>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Promoted
+                {isSummaries ? "Uploaded / Promoted" : "Promoted"}
               </div>
 
               {promotedJobs.length === 0 ? (
@@ -561,7 +650,11 @@ export default function AzureProcessingCenterPromotionPanel({
 
                     <button
                       type="button"
-                      onClick={() => promoteDocs(false)}
+                      onClick={() =>
+                        isSummaries
+                          ? uploadToSummaryExtraction(false)
+                          : promoteDocs(false)
+                      }
                       disabled={
                         promoting ||
                         selectedDocIds.length === 0 ||
@@ -569,12 +662,22 @@ export default function AzureProcessingCenterPromotionPanel({
                       }
                       className="inline-flex h-9 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/15 px-4 text-xs font-semibold text-emerald-100 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {promoting ? "Promoting..." : "Promote Selected"}
+                      {promoting
+                        ? isSummaries
+                          ? "Uploading..."
+                          : "Promoting..."
+                        : isSummaries
+                          ? "Upload Selected to Summary Extraction"
+                          : "Promote Selected"}
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => promoteDocs(true)}
+                      onClick={() =>
+                        isSummaries
+                          ? uploadToSummaryExtraction(true)
+                          : promoteDocs(true)
+                      }
                       disabled={
                         promoting ||
                         readyDocs.length === 0 ||
@@ -582,9 +685,23 @@ export default function AzureProcessingCenterPromotionPanel({
                       }
                       className="inline-flex h-9 items-center justify-center rounded-full border border-violet-400/60 bg-violet-500/20 px-4 text-xs font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {promoting ? "Promoting..." : "Promote All Review-Ready"}
+                      {promoting
+                        ? isSummaries
+                          ? "Uploading..."
+                          : "Promoting..."
+                        : isSummaries
+                          ? "Upload All to Summary Extraction"
+                          : "Promote All Review-Ready"}
                     </button>
                   </div>
+                  
+                  {isSummaries ? (
+                    <div className="w-full rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-100">
+                      Summaries staged files are not promoted directly into live source folders.
+                      Upload them to Summary Extraction first so INSYT can perform the proper
+                      extraction, chunking, merging, and review-ready preparation.
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="mb-3 grid gap-2 md:grid-cols-7">
