@@ -196,6 +196,44 @@ def list_staged_docs_from_paths(
 
     return docs
 
+def find_staged_blob_by_doc_id(
+    container,
+    client: str,
+    project_id: str,
+    job_id: str,
+    doc_id: str,
+    kind: str,
+) -> str | None:
+    base = get_project_base(client, project_id)
+
+    kind_folder = "native" if kind == "native" else "text"
+
+    candidate_prefixes = [
+        f"{base}/processing_center/staged/{job_id}/{kind_folder}/",
+        f"{base}/processing_center/jobs/{job_id}/{kind_folder}/",
+        f"{base}/processing_center/staged/{job_id}/",
+        f"{base}/processing_center/jobs/{job_id}/",
+    ]
+
+    doc_id_lower = str(doc_id or "").lower()
+
+    for prefix in candidate_prefixes:
+        try:
+            for blob in container.list_blobs(name_starts_with=prefix):
+                blob_name = blob.name
+
+                if blob_name.endswith("/"):
+                    continue
+
+                filename = os.path.basename(blob_name).lower()
+
+                if doc_id_lower and doc_id_lower in filename:
+                    return blob_name
+        except Exception:
+            continue
+
+    return None
+
 def build_starter_outline_items(text: str) -> list[dict[str, Any]]:
     cleaned = (text or "").strip()
 
@@ -604,27 +642,55 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         doc_id = doc["doc_id"]
         original_filename = doc.get("original_filename") or f"{doc_id}.pdf"
 
-        native_ext = os.path.splitext(doc["native_staged_blob_path"])[1] or ".pdf"
-        text_ext = os.path.splitext(doc["text_staged_blob_path"])[1] or ".txt"
+        native_staged_blob_path = str(doc.get("native_staged_blob_path") or "")
+        text_staged_blob_path = str(doc.get("text_staged_blob_path") or "")
 
-        native_destination = (
-            f"{pending_native_prefix}{safe_name(doc_id)}{native_ext}"
-        )
-        text_destination = (
-            f"{pending_text_prefix}{safe_name(doc_id)}{text_ext}"
-        )
+        native_ext = os.path.splitext(native_staged_blob_path)[1] or ".pdf"
+        text_ext = os.path.splitext(text_staged_blob_path)[1] or ".txt"
+
+        native_destination = f"{pending_native_prefix}{safe_name(doc_id)}{native_ext}"
+        text_destination = f"{pending_text_prefix}{safe_name(doc_id)}{text_ext}"
+
+        native_source = native_staged_blob_path
+        text_source = text_staged_blob_path
+
+        if not container.get_blob_client(native_source).exists():
+            resolved_native_source = find_staged_blob_by_doc_id(
+                container,
+                client,
+                project_id,
+                job_id,
+                doc_id,
+                "native",
+            )
+
+            if resolved_native_source:
+                native_source = resolved_native_source
+
+        if not container.get_blob_client(text_source).exists():
+            resolved_text_source = find_staged_blob_by_doc_id(
+                container,
+                client,
+                project_id,
+                job_id,
+                doc_id,
+                "text",
+            )
+
+            if resolved_text_source:
+                text_source = resolved_text_source
 
         try:
             copy_blob_within_container(
                 container,
-                doc["native_staged_blob_path"],
+                native_source,
                 native_destination,
                 overwrite=True,
             )
 
             copy_blob_within_container(
                 container,
-                doc["text_staged_blob_path"],
+                text_source,
                 text_destination,
                 overwrite=True,
             )
@@ -633,7 +699,11 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
                 {
                     "doc_id": doc_id,
                     "status": "error",
-                    "message": f"copy_failed: {type(exc).__name__}: {exc}",
+                    "message": (
+                        f"copy_failed: {type(exc).__name__}: {exc}; "
+                        f"native_source={native_source}; "
+                        f"text_source={text_source}"
+                    ),
                 }
             )
             continue
@@ -643,8 +713,8 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
                 "doc_id": doc_id,
                 "status": "uploaded_to_summary_extraction",
                 "original_filename": original_filename,
-                "native_source": doc["native_staged_blob_path"],
-                "text_source": doc["text_staged_blob_path"],
+                "native_source": native_source,
+                "text_source": text_source,
                 "native_destination": native_destination,
                 "text_destination": text_destination,
             }
