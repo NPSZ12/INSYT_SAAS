@@ -37,6 +37,9 @@ function SummariesFileReviewContent() {
     searchParams.get("blob_path") ||
     "";
 
+  const textBlob = searchParams.get("text_blob") || "";
+  const outlineBlob = searchParams.get("outline_blob") || "";
+
   const outlineId = searchParams.get("outline") || "";
   const pageParam = searchParams.get("page") || "";
 
@@ -164,11 +167,22 @@ function SummariesFileReviewContent() {
       params.set("native_blob", nativeBlobParam);
     }
 
+    if (textBlob) {
+      params.set("text_blob", textBlob);
+    }
+
+    if (outlineBlob) {
+      params.set("outline_blob", outlineBlob);
+    }
+
     console.log("SUMMARIES FILE REVIEW API REQUEST:", {
       url: `/api/summaries/review/current?${params.toString()}`,
       clientId,
       projectId,
       docId,
+      nativeBlobParam,
+      textBlob,
+      outlineBlob,
     });
 
     apiGet(`/api/summaries/review/current?${params.toString()}`)
@@ -218,7 +232,7 @@ function SummariesFileReviewContent() {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [clientId, projectId, docId]);
+  }, [clientId, projectId, docId, nativeBlobParam, textBlob, outlineBlob]);
 
   useEffect(() => {
     if (!clientId || !projectId) {
