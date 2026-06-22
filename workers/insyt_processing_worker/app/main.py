@@ -35,6 +35,7 @@ from app.api.discovery_review_batches import router as discovery_review_batches_
 from app.api.discovery import router as discovery_router
 from app.api.workspace_files import router as workspace_files_router
 from app.api.summaries_text import router as summaries_text_router
+from app.api import summaries_processing_center
 from app.api.workspace_clients import router as workspace_clients_router
 from app.api.workspace_file_uploads import router as workspace_file_uploads_router
 from app.api.workspace_project_create import router as workspace_project_create_router
@@ -212,6 +213,7 @@ app.include_router(cyber_utility_router)
 app.include_router(capture_clients_router)
 app.include_router(workspace_protocols_router)
 app.include_router(summaries_qc_router)
+app.include_router(summaries_processing_center.router)
 app.include_router(discovery_review_batches_router)
 app.include_router(discovery_router)
 app.include_router(workspace_files_router)

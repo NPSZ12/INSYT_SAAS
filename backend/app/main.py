@@ -47,6 +47,7 @@ from app.api.admin_clients import router as admin_clients_router
 from app.api import capture_review_batches
 from app.api import discovery_review_batches
 from app.api import summaries_review_batches
+from app.api import summaries_processing_center
 from app.api import processing_center
 from app.api import reviewer_hours
 
@@ -224,6 +225,7 @@ app.include_router(workspace_file_uploads_router)
 #app.include_router(workspace_project_create_router)
 app.include_router(workspace_projects.router)
 app.include_router(summaries_summary_data.router)
+app.include_router(summaries_processing_center.router)
 app.include_router(audit_logs_router, dependencies=protected_dependencies)
 app.include_router(admin_clients_router, dependencies=protected_dependencies)
 app.include_router(document_overlays.router)
