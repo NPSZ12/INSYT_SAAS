@@ -491,9 +491,11 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         if str(doc_id).strip()
     }
 
-    detail = load_staged_job_detail(container, client, project_id, job_id)
+    docs = payload.get("docs") or []
 
-    docs = detail.get("docs") or detail.get("documents") or []
+    if not docs:
+        detail = load_staged_job_detail(container, client, project_id, job_id)
+        docs = detail.get("docs") or detail.get("documents") or []
 
     if not docs:
         try:
@@ -503,6 +505,28 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
                 status_code=500,
                 detail=f"Unable to list staged Summary Extraction candidates: {type(exc).__name__}: {exc}",
             )
+
+    if not docs:
+        return {
+            "status": "ok",
+            "message": "No staged documents were found to upload to Summary Extraction.",
+            "client": client,
+            "project_id": project_id,
+            "job_id": job_id,
+            "manifest_blob": "",
+            "uploaded_count": 0,
+            "skipped_count": 1,
+            "error_count": 0,
+            "uploaded": [],
+            "skipped": [
+                {
+                    "doc_id": "",
+                    "status": "skipped",
+                    "message": "no_staged_docs_found",
+                }
+            ],
+            "errors": [],
+        }
 
     uploaded: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -560,6 +584,19 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
                 "original_filename": doc.get("original_filename") or "",
                 "native_staged_blob_path": native_blob,
                 "text_staged_blob_path": text_blob,
+            }
+        )
+
+    if not selected_docs:
+        skipped.append(
+            {
+                "doc_id": "",
+                "status": "skipped",
+                "message": (
+                    "no_matching_docs_selected"
+                    if not upload_all
+                    else "no_ready_docs_found"
+                ),
             }
         )
 

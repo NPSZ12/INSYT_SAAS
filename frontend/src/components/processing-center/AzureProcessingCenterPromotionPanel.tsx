@@ -403,6 +403,16 @@ export default function AzureProcessingCenterPromotionPanel({
     setSummaryExtractionResult(null);
 
     try {
+      const docsForExtraction = (uploadAll
+        ? readyDocs
+        : docs.filter((doc) => selectedDocIds.includes(doc.doc_id))
+      ).map((doc) => ({
+        doc_id: doc.doc_id,
+        original_filename: doc.original_filename || "",
+        native_staged_blob_path: doc.native_staged_blob_path || "",
+        text_staged_blob_path: doc.text_staged_blob_path || "",
+      }));
+
       const result = (await apiPost(
         "/api/summaries/processing-center/upload-to-summary-extraction",
         {
@@ -410,6 +420,7 @@ export default function AzureProcessingCenterPromotionPanel({
           project_id: projectId,
           job_id: selectedJobId,
           doc_ids: uploadAll ? [] : selectedDocIds,
+          docs: docsForExtraction,
           upload_all: uploadAll,
         }
       )) as SummaryExtractionUploadResult;
@@ -694,7 +705,7 @@ export default function AzureProcessingCenterPromotionPanel({
                           : "Promote All Review-Ready"}
                     </button>
                   </div>
-                  
+
                   {isSummaries ? (
                     <div className="w-full rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-100">
                       Summaries staged files are not promoted directly into live source folders.
