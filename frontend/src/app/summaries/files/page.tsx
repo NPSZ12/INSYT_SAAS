@@ -25,6 +25,10 @@ type ProjectFile = {
   blob_name?: string;
   path?: string;
 
+  native_blob?: string;
+  text_blob?: string;
+  outline_blob?: string;
+
   size: string;
   last_modified: string;
 };
@@ -52,7 +56,13 @@ function FilesPageContent() {
   }
 
   function getBlobPath(file: ProjectFile) {
-    return file.blob_path || file.blob_name || file.path || "";
+    return (
+      file.native_blob ||
+      file.blob_path ||
+      file.blob_name ||
+      file.path ||
+      ""
+    );
   }
 
   function openDocument(file: ProjectFile) {
@@ -99,6 +109,14 @@ function FilesPageContent() {
     params.set("project", projectId);
     params.set("doc", docId);
     params.set("native_blob", nativeBlob);
+
+    if (file.text_blob) {
+      params.set("text_blob", file.text_blob);
+    }
+
+    if (file.outline_blob) {
+      params.set("outline_blob", file.outline_blob);
+    }
 
     const targetUrl = `/summaries/files/review?${params.toString()}`;
 
@@ -344,7 +362,9 @@ function FilesPageContent() {
                     <th className="p-3 text-left">Coding</th>
                     <th className="p-3 text-left">File Name</th>
                     <th className="p-3 text-left">Extension</th>
-                    <th className="p-3 text-left">Blob Path</th>
+                    <th className="p-3 text-left">Native Blob Path</th>
+                    <th className="p-3 text-left">Text Blob Path</th>
+                    <th className="p-3 text-left">Outline</th>
                     <th className="p-3 text-left">Size</th>
                     <th className="p-3 text-left">Last Modified</th>
                   </tr>
@@ -390,6 +410,14 @@ function FilesPageContent() {
                           {blobPath}
                         </td>
 
+                        <td className="p-3 text-slate-400 whitespace-nowrap">
+                          {file.text_blob || "—"}
+                        </td>
+
+                        <td className="p-3 text-slate-400 whitespace-nowrap">
+                          {file.outline_blob || "—"}
+                        </td>
+
                         <td className="p-3 text-slate-300 whitespace-nowrap">
                           {file.size}
                         </td>
@@ -404,7 +432,7 @@ function FilesPageContent() {
                   {!loading && filteredFiles.length === 0 && (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={9}
                         className="p-6 text-center text-slate-500"
                       >
                         No files found for this Summaries project.

@@ -1,10 +1,14 @@
+import os
+
 from fastapi import APIRouter, HTTPException, Query
 
 from io import BytesIO
 
 import pandas as pd
 
-from app.services.batch_service import get_container_client
+from azure.storage.blob import BlobServiceClient
+
+from app.services.storage_paths import build_project_prefix
 
 try:
     from docx import Document
@@ -23,35 +27,120 @@ def clean_folder(value: str) -> str:
     return value.strip().strip("/")
 
 
+def get_container_name(workspace: str) -> str:
+    workspace_clean = workspace.lower().strip()
+
+    if workspace_clean == "capture":
+        return os.getenv("AZURE_CAPTURE_CONTAINER", "insyt-capture")
+
+    if workspace_clean == "discovery":
+        return os.getenv("AZURE_DISCOVERY_CONTAINER", "insyt-discovery")
+
+    if workspace_clean == "summaries":
+        return os.getenv("AZURE_SUMMARIES_CONTAINER", "insyt-summaries")
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported workspace: {workspace}",
+    )
+
+
 def get_workspace_container(workspace: str):
+    workspace = workspace.lower().strip()
+
     if workspace not in VALID_WORKSPACES:
         raise HTTPException(
             status_code=400,
             detail="Invalid workspace.",
         )
 
-    return get_container_client(workspace)
+    if workspace == "summaries":
+        conn = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+
+        if not conn:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Summaries review storage is not configured. Set "
+                    "INSYT_REVIEW_STORAGE_CONNECTION_STRING."
+                ),
+            )
+
+        if "AccountName=insytreviewstorage" not in conn:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "INSYT_REVIEW_STORAGE_CONNECTION_STRING is not pointing "
+                    "to insytreviewstorage."
+                ),
+            )
+
+        service = BlobServiceClient.from_connection_string(conn)
+        return service.get_container_client(get_container_name(workspace))
+
+    conn = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
+
+    if not conn:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Live source storage is not configured. Set "
+                "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+                "CDS_STORAGE_CONNECTION_STRING, or "
+                "AZURE_STORAGE_CONNECTION_STRING."
+            ),
+        )
+
+    service = BlobServiceClient.from_connection_string(conn)
+    return service.get_container_client(get_container_name(workspace))
 
 
 def build_prefix(
+    workspace: str,
     project: str,
     client: str | None = None,
     folder: str | None = None,
 ) -> str:
-    project_name = clean_folder(project)
+    if not client:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required for workspace file paths.",
+        )
 
-    if client:
-        client_name = clean_folder(client)
-        base_prefix = f"{client_name}/{project_name}/"
-    else:
-        base_prefix = f"{project_name}/"
+    return build_project_prefix(
+        workspace,
+        client,
+        project,
+        folder or "",
+    )
 
-    if folder:
-        folder_name = clean_folder(folder)
-        return f"{base_prefix}{folder_name}/"
+def find_matching_blob_by_doc_id(
+    blob_paths: list[str],
+    doc_id: str,
+) -> str | None:
+    doc_id_clean = str(doc_id or "").lower().strip()
 
-    return base_prefix
+    if not doc_id_clean:
+        return None
 
+    for blob_path in blob_paths:
+        file_name = blob_path.split("/")[-1]
+        stem = file_name.rsplit(".", 1)[0].lower()
+
+        if stem == doc_id_clean:
+            return blob_path
+
+    for blob_path in blob_paths:
+        file_name = blob_path.split("/")[-1].lower()
+
+        if doc_id_clean in file_name:
+            return blob_path
+
+    return None
 
 @router.get("/{workspace}/files")
 def list_workspace_files(
@@ -60,26 +149,60 @@ def list_workspace_files(
     client: str | None = Query(default=None),
     folder: str | None = Query(default=None),
 ):
+    workspace = workspace.lower().strip()
+
     container = get_workspace_container(workspace)
 
     project_name = clean_folder(project)
     client_name = clean_folder(client) if client else ""
+    resolved_folder = folder or "source/native"
 
     prefix = build_prefix(
+        workspace=workspace,
         project=project,
         client=client,
-        folder=folder,
+        folder=resolved_folder,
     )
     print(
         "WORKSPACE FILES:",
         workspace,
         project,
         client,
-        folder,
+        resolved_folder,
         prefix,
     )
 
     files = []
+
+    text_blobs: list[str] = []
+    outline_blobs: list[str] = []
+
+    if workspace == "summaries":
+        text_prefix = build_prefix(
+            workspace=workspace,
+            project=project,
+            client=client,
+            folder="source/text",
+        )
+
+        outline_prefix = build_prefix(
+            workspace=workspace,
+            project=project,
+            client=client,
+            folder="review/summary-outlines",
+        )
+
+        text_blobs = [
+            blob.name
+            for blob in container.list_blobs(name_starts_with=text_prefix)
+            if not blob.name.endswith("/")
+        ]
+
+        outline_blobs = [
+            blob.name
+            for blob in container.list_blobs(name_starts_with=outline_prefix)
+            if not blob.name.endswith("/")
+        ]
 
     for blob in container.list_blobs(name_starts_with=prefix):
         blob_path = blob.name
@@ -115,12 +238,32 @@ def list_workspace_files(
             else file_name
         )
 
+        text_blob = None
+        outline_blob = None
+
+        if workspace == "summaries":
+            text_blob = find_matching_blob_by_doc_id(text_blobs, doc_id)
+            outline_blob = find_matching_blob_by_doc_id(outline_blobs, doc_id)
+
         files.append(
             {
                 "doc_id": doc_id,
+
+                # Existing INSYT fields
                 "file_name": file_name,
-                "extension": extension,
                 "blob_path": blob_path,
+
+                # Summaries review-ready file links
+                "native_blob": blob_path,
+                "text_blob": text_blob,
+                "outline_blob": outline_blob,
+
+                # Frontend compatibility aliases
+                "name": file_name,
+                "filename": file_name,
+                "path": blob_path,
+
+                "extension": extension,
                 "size": str(blob.size or ""),
                 "last_modified": (
                     blob.last_modified.isoformat()
@@ -130,7 +273,12 @@ def list_workspace_files(
                 "workspace": workspace,
                 "client": client_name,
                 "project": project_name,
-                "folder": clean_folder(folder) if folder else "",
+                "folder": clean_folder(resolved_folder),
+                "status": (
+                    "outlined"
+                    if workspace == "summaries" and outline_blob
+                    else "ready"
+                ),
             }
         )
 
@@ -206,6 +354,8 @@ def preview_workspace_native_file(
     sheet_name: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
 ):
+    workspace = workspace.lower().strip()
+
     container = get_workspace_container(workspace)
 
     extension = get_file_extension(blob_path)
