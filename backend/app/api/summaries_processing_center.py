@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from app.services.azure_blob_service import get_container_client
+from app.api.processing_center_azure import _review_container
 
 router = APIRouter(
     prefix="/api/summaries/processing-center",
@@ -43,6 +44,17 @@ def get_summaries_container():
             ),
         )
 
+def get_summaries_review_container():
+    try:
+        return _review_container("summaries")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to resolve Summaries review/staging container: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
 
 def get_project_base(client: str, project_id: str) -> str:
     return f"{client}/summaries/{project_id}"
@@ -515,13 +527,13 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         )
 
     try:
-        container = get_summaries_container()
+        container = get_summaries_review_container()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
+            detail=f"Unable to initialize Summaries review/staging container: {type(exc).__name__}: {exc}",
         )
 
     requested_doc_id_set = {
