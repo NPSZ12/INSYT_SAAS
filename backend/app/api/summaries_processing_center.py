@@ -6,7 +6,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from app.services.azure_blob_service import get_container_client
-from app.api.processing_center_azure import _review_container
 
 router = APIRouter(
     prefix="/api/summaries/processing-center",
@@ -40,18 +39,6 @@ def get_summaries_container():
             status_code=500,
             detail=(
                 "Unable to resolve Summaries storage container: "
-                f"{type(exc).__name__}: {exc}"
-            ),
-        )
-
-def get_summaries_review_container():
-    try:
-        return _review_container("summaries")
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Unable to resolve Summaries review/staging container: "
                 f"{type(exc).__name__}: {exc}"
             ),
         )
@@ -527,13 +514,13 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         )
 
     try:
-        container = get_summaries_review_container()
+        container = get_summaries_container()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Unable to initialize Summaries review/staging container: {type(exc).__name__}: {exc}",
+            detail=f"Unable to initialize Summaries container: {type(exc).__name__}: {exc}",
         )
 
     requested_doc_id_set = {
@@ -588,6 +575,12 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
     pending_native_prefix = f"{base}/summary_extraction/pending/native/"
     pending_text_prefix = f"{base}/summary_extraction/pending/text/"
     manifest_prefix = f"{base}/summary_extraction/pending/manifest/"
+    container_name = getattr(container, "container_name", "")
+    account_name = getattr(
+        getattr(container, "account_name", None),
+        "__str__",
+        lambda: "",
+    )()
 
     selected_docs = []
 
@@ -770,6 +763,8 @@ def upload_to_summary_extraction(payload: dict[str, Any]):
         "client": client,
         "project_id": project_id,
         "job_id": job_id,
+        "container_name": container_name,
+        "account_name": account_name,
         "manifest_blob": manifest_blob,
         "uploaded_count": len(uploaded),
         "skipped_count": len(skipped),
