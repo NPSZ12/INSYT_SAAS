@@ -33,7 +33,7 @@ def safe_name(value: str) -> str:
 
 def get_summaries_container():
     try:
-        return get_container_client("summaries")
+        return get_container_client()
     except Exception as exc:
         raise HTTPException(
             status_code=500,
