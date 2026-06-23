@@ -519,6 +519,24 @@ function ReviewPageContent() {
         });
       }
 
+      /*
+        Mirror Summary Set QC saves into the project-level Summary Data table
+        so the Saved QC Summaries sidebar and future PDF rebuilds see all
+        reviewer work across all Summary Sets.
+      */
+      await apiPost("/api/summaries/summary-data/save", {
+        client: clientId,
+        project_id: projectId,
+        batch_id: activeSummarySetId,
+        pdf_name: pdfName,
+        summary_doc_id: summaryDocId,
+        summary_key: title,
+        title,
+        citation: currentCitation || "",
+        original_summary: originalSummary || "",
+        qc_summary: updatedQcSummary,
+      });
+
       setQcSummary(updatedQcSummary);
       return;
     }
