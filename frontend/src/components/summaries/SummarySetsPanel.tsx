@@ -65,6 +65,19 @@ type PromotedPdfFile = {
   native_blob?: string;
   native_path?: string;
   blob_path?: string;
+  docId?: string;
+  documentId?: string;
+  id?: string;
+  display_name?: string;
+  displayName?: string;
+  pdf_name?: string;
+  pdfName?: string;
+  original_name?: string;
+  originalName?: string;
+  mimeType?: string;
+  path?: string;
+  extension?: string;
+  status?: string;
 };
 
 type StoredUser = {
@@ -166,9 +179,21 @@ export default function SummarySetsPanel({
 
   function isPdfFile(file: PromotedPdfFile) {
     const fileName = getPromotedPdfName(file).toLowerCase();
-    const mimeType = String(file.mime_type || "").toLowerCase();
+    const extension = String(file.extension || "").toLowerCase();
+    const mimeType = String(
+      file.mime_type ||
+        file.mimeType ||
+        (file as any).content_type ||
+        (file as any).contentType ||
+        ""
+    ).toLowerCase();
 
-    return fileName.endsWith(".pdf") || mimeType === "application/pdf";
+    return (
+      fileName.endsWith(".pdf") ||
+      extension === "pdf" ||
+      mimeType === "application/pdf" ||
+      mimeType.includes("pdf")
+    );
   }
 
   function loadPromotedPdfFiles() {
@@ -183,16 +208,19 @@ export default function SummarySetsPanel({
       )}&project=${encodeURIComponent(projectId)}`
     )
       .then((response) => {
-        const files =
-          response.files ||
-          response.documents ||
-          response.items ||
-          response.results ||
-          [];
+        const files = Array.isArray(response)
+          ? response
+          : response.files ||
+            response.documents ||
+            response.items ||
+            response.results ||
+            [];
 
-        setPromotedPdfFiles(files.filter((file: PromotedPdfFile) => {
-          return getPromotedPdfDocId(file) && isPdfFile(file);
-        }));
+        setPromotedPdfFiles(
+          files.filter((file: PromotedPdfFile) => {
+            return getPromotedPdfDocId(file) && isPdfFile(file);
+          })
+        );
       })
       .catch((error) => {
         console.error(error);
