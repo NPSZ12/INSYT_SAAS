@@ -28,6 +28,9 @@ type SavedSummaryLink = {
   citation?: string;
   original_summary?: string;
   qc_summary?: string;
+  pdf_viewer_page?: number | null;
+  pdfViewerPage?: number | null;
+  insyt_anchor_id?: string | null;
   linked?: boolean;
   status?: string;
   saved_by?: string;
@@ -92,6 +95,8 @@ function ReviewPageContent() {
   const isFileView = Boolean(docId && !summarySetId);
 
   const [currentCitation, setCurrentCitation] = useState("");
+  const [currentPdfViewerPage, setCurrentPdfViewerPage] =
+    useState<number | null>(null);
   const [savedSummaryLinks, setSavedSummaryLinks] =
     useState<SavedSummaryLink[]>([]);
 
@@ -111,15 +116,33 @@ function ReviewPageContent() {
     useState("");
 
 
+  function toPositivePage(value: unknown) {
+    const page = Number(value);
+
+    if (Number.isFinite(page) && page > 0) {
+      return page;
+    }
+
+    return null;
+  }
+
+  function getPdfViewerPage(item: any) {
+    return (
+      toPositivePage(item?.pdf_viewer_page) ??
+      toPositivePage(item?.pdfViewerPage) ??
+      toPositivePage(item?.summaryPdfPage) ??
+      toPositivePage(item?.summary_pdf_page) ??
+      toPositivePage(item?.pdfPage) ??
+      toPositivePage(item?.pdf_page) ??
+      toPositivePage(item?.page) ??
+      toPositivePage(item?.pageStart) ??
+      toPositivePage(item?.page_start) ??
+      1
+    );
+  }
+
   function handleOutlineSelect(item: PdfOutlineItem) {
-    const targetPage =
-      item.summaryPdfPage ??
-      item.summary_pdf_page ??
-      item.pdfPage ??
-      item.pdf_page ??
-      item.page ??
-      item.pageStart ??
-      1;
+    const targetPage = getPdfViewerPage(item);
 
     setSelectedSummaryDocId(item.id);
 
@@ -127,6 +150,7 @@ function ReviewPageContent() {
     setCurrentCitation(item.citation || "");
 
     setTargetPdfPage(targetPage);
+    setCurrentPdfViewerPage(targetPage);
 
     setOriginalSummary(item.originalSummary || "");
 
@@ -287,29 +311,50 @@ function ReviewPageContent() {
                 item.qcSummary ||
                 item.original_summary ||
                 "",
+              pdf_viewer_page:
+                getPdfViewerPage(item),
+
+              pdfViewerPage:
+                getPdfViewerPage(item),
+
+              insyt_anchor_id:
+                item.insyt_anchor_id ||
+                item.insytAnchorId ||
+                null,
+
               page:
+                item.pdf_viewer_page ||
+                item.pdfViewerPage ||
                 item.pdf_page ||
                 item.pdfPage ||
                 item.page ||
                 item.page_start ||
                 item.pageStart ||
                 null,
+
               pageStart:
                 item.page_start ||
                 item.pageStart ||
                 item.page ||
                 null,
+
               pageEnd:
                 item.page_end ||
                 item.pageEnd ||
                 item.page ||
                 null,
+
               pdfPage:
+                item.pdf_viewer_page ||
+                item.pdfViewerPage ||
                 item.pdf_page ||
                 item.pdfPage ||
                 item.page ||
                 null,
+
               summaryPdfPage:
+                item.pdf_viewer_page ||
+                item.pdfViewerPage ||
                 item.pdf_page ||
                 item.pdfPage ||
                 item.page ||
@@ -503,6 +548,13 @@ function ReviewPageContent() {
     }
 
     setQcSummary(link.qc_summary || link.original_summary || "");
+    
+    const linkedPage = getPdfViewerPage(link);
+
+    if (linkedPage) {
+      setTargetPdfPage(linkedPage);
+      setCurrentPdfViewerPage(linkedPage);
+    }
   }
 
   async function unlinkLinkedQcSave(link: SavedSummaryLink) {
@@ -626,6 +678,11 @@ function ReviewPageContent() {
         citation: currentCitation || "",
         original_summary: originalSummary || "",
         qc_summary: updatedQcSummary,
+        pdf_viewer_page:
+          currentPdfViewerPage ||
+          targetPdfPage ||
+          activePdfPage ||
+          null,
       });
 
       setQcSummary(updatedQcSummary);
@@ -666,6 +723,11 @@ function ReviewPageContent() {
       citation: currentCitation || "",
       original_summary: originalSummary || "",
       qc_summary: updatedQcSummary,
+      pdf_viewer_page:
+        currentPdfViewerPage ||
+        targetPdfPage ||
+        activePdfPage ||
+        null,
     });
 
     setQcSummary(updatedQcSummary);

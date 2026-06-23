@@ -5,19 +5,42 @@ export type PdfOutlineItem = {
   title: string;
   linkedText?: string;
   citation?: string;
-  page?: number;
-  pageStart?: number;
+
+  /**
+   * Long-term INSYT viewer page field.
+   * This should eventually become the only field used for PDF page jumps.
+   */
+  pdf_viewer_page?: number | null;
+  pdfViewerPage?: number | null;
+
+  /**
+   * Backward-compatible page fields used by older summary/outline data.
+   */
+  page?: number | null;
+  pageStart?: number | null;
+  page_start?: number | null;
   pageEnd?: number | null;
-  y?: number;
+  page_end?: number | null;
+
+  pdfPage?: number | null;
+  pdf_page?: number | null;
+
+  originalSourceStartPdfPage?: number | null;
+  summaryPdfPage?: number | null;
+  summary_pdf_page?: number | null;
+  summaryPage?: number | null;
+  summary_page?: number | null;
+
+  /**
+   * Optional future precision fields.
+   * Not needed for Layer 1 page jumps, but safe to carry now.
+   */
+  y?: number | null;
+  pdf_viewer_y?: number | null;
+  insyt_anchor_id?: string | null;
+
   originalSummary?: string;
   qcSummary?: string;
-  pdfPage?: number;
-  pdf_page?: number;
-  originalSourceStartPdfPage?: number;
-  summaryPdfPage?: number;
-  summary_pdf_page?: number;
-  summaryPage?: number;
-  summary_page?: number;
 };
 
 export type SummaryOutlineItem = PdfOutlineItem;
@@ -58,8 +81,30 @@ export default function PdfOutlinePane({
 
   const activeSelectedId = selectedOutlineItemId ?? selectedId;
 
+  function toPositivePage(value: unknown) {
+    const page = Number(value);
+
+    if (Number.isFinite(page) && page > 0) {
+      return page;
+    }
+
+    return null;
+  }
+
   function getItemPage(item: PdfOutlineItem) {
-    return item.page ?? item.pageStart ?? 1;
+    return (
+      toPositivePage(item.pdf_viewer_page) ??
+      toPositivePage(item.pdfViewerPage) ??
+      toPositivePage(item.summaryPdfPage) ??
+      toPositivePage(item.summary_pdf_page) ??
+      toPositivePage(item.pdfPage) ??
+      toPositivePage(item.pdf_page) ??
+      toPositivePage(item.page) ??
+      toPositivePage(item.pageStart) ??
+      toPositivePage(item.page_start) ??
+      toPositivePage(item.originalSourceStartPdfPage) ??
+      1
+    );
   }
 
   function handleSelectItem(item: PdfOutlineItem) {
@@ -67,9 +112,34 @@ export default function PdfOutlinePane({
 
     const normalizedItem: PdfOutlineItem = {
       ...item,
+
+      /**
+       * Preserve the new canonical page field while keeping older fields populated.
+       */
+      pdf_viewer_page: item.pdf_viewer_page ?? page,
+      pdfViewerPage: item.pdfViewerPage ?? item.pdf_viewer_page ?? page,
+
       page,
-      pageStart: item.pageStart ?? page,
-      pageEnd: item.pageEnd ?? page,
+      pageStart: item.pageStart ?? item.page_start ?? page,
+      page_start: item.page_start ?? item.pageStart ?? page,
+      pageEnd: item.pageEnd ?? item.page_end ?? page,
+      page_end: item.page_end ?? item.pageEnd ?? page,
+
+      pdfPage: item.pdfPage ?? item.pdf_page ?? page,
+      pdf_page: item.pdf_page ?? item.pdfPage ?? page,
+
+      summaryPdfPage:
+        item.summaryPdfPage ??
+        item.summary_pdf_page ??
+        item.pdf_viewer_page ??
+        page,
+
+      summary_pdf_page:
+        item.summary_pdf_page ??
+        item.summaryPdfPage ??
+        item.pdf_viewer_page ??
+        page,
+
       qcSummary: item.qcSummary || item.originalSummary || "",
     };
 
