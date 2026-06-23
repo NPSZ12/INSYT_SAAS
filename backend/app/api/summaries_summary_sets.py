@@ -479,6 +479,20 @@ def _new_summary_set_id(doc_id: str, index: int) -> str:
     clean_doc_id = _clean_segment(doc_id).replace("/", "_")
     return f"{clean_doc_id}-SUMSET{index:09d}"
 
+def _existing_summary_set_paths_for_doc(
+    client: str,
+    project: str,
+    doc_id: str,
+) -> list[str]:
+    prefix = f"{_project_root(client, project)}/Batches/summary_sets/"
+    clean_doc_id = _clean_segment(doc_id).replace("/", "_")
+    set_id_prefix = f"{clean_doc_id}-SUMSET"
+
+    return [
+        blob_path
+        for blob_path in _list_blobs(prefix)
+        if os.path.basename(blob_path).startswith(set_id_prefix)
+    ]
 
 def _normalize_summary_item(item: dict[str, Any], index: int) -> dict[str, Any]:
     summary_id = (
@@ -626,6 +640,27 @@ def create_summary_sets(request: CreateSummarySetsRequest):
         raise HTTPException(
             status_code=400,
             detail="No valid summary sections found.",
+        )
+
+    existing_summary_set_paths = _existing_summary_set_paths_for_doc(
+        request.client,
+        request.project,
+        request.doc_id,
+    )
+
+    if existing_summary_set_paths and not request.overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SUMMARY_SETS_ALREADY_EXIST",
+                "message": (
+                    f"Summary Sets have already been created for Doc ID "
+                    f"{request.doc_id}. To rebuild them, enable overwrite."
+                ),
+                "doc_id": request.doc_id,
+                "existing_count": len(existing_summary_set_paths),
+                "existing_paths": existing_summary_set_paths,
+            },
         )
 
     created = []

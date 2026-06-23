@@ -54,6 +54,19 @@ type SummarySetDetail = {
   items: SummarySetItem[];
 };
 
+type PromotedPdfFile = {
+  doc_id?: string;
+  document_id?: string;
+  file_name?: string;
+  filename?: string;
+  native_name?: string;
+  name?: string;
+  mime_type?: string;
+  native_blob?: string;
+  native_path?: string;
+  blob_path?: string;
+};
+
 type StoredUser = {
   username: string;
   display_name: string;
@@ -67,6 +80,7 @@ type Props = {
 };
 
 const SUMMARY_SET_SIZES = [1, 5, 10, 25, 50];
+const CUSTOM_SUMMARY_SET_SIZE = "Custom";
 
 export default function SummarySetsPanel({
   clientId,
@@ -74,8 +88,10 @@ export default function SummarySetsPanel({
   user,
 }: Props) {
   const [docId, setDocId] = useState("");
-  const [summariesPerSet, setSummariesPerSet] = useState(10);
-  const [overwrite, setOverwrite] = useState(true);
+  const [summariesPerSet, setSummariesPerSet] = useState<number | "Custom">(10);
+  const [customSummariesPerSet, setCustomSummariesPerSet] = useState("");
+  const [overwrite, setOverwrite] = useState(false);
+  const [promotedPdfFiles, setPromotedPdfFiles] = useState<PromotedPdfFile[]>([]);
 
   const [summarySets, setSummarySets] = useState<SummarySet[]>([]);
   const [expandedDocIds, setExpandedDocIds] = useState<Record<string, boolean>>({});
@@ -94,6 +110,7 @@ export default function SummarySetsPanel({
 
   useEffect(() => {
     loadSummarySets();
+    loadPromotedPdfFiles();
   }, [clientId, projectId]);
 
   useEffect(() => {
@@ -130,9 +147,77 @@ export default function SummarySetsPanel({
       });
   }
 
+  function getPromotedPdfDocId(file: PromotedPdfFile) {
+    return String(file.doc_id || file.document_id || "").trim();
+  }
+
+  function getPromotedPdfName(file: PromotedPdfFile) {
+    return (
+      file.file_name ||
+      file.filename ||
+      file.native_name ||
+      file.name ||
+      file.native_blob?.split("/").pop() ||
+      file.native_path?.split("/").pop() ||
+      file.blob_path?.split("/").pop() ||
+      ""
+    );
+  }
+
+  function isPdfFile(file: PromotedPdfFile) {
+    const fileName = getPromotedPdfName(file).toLowerCase();
+    const mimeType = String(file.mime_type || "").toLowerCase();
+
+    return fileName.endsWith(".pdf") || mimeType === "application/pdf";
+  }
+
+  function loadPromotedPdfFiles() {
+    if (!clientId || !projectId) {
+      setPromotedPdfFiles([]);
+      return;
+    }
+
+    apiGet(
+      `/api/summaries/files?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}`
+    )
+      .then((response) => {
+        const files =
+          response.files ||
+          response.documents ||
+          response.items ||
+          response.results ||
+          [];
+
+        setPromotedPdfFiles(files.filter((file: PromotedPdfFile) => {
+          return getPromotedPdfDocId(file) && isPdfFile(file);
+        }));
+      })
+      .catch((error) => {
+        console.error(error);
+        setPromotedPdfFiles([]);
+        setMessage("Failed to load promoted PDFs from the Files tab.");
+      });
+  }
+
   function createSummarySets() {
-    if (!clientId || !projectId || !docId.trim()) {
-      setMessage("Enter the promoted PDF Doc ID before creating Summary Sets.");
+    const trimmedDocId = docId.trim();
+
+    if (!clientId || !projectId || !trimmedDocId) {
+      setMessage("Select the promoted PDF Doc ID before creating Summary Sets.");
+      return;
+    }
+
+    if (!Number.isFinite(resolvedSummariesPerSet) || resolvedSummariesPerSet <= 0) {
+      setMessage("Enter a valid summaries-per-set value.");
+      return;
+    }
+
+    if (selectedDocAlreadyHasSets && !overwrite) {
+      setMessage(
+        "Summary Sets have already been created for this PDF Doc ID. Duplicate creation is blocked."
+      );
       return;
     }
 
@@ -142,8 +227,8 @@ export default function SummarySetsPanel({
     apiPost("/api/summaries/summary-sets/create", {
       client: clientId,
       project: projectId,
-      doc_id: docId.trim(),
-      summaries_per_set: summariesPerSet,
+      doc_id: trimmedDocId,
+      summaries_per_set: resolvedSummariesPerSet,
       overwrite,
     })
       .then((response) => {
@@ -157,7 +242,7 @@ export default function SummarySetsPanel({
       .catch((error) => {
         console.error(error);
         setMessage(
-          "Failed to create Summary Sets. Confirm the PDF was promoted and source/summary_extracts/{doc_id}.json exists."
+          "Failed to create Summary Sets. Confirm the PDF was promoted and source/summary_extracts/{doc_id}.json exists. Duplicate Summary Sets may already exist for this Doc ID."
         );
       })
       .finally(() => {
@@ -336,11 +421,25 @@ export default function SummarySetsPanel({
   const savedCount =
     activeSet?.items?.filter((item) => item.saved).length || 0;
 
+  const resolvedSummariesPerSet =
+    summariesPerSet === CUSTOM_SUMMARY_SET_SIZE
+      ? Number(customSummariesPerSet)
+      : Number(summariesPerSet);
+
+  const selectedDocAlreadyHasSets = summarySets.some((set) => {
+    return String(set.source_doc_id || "").trim() === docId.trim();
+  });
+
+  const selectedPromotedPdf = promotedPdfFiles.find((file) => {
+    return getPromotedPdfDocId(file) === docId.trim();
+  });
+
+
   async function createSummaryExtracts() {
     const trimmedDocId = docId.trim();
 
     if (!clientId || !projectId || !trimmedDocId) {
-      setMessage("Enter the promoted PDF Doc ID before creating Summary Extracts.");
+      setMessage("Select the promoted PDF Doc ID before creating Summary Extracts.");
       return;
     }
 
@@ -454,17 +553,48 @@ export default function SummarySetsPanel({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_260px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_300px]">
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Promoted PDF Doc ID
             </label>
-            <input
+            <select
               value={docId}
               onChange={(event) => setDocId(event.target.value)}
-              placeholder="INSYT000000006"
               className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-lime-400"
-            />
+            >
+              <option value="">Select promoted PDF...</option>
+
+              {promotedPdfFiles.map((file) => {
+                const fileDocId = getPromotedPdfDocId(file);
+                const fileName = getPromotedPdfName(file);
+
+                return (
+                  <option key={fileDocId} value={fileDocId}>
+                    {fileDocId}
+                    {fileName ? ` — ${fileName}` : ""}
+                  </option>
+                );
+              })}
+            </select>
+
+            {promotedPdfFiles.length === 0 && (
+              <p className="mt-1 text-xs text-amber-300">
+                No promoted PDFs found in the Files tab.
+              </p>
+            )}
+
+            {selectedPromotedPdf && (
+              <p className="mt-1 text-xs text-slate-400">
+                Selected: {getPromotedPdfName(selectedPromotedPdf) || docId}
+              </p>
+            )}
+
+            {selectedDocAlreadyHasSets && (
+              <p className="mt-1 rounded-lg border border-amber-700 bg-amber-950 px-3 py-2 text-xs text-amber-200">
+                Summary Sets already exist for this Doc ID. Duplicate creation is blocked.
+              </p>
+            )}
           </div>
 
           <div>
@@ -473,9 +603,15 @@ export default function SummarySetsPanel({
             </label>
             <select
               value={summariesPerSet}
-              onChange={(event) =>
-                setSummariesPerSet(Number(event.target.value))
-              }
+              onChange={(event) => {
+                const value = event.target.value;
+
+                setSummariesPerSet(
+                  value === CUSTOM_SUMMARY_SET_SIZE
+                    ? CUSTOM_SUMMARY_SET_SIZE
+                    : Number(value)
+                );
+              }}
               className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-lime-400"
             >
               {SUMMARY_SET_SIZES.map((size) => (
@@ -483,7 +619,22 @@ export default function SummarySetsPanel({
                   {size}
                 </option>
               ))}
+
+              <option value={CUSTOM_SUMMARY_SET_SIZE}>
+                Custom
+              </option>
             </select>
+
+            {summariesPerSet === CUSTOM_SUMMARY_SET_SIZE && (
+              <input
+                type="number"
+                min={1}
+                value={customSummariesPerSet}
+                onChange={(event) => setCustomSummariesPerSet(event.target.value)}
+                placeholder="Enter custom amount"
+                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-lime-400"
+              />
+            )}
           </div>
 
           <div className="flex items-end gap-2">
@@ -501,7 +652,13 @@ export default function SummarySetsPanel({
               unstyled
               fullWidth
               onClick={createSummarySets}
-              disabled={isBusy}
+              disabled={
+                isBusy ||
+                !docId.trim() ||
+                !Number.isFinite(resolvedSummariesPerSet) ||
+                resolvedSummariesPerSet <= 0 ||
+                selectedDocAlreadyHasSets
+              }
               className="inline-flex h-11 items-center justify-center rounded-full bg-lime-400 px-5 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Create Summary Sets
@@ -509,14 +666,9 @@ export default function SummarySetsPanel({
           </div>
         </div>
 
-        <label className="mt-3 flex items-center gap-2 text-xs text-slate-400">
-          <input
-            type="checkbox"
-            checked={overwrite}
-            onChange={(event) => setOverwrite(event.target.checked)}
-          />
-          Overwrite existing Summary Sets with the same IDs
-        </label>
+        <p className="mt-3 text-xs text-slate-500">
+          Existing Summary Sets are protected from accidental duplicate creation.
+        </p>
       </div>
 
       {message && (
