@@ -474,6 +474,97 @@ function ReviewPageContent() {
       });
   }, [clientId, projectId, isFileView]);
 
+  function getCurrentUsername() {
+    try {
+      return (
+        JSON.parse(localStorage.getItem("insyt_user") || "{}")?.username ||
+        user?.username ||
+        ""
+      );
+    } catch {
+      return user?.username || "";
+    }
+  }
+
+  function editLinkedQcSave(link: SavedSummaryLink) {
+    const targetSummaryId = link.summary_id || "";
+
+    const matchingOutlineItem = outlineItems.find((item: any) => {
+      return String(item.id || "") === String(targetSummaryId);
+    });
+
+    if (matchingOutlineItem) {
+      handleOutlineSelect(matchingOutlineItem);
+    } else {
+      setSelectedSummaryDocId(targetSummaryId);
+      setCurrentOutlineTitle(link.title || targetSummaryId);
+      setCurrentCitation(link.citation || "");
+      setOriginalSummary(link.original_summary || "");
+    }
+
+    setQcSummary(link.qc_summary || link.original_summary || "");
+  }
+
+  async function unlinkLinkedQcSave(link: SavedSummaryLink) {
+    if (!clientId || !projectId || !activeSummarySetId || !link.summary_id) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Unlink this QC Save from the Summary Set?\n\n${link.title || link.summary_id}`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await apiPost("/api/summaries/summary-sets/unlink", {
+        client: clientId,
+        project: projectId,
+        batch_summary_set_id:
+          link.batch_summary_set_id || activeSummarySetId,
+        summary_id: link.summary_id,
+        acted_by: getCurrentUsername(),
+      });
+
+      setSavedSummaryLinks((current) =>
+        current.filter((item) => item.summary_id !== link.summary_id)
+      );
+    } catch (error) {
+      console.error(error);
+      setError("Failed to unlink QC Save.");
+    }
+  }
+
+  async function deleteLinkedQcSave(link: SavedSummaryLink) {
+    if (!clientId || !projectId || !activeSummarySetId || !link.summary_id) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete this QC Save from the Summary Set?\n\n${link.title || link.summary_id}`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await apiPost("/api/summaries/summary-sets/delete", {
+        client: clientId,
+        project: projectId,
+        batch_summary_set_id:
+          link.batch_summary_set_id || activeSummarySetId,
+        summary_id: link.summary_id,
+        acted_by: getCurrentUsername(),
+      });
+
+      setSavedSummaryLinks((current) =>
+        current.filter((item) => item.summary_id !== link.summary_id)
+      );
+    } catch (error) {
+      console.error(error);
+      setError("Failed to delete QC Save.");
+    }
+  }
+
   async function saveQcSummary(
     summaryDocId: string,
     updatedQcSummary: string,
@@ -878,6 +969,7 @@ function ReviewPageContent() {
                           <th className="px-3 py-2">Status</th>
                           <th className="px-3 py-2">Saved By</th>
                           <th className="px-3 py-2">Saved At</th>
+                          <th className="px-3 py-2 text-right">Actions</th>
                         </tr>
                       </thead>
 
@@ -907,6 +999,33 @@ function ReviewPageContent() {
 
                             <td className="px-3 py-2 text-slate-400">
                               {link.saved_at || "—"}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => editLinkedQcSave(link)}
+                                  className="rounded-full border border-sky-700 bg-sky-950 px-3 py-1 text-xs font-semibold text-sky-300 hover:bg-sky-900"
+                                >
+                                  Edit
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => unlinkLinkedQcSave(link)}
+                                  className="rounded-full border border-amber-700 bg-amber-950 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-900"
+                                >
+                                  Unlink
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => deleteLinkedQcSave(link)}
+                                  className="rounded-full border border-red-700 bg-red-950 px-3 py-1 text-xs font-semibold text-red-300 hover:bg-red-900"
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
