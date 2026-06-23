@@ -15,6 +15,7 @@ type ReviewHeaderProps = {
   onLastDoc?: () => void;
   currentDocIndex?: number;
   batchDocCount?: number;
+  hideDocNavigation?: boolean;
 };
 
 export default function ReviewHeader({
@@ -28,6 +29,7 @@ export default function ReviewHeader({
   onPreviousDoc,
   onNextDoc,
   onLastDoc,
+  hideDocNavigation = false,
 }: ReviewHeaderProps) {
   const positionLabel =
     docPositionLabel ||
@@ -49,25 +51,33 @@ export default function ReviewHeader({
       </div>
 
       <div className="flex items-center gap-3 shrink-0">
-        <Button variant="secondary" onClick={onFirstDoc}>
-          First Doc
-        </Button>
+        {!hideDocNavigation && (
+          <>
+            <Button variant="secondary" onClick={onFirstDoc}>
+              First Doc
+            </Button>
 
-        <Button variant="secondary" onClick={onPreviousDoc}>
-          Previous Doc
-        </Button>
+            <Button variant="secondary" onClick={onPreviousDoc}>
+              Previous Doc
+            </Button>
+          </>
+        )}
 
         <span className="min-w-28 text-center text-sm text-slate-300 whitespace-nowrap">
           {positionLabel}
         </span>
 
-        <Button variant="secondary" onClick={onNextDoc}>
-          Next Doc
-        </Button>
+        {!hideDocNavigation && (
+          <>
+            <Button variant="secondary" onClick={onNextDoc}>
+              Next Doc
+            </Button>
 
-        <Button variant="secondary" onClick={onLastDoc}>
-          Last Doc
-        </Button>
+            <Button variant="secondary" onClick={onLastDoc}>
+              Last Doc
+            </Button>
+          </>
+        )}
       </div>
     </header>
   );

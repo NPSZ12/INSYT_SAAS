@@ -16,7 +16,8 @@ type Props = {
 
   onSaveQcSummary?: (
     summaryDocId: string,
-    qcSummary: string
+    qcSummary: string,
+    saveType?: "edited" | "no_qc_needed"
   ) => Promise<void>;
 };
 
@@ -51,13 +52,33 @@ export default function SummariesRightPane({
     try {
       await onSaveQcSummary?.(
         summaryDocId,
-        editableQcSummary
+        editableQcSummary,
+        "edited"
       );
 
       setMessage("QC Summary saved.");
     } catch (error) {
       console.error(error);
       setMessage("Failed to save QC Summary.");
+    }
+  }
+
+  async function handleNoQcNeeded() {
+    try {
+      const cleanOriginalSummary = originalSummary || "";
+
+      setEditableQcSummary(cleanOriginalSummary);
+
+      await onSaveQcSummary?.(
+        summaryDocId,
+        cleanOriginalSummary,
+        "no_qc_needed"
+      );
+
+      setMessage("Marked No QC Needed.");
+    } catch (error) {
+      console.error(error);
+      setMessage("Failed to mark No QC Needed.");
     }
   }
 
@@ -141,9 +162,19 @@ export default function SummariesRightPane({
       </div>
 
       <div className="shrink-0 border-t border-slate-800 p-5">
-        <Button fullWidth onClick={handleSave}>
-          Save QC Summary
-        </Button>
+        <div className="grid grid-cols-1 gap-3">
+          <Button fullWidth onClick={handleSave}>
+            Save QC Summary
+          </Button>
+
+          <Button
+            fullWidth
+            variant="secondary"
+            onClick={handleNoQcNeeded}
+          >
+            No QC Needed
+          </Button>
+        </div>
 
         {message && (
           <p className="mt-3 text-sm text-sky-400">

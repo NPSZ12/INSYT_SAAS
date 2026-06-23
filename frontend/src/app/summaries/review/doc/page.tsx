@@ -65,6 +65,8 @@ function ReviewPageContent() {
     searchParams.get("summarySet") ||
     batchId;
 
+  const [activeSummarySetId, setActiveSummarySetId] = useState(summarySetId);
+
   const [error, setError] = useState("");
   const [reviewDoc, setReviewDoc] =
     useState<ReviewDocument | null>(null);
@@ -194,6 +196,10 @@ function ReviewPageContent() {
   }, [pageParam]);
 
   useEffect(() => {
+    setActiveSummarySetId(summarySetId);
+  }, [summarySetId]);
+
+  useEffect(() => {
     if (!clientId || !projectId) {
       return;
     }
@@ -242,6 +248,7 @@ function ReviewPageContent() {
           }
 
           effectiveSummarySetId = activeSummarySet.batch_summary_set_id;
+          setActiveSummarySetId(effectiveSummarySetId);
         }
 
         if (effectiveSummarySetId) {
@@ -338,11 +345,16 @@ function ReviewPageContent() {
               firstOutlineItem?.originalSummary ||
               "",
             outline_items: incomingOutlineItems,
-            batch_doc_ids: incomingOutlineItems.map((item: any) => item.id),
+            batch_doc_ids: [
+              batch.source_doc_id ||
+                response?.summary_set?.source_doc_id ||
+                effectiveSummarySetId,
+            ],
             batch_doc_index: 0,
-            batch_doc_count: incomingOutlineItems.length,
+            batch_doc_count: 1,
             is_first_doc: true,
-            is_last_doc: incomingOutlineItems.length <= 1,
+            is_last_doc: true,
+            is_summary_set_review: true,
           };
 
           setReviewDoc(reviewResponse as unknown as ReviewDocument);
@@ -464,7 +476,8 @@ function ReviewPageContent() {
 
   async function saveQcSummary(
     summaryDocId: string,
-    updatedQcSummary: string
+    updatedQcSummary: string,
+    saveType: "edited" | "no_qc_needed" = "edited"
   ) {
     if (!projectId || !clientId || !reviewDoc) return;
 
@@ -477,17 +490,18 @@ function ReviewPageContent() {
       currentOutlineTitle ||
       summaryDocId;
 
-    if (summarySetId) {
+    if (activeSummarySetId) {
       const response = await apiPost("/api/summaries/summary-sets/save", {
         client: clientId,
         project: projectId,
-        batch_summary_set_id: summarySetId,
+        batch_summary_set_id: activeSummarySetId,
         summary_id: summaryDocId,
         section_id: selectedSummaryDocId || "",
         title,
         citation: currentCitation || "",
         original_summary: originalSummary || "",
         qc_summary: updatedQcSummary,
+        save_type: saveType,
         saved_by:
           JSON.parse(localStorage.getItem("insyt_user") || "{}")?.username ||
           "",
@@ -633,6 +647,8 @@ function ReviewPageContent() {
     );
   }
 
+  const isSummarySetReview = Boolean(activeSummarySetId);
+
   const reviewNav = reviewDoc as ReviewDocument & {
     previous_doc_id?: string;
     next_doc_id?: string;
@@ -650,7 +666,7 @@ function ReviewPageContent() {
     if (projectId) params.set("project", projectId);
     if (targetDocId) params.set("doc", targetDocId);
 
-    if (summarySetId) {
+    if (activeSummarySetId) {
       params.set("batch", summarySetId);
       params.set("summarySet", summarySetId);
     }
@@ -686,27 +702,37 @@ function ReviewPageContent() {
 
   const fileDocCount = fileDocIds.length;
 
-  const effectiveIsFirstDoc = isFileView
-    ? fileDocIndex <= 0
-    : Boolean((reviewNav as any).is_first_doc);
+  const effectiveIsFirstDoc = isSummarySetReview
+    ? true
+    : isFileView
+      ? fileDocIndex <= 0
+      : Boolean((reviewNav as any).is_first_doc);
 
-  const effectiveIsLastDoc = isFileView
-    ? fileDocIndex >= fileDocCount - 1
-    : Boolean((reviewNav as any).is_last_doc);
+  const effectiveIsLastDoc = isSummarySetReview
+    ? true
+    : isFileView
+      ? fileDocIndex >= fileDocCount - 1
+      : Boolean((reviewNav as any).is_last_doc);
 
-  const effectiveDocPositionLabel = isFileView
-    ? fileDocIndex >= 0 && fileDocCount > 0
-      ? `Doc ${fileDocIndex + 1} of ${fileDocCount}`
-      : ""
-    : docPositionLabel;
+  const effectiveDocPositionLabel = isSummarySetReview
+    ? "Doc 1 of 1"
+    : isFileView
+      ? fileDocIndex >= 0 && fileDocCount > 0
+        ? `Doc ${fileDocIndex + 1} of ${fileDocCount}`
+        : ""
+      : docPositionLabel;
 
-  const effectiveCurrentDocIndex = isFileView
-    ? fileDocIndex
-    : currentDocIndex;
+  const effectiveCurrentDocIndex = isSummarySetReview
+    ? 0
+    : isFileView
+      ? fileDocIndex
+      : currentDocIndex;
 
-  const effectiveDocCount = isFileView
-    ? fileDocCount
-    : batchDocCount;
+  const effectiveDocCount = isSummarySetReview
+    ? 1
+    : isFileView
+      ? fileDocCount
+      : batchDocCount;
 
   function openDoc(targetDocId: string) {
     if (!targetDocId) return;
@@ -791,18 +817,87 @@ function ReviewPageContent() {
           onPreviousDoc={isFileView ? goFilePreviousDoc : goBatchPreviousDoc}
           onNextDoc={isFileView ? goFileNextDoc : goBatchNextDoc}
           onLastDoc={isFileView ? goFileLastDoc : goBatchLastDoc}
+          hideDocNavigation={isSummarySetReview}
         />
 
         <section className="flex-1 flex gap-4 p-4 items-stretch overflow-hidden">
 
           {/* Native PDF Viewer */}
-          <div className="flex-1 min-w-0 self-stretch">
-            <ReviewDocumentPane
-              text={reviewDoc.text}
-              nativeUrl={reviewDoc.native_url}
-              nativeBlob={reviewDoc.native_blob}
-              targetPage={activePdfPage || targetPdfPage}
-            />
+          <div className="flex-1 min-w-0 self-stretch flex flex-col gap-3 overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <ReviewDocumentPane
+                text={reviewDoc.text}
+                nativeUrl={reviewDoc.native_url}
+                nativeBlob={reviewDoc.native_blob}
+                targetPage={activePdfPage || targetPdfPage}
+              />
+            </div>
+
+            {isSummarySetReview && (
+              <div className="shrink-0 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">
+                      Linked QC Saves
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {savedSummaryLinks.length} linked save{savedSummaryLinks.length === 1 ? "" : "s"} for this Summary Set.
+                    </p>
+                  </div>
+                </div>
+
+                {savedSummaryLinks.length === 0 ? (
+                  <p className="rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm text-slate-400">
+                    No linked QC saves yet.
+                  </p>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-800">
+                    <table className="w-full min-w-[760px] text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-900 uppercase tracking-wide text-slate-500">
+                          <th className="px-3 py-2">Summary</th>
+                          <th className="px-3 py-2">Citation</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Saved By</th>
+                          <th className="px-3 py-2">Saved At</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {savedSummaryLinks.map((link) => (
+                          <tr
+                            key={link.link_id || link.summary_id}
+                            className="border-b border-slate-800 last:border-b-0"
+                          >
+                            <td className="px-3 py-2 text-slate-200">
+                              {link.title || link.summary_id || "—"}
+                            </td>
+
+                            <td className="px-3 py-2 text-slate-400">
+                              {link.citation || "—"}
+                            </td>
+
+                            <td className="px-3 py-2">
+                              <span className="rounded-full border border-slate-700 px-2 py-0.5 text-slate-300">
+                                {link.status || "saved"}
+                              </span>
+                            </td>
+
+                            <td className="px-3 py-2 text-slate-400">
+                              {link.saved_by || "—"}
+                            </td>
+
+                            <td className="px-3 py-2 text-slate-400">
+                              {link.saved_at || "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Draggable Pane Divider */}

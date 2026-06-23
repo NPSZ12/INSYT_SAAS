@@ -48,6 +48,7 @@ class SaveQcSummaryRequest(BaseModel):
     citation: str | None = ""
     original_summary: str | None = ""
     qc_summary: str
+    save_type: str | None = "edited"
     saved_by: str | None = ""
 
 class ReleaseSummarySetRequest(BaseModel):
@@ -1061,7 +1062,12 @@ def save_qc_summary(request: SaveQcSummaryRequest):
         "original_summary": request.original_summary or "",
         "qc_summary": request.qc_summary,
         "linked": True,
-        "status": "saved",
+        "save_type": request.save_type or "edited",
+        "status": (
+            "no_qc_needed"
+            if request.save_type == "no_qc_needed"
+            else "saved"
+        ),
         "saved_by": request.saved_by or "",
         "saved_at": now,
         "updated_at": now,
