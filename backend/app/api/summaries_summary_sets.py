@@ -964,6 +964,78 @@ def get_summary_set_for_review(
         "qc": qc_payload,
     }
     
+@router.get("/saved")
+def list_saved_qc_summaries(client: str, project: str):
+    prefix = f"{_project_root(client, project)}/QC/summary_sets/"
+
+    saved_rows = []
+
+    for blob_path in _list_blobs(prefix):
+        try:
+            qc_payload = _read_json_blob(blob_path)
+        except Exception:
+            continue
+
+        batch_summary_set_id = qc_payload.get("batch_summary_set_id") or ""
+        source_doc_id = qc_payload.get("source_doc_id") or ""
+        source_pdf_name = qc_payload.get("source_pdf_name") or ""
+        source_pdf_path = qc_payload.get("source_pdf_path") or ""
+        checked_out_by = qc_payload.get("checked_out_by") or ""
+        checked_out_at = qc_payload.get("checked_out_at") or ""
+        completed_by = qc_payload.get("completed_by") or ""
+        completed_at = qc_payload.get("completed_at") or ""
+
+        for row in qc_payload.get("saved_summaries") or []:
+            if not isinstance(row, dict):
+                continue
+
+            if row.get("linked", True) is False:
+                continue
+
+            saved_rows.append(
+                {
+                    **row,
+                    "batch_summary_set_id": (
+                        row.get("batch_summary_set_id")
+                        or batch_summary_set_id
+                    ),
+                    "source_doc_id": (
+                        row.get("source_doc_id")
+                        or source_doc_id
+                    ),
+                    "source_pdf_name": (
+                        row.get("source_pdf_name")
+                        or source_pdf_name
+                    ),
+                    "source_pdf_path": (
+                        row.get("source_pdf_path")
+                        or source_pdf_path
+                    ),
+                    "checked_out_by": checked_out_by,
+                    "checked_out_at": checked_out_at,
+                    "completed_by": completed_by,
+                    "completed_at": completed_at,
+                    "qc_blob_path": blob_path,
+                }
+            )
+
+    saved_rows.sort(
+        key=lambda item: (
+            item.get("source_doc_id") or "",
+            item.get("batch_summary_set_id") or "",
+            item.get("section_id") or "",
+            item.get("summary_id") or "",
+        )
+    )
+
+    return {
+        "status": "success",
+        "workspace": WORKSPACE,
+        "client": client,
+        "project": project,
+        "saved_summaries": saved_rows,
+        "count": len(saved_rows),
+    }
 
 @router.get("/{batch_summary_set_id}")
 def get_summary_set(
