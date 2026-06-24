@@ -53,9 +53,23 @@ def get_container_client(workspace: Workspace):
         DEFAULT_CONTAINER_MAP[workspace],
     )
 
+    account_name_match = re.search(
+        r"AccountName=([^;]+)",
+        connection_string,
+        flags=re.IGNORECASE,
+    )
+
+    account_name = (
+        account_name_match.group(1)
+        if account_name_match
+        else "unknown"
+    )
+
     print(
         "BATCH SERVICE LIVE SOURCE STORAGE: "
-        f"WORKSPACE={workspace} CONTAINER={container_name}"
+        f"WORKSPACE={workspace} "
+        f"CONTAINER={container_name} "
+        f"ACCOUNT={account_name}"
     )
 
     service_client = BlobServiceClient.from_connection_string(
@@ -110,13 +124,20 @@ def list_project_doc_ids(
 ):
     container = get_container_client(workspace)
 
-    prefix = build_project_prefix(
-        client_id,
-        workspace,
-        project_id,
-        "source/native",
-    )
-    
+    workspace = str(workspace or "").lower().strip().strip("/")
+    client_id = str(client_id or "").strip().strip("/")
+    project_id = str(project_id or "").strip().strip("/")
+
+    if not client_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required to list project documents.",
+        )
+
+    # Canonical Capture/Discovery/Summaries live source path:
+    # {client}/{workspace}/{project}/source/native/
+    prefix = f"{client_id}/{workspace}/{project_id}/source/native/"
+
     print(
         "BATCH DOC LOOKUP PREFIX:",
         f"workspace={workspace}",
@@ -128,9 +149,9 @@ def list_project_doc_ids(
     doc_ids = []
 
     for blob in container.list_blobs(name_starts_with=prefix):
-        name = blob.name
+        name = str(blob.name or "").strip()
 
-        if name.endswith("/"):
+        if not name or name.endswith("/"):
             continue
 
         filename = name.split("/")[-1]
@@ -144,16 +165,20 @@ def list_project_doc_ids(
         if filename.lower().endswith(".json"):
             continue
 
-        doc_id = os.path.splitext(filename)[0]
-        doc_ids.append(doc_id)
-        
+        doc_id = os.path.splitext(filename)[0].strip()
+
+        if doc_id:
+            doc_ids.append(doc_id)
+
+    doc_ids = sorted(set(doc_ids))
+
     print(
         "BATCH DOC LOOKUP COUNT:",
         f"count={len(doc_ids)}",
         f"sample={doc_ids[:10]}",
     )
 
-    return sorted(set(doc_ids))
+    return doc_ids
 
 
 def get_already_batched_doc_ids(
