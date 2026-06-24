@@ -35,18 +35,17 @@ def get_container_client(workspace: Workspace):
             detail=f"Unsupported workspace: {workspace}",
         )
 
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    connection_string = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
+        or os.getenv("CDS_STORAGE_CONNECTION_STRING")
+        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    )
 
     if not connection_string:
         raise RuntimeError(
-            "Missing INSYT project storage connection string. Set "
-            "AZURE_STORAGE_CONNECTION_STRING to insytprodstorage."
-        )
-
-    if "AccountName=insytprodstorage" not in connection_string:
-        raise RuntimeError(
-            "AZURE_STORAGE_CONNECTION_STRING must point to "
-            "insytprodstorage for INSYT workspace project storage."
+            "Missing live source storage connection string. Set "
+            "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING, "
+            "CDS_STORAGE_CONNECTION_STRING, or AZURE_STORAGE_CONNECTION_STRING."
         )
 
     container_name = os.getenv(
@@ -55,7 +54,7 @@ def get_container_client(workspace: Workspace):
     )
 
     print(
-        "BATCH SERVICE INSYT STORAGE: "
+        "BATCH SERVICE LIVE SOURCE STORAGE: "
         f"WORKSPACE={workspace} CONTAINER={container_name}"
     )
 
@@ -74,8 +73,8 @@ def list_project_batches(
     container = get_container_client(workspace)
 
     batch_prefix = build_project_prefix(
-        workspace,
         client_id,
+        workspace,
         project_id,
         "Batches",
     )
@@ -112,10 +111,18 @@ def list_project_doc_ids(
     container = get_container_client(workspace)
 
     prefix = build_project_prefix(
-        workspace,
         client_id,
+        workspace,
         project_id,
         "source/native",
+    )
+    
+    print(
+        "BATCH DOC LOOKUP PREFIX:",
+        f"workspace={workspace}",
+        f"client_id={client_id}",
+        f"project_id={project_id}",
+        f"prefix={prefix}",
     )
 
     doc_ids = []
@@ -139,6 +146,12 @@ def list_project_doc_ids(
 
         doc_id = os.path.splitext(filename)[0]
         doc_ids.append(doc_id)
+        
+    print(
+        "BATCH DOC LOOKUP COUNT:",
+        f"count={len(doc_ids)}",
+        f"sample={doc_ids[:10]}",
+    )
 
     return sorted(set(doc_ids))
 
@@ -175,30 +188,30 @@ def resolve_search_folder_doc_ids(
 
     possible_blob_names = [
         build_project_path(
-            workspace,
             client_id,
+            workspace,
             project_id,
             "SearchFolders",
             f"{folder_id}.json",
         ),
         build_project_path(
-            workspace,
             client_id,
+            workspace,
             project_id,
             "SearchFolders",
             folder_id,
             "results.json",
         ),
         build_project_path(
-            workspace,
             client_id,
+            workspace,
             project_id,
             "SearchFolderResults",
             f"{folder_id}.json",
         ),
         build_project_path(
-            workspace,
             client_id,
+            workspace,
             project_id,
             "SearchFolderResults",
             folder_id,
@@ -312,8 +325,8 @@ def load_project_batch(
     container = get_container_client(workspace)
 
     batch_blob_name = build_project_path(
-        workspace,
         client_id,
+        workspace,
         project_id,
         "Batches",
         f"{batch_name}.json",
@@ -568,8 +581,8 @@ def create_project_batch(
     container = get_container_client(workspace)
 
     batch_prefix = build_project_prefix(
-        workspace,
         client_id,
+        workspace,
         project_id,
         "Batches",
     )
@@ -685,8 +698,8 @@ def checkout_project_batch(
     container = get_container_client(workspace)
 
     batch_blob_name = build_project_path(
-        workspace,
         client_id,
+        workspace,
         project_id,
         "Batches",
         f"{batch_name}.json",
@@ -738,8 +751,8 @@ def remove_docs_from_batch(
     container = get_container_client(workspace)
 
     batch_blob_name = build_project_path(
-        workspace,
         client_id,
+        workspace,
         project_id,
         "Batches",
         f"{batch_name}.json",
@@ -800,8 +813,8 @@ def remove_docs_from_batch(
     )
 
     audit_blob_name = build_project_path(
-        workspace,
         client_id,
+        workspace,
         project_id,
         "Audit",
         "Batches",
