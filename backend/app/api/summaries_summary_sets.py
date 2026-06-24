@@ -394,7 +394,6 @@ def _split_text_into_summary_sections(
     # are not treated as new summaries.
     summary_pattern = re.compile(
         r"""
-        (?msx)
         ^\s*
         (?P<declared_number>\d+)
         \s*:\s*
@@ -415,6 +414,7 @@ def _split_text_into_summary_sections(
             \Z
         )
         """,
+        flags=re.MULTILINE | re.DOTALL | re.VERBOSE,
     )
 
     matches = list(summary_pattern.finditer(summaries_text))
