@@ -51,6 +51,11 @@ class SaveQcSummaryRequest(BaseModel):
     save_type: str | None = "edited"
     saved_by: str | None = ""
 
+    # Permanent source location fields.
+    pdf_viewer_page: int | None = None
+    source_outline_index: int | None = None
+    summary_number: int | None = None
+
 class ReleaseSummarySetRequest(BaseModel):
     client: str
     project: str
@@ -77,6 +82,33 @@ class CompleteSummarySetRequest(BaseModel):
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+def _to_positive_int(value: Any) -> int | None:
+    try:
+        page = int(value)
+    except Exception:
+        return None
+
+    return page if page > 0 else None
+
+
+def _summary_pdf_viewer_page(item: dict[str, Any]) -> int | None:
+    """
+    Canonical permanent source PDF page for a summary.
+
+    This must travel with the summary forever, regardless of which
+    Summary Set slice, Completed QC pane, or review view displays it.
+    """
+    return (
+        _to_positive_int(item.get("pdf_viewer_page"))
+        or _to_positive_int(item.get("pdfViewerPage"))
+        or _to_positive_int(item.get("summary_pdf_page"))
+        or _to_positive_int(item.get("summaryPdfPage"))
+        or _to_positive_int(item.get("pdf_page"))
+        or _to_positive_int(item.get("pdfPage"))
+        or _to_positive_int(item.get("page"))
+        or _to_positive_int(item.get("page_start"))
+        or _to_positive_int(item.get("pageStart"))
+    )
 
 def _clean_segment(value: str | None) -> str:
     return str(value or "").strip().strip("/").replace("\\", "/")
@@ -311,15 +343,26 @@ def _split_text_into_summary_sections(
                 "summary_id": f"{doc_id}-SUMMARY{summary_number:09d}",
                 "section_id": f"{doc_id}-SUMSEC{summary_number:09d}",
                 "section_index": summary_number,
+                "source_outline_index": summary_number,
+                "summary_number": summary_number,
                 "title": title,
                 "citation": citation,
                 "original_summary": original_summary,
                 "qc_summary": original_summary,
+
+                # Permanent source PDF location.
+                # This is attached to the summary itself and must not be recalculated
+                # from Summary Set local position.
+                "pdf_viewer_page": parsed_page,
+                "pdfViewerPage": parsed_page,
+
+                # Backward-compatible page fields.
                 "page": parsed_page,
                 "page_start": parsed_page,
                 "page_end": parsed_page,
                 "pdf_page": parsed_page,
                 "summary_pdf_page": parsed_page,
+
                 "status": "available",
             }
         )
@@ -522,26 +565,42 @@ def _normalize_summary_item(item: dict[str, Any], index: int) -> dict[str, Any]:
         or ""
     )
 
+    source_outline_index = (
+        _to_positive_int(item.get("source_outline_index"))
+        or _to_positive_int(item.get("sourceOutlineIndex"))
+        or _to_positive_int(item.get("summary_number"))
+        or _to_positive_int(item.get("summaryNumber"))
+        or _to_positive_int(item.get("section_index"))
+        or _to_positive_int(item.get("sectionIndex"))
+        or index
+    )
+
+    pdf_viewer_page = _summary_pdf_viewer_page(item)
+
     return {
         "summary_id": summary_id,
         "section_id": section_id,
-        "section_index": item.get("section_index")
-        or item.get("sectionIndex")
-        or index,
+        "section_index": source_outline_index,
+        "source_outline_index": source_outline_index,
+        "summary_number": source_outline_index,
         "title": item.get("title") or "",
         "citation": item.get("citation") or "",
         "original_summary": original_summary,
         "qc_summary": qc_summary,
-        "page": item.get("page"),
-        "page_start": item.get("page_start") or item.get("pageStart"),
-        "page_end": item.get("page_end") or item.get("pageEnd"),
-        "pdf_page": (
-            item.get("pdf_page")
-            or item.get("pdfPage")
-            or item.get("summary_pdf_page")
-            or item.get("summaryPdfPage")
-        ),
-        "status": "available",
+
+        # Canonical permanent source PDF location.
+        # This must stay with the summary no matter how Summary Sets are sliced.
+        "pdf_viewer_page": pdf_viewer_page,
+        "pdfViewerPage": pdf_viewer_page,
+
+        # Backward-compatible page fields.
+        "page": pdf_viewer_page,
+        "page_start": pdf_viewer_page,
+        "page_end": pdf_viewer_page,
+        "pdf_page": pdf_viewer_page,
+        "summary_pdf_page": pdf_viewer_page,
+
+        "status": item.get("status") or "available",
     }
 
 
@@ -928,9 +987,18 @@ def get_summary_set_for_review(
         summary_id = item.get("summary_id")
         saved = saved_by_summary_id.get(summary_id)
 
+        pdf_viewer_page = _summary_pdf_viewer_page(saved or {}) or _summary_pdf_viewer_page(item)
+
         items.append(
             {
                 **item,
+                "pdf_viewer_page": pdf_viewer_page,
+                "pdfViewerPage": pdf_viewer_page,
+                "page": pdf_viewer_page,
+                "page_start": pdf_viewer_page,
+                "page_end": pdf_viewer_page,
+                "pdf_page": pdf_viewer_page,
+                "summary_pdf_page": pdf_viewer_page,
                 "saved": bool(saved and saved.get("linked", True)),
                 "saved_row": saved,
             }
@@ -1069,9 +1137,18 @@ def get_summary_set(
         summary_id = item.get("summary_id")
         saved = saved_by_summary_id.get(summary_id)
 
+        pdf_viewer_page = _summary_pdf_viewer_page(saved or {}) or _summary_pdf_viewer_page(item)
+
         merged_items.append(
             {
                 **item,
+                "pdf_viewer_page": pdf_viewer_page,
+                "pdfViewerPage": pdf_viewer_page,
+                "page": pdf_viewer_page,
+                "page_start": pdf_viewer_page,
+                "page_end": pdf_viewer_page,
+                "pdf_page": pdf_viewer_page,
+                "summary_pdf_page": pdf_viewer_page,
                 "saved": bool(saved and saved.get("linked", True)),
                 "saved_row": saved,
             }
@@ -1102,6 +1179,31 @@ def save_qc_summary(request: SaveQcSummaryRequest):
     )
 
     set_payload = _read_json_blob(set_path)
+    
+    set_item_by_summary_id = {
+        item.get("summary_id"): item
+        for item in set_payload.get("items") or []
+        if isinstance(item, dict) and item.get("summary_id")
+    }
+
+    source_item = set_item_by_summary_id.get(request.summary_id) or {}
+
+    pdf_viewer_page = (
+        _to_positive_int(request.pdf_viewer_page)
+        or _summary_pdf_viewer_page(source_item)
+    )
+
+    source_outline_index = (
+        _to_positive_int(request.source_outline_index)
+        or _to_positive_int(source_item.get("source_outline_index"))
+        or _to_positive_int(source_item.get("summary_number"))
+        or _to_positive_int(source_item.get("section_index"))
+    )
+
+    summary_number = (
+        _to_positive_int(request.summary_number)
+        or source_outline_index
+    )
 
     try:
         qc_payload = _read_json_blob(qc_path)
@@ -1127,12 +1229,28 @@ def save_qc_summary(request: SaveQcSummaryRequest):
         "link_id": f"SUMLINK-{uuid.uuid4().hex[:12].upper()}",
         "batch_summary_set_id": request.batch_summary_set_id,
         "source_doc_id": set_payload.get("source_doc_id"),
+        "source_pdf_name": set_payload.get("source_pdf_name") or "",
+        "source_pdf_path": set_payload.get("source_pdf_path") or "",
         "summary_id": request.summary_id,
         "section_id": request.section_id or "",
-        "title": request.title or "",
-        "citation": request.citation or "",
-        "original_summary": request.original_summary or "",
+        "source_outline_index": source_outline_index,
+        "summary_number": summary_number,
+        "title": request.title or source_item.get("title") or "",
+        "citation": request.citation or source_item.get("citation") or "",
+        "original_summary": request.original_summary or source_item.get("original_summary") or "",
         "qc_summary": request.qc_summary,
+
+        # Permanent source PDF jump location.
+        "pdf_viewer_page": pdf_viewer_page,
+        "pdfViewerPage": pdf_viewer_page,
+
+        # Backward-compatible page fields.
+        "page": pdf_viewer_page,
+        "page_start": pdf_viewer_page,
+        "page_end": pdf_viewer_page,
+        "pdf_page": pdf_viewer_page,
+        "summary_pdf_page": pdf_viewer_page,
+
         "linked": True,
         "save_type": request.save_type or "edited",
         "status": (

@@ -22,14 +22,23 @@ type SavedSummaryLink = {
   link_id?: string;
   batch_summary_set_id?: string;
   source_doc_id?: string;
+  source_pdf_name?: string;
+  source_pdf_path?: string;
   summary_id?: string;
   section_id?: string;
+  source_outline_index?: number | null;
+  summary_number?: number | null;
   title?: string;
   citation?: string;
   original_summary?: string;
   qc_summary?: string;
   pdf_viewer_page?: number | null;
   pdfViewerPage?: number | null;
+  page?: number | null;
+  page_start?: number | null;
+  page_end?: number | null;
+  pdf_page?: number | null;
+  summary_pdf_page?: number | null;
   insyt_anchor_id?: string | null;
   linked?: boolean;
   status?: string;
@@ -95,8 +104,13 @@ function ReviewPageContent() {
   const isFileView = Boolean(docId && !summarySetId);
 
   const [currentCitation, setCurrentCitation] = useState("");
+
   const [currentPdfViewerPage, setCurrentPdfViewerPage] =
     useState<number | null>(null);
+
+  const [currentSourceOutlineIndex, setCurrentSourceOutlineIndex] =
+    useState<number | null>(null);
+
   const [savedSummaryLinks, setSavedSummaryLinks] =
     useState<SavedSummaryLink[]>([]);
 
@@ -141,8 +155,32 @@ function ReviewPageContent() {
     );
   }
 
+  function getSourceOutlineIndex(item: any) {
+    return (
+      toPositivePage(item?.source_outline_index) ??
+      toPositivePage(item?.sourceOutlineIndex) ??
+      toPositivePage(item?.summary_number) ??
+      toPositivePage(item?.summaryNumber) ??
+      toPositivePage(item?.section_index) ??
+      toPositivePage(item?.sectionIndex) ??
+      null
+    );
+  }
+
   function handleOutlineSelect(item: PdfOutlineItem) {
     const targetPage = getPdfViewerPage(item);
+    const sourceOutlineIndex = getSourceOutlineIndex(item);
+
+    console.log("SUMMARY OUTLINE PAGE JUMP:", {
+      id: item.id,
+      title: item.title,
+      source_outline_index: sourceOutlineIndex,
+      pdf_viewer_page: (item as any).pdf_viewer_page,
+      pdfViewerPage: (item as any).pdfViewerPage,
+      page: item.page,
+      pageStart: item.pageStart,
+      targetPage,
+    });
 
     setSelectedSummaryDocId(item.id);
 
@@ -151,6 +189,7 @@ function ReviewPageContent() {
 
     setTargetPdfPage(targetPage);
     setCurrentPdfViewerPage(targetPage);
+    setCurrentSourceOutlineIndex(sourceOutlineIndex);
 
     setOriginalSummary(item.originalSummary || "");
 
@@ -294,72 +333,56 @@ function ReviewPageContent() {
           );
 
           const incomingOutlineItems =
-            items.map((item: any, index: number) => ({
-              id: item.summary_id || `summary-${index + 1}`,
-              title:
-                item.title ||
-                item.section_id ||
-                `Summary ${index + 1}`,
-              citation: item.citation || "",
-              originalSummary:
-                item.original_summary ||
-                item.originalSummary ||
-                "",
-              qcSummary:
-                item.saved_row?.qc_summary ||
-                item.qc_summary ||
-                item.qcSummary ||
-                item.original_summary ||
-                "",
-              pdf_viewer_page:
-                getPdfViewerPage(item),
+            items.map((item: any, index: number) => {
+              const pdfViewerPage = getPdfViewerPage(item);
+              const sourceOutlineIndex = getSourceOutlineIndex(item);
 
-              pdfViewerPage:
-                getPdfViewerPage(item),
+              return {
+                id: item.summary_id || `summary-${sourceOutlineIndex || index + 1}`,
+                title:
+                  item.title ||
+                  item.section_id ||
+                  `Summary ${sourceOutlineIndex || index + 1}`,
+                citation: item.citation || "",
+                originalSummary:
+                  item.original_summary ||
+                  item.originalSummary ||
+                  "",
+                qcSummary:
+                  item.saved_row?.qc_summary ||
+                  item.qc_summary ||
+                  item.qcSummary ||
+                  item.original_summary ||
+                  "",
 
-              insyt_anchor_id:
-                item.insyt_anchor_id ||
-                item.insytAnchorId ||
-                null,
+                source_outline_index: sourceOutlineIndex,
+                summary_number: sourceOutlineIndex,
 
-              page:
-                item.pdf_viewer_page ||
-                item.pdfViewerPage ||
-                item.pdf_page ||
-                item.pdfPage ||
-                item.page ||
-                item.page_start ||
-                item.pageStart ||
-                null,
+                /*
+                  Canonical permanent source PDF jump location.
+                  This value belongs to the summary itself, not the Summary Set slice.
+                */
+                pdf_viewer_page: pdfViewerPage,
+                pdfViewerPage,
 
-              pageStart:
-                item.page_start ||
-                item.pageStart ||
-                item.page ||
-                null,
+                insyt_anchor_id:
+                  item.insyt_anchor_id ||
+                  item.insytAnchorId ||
+                  null,
 
-              pageEnd:
-                item.page_end ||
-                item.pageEnd ||
-                item.page ||
-                null,
-
-              pdfPage:
-                item.pdf_viewer_page ||
-                item.pdfViewerPage ||
-                item.pdf_page ||
-                item.pdfPage ||
-                item.page ||
-                null,
-
-              summaryPdfPage:
-                item.pdf_viewer_page ||
-                item.pdfViewerPage ||
-                item.pdf_page ||
-                item.pdfPage ||
-                item.page ||
-                null,
-            })) || [];
+                /*
+                  Backward-compatible fields are all normalized from pdfViewerPage.
+                  Do not recalculate these from the Summary Set local index.
+                */
+                page: pdfViewerPage,
+                pageStart: pdfViewerPage,
+                pageEnd: pdfViewerPage,
+                pdfPage: pdfViewerPage,
+                pdf_page: pdfViewerPage,
+                summaryPdfPage: pdfViewerPage,
+                summary_pdf_page: pdfViewerPage,
+              };
+            }) || [];
 
           const firstOutlineItem = incomingOutlineItems[0];
 
@@ -548,13 +571,16 @@ function ReviewPageContent() {
     }
 
     setQcSummary(link.qc_summary || link.original_summary || "");
-    
+
     const linkedPage = getPdfViewerPage(link);
+    const linkedSourceOutlineIndex = getSourceOutlineIndex(link);
 
     if (linkedPage) {
       setTargetPdfPage(linkedPage);
       setCurrentPdfViewerPage(linkedPage);
     }
+
+    setCurrentSourceOutlineIndex(linkedSourceOutlineIndex);
   }
 
   async function unlinkLinkedQcSave(link: SavedSummaryLink) {
@@ -648,6 +674,18 @@ function ReviewPageContent() {
         saved_by:
           JSON.parse(localStorage.getItem("insyt_user") || "{}")?.username ||
           "",
+
+        /*
+          Preserve permanent source location for Completed QC Summaries,
+          Saved QC rows, and future single-click reopen/edit flows.
+        */
+        pdf_viewer_page:
+          currentPdfViewerPage ||
+          targetPdfPage ||
+          activePdfPage ||
+          null,
+        source_outline_index: currentSourceOutlineIndex,
+        summary_number: currentSourceOutlineIndex,
       });
 
       const savedRow = response?.saved_row;
@@ -683,6 +721,8 @@ function ReviewPageContent() {
           targetPdfPage ||
           activePdfPage ||
           null,
+        source_outline_index: currentSourceOutlineIndex,
+        summary_number: currentSourceOutlineIndex,
       });
 
       setQcSummary(updatedQcSummary);
@@ -728,6 +768,8 @@ function ReviewPageContent() {
         targetPdfPage ||
         activePdfPage ||
         null,
+      source_outline_index: currentSourceOutlineIndex,
+      summary_number: currentSourceOutlineIndex,
     });
 
     setQcSummary(updatedQcSummary);
@@ -1000,7 +1042,7 @@ function ReviewPageContent() {
                 text={reviewDoc.text}
                 nativeUrl={reviewDoc.native_url}
                 nativeBlob={reviewDoc.native_blob}
-                targetPage={activePdfPage || targetPdfPage}
+                targetPage={targetPdfPage || activePdfPage}
               />
             </div>
 

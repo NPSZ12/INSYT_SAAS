@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Worker,
   Viewer,
@@ -8,7 +8,10 @@ import {
 } from "@react-pdf-viewer/core";
 import { defaultLayoutPlugin } from "@react-pdf-viewer/default-layout";
 import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
-import type { PageChangeEvent } from "@react-pdf-viewer/core";
+import type {
+  DocumentLoadEvent,
+  PageChangeEvent,
+} from "@react-pdf-viewer/core";
 
 import "@react-pdf-viewer/core/lib/styles/index.css";
 import "@react-pdf-viewer/default-layout/lib/styles/index.css";
@@ -26,6 +29,16 @@ type PdfDocumentViewerProps = {
   onViewerReady?: (api: PdfViewerApi) => void;
 };
 
+function toPositivePage(value: unknown) {
+  const page = Number(value);
+
+  if (Number.isFinite(page) && page > 0) {
+    return page;
+  }
+
+  return null;
+}
+
 export default function PdfDocumentViewer({
   fileUrl,
   heightClassName = "h-[calc(100vh-180px)]",
@@ -33,18 +46,60 @@ export default function PdfDocumentViewer({
   onPageChange,
   onViewerReady,
 }: PdfDocumentViewerProps) {
-  const defaultLayoutPluginInstance = defaultLayoutPlugin();
-  const pageNavigationPluginInstance = pageNavigationPlugin();
+  const cleanedFileUrl = fileUrl?.trim();
+
+  const defaultLayoutPluginInstance = useMemo(
+    () => defaultLayoutPlugin(),
+    []
+  );
+
+  const pageNavigationPluginInstance = useMemo(
+    () => pageNavigationPlugin(),
+    []
+  );
 
   const { jumpToPage } = pageNavigationPluginInstance;
 
-  const cleanedFileUrl = fileUrl?.trim();
+  const [isDocumentLoaded, setIsDocumentLoaded] = useState(false);
+
+  const lastJumpKeyRef = useRef("");
+  const pendingTargetPageRef = useRef<number | null>(null);
+
+  function jumpToViewerPage(pageNumber: number | null) {
+    if (!pageNumber) return;
+
+    const pageIndex = Math.max(pageNumber - 1, 0);
+    const jumpKey = `${cleanedFileUrl || ""}::${pageNumber}`;
+
+    if (lastJumpKeyRef.current === jumpKey) {
+      return;
+    }
+
+    lastJumpKeyRef.current = jumpKey;
+
+    // Delay one tick so the viewer/page layers are ready after load or URL change.
+    window.requestAnimationFrame(() => {
+      jumpToPage(pageIndex);
+    });
+  }
 
   useEffect(() => {
-    if (!targetPage) return;
+    setIsDocumentLoaded(false);
+    lastJumpKeyRef.current = "";
+    pendingTargetPageRef.current = toPositivePage(targetPage);
+  }, [cleanedFileUrl]);
 
-    jumpToPage(Math.max(targetPage - 1, 0));
-  }, [targetPage, jumpToPage]);
+  useEffect(() => {
+    const pageNumber = toPositivePage(targetPage);
+
+    pendingTargetPageRef.current = pageNumber;
+
+    if (!pageNumber || !isDocumentLoaded) {
+      return;
+    }
+
+    jumpToViewerPage(pageNumber);
+  }, [targetPage, isDocumentLoaded, cleanedFileUrl, jumpToPage]);
 
   useEffect(() => {
     onViewerReady?.({
@@ -74,6 +129,15 @@ export default function PdfDocumentViewer({
             ]}
             defaultScale={SpecialZoomLevel.PageWidth}
             enableSmoothScroll
+            onDocumentLoad={(_event: DocumentLoadEvent) => {
+              setIsDocumentLoaded(true);
+
+              const pageNumber = pendingTargetPageRef.current;
+
+              if (pageNumber) {
+                jumpToViewerPage(pageNumber);
+              }
+            }}
             onPageChange={(event: PageChangeEvent) => {
               onPageChange?.(event.currentPage + 1);
             }}

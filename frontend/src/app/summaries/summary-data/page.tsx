@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
@@ -12,6 +12,7 @@ import { apiGet } from "../../../lib/api";
 type SummaryDataRow = {
   pdf_name: string;
   batch_id?: string;
+  batch_summary_set_id?: string;
   summary_doc_id?: string;
   summary_key?: string;
   title: string;
@@ -20,6 +21,21 @@ type SummaryDataRow = {
   qc_summary: string;
   last_modified: string;
   source?: string;
+
+  source_doc_id?: string;
+  source_pdf_name?: string;
+  source_pdf_path?: string;
+
+  pdf_viewer_page?: number | null;
+  pdfViewerPage?: number | null;
+  page?: number | null;
+  page_start?: number | null;
+  page_end?: number | null;
+  pdf_page?: number | null;
+  summary_pdf_page?: number | null;
+
+  source_outline_index?: number | null;
+  summary_number?: number | null;
 };
 
 type SortDirection = "asc" | "desc";
@@ -42,6 +58,7 @@ type DraftFilters = {
 
 function SummaryDataPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const clientId = searchParams.get("client") || "";
   const projectId = searchParams.get("project") || "";
@@ -67,6 +84,68 @@ function SummaryDataPageContent() {
 
   function cleanValue(value: unknown) {
     return String(value ?? "").trim();
+  }
+
+  function toPositivePage(value: unknown) {
+    const page = Number(value);
+
+    if (Number.isFinite(page) && page > 0) {
+      return page;
+    }
+
+    return null;
+  }
+
+  function getPdfViewerPage(row: SummaryDataRow) {
+    return (
+      toPositivePage(row.pdf_viewer_page) ??
+      toPositivePage(row.pdfViewerPage) ??
+      toPositivePage(row.summary_pdf_page) ??
+      toPositivePage(row.pdf_page) ??
+      toPositivePage(row.page) ??
+      toPositivePage(row.page_start) ??
+      null
+    );
+  }
+
+  function getSourceDocId(row: SummaryDataRow) {
+    return (
+      row.source_doc_id ||
+      row.summary_doc_id?.split("-SUMMARY")?.[0] ||
+      row.pdf_name?.replace(/\.pdf$/i, "") ||
+      ""
+    );
+  }
+
+  function openSavedSummary(row: SummaryDataRow) {
+    const sourceDocId = getSourceDocId(row);
+    const targetPage = getPdfViewerPage(row);
+
+    if (!sourceDocId) {
+      setMessage("Unable to open saved summary because the source Doc ID is missing.");
+      return;
+    }
+
+    const params = new URLSearchParams();
+
+    params.set("client", clientId);
+    params.set("project", projectId);
+    params.set("doc", sourceDocId);
+
+    if (row.batch_summary_set_id || row.batch_id) {
+      params.set("batch", row.batch_summary_set_id || row.batch_id || "");
+      params.set("summarySet", row.batch_summary_set_id || row.batch_id || "");
+    }
+
+    if (row.summary_doc_id) {
+      params.set("outline", row.summary_doc_id);
+    }
+
+    if (targetPage) {
+      params.set("page", String(targetPage));
+    }
+
+    router.push(`/summaries/review/doc?${params.toString()}`);
   }
 
   function getUniqueValues(key: keyof SummaryDataRow) {
@@ -501,6 +580,11 @@ function SummaryDataPageContent() {
                   <th className="min-w-[220px] px-3 py-3 align-top">
                     {renderSearchFilter("last_modified", "Last Modified")}
                   </th>
+                  <th className="min-w-[150px] px-3 py-3 align-top">
+                    <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-300">
+                      Actions
+                    </div>
+                  </th>
                 </tr>
               </thead>
 
@@ -508,7 +592,7 @@ function SummaryDataPageContent() {
                 {filteredRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-4 py-8 text-center text-sm text-slate-400"
                     >
                       No saved QC summaries match the applied filters.
@@ -521,7 +605,13 @@ function SummaryDataPageContent() {
                       className="border-b border-slate-800 last:border-b-0 hover:bg-slate-900/70"
                     >
                       <td className="px-3 py-3 align-top text-slate-200">
-                        {row.pdf_name || "—"}
+                        <button
+                          type="button"
+                          onClick={() => openSavedSummary(row)}
+                          className="text-left font-semibold text-sky-300 hover:text-sky-200 hover:underline"
+                        >
+                          {row.pdf_name || "—"}
+                        </button>
                       </td>
 
                       <td className="px-3 py-3 align-top text-slate-300">
@@ -551,6 +641,18 @@ function SummaryDataPageContent() {
                       <td className="px-3 py-3 align-top text-slate-400">
                         {row.last_modified || "—"}
                       </td>
+
+                      <td className="px-3 py-3 align-top">
+                        <button
+                          type="button"
+                          onClick={() => openSavedSummary(row)}
+                          className="rounded-full border border-sky-700 bg-sky-950 px-3 py-1 text-xs font-semibold text-sky-300 hover:bg-sky-900"
+                        >
+                          Open
+                          {getPdfViewerPage(row) ? ` p. ${getPdfViewerPage(row)}` : ""}
+                        </button>
+                      </td>
+
                     </tr>
                   ))
                 )}

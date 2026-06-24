@@ -32,6 +32,14 @@ class SummaryDataSaveRequest(BaseModel):
     original_summary: str = ""
     qc_summary: str = ""
 
+    # Permanent source location fields.
+    source_doc_id: str | None = None
+    source_pdf_name: str | None = None
+    source_pdf_path: str | None = None
+    pdf_viewer_page: int | None = None
+    source_outline_index: int | None = None
+    summary_number: int | None = None
+
 
 def get_summary_data_blob_name(
     client: str,
@@ -95,6 +103,14 @@ def read_json_blob(container, blob_name: str):
 
     return json.loads(data.decode("utf-8"))
 
+def to_positive_int(value):
+    try:
+        number = int(value)
+    except Exception:
+        return None
+
+    return number if number > 0 else None
+
 @router.post("/exists")
 def summary_data_exists(payload: SummaryDataExistsRequest):
     container = get_container_client("summaries")
@@ -140,6 +156,10 @@ def save_summary_data(payload: SummaryDataSaveRequest):
 
     now = datetime.now(timezone.utc).isoformat()
 
+    pdf_viewer_page = to_positive_int(payload.pdf_viewer_page)
+    source_outline_index = to_positive_int(payload.source_outline_index)
+    summary_number = to_positive_int(payload.summary_number) or source_outline_index
+
     new_row = {
         "pdf_name": payload.pdf_name,
         "batch_id": payload.batch_id,
@@ -149,6 +169,23 @@ def save_summary_data(payload: SummaryDataSaveRequest):
         "citation": payload.citation,
         "original_summary": payload.original_summary,
         "qc_summary": payload.qc_summary,
+
+        # Permanent source location fields.
+        "source_doc_id": payload.source_doc_id or payload.summary_doc_id or "",
+        "source_pdf_name": payload.source_pdf_name or payload.pdf_name or "",
+        "source_pdf_path": payload.source_pdf_path or "",
+        "pdf_viewer_page": pdf_viewer_page,
+        "pdfViewerPage": pdf_viewer_page,
+        "source_outline_index": source_outline_index,
+        "summary_number": summary_number,
+
+        # Backward-compatible page fields.
+        "page": pdf_viewer_page,
+        "page_start": pdf_viewer_page,
+        "page_end": pdf_viewer_page,
+        "pdf_page": pdf_viewer_page,
+        "summary_pdf_page": pdf_viewer_page,
+
         "last_modified": now,
     }
 
@@ -207,9 +244,33 @@ def list_summary_data(
             if not isinstance(row, dict):
                 continue
 
+            pdf_viewer_page = (
+                to_positive_int(row.get("pdf_viewer_page"))
+                or to_positive_int(row.get("pdfViewerPage"))
+                or to_positive_int(row.get("summary_pdf_page"))
+                or to_positive_int(row.get("pdf_page"))
+                or to_positive_int(row.get("page"))
+                or to_positive_int(row.get("page_start"))
+            )
+
             rows.append(
                 {
                     **row,
+                    "pdf_viewer_page": pdf_viewer_page,
+                    "pdfViewerPage": pdf_viewer_page,
+                    "page": pdf_viewer_page,
+                    "page_start": pdf_viewer_page,
+                    "page_end": pdf_viewer_page,
+                    "pdf_page": pdf_viewer_page,
+                    "summary_pdf_page": pdf_viewer_page,
+                    "source_outline_index": (
+                        to_positive_int(row.get("source_outline_index"))
+                        or to_positive_int(row.get("summary_number"))
+                    ),
+                    "summary_number": (
+                        to_positive_int(row.get("summary_number"))
+                        or to_positive_int(row.get("source_outline_index"))
+                    ),
                     "source": row.get("source") or "summary_data",
                 }
             )
@@ -232,15 +293,35 @@ def list_summary_data(
             if not saved.get("linked", True):
                 continue
 
+            saved_pdf_viewer_page = (
+                to_positive_int(saved.get("pdf_viewer_page"))
+                or to_positive_int(saved.get("pdfViewerPage"))
+                or to_positive_int(saved.get("summary_pdf_page"))
+                or to_positive_int(saved.get("pdf_page"))
+                or to_positive_int(saved.get("page"))
+                or to_positive_int(saved.get("page_start"))
+            )
+
+            saved_source_outline_index = (
+                to_positive_int(saved.get("source_outline_index"))
+                or to_positive_int(saved.get("summary_number"))
+            )
+
+            saved_summary_number = (
+                to_positive_int(saved.get("summary_number"))
+                or saved_source_outline_index
+            )
+
             rows.append(
                 {
                     "client": client,
                     "project": project,
                     "project_id": project,
                     "pdf_name": (
-                        qc_payload.get("source_pdf_name")
-                        or saved.get("source_pdf_name")
+                        saved.get("source_pdf_name")
+                        or qc_payload.get("source_pdf_name")
                         or saved.get("source_doc_id")
+                        or qc_payload.get("source_doc_id")
                         or ""
                     ),
                     "batch_id": (
@@ -258,6 +339,35 @@ def list_summary_data(
                     "citation": saved.get("citation") or "",
                     "original_summary": saved.get("original_summary") or "",
                     "qc_summary": saved.get("qc_summary") or "",
+
+                    # Permanent source location fields.
+                    "source_doc_id": (
+                        saved.get("source_doc_id")
+                        or qc_payload.get("source_doc_id")
+                        or ""
+                    ),
+                    "source_pdf_name": (
+                        saved.get("source_pdf_name")
+                        or qc_payload.get("source_pdf_name")
+                        or ""
+                    ),
+                    "source_pdf_path": (
+                        saved.get("source_pdf_path")
+                        or qc_payload.get("source_pdf_path")
+                        or ""
+                    ),
+                    "pdf_viewer_page": saved_pdf_viewer_page,
+                    "pdfViewerPage": saved_pdf_viewer_page,
+                    "source_outline_index": saved_source_outline_index,
+                    "summary_number": saved_summary_number,
+
+                    # Backward-compatible page fields.
+                    "page": saved_pdf_viewer_page,
+                    "page_start": saved_pdf_viewer_page,
+                    "page_end": saved_pdf_viewer_page,
+                    "pdf_page": saved_pdf_viewer_page,
+                    "summary_pdf_page": saved_pdf_viewer_page,
+
                     "saved_by": saved.get("saved_by") or "",
                     "saved_at": saved.get("saved_at") or "",
                     "last_modified": (
@@ -274,11 +384,6 @@ def list_summary_data(
                     "batch_summary_set_id": (
                         saved.get("batch_summary_set_id")
                         or qc_payload.get("batch_summary_set_id")
-                        or ""
-                    ),
-                    "source_doc_id": (
-                        saved.get("source_doc_id")
-                        or qc_payload.get("source_doc_id")
                         or ""
                     ),
                     "link_id": saved.get("link_id") or "",

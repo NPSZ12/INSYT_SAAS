@@ -7,6 +7,17 @@ export type PdfOutlineItem = {
   citation?: string;
 
   /**
+   * Permanent summary identity fields.
+   * These stay tied to the original full PDF outline, regardless of Summary Set slicing.
+   */
+  source_outline_index?: number | null;
+  sourceOutlineIndex?: number | null;
+  summary_number?: number | null;
+  summaryNumber?: number | null;
+  section_index?: number | null;
+  sectionIndex?: number | null;
+
+  /**
    * Long-term INSYT viewer page field.
    * This should eventually become the only field used for PDF page jumps.
    */
@@ -107,11 +118,57 @@ export default function PdfOutlinePane({
     );
   }
 
+  function getSourceOutlineIndex(item: PdfOutlineItem) {
+    return (
+      toPositivePage(item.source_outline_index) ??
+      toPositivePage(item.sourceOutlineIndex) ??
+      toPositivePage(item.summary_number) ??
+      toPositivePage(item.summaryNumber) ??
+      toPositivePage(item.section_index) ??
+      toPositivePage(item.sectionIndex) ??
+      null
+    );
+  }
+
   function handleSelectItem(item: PdfOutlineItem) {
     const page = getItemPage(item);
+    const sourceOutlineIndex = getSourceOutlineIndex(item);
 
     const normalizedItem: PdfOutlineItem = {
       ...item,
+
+      /**
+       * Preserve permanent summary identity.
+       */
+      source_outline_index:
+        item.source_outline_index ??
+        item.sourceOutlineIndex ??
+        sourceOutlineIndex,
+
+      sourceOutlineIndex:
+        item.sourceOutlineIndex ??
+        item.source_outline_index ??
+        sourceOutlineIndex,
+
+      summary_number:
+        item.summary_number ??
+        item.summaryNumber ??
+        sourceOutlineIndex,
+
+      summaryNumber:
+        item.summaryNumber ??
+        item.summary_number ??
+        sourceOutlineIndex,
+
+      section_index:
+        item.section_index ??
+        item.sectionIndex ??
+        sourceOutlineIndex,
+
+      sectionIndex:
+        item.sectionIndex ??
+        item.section_index ??
+        sourceOutlineIndex,
 
       /**
        * Preserve the new canonical page field while keeping older fields populated.
