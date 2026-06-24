@@ -110,6 +110,56 @@ def _summary_pdf_viewer_page(item: dict[str, Any]) -> int | None:
         or _to_positive_int(item.get("pageStart"))
     )
 
+def _extract_pdf_viewer_page_from_text(value: str | None) -> int | None:
+    """
+    Extract the physical PDF viewer page from summary title/citation text.
+
+    Supports examples like:
+      101: Pre-Operative Examination After Visit Summary - Page 47
+      Telephone Encounter - Page 47
+      Page 47
+      Pg. 47
+      p. 47
+
+    This returns the actual PDF viewer page that should stay permanently
+    attached to the summary.
+    """
+    text = str(value or "").strip()
+
+    if not text:
+        return None
+
+    page_match = re.search(
+        r"(?:^|[\s\-–—:(])(?:pdf\s+page|page|pg\.?|p\.?)\s*[:#-]?\s*(\d+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not page_match:
+        return None
+
+    return _to_positive_int(page_match.group(1))
+
+
+def _strip_summary_page_from_title(value: str | None) -> str:
+    """
+    Remove trailing page labels from the display title while preserving
+    the page separately in pdf_viewer_page.
+    """
+    text = str(value or "").strip()
+
+    if not text:
+        return ""
+
+    text = re.sub(
+        r"\s*[-–—]\s*(?:pdf\s+page|page|pg\.?|p\.?)\s*[:#-]?\s*\d+\s*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    return re.sub(r"\s+", " ", text).strip()
+
 def _clean_segment(value: str | None) -> str:
     return str(value or "").strip().strip("/").replace("\\", "/")
 
@@ -330,13 +380,23 @@ def _split_text_into_summary_sections(
 
         summary_number = len(sections) + 1
 
-        page_match = re.search(
-            r"\bp\.\s*(\d+)",
-            citation,
-            flags=re.IGNORECASE,
+        # Physical PDF page source of truth.
+        #
+        # Priority:
+        # 1. Citation line, if one exists.
+        # 2. First line, because summaries may look like:
+        #    101: Title - Page 47
+        # 3. Entire block, as a final fallback.
+        #
+        # This page is permanently attached to this summary and must not be
+        # recalculated from Summary Set slicing.
+        parsed_page = (
+            _extract_pdf_viewer_page_from_text(citation)
+            or _extract_pdf_viewer_page_from_text(first_line)
+            or _extract_pdf_viewer_page_from_text(block)
         )
 
-        parsed_page = int(page_match.group(1)) if page_match else None
+        title = _strip_summary_page_from_title(title)
 
         sections.append(
             {
@@ -362,7 +422,8 @@ def _split_text_into_summary_sections(
                 "page_end": parsed_page,
                 "pdf_page": parsed_page,
                 "summary_pdf_page": parsed_page,
-
+                
+                "page_parse_status": "parsed" if parsed_page else "missing",
                 "status": "available",
             }
         )
