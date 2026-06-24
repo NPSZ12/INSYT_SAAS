@@ -49,6 +49,7 @@ function BatchesPageContent() {
 
   const [user, setUser] = useState<StoredUser | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
+  const [isLoadingBatches, setIsLoadingBatches] = useState(false);
   const [mode, setMode] =
     useState<"review" | "qc" | "alt" | "statqc">("review");
 
@@ -92,8 +93,11 @@ function BatchesPageContent() {
   function loadBatches() {
     if (!clientId || !projectId) {
       setBatches([]);
+      setIsLoadingBatches(false);
       return;
     }
+
+    setIsLoadingBatches(true);
 
     apiGet(
       `/api/summaries/summary-sets/?client=${encodeURIComponent(
@@ -158,6 +162,9 @@ function BatchesPageContent() {
         console.error(error);
         setBatches([]);
         setMessage("Failed to load Summary Sets.");
+      })
+      .finally(() => {
+        setIsLoadingBatches(false);
       });
   }
 
@@ -588,7 +595,11 @@ function BatchesPageContent() {
             </div>
           </div>
 
-          {modeBatches.length === 0 ? (
+          {isLoadingBatches ? (
+            <p className="text-slate-400">
+              Loading Summary Sets...
+            </p>
+          ) : modeBatches.length === 0 ? (
             <p className="text-slate-400">
               No Summary Sets found for this project.
             </p>

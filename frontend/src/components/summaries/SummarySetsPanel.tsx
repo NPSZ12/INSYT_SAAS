@@ -103,10 +103,12 @@ export default function SummarySetsPanel({
   const [docId, setDocId] = useState("");
   const [summariesPerSet, setSummariesPerSet] = useState<number | "Custom">(10);
   const [customSummariesPerSet, setCustomSummariesPerSet] = useState("");
-  const [overwrite, setOverwrite] = useState(false);
+  const [overwriteSummaryExtracts, setOverwriteSummaryExtracts] = useState(false);
+  const [overwriteSummarySets, setOverwriteSummarySets] = useState(false);
   const [promotedPdfFiles, setPromotedPdfFiles] = useState<PromotedPdfFile[]>([]);
 
   const [summarySets, setSummarySets] = useState<SummarySet[]>([]);
+  const [isLoadingSummarySets, setIsLoadingSummarySets] = useState(false);
   const [expandedDocIds, setExpandedDocIds] = useState<Record<string, boolean>>({});
   const [activeSetId, setActiveSetId] = useState("");
   const [activeSet, setActiveSet] = useState<SummarySetDetail | null>(null);
@@ -143,8 +145,11 @@ export default function SummarySetsPanel({
   function loadSummarySets() {
     if (!clientId || !projectId) {
       setSummarySets([]);
+      setIsLoadingSummarySets(false);
       return;
     }
+
+    setIsLoadingSummarySets(true);
 
     apiGet(
       `/api/summaries/summary-sets/?client=${encodeURIComponent(
@@ -156,7 +161,11 @@ export default function SummarySetsPanel({
       })
       .catch((error) => {
         console.error(error);
+        setSummarySets([]);
         setMessage("Failed to load Summary Sets.");
+      })
+      .finally(() => {
+        setIsLoadingSummarySets(false);
       });
   }
 
@@ -242,7 +251,7 @@ export default function SummarySetsPanel({
       return;
     }
 
-    if (selectedDocAlreadyHasSets && !overwrite) {
+    if (selectedDocAlreadyHasSets && !overwriteSummarySets) {
       setMessage(
         "Summary Sets have already been created for this PDF Doc ID. Duplicate creation is blocked."
       );
@@ -257,7 +266,7 @@ export default function SummarySetsPanel({
       project: projectId,
       doc_id: trimmedDocId,
       summaries_per_set: resolvedSummariesPerSet,
-      overwrite,
+      overwrite: overwriteSummarySets,
     })
       .then((response) => {
         setMessage(
@@ -479,7 +488,7 @@ export default function SummarySetsPanel({
         client: clientId,
         project: projectId,
         doc_id: trimmedDocId,
-        overwrite: false,
+        overwrite: overwriteSummaryExtracts,
         max_chars_per_section: 2500,
       });
 
@@ -581,7 +590,7 @@ export default function SummarySetsPanel({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_300px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_260px_300px]">
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Promoted PDF Doc ID
@@ -620,7 +629,7 @@ export default function SummarySetsPanel({
 
             {selectedDocAlreadyHasSets && (
               <p className="mt-1 rounded-lg border border-amber-700 bg-amber-950 px-3 py-2 text-xs text-amber-200">
-                Summary Sets already exist for this Doc ID. Duplicate creation is blocked.
+                Summary Sets already exist for this Doc ID. Check "Overwrite Summary Sets" to rebuild them.
               </p>
             )}
           </div>
@@ -665,6 +674,46 @@ export default function SummarySetsPanel({
             )}
           </div>
 
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="checkbox"
+                checked={overwriteSummaryExtracts}
+                onChange={(event) =>
+                  setOverwriteSummaryExtracts(event.target.checked)
+                }
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-semibold text-slate-200">
+                  Overwrite Summary Extract
+                </span>
+                <span className="block text-slate-500">
+                  Rebuild source/summary_extracts for the selected Doc ID.
+                </span>
+              </span>
+            </label>
+
+            <label className="mt-3 flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="checkbox"
+                checked={overwriteSummarySets}
+                onChange={(event) =>
+                  setOverwriteSummarySets(event.target.checked)
+                }
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-semibold text-slate-200">
+                  Overwrite Summary Sets
+                </span>
+                <span className="block text-slate-500">
+                  Rebuild existing Summary Sets for the selected Doc ID.
+                </span>
+              </span>
+            </label>
+          </div>
+
           <div className="flex items-end gap-2">
             <Button
               unstyled
@@ -685,7 +734,7 @@ export default function SummarySetsPanel({
                 !docId.trim() ||
                 !Number.isFinite(resolvedSummariesPerSet) ||
                 resolvedSummariesPerSet <= 0 ||
-                selectedDocAlreadyHasSets
+                (selectedDocAlreadyHasSets && !overwriteSummarySets)
               }
               className="inline-flex h-11 items-center justify-center rounded-full bg-lime-400 px-5 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -715,7 +764,11 @@ export default function SummarySetsPanel({
           </Button>
         </div>
 
-        {summarySetGroups.length === 0 ? (
+        {isLoadingSummarySets ? (
+          <p className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+            Loading Summary Sets...
+          </p>
+        ) : summarySetGroups.length === 0 ? (
           <p className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
             No Summary Sets found.
           </p>
