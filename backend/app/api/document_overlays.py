@@ -814,13 +814,10 @@ async def commit_document_overlay(
             ),
         }
 
-    if overlay_view == "final":
-        committed_headers = headers
-    else:
-        committed_headers = [
-            header for header in header_validation["expected_headers"]
-            if header in headers and header != "Doc ID"
-        ]
+    # Preserve all uploaded columns for both Raw and Final overlays.
+    # Header validation can still warn about protocol differences,
+    # but commit should not silently drop uploaded metadata fields.
+    committed_headers = headers
 
     overlay_records = []
     missing_doc_id_count = 0
