@@ -435,11 +435,13 @@ def _split_text_into_summary_sections(
         declared_number = _to_positive_int(match.group("declared_number"))
         summary_number = declared_number or match_index
 
-        title = re.sub(
+        title_text = re.sub(
             r"\s+",
             " ",
             str(match.group("title") or ""),
         ).strip()
+
+        title = f"{summary_number}: {title_text}" if title_text else str(summary_number)
 
         citation = re.sub(
             r"\s+",

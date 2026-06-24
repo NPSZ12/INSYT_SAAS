@@ -853,6 +853,26 @@ def load_current_review_document(
     doc: str = "",
     native_blob: str = "",
 ):
+    # Summaries must always use the same canonical full-document PDF/Text
+    # whenever a Doc ID is known.
+    #
+    # Summary Sets should only filter the outline in the frontend/review layer.
+    # They must not cause review/current to switch to a separate batch document
+    # lookup path or lose source/text.
+    if workspace == "summaries" and doc:
+        document = load_review_document_by_doc_id(
+            workspace=workspace,
+            client=client,
+            project=project,
+            doc_id=doc,
+            native_blob=native_blob,
+        )
+
+        document["batch"] = batch or "Direct Open"
+        document["summary_set_id"] = batch or ""
+
+        return document
+
     if doc and not batch:
         return load_review_document_by_doc_id(
             workspace=workspace,
