@@ -160,6 +160,88 @@ def _strip_summary_page_from_title(value: str | None) -> str:
 
     return re.sub(r"\s+", " ", text).strip()
 
+def _extract_physical_pdf_viewer_page(value: str | None) -> int | None:
+    """
+    Extract the physical PDF viewer page from text markers like:
+
+      Page 47 of 2682
+      --- Page 47 ---
+      Page 47 ---
+
+    This is the page INSYT should jump to in the original full PDF.
+    """
+    text = str(value or "").strip()
+
+    if not text:
+        return None
+
+    page_match = re.search(
+        r"\bPage\s+(\d+)\s+of\s+\d+\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if page_match:
+        return _to_positive_int(page_match.group(1))
+
+    page_match = re.search(
+        r"(?:---\s*)?\bPage\s+(\d+)\b\s*(?:---)?",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if page_match:
+        return _to_positive_int(page_match.group(1))
+
+    return None
+
+
+def _fill_missing_physical_pages(
+    sections: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Fill missing physical PDF pages using nearby parsed physical page markers.
+
+    This keeps page jumping usable when a summary does not contain its own
+    explicit "Page X of Y" marker but nearby summaries do.
+    """
+    next_pages: list[int | None] = [None] * len(sections)
+    next_seen: int | None = None
+
+    for index in range(len(sections) - 1, -1, -1):
+        page = _to_positive_int(sections[index].get("pdf_viewer_page"))
+
+        if page:
+            next_seen = page
+
+        next_pages[index] = next_seen
+
+    previous_seen: int | None = None
+
+    for index, section in enumerate(sections):
+        page = _to_positive_int(section.get("pdf_viewer_page"))
+
+        if page:
+            previous_seen = page
+            section["page_parse_status"] = (
+                section.get("page_parse_status") or "parsed"
+            )
+            continue
+
+        inferred_page = next_pages[index] or previous_seen
+
+        if inferred_page:
+            section["pdf_viewer_page"] = inferred_page
+            section["pdfViewerPage"] = inferred_page
+            section["page"] = inferred_page
+            section["page_start"] = inferred_page
+            section["page_end"] = inferred_page
+            section["pdf_page"] = inferred_page
+            section["summary_pdf_page"] = inferred_page
+            section["page_parse_status"] = "inferred_nearby_physical_page"
+
+    return sections
+
 def _clean_segment(value: str | None) -> str:
     return str(value or "").strip().strip("/").replace("\\", "/")
 
@@ -293,110 +375,104 @@ def _split_text_into_summary_sections(
 
     summaries_text = clean_text[marker_index + len(marker):].strip()
 
-    entry_matches = list(
-        re.finditer(
-            r"(?m)^\s*(\d+)\s*:\s*",
-            summaries_text,
+    # Strict parser based on the fixed summary format:
+    #
+    #   101: Title text
+    #   YYYY/MM/DD | provider | pages | Importance: 40%
+    #   Summary text...
+    #
+    # Rules:
+    # - Title starts at "^#:"
+    # - Title ends immediately before the citation date.
+    # - Citation starts at YYYY/MM/DD.
+    # - Citation ends at the first percent sign after Importance.
+    # - Summary starts after that percent sign.
+    # - Summary ends before the next true summary header.
+    #
+    # The lookahead requires the next "#:" entry to be followed by a
+    # YYYY/MM/DD citation line, so times like "7:05 PM" inside a summary
+    # are not treated as new summaries.
+    summary_pattern = re.compile(
+        r"""
+        (?msx)
+        ^\s*
+        (?P<declared_number>\d+)
+        \s*:\s*
+        (?P<title>.*?)
+        (?=\n\s*\d{4}/\d{2}/\d{2}\b)
+        \n\s*
+        (?P<citation>
+            \d{4}/\d{2}/\d{2}
+            .*?
+            \bImportance\s*:\s*
+            \d+\s*%
         )
+        \s*
+        (?P<summary>.*?)
+        (?=
+            ^\s*\d+\s*:\s*.*?\n\s*\d{4}/\d{2}/\d{2}\b
+            |
+            \Z
+        )
+        """,
     )
 
-    if not entry_matches:
+    matches = list(summary_pattern.finditer(summaries_text))
+
+    if not matches:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Cannot create Summary Extract for {doc_id}. "
-                "No numbered Record Summaries were found after the 'Record Summaries' marker."
+                "No properly delimited Record Summaries were found after the "
+                "'Record Summaries' marker."
             ),
         )
 
     sections: list[dict[str, Any]] = []
 
-    for match_index, match in enumerate(entry_matches):
-        start = match.start()
-        end = (
-            entry_matches[match_index + 1].start()
-            if match_index + 1 < len(entry_matches)
-            else len(summaries_text)
-        )
+    for match_index, match in enumerate(matches, start=1):
+        declared_number = _to_positive_int(match.group("declared_number"))
+        summary_number = declared_number or match_index
 
-        block = summaries_text[start:end].strip()
+        title = re.sub(
+            r"\s+",
+            " ",
+            str(match.group("title") or ""),
+        ).strip()
 
-        if not block:
-            continue
+        citation = re.sub(
+            r"\s+",
+            " ",
+            str(match.group("citation") or ""),
+        ).strip()
 
-        lines = [
-            line.strip()
-            for line in block.split("\n")
-            if line.strip()
-        ]
-
-        if not lines:
-            continue
-
-        first_line = lines[0]
-
-        date_match = re.search(
-            r"\d{4}/\d{2}/\d{2}",
-            first_line,
-        )
-
-        title = ""
-        citation = ""
-        summary_lines: list[str] = []
-
-        if date_match:
-            title = first_line[: date_match.start()].strip()
-            citation = first_line[date_match.start():].strip()
-            summary_lines = lines[1:]
-        else:
-            title = first_line.strip()
-
-            citation_index = None
-
-            for line_index, line in enumerate(lines[1:], start=1):
-                if re.match(r"^\d{4}/\d{2}/\d{2}", line):
-                    citation_index = line_index
-                    break
-
-            if citation_index is not None:
-                citation = lines[citation_index].strip()
-                summary_lines = lines[citation_index + 1:]
-            else:
-                citation = ""
-                summary_lines = lines[1:]
-
-        title = re.sub(r"\s+", " ", title).strip()
-        citation = re.sub(r"\s+", " ", citation).strip()
-        original_summary = " ".join(
-            line.strip()
-            for line in summary_lines
-            if line.strip()
-        )
-
-        original_summary = re.sub(r"\s+", " ", original_summary).strip()
+        original_summary = re.sub(
+            r"\s+",
+            " ",
+            str(match.group("summary") or ""),
+        ).strip()
 
         if not title and not original_summary:
             continue
 
-        summary_number = len(sections) + 1
-
-        # Physical PDF page source of truth.
+        # Physical PDF viewer page.
         #
-        # Priority:
-        # 1. Citation line, if one exists.
-        # 2. First line, because summaries may look like:
-        #    101: Title - Page 47
-        # 3. Entire block, as a final fallback.
+        # IMPORTANT:
+        # Do not use citation pages like "p. 1047" or "pp. 91-94"
+        # as the viewer page. Those are record/source page labels.
         #
-        # This page is permanently attached to this summary and must not be
-        # recalculated from Summary Set slicing.
+        # The viewer page comes from the physical PDF marker embedded in
+        # the extracted summary text, such as:
+        #
+        #   Page 47 of 2682
+        #
         parsed_page = (
-            _extract_pdf_viewer_page_from_text(citation)
-            or _extract_pdf_viewer_page_from_text(first_line)
-            or _extract_pdf_viewer_page_from_text(block)
+            _extract_physical_pdf_viewer_page(original_summary)
+            or _extract_physical_pdf_viewer_page(match.group(0))
         )
 
-        title = _strip_summary_page_from_title(title)
+        page_parse_status = "parsed" if parsed_page else "missing"
 
         sections.append(
             {
@@ -411,8 +487,6 @@ def _split_text_into_summary_sections(
                 "qc_summary": original_summary,
 
                 # Permanent source PDF location.
-                # This is attached to the summary itself and must not be recalculated
-                # from Summary Set local position.
                 "pdf_viewer_page": parsed_page,
                 "pdfViewerPage": parsed_page,
 
@@ -422,8 +496,8 @@ def _split_text_into_summary_sections(
                 "page_end": parsed_page,
                 "pdf_page": parsed_page,
                 "summary_pdf_page": parsed_page,
-                
-                "page_parse_status": "parsed" if parsed_page else "missing",
+
+                "page_parse_status": page_parse_status,
                 "status": "available",
             }
         )
@@ -436,6 +510,8 @@ def _split_text_into_summary_sections(
                 "Record Summaries were found, but no usable Title / Citation / Summary sections could be parsed."
             ),
         )
+
+    sections = _fill_missing_physical_pages(sections)
 
     return sections
 
