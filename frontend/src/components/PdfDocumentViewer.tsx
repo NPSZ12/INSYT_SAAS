@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Worker,
   Viewer,
@@ -46,19 +46,18 @@ export default function PdfDocumentViewer({
   onPageChange,
   onViewerReady,
 }: PdfDocumentViewerProps) {
-  const cleanedFileUrl = fileUrl?.trim();
-
-  const defaultLayoutPluginInstance = useMemo(
-    () => defaultLayoutPlugin(),
-    []
-  );
-
-  const pageNavigationPluginInstance = useMemo(
-    () => pageNavigationPlugin(),
-    []
-  );
+  /*
+    Important:
+    Do NOT wrap these plugin factory calls in useMemo/useState/useRef.
+    The react-pdf-viewer plugin factories may call React hooks internally.
+    They need to run at the component's top level.
+  */
+  const defaultLayoutPluginInstance = defaultLayoutPlugin();
+  const pageNavigationPluginInstance = pageNavigationPlugin();
 
   const { jumpToPage } = pageNavigationPluginInstance;
+
+  const cleanedFileUrl = fileUrl?.trim();
 
   const [isDocumentLoaded, setIsDocumentLoaded] = useState(false);
 
@@ -77,7 +76,6 @@ export default function PdfDocumentViewer({
 
     lastJumpKeyRef.current = jumpKey;
 
-    // Delay one tick so the viewer/page layers are ready after load or URL change.
     window.requestAnimationFrame(() => {
       jumpToPage(pageIndex);
     });
@@ -87,7 +85,7 @@ export default function PdfDocumentViewer({
     setIsDocumentLoaded(false);
     lastJumpKeyRef.current = "";
     pendingTargetPageRef.current = toPositivePage(targetPage);
-  }, [cleanedFileUrl]);
+  }, [cleanedFileUrl, targetPage]);
 
   useEffect(() => {
     const pageNumber = toPositivePage(targetPage);
@@ -117,7 +115,10 @@ export default function PdfDocumentViewer({
 
   return (
     <div
-      className="h-full max-h-full min-h-0 w-full rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden"
+      className={[
+        heightClassName,
+        "max-h-full min-h-0 w-full rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden",
+      ].join(" ")}
     >
       <div className="h-full max-h-full min-h-0 w-full overflow-hidden">
         <Worker workerUrl="/pdf.worker.min.js">
@@ -135,7 +136,9 @@ export default function PdfDocumentViewer({
               const pageNumber = pendingTargetPageRef.current;
 
               if (pageNumber) {
-                jumpToViewerPage(pageNumber);
+                window.requestAnimationFrame(() => {
+                  jumpToViewerPage(pageNumber);
+                });
               }
             }}
             onPageChange={(event: PageChangeEvent) => {
