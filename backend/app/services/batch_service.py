@@ -573,9 +573,23 @@ def create_project_batch(
         ]
 
     if not batch_chunks:
+        debug_detail = {
+            "message": f"No eligible documents available for {level} batch.",
+            "workspace": workspace,
+            "client_id": client_id,
+            "project_id": project_id,
+            "level": level,
+            "all_doc_count": len(locals().get("all_doc_ids", [])),
+            "already_batched_count": len(locals().get("already_batched", [])),
+            "eligible_doc_count": len(locals().get("eligible_doc_ids", [])),
+            "all_doc_sample": locals().get("all_doc_ids", [])[:10],
+            "already_batched_sample": list(locals().get("already_batched", []))[:10],
+            "eligible_doc_sample": locals().get("eligible_doc_ids", [])[:10],
+        }
+
         raise HTTPException(
             status_code=400,
-            detail=f"No eligible documents available for {level} batch.",
+            detail=debug_detail,
         )
 
     container = get_container_client(workspace)
@@ -678,7 +692,15 @@ def create_project_batch(
     if not created_batches:
         raise HTTPException(
             status_code=400,
-            detail=f"No eligible documents available for {level} batch.",
+            detail={
+                "message": f"No eligible documents available for {level} batch.",
+                "workspace": workspace,
+                "client_id": client_id,
+                "project_id": project_id,
+                "level": level,
+                "eligible_doc_count": len(locals().get("eligible_doc_ids", [])),
+                "eligible_doc_sample": locals().get("eligible_doc_ids", [])[:10],
+            },
         )
 
     return {
