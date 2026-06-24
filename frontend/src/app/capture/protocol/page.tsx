@@ -35,22 +35,27 @@ type SavedProtocolResponse = {
 
 function CaptureProtocolPageContent() {
   const searchParams = useSearchParams();
-  const projectId = searchParams.get("project");
+  const clientId = searchParams.get("client") || "";
+  const projectId = searchParams.get("project") || "";
 
   const [protocol, setProtocol] = useState<SavedProtocolResponse | null>(null);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    if (!projectId) {
+    if (!clientId || !projectId) {
       setProtocol(null);
-      setMessage("Select a project to view its protocol.");
+      setMessage("Select a client and project to view its protocol.");
       return;
     }
 
     setProtocol(null);
     setMessage("Loading saved protocol...");
 
-    apiGet(`/api/capture/projects/${encodeURIComponent(projectId)}/protocol`)
+    apiGet(
+      `/api/capture/projects/${encodeURIComponent(
+        projectId
+      )}/protocol?client=${encodeURIComponent(clientId)}`
+    )
       .then((response: SavedProtocolResponse) => {
         setProtocol(response);
         setMessage("");
@@ -60,7 +65,7 @@ function CaptureProtocolPageContent() {
         setProtocol(null);
         setMessage("Failed to load protocol.");
       });
-  }, [projectId]);
+  }, [clientId, projectId]);
 
   const fields = protocol?.protocol?.fields || protocol?.fields || [];
 
@@ -76,9 +81,12 @@ function CaptureProtocolPageContent() {
         <PageHeader
           title="Protocol"
           subtitle={
-            projectId
-              ? `Saved protocol for ${projectId.replaceAll("_", " ")}.`
-              : "Select a project to view its saved protocol."
+            clientId && projectId
+              ? `Saved protocol for ${clientId.replaceAll(
+                  "_",
+                  " "
+                )} / ${projectId.replaceAll("_", " ")}.`
+              : "Select a client and project to view its saved protocol."
           }
         />
 
@@ -89,9 +97,9 @@ function CaptureProtocolPageContent() {
         )}
 
         <ContentCard title="Project Protocol">
-          {!projectId ? (
+          {!clientId || !projectId ? (
             <p className="text-slate-400">
-              No project selected.
+              No client or project selected.
             </p>
           ) : protocol && !protocol.has_protocol ? (
             <p className="text-slate-400">
