@@ -149,6 +149,7 @@ export default function AzureProcessingCenterPanel({
   const [removeMessage, setRemoveMessage] = useState("");
   const [trackedJob, setTrackedJob] = useState<any>(null);
   const [pollingJob, setPollingJob] = useState(false);
+  const [enableLiveOcr, setEnableLiveOcr] = useState(false);
 
   function resolveApiBase() {
     return (
@@ -816,8 +817,8 @@ export default function AzureProcessingCenterPanel({
           project: projectId,
           matter_id: `${projectId}-AZURE-RUN`,
           doc_prefix: "INSYT",
-          enable_ocr_dry_run: true,
-          enable_live_ocr: false,
+          enable_ocr_dry_run: !enableLiveOcr,
+          enable_live_ocr: enableLiveOcr,
           azure_write: true,
           overwrite: true,
           clean_staging: false,
@@ -867,6 +868,17 @@ export default function AzureProcessingCenterPanel({
               ? "Refreshing..."
               : "Refresh"}
           </button>
+
+          <label className="inline-flex h-10 items-center gap-3 rounded-full border border-slate-600 bg-slate-900/70 px-4 text-sm font-semibold text-slate-200">
+            <input
+              type="checkbox"
+              checked={enableLiveOcr}
+              onChange={(event) => setEnableLiveOcr(event.target.checked)}
+              disabled={starting || pollingJob || !isInsytAdmin()}
+              className="h-4 w-4 rounded border-slate-500 bg-slate-950"
+            />
+            <span>Enable OCR</span>
+          </label>
 
           <button
             type="button"
@@ -1770,9 +1782,16 @@ export default function AzureProcessingCenterPanel({
                 review storage, and generate processing reports and cost telemetry.
               </p>
 
-              <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-amber-100">
-                Live OCR is currently disabled. OCR dry-run cost telemetry may still
-                be generated.
+              <p
+                className={`rounded-xl border px-3 py-2 ${
+                  enableLiveOcr
+                    ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
+                    : "border-amber-400/30 bg-amber-500/10 text-amber-100"
+                }`}
+              >
+                {enableLiveOcr
+                  ? "Live OCR is enabled. INSYT will run OCR/text extraction during this processing job."
+                  : "Live OCR is disabled. OCR dry-run cost telemetry may still be generated."}
               </p>
 
               {exceedsCostThreshold ? (
