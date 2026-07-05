@@ -186,7 +186,10 @@ def run_local_pipeline(
 
     if enable_live_ocr:
         if not settings.enable_live_ocr:
-            raise RuntimeError("Live OCR requested but APC_ENABLE_LIVE_OCR is not true.")
+            raise RuntimeError(
+                "Live OCR requested but neither APC_ENABLE_LIVE_OCR nor "
+                "APC_API_ALLOW_LIVE_OCR is true."
+            )
         run_live_ocr_placeholder(db, settings, job_id, matter_id)
     elif enable_ocr_dry_run:
         run_ocr_dry_run(db, settings, job_id, matter_id)

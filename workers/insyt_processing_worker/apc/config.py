@@ -50,7 +50,10 @@ class Settings:
         _float_env("APC_OCR_ESTIMATED_SCANNED_PDF_BYTES_PER_PAGE", 100000)
     )
 
-    enable_live_ocr: bool = _bool_env("APC_ENABLE_LIVE_OCR", False)
+    enable_live_ocr: bool = (
+        _bool_env("APC_ENABLE_LIVE_OCR", False)
+        or _bool_env("APC_API_ALLOW_LIVE_OCR", False)
+    )
     document_intelligence_endpoint: str = os.getenv("APC_DOCUMENT_INTELLIGENCE_ENDPOINT", "")
     document_intelligence_key: str = os.getenv("APC_DOCUMENT_INTELLIGENCE_KEY", "")
 
