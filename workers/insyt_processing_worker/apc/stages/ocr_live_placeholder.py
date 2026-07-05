@@ -117,12 +117,24 @@ def _ocr_bytes(content: bytes, content_type: str) -> tuple[str, int]:
     return "\n\n".join(page_texts), len(pages)
 
 
-def _write_ocr_text(source_path: str, doc_id: str, text: str) -> str:
-    source = Path(source_path)
-    output_dir = source.parent.parent / "text"
-    output_dir.mkdir(parents=True, exist_ok=True)
+def _write_ocr_text(row: Any, source_path: str, doc_id: str, text: str) -> str:
+    existing_text_path = _row_get(
+        row,
+        "text_path",
+        "extracted_text_path",
+        "ocr_text_path",
+        "review_text_path",
+        "output_text_path",
+    )
 
-    output_path = output_dir / f"{doc_id}.txt"
+    if existing_text_path:
+        output_path = Path(str(existing_text_path))
+    else:
+        source = Path(source_path)
+        output_dir = source.parent.parent / "text"
+        output_path = output_dir / f"{doc_id}.txt"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(text or "", encoding="utf-8")
 
     return str(output_path)
@@ -170,6 +182,7 @@ def _record_stage_complete(
 
 def _update_metric_after_ocr(
     db,
+    row: Any,
     metric_id: Any,
     doc_id: str,
     output_text_path: str,
@@ -180,24 +193,25 @@ def _update_metric_after_ocr(
     assignments = []
     params: list[Any] = []
 
-    if "text_path" in columns:
-        assignments.append("text_path=?")
-        params.append(output_text_path)
-
-    if "extracted_text_path" in columns:
-        assignments.append("extracted_text_path=?")
-        params.append(output_text_path)
-
-    if "ocr_text_path" in columns:
-        assignments.append("ocr_text_path=?")
-        params.append(output_text_path)
+    for column_name in [
+        "text_path",
+        "extracted_text_path",
+        "ocr_text_path",
+        "review_text_path",
+        "output_text_path",
+    ]:
+        if column_name in columns:
+            assignments.append(f"{column_name}=?")
+            params.append(output_text_path)
 
     if "ocr_page_count" in columns:
         assignments.append("ocr_page_count=?")
         params.append(page_count)
 
     if "page_count" in columns:
-        assignments.append("page_count=CASE WHEN coalesce(page_count,0)=0 THEN ? ELSE page_count END")
+        assignments.append(
+            "page_count=CASE WHEN coalesce(page_count,0)=0 THEN ? ELSE page_count END"
+        )
         params.append(page_count)
 
     if "ocr_status" in columns:
@@ -208,30 +222,61 @@ def _update_metric_after_ocr(
         assignments.append("requires_ocr=?")
         params.append(0)
 
+    if "text_extraction_method" in columns:
+        assignments.append("text_extraction_method=?")
+        params.append("azure_document_intelligence_read")
+
+    if "ocr_engine" in columns:
+        assignments.append("ocr_engine=?")
+        params.append("azure_document_intelligence_read")
+
     if not assignments:
         return
 
+    set_sql = ", ".join(assignments)
+
     if "id" in columns and metric_id is not None:
-        params.append(metric_id)
         db.execute(
             f"""
             UPDATE file_processing_metrics
-            SET {", ".join(assignments)}
+            SET {set_sql}
             WHERE id=?
             """,
-            tuple(params),
+            tuple(params + [metric_id]),
         )
         return
 
     if "doc_id" in columns:
-        params.append(doc_id)
         db.execute(
             f"""
             UPDATE file_processing_metrics
-            SET {", ".join(assignments)}
-            WHERE doc_id=?
+            SET {set_sql}
+            WHERE job_id=? AND doc_id=?
             """,
-            tuple(params),
+            tuple(params + [_row_get(row, "job_id"), doc_id]),
+        )
+        return
+
+    if "assigned_doc_id" in columns:
+        db.execute(
+            f"""
+            UPDATE file_processing_metrics
+            SET {set_sql}
+            WHERE job_id=? AND assigned_doc_id=?
+            """,
+            tuple(params + [_row_get(row, "job_id"), doc_id]),
+        )
+        return
+
+    original_path = _row_get(row, "original_path", "source_path", "file_path", "path")
+    if original_path and "original_path" in columns:
+        db.execute(
+            f"""
+            UPDATE file_processing_metrics
+            SET {set_sql}
+            WHERE job_id=? AND original_path=?
+            """,
+            tuple(params + [_row_get(row, "job_id"), original_path]),
         )
 
 
@@ -297,10 +342,11 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
             content = Path(source_path).read_bytes()
             content_type = _guess_content_type(source_path)
             text, page_count = _ocr_bytes(content, content_type)
-            output_text_path = _write_ocr_text(source_path, doc_id, text)
+            output_text_path = _write_ocr_text(row, source_path, doc_id, text)
 
             _update_metric_after_ocr(
                 db=db,
+                row=row,
                 metric_id=metric_id,
                 doc_id=doc_id,
                 output_text_path=output_text_path,
