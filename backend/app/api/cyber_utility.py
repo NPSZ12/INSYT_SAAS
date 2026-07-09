@@ -110,6 +110,89 @@ def download_blob_to_file(container, blob_path: str, local_path: Path):
 
     return data
 
+def build_canonical_project_prefix(
+    workspace: str,
+    project: str,
+    client: str | None,
+    folder: str,
+) -> str:
+    """
+    Canonical INSYT path:
+      {client}/{workspace}/{project}/{folder}/
+
+    Example:
+      Baker/capture/Project_Timber/source/native/
+    """
+    clean_workspace = clean_folder(workspace)
+    clean_project = clean_folder(project)
+    clean_client = clean_folder(client) if client else ""
+
+    folder = folder.strip("/")
+
+    if clean_client:
+        return f"{clean_client}/{clean_workspace}/{clean_project}/{folder}/"
+
+    return f"{clean_workspace}/{clean_project}/{folder}/"
+
+
+def build_legacy_project_prefixes(
+    project: str,
+    client: str | None,
+    folder: str,
+) -> list[str]:
+    """
+    Legacy fallbacks only. Canonical path should always be checked first.
+    """
+    prefixes = []
+
+    try:
+        legacy_prefix = build_prefix(
+            project=project,
+            client=client,
+            folder=folder,
+        )
+        prefixes.append(legacy_prefix)
+    except Exception:
+        pass
+
+    clean_project = clean_folder(project)
+    clean_client = clean_folder(client) if client else ""
+    clean_target_folder = folder.strip("/")
+
+    if clean_client:
+        prefixes.append(f"{clean_client}/{clean_project}/{clean_target_folder}/")
+        prefixes.append(f"{clean_client}/{clean_target_folder}/{clean_project}/")
+
+    prefixes.append(f"{clean_project}/{clean_target_folder}/")
+
+    return list(dict.fromkeys(prefixes))
+
+
+def build_project_prefixes(
+    workspace: str,
+    project: str,
+    client: str | None,
+    folder: str,
+) -> list[str]:
+    canonical = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder=folder,
+    )
+
+    return list(
+        dict.fromkeys(
+            [
+                canonical,
+                *build_legacy_project_prefixes(
+                    project=project,
+                    client=client,
+                    folder=folder,
+                ),
+            ]
+        )
+    )
 
 def list_spreadsheet_blobs(
     workspace: str,
@@ -119,45 +202,56 @@ def list_spreadsheet_blobs(
 ):
     container = get_workspace_container(workspace)
 
-    prefix = build_prefix(
+    prefixes = build_project_prefixes(
+        workspace=workspace,
         project=project,
         client=client,
         folder=folder,
     )
 
     files = []
+    checked_prefixes = []
 
-    for blob in container.list_blobs(name_starts_with=prefix):
-        blob_path = blob.name
-        file_name = get_blob_file_name(blob_path)
+    for prefix in prefixes:
+        checked_prefixes.append(prefix)
 
-        if not file_name or file_name.startswith("."):
-            continue
+        for blob in container.list_blobs(name_starts_with=prefix):
+            blob_path = blob.name
+            file_name = get_blob_file_name(blob_path)
 
-        extension = get_extension(file_name)
+            if not file_name or file_name.startswith("."):
+                continue
 
-        if extension not in SPREADSHEET_EXTENSIONS:
-            continue
+            extension = get_extension(file_name)
 
-        files.append(
-            {
-                "doc_id": file_name.rsplit(".", 1)[0],
-                "file_name": file_name,
-                "extension": extension,
-                "blob_path": blob_path,
-                "size": str(blob.size or ""),
-                "last_modified": (
-                    blob.last_modified.isoformat()
-                    if blob.last_modified
-                    else ""
-                ),
-                "workspace": workspace,
-                "client": clean_folder(client) if client else "",
-                "project": clean_folder(project),
-                "folder": clean_folder(folder),
-                "status": "Ready",
-            }
-        )
+            if extension not in SPREADSHEET_EXTENSIONS:
+                continue
+
+            files.append(
+                {
+                    "doc_id": file_name.rsplit(".", 1)[0],
+                    "file_name": file_name,
+                    "extension": extension,
+                    "blob_path": blob_path,
+                    "size": str(blob.size or ""),
+                    "last_modified": (
+                        blob.last_modified.isoformat()
+                        if blob.last_modified
+                        else ""
+                    ),
+                    "workspace": workspace,
+                    "client": clean_folder(client) if client else "",
+                    "project": clean_folder(project),
+                    "folder": clean_folder(folder),
+                    "status": "Ready",
+                    "matched_prefix": prefix,
+                    "checked_prefixes": checked_prefixes,
+                }
+            )
+
+        # Canonical path wins. Only fall back to legacy paths if nothing is found.
+        if files:
+            break
 
     return files
 
@@ -229,22 +323,26 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
         output_dir = temp_root / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        processing_prefix = build_prefix(
+        processing_prefix = build_canonical_project_prefix(
+            workspace=workspace,
             project=project,
             client=client,
             folder="source/spreadsheets/Processing",
         )
-        completed_prefix = build_prefix(
+        completed_prefix = build_canonical_project_prefix(
+            workspace=workspace,
             project=project,
             client=client,
             folder="source/spreadsheets/Completed",
         )
-        output_prefix = build_prefix(
+        output_prefix = build_canonical_project_prefix(
+            workspace=workspace,
             project=project,
             client=client,
             folder="source/spreadsheets/Output",
         )
-        logs_prefix = build_prefix(
+        logs_prefix = build_canonical_project_prefix(
+            workspace=workspace,
             project=project,
             client=client,
             folder="source/spreadsheets/Logs",
@@ -422,17 +520,31 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
 
 @router.get("/xl-processing/files")
 def get_xl_processing_files(
-    workspace: str = Query(...),
+    workspace: str = Query(default="capture"),
     project: str = Query(...),
     client: str | None = Query(default=None),
     folder: str = Query(default="source/native"),
 ):
-    return list_spreadsheet_blobs(
+    files = list_spreadsheet_blobs(
         workspace=workspace,
         project=project,
         client=client,
         folder=folder,
     )
+
+    if files:
+        return files
+
+    return {
+        "files": [],
+        "message": "No XL or CSV files found.",
+        "checked_prefixes": build_project_prefixes(
+            workspace=workspace,
+            project=project,
+            client=client,
+            folder=folder,
+        ),
+    }
 
 
 @router.post("/jobs")
