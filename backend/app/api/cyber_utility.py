@@ -41,6 +41,15 @@ class ApplyHeaderMapRequest(BaseModel):
     job_id: str
     header_map: dict[str, str] = Field(default_factory=dict)
     delimiter: str = ","
+    
+class MergeSelectedCsvsRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    selected_csv_blobs: list[str] = Field(default_factory=list)
+    header_map: dict[str, str] = Field(default_factory=dict)
+    delimiter: str = ","
+    output_name: str | None = None
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -296,6 +305,9 @@ def list_output_csv_blobs(
         if file_name in excluded:
             continue
 
+        if file_name.lower().startswith("final_merged_output"):
+            continue
+
         if get_extension(file_name) != "csv":
             continue
 
@@ -313,6 +325,122 @@ def list_output_csv_blobs(
         )
 
     return files
+
+def list_merged_output_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=output_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        lower_name = file_name.lower()
+
+        if not lower_name.startswith("final_merged_output"):
+            continue
+
+        if get_extension(file_name) != "csv":
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+            }
+        )
+
+    return files
+
+def list_needs_header_review_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    review_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Needs_Header_Review",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=review_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+            }
+        )
+
+    return files
+
+def list_xl_processing_jobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    clean_workspace = clean_folder(workspace)
+    clean_project = clean_folder(project)
+    clean_client = clean_folder(client) if client else ""
+
+    jobs = []
+
+    for job in UTILITY_JOBS.values():
+        if job.get("tool_name") != "XL Processing":
+            continue
+
+        if clean_folder(job.get("workspace") or "") != clean_workspace:
+            continue
+
+        if clean_folder(job.get("project_id") or "") != clean_project:
+            continue
+
+        if clean_folder(job.get("client") or "") != clean_client:
+            continue
+
+        jobs.append(job)
+
+    return sorted(
+        jobs,
+        key=lambda item: item.get("updated_at") or item.get("created_at") or "",
+        reverse=True,
+    )
 
 def build_master_csv(
     csv_paths: list[Path],
@@ -507,6 +635,124 @@ def rebuild_master_csv_from_outputs(
             "final_output_blob": final_blob,
             "header_map_blob": map_blob,
             "merged_input_files": [item["blob_path"] for item in output_blobs],
+        }
+
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+def rebuild_master_csv_from_selected_outputs(
+    workspace: str,
+    project: str,
+    client: str | None,
+    selected_csv_blobs: list[str],
+    header_map: dict[str, str],
+    delimiter: str = ",",
+    output_name: str | None = None,
+):
+    container = get_workspace_container(workspace)
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    excluded = {
+        "Merged_Headers.csv",
+        "header_merge_map.csv",
+        "FINAL_MERGED_OUTPUT.csv",
+    }
+
+    temp_root = Path(tempfile.mkdtemp(prefix="xl_selected_merge_"))
+
+    try:
+        input_dir = temp_root / "input"
+        output_dir = temp_root / "output"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        local_csv_paths = []
+        merged_input_files = []
+
+        for blob_path in selected_csv_blobs:
+            file_name = get_blob_file_name(blob_path)
+
+            if not file_name:
+                continue
+
+            if get_extension(file_name) != "csv":
+                continue
+
+            if file_name in excluded:
+                continue
+
+            local_path = input_dir / file_name
+
+            download_blob_to_file(
+                container=container,
+                blob_path=blob_path,
+                local_path=local_path,
+            )
+
+            local_csv_paths.append(local_path)
+            merged_input_files.append(blob_path)
+
+        if not local_csv_paths:
+            raise ValueError("No valid CSV files were selected for merge.")
+
+        clean_header_map = {
+            str(source).strip(): str(target).strip()
+            for source, target in header_map.items()
+            if str(source).strip() and str(target).strip()
+        }
+
+        canonical_headers = []
+
+        for target in clean_header_map.values():
+            clean_target = str(target or "").strip()
+
+            if clean_target and clean_target not in canonical_headers:
+                canonical_headers.append(clean_target)
+
+        master_path = build_master_csv(
+            csv_paths=local_csv_paths,
+            output_dir=output_dir,
+            delimiter=delimiter,
+            header_map=clean_header_map,
+            canonical_headers=canonical_headers,
+        )
+
+        if not master_path:
+            raise ValueError("Selected merge output could not be created.")
+
+        safe_output_name = str(output_name or "").strip()
+
+        if not safe_output_name:
+            safe_output_name = (
+                "FINAL_MERGED_OUTPUT_"
+                f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+
+        if not safe_output_name.lower().endswith(".csv"):
+            safe_output_name = f"{safe_output_name}.csv"
+
+        # Keep blob name safe and predictable.
+        safe_output_name = safe_output_name.replace("/", "_").replace("\\", "_")
+
+        final_blob = f"{output_prefix}{safe_output_name}"
+
+        upload_file(
+            container=container,
+            blob_path=final_blob,
+            local_path=master_path,
+        )
+
+        return {
+            "status": "completed",
+            "message": "Selected CSV files merged.",
+            "final_output_blob": final_blob,
+            "merged_input_files": merged_input_files,
         }
 
     finally:
@@ -1143,6 +1389,50 @@ def get_xl_processing_files(
         ),
     }
 
+@router.get("/xl-processing/center")
+def get_xl_processing_center(
+    workspace: str = Query(default="capture"),
+    project: str = Query(...),
+    client: str | None = Query(default=None),
+):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    return {
+        "workspace": workspace,
+        "client": clean_folder(client) if client else "",
+        "project": clean_folder(project),
+        "source_files": list_spreadsheet_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+            folder="source/native",
+        ),
+        "output_csvs": list_output_csv_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "merged_outputs": list_merged_output_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "needs_header_review": list_needs_header_review_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "jobs": list_xl_processing_jobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+    }
+
 @router.post("/xl-processing/apply-headers")
 def apply_xl_processing_headers(payload: ApplyHeaderMapRequest):
     job = UTILITY_JOBS.get(payload.job_id)
@@ -1217,6 +1507,39 @@ def apply_xl_processing_headers(payload: ApplyHeaderMapRequest):
     )
 
     return UTILITY_JOBS[payload.job_id]
+
+@router.post("/xl-processing/merge-selected")
+def merge_selected_xl_csvs(payload: MergeSelectedCsvsRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if not payload.selected_csv_blobs:
+        raise HTTPException(
+            status_code=400,
+            detail="No CSV files selected for merge.",
+        )
+
+    try:
+        result = rebuild_master_csv_from_selected_outputs(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            selected_csv_blobs=payload.selected_csv_blobs,
+            header_map=payload.header_map,
+            delimiter=payload.delimiter,
+            output_name=payload.output_name,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+    return result
 
 @router.post("/jobs")
 def create_utility_job(
