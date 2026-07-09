@@ -1,3 +1,5 @@
+import re
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -32,6 +34,13 @@ class UtilityJobRequest(BaseModel):
     output_path: str | None = None
     options: dict = Field(default_factory=dict)
 
+class ApplyHeaderMapRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    job_id: str
+    header_map: dict[str, str] = Field(default_factory=dict)
+    delimiter: str = ","
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -255,21 +264,93 @@ def list_spreadsheet_blobs(
 
     return files
 
+def list_output_csv_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    excluded = {
+        "Merged_Headers.csv",
+        "header_merge_map.csv",
+        "FINAL_MERGED_OUTPUT.csv",
+    }
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=output_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        if file_name in excluded:
+            continue
+
+        if get_extension(file_name) != "csv":
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+            }
+        )
+
+    return files
 
 def build_master_csv(
     csv_paths: list[Path],
     output_dir: Path,
     delimiter: str,
     header_map: dict[str, str] | None = None,
+    canonical_headers: list[str] | None = None,
 ):
     frames = []
 
     for csv_path in csv_paths:
-        df = pd.read_csv(csv_path, sep=delimiter, dtype=str)
+        df = pd.read_csv(
+            csv_path,
+            sep=delimiter,
+            dtype=str,
+            keep_default_na=False,
+        ).fillna("")
+
         df = clean_dataframe(df)
 
+        # Always preserve source file as Column A.
+        if "Source File" in df.columns:
+            df["Source File"] = csv_path.name
+        else:
+            df.insert(0, "Source File", csv_path.name)
+
+        df.columns = [str(c).strip() for c in df.columns]
+
         if header_map:
-            df.rename(columns=header_map, inplace=True)
+            clean_map = {
+                str(source).strip(): str(target).strip()
+                for source, target in header_map.items()
+                if str(source).strip() and str(target).strip()
+            }
+            df.rename(columns=clean_map, inplace=True)
+
+        df = collapse_duplicate_columns(df)
+        df = clean_dataframe(df)
 
         frames.append(df)
 
@@ -279,13 +360,428 @@ def build_master_csv(
     final_df = pd.concat(frames, ignore_index=True, sort=False)
     final_df = collapse_duplicate_columns(final_df)
     final_df = clean_dataframe(final_df)
-    final_df = final_df.reindex(sorted(final_df.columns), axis=1)
+
+    if canonical_headers:
+        ordered_headers = [
+            str(header).strip()
+            for header in canonical_headers
+            if str(header).strip()
+        ]
+
+        # Force Source File first.
+        ordered_headers = ["Source File"] + [
+            header
+            for header in ordered_headers
+            if normalize_text(header) != normalize_text("Source File")
+        ]
+
+        existing_extras = [
+            column
+            for column in final_df.columns
+            if column not in ordered_headers
+        ]
+
+        final_columns = ordered_headers + existing_extras
+
+        for column in final_columns:
+            if column not in final_df.columns:
+                final_df[column] = ""
+
+        final_df = final_df[final_columns]
+    else:
+        final_columns = ["Source File"] + [
+            column
+            for column in sorted(final_df.columns)
+            if normalize_text(column) != normalize_text("Source File")
+        ]
+        final_df = final_df[final_columns]
 
     final_out = output_dir / "FINAL_MERGED_OUTPUT.csv"
-    final_df.to_csv(final_out, index=False, sep=delimiter, encoding="utf-8")
+    final_df.to_csv(
+        final_out,
+        index=False,
+        sep=delimiter,
+        encoding="utf-8-sig",
+    )
 
     return final_out
 
+def rebuild_master_csv_from_outputs(
+    workspace: str,
+    project: str,
+    client: str | None,
+    header_map: dict[str, str],
+    delimiter: str = ",",
+):
+    container = get_workspace_container(workspace)
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    output_blobs = list_output_csv_blobs(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    if not output_blobs:
+        raise ValueError("No generated CSV outputs found to merge.")
+
+    temp_root = Path(tempfile.mkdtemp(prefix="xl_final_merge_"))
+
+    try:
+        input_dir = temp_root / "input"
+        output_dir = temp_root / "output"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        local_csv_paths = []
+
+        for item in output_blobs:
+            local_path = input_dir / item["file_name"]
+
+            download_blob_to_file(
+                container=container,
+                blob_path=item["blob_path"],
+                local_path=local_path,
+            )
+
+            local_csv_paths.append(local_path)
+
+        canonical_headers = []
+
+        if header_map:
+            for target in header_map.values():
+                clean_target = str(target or "").strip()
+
+                if clean_target and clean_target not in canonical_headers:
+                    canonical_headers.append(clean_target)
+
+        master_path = build_master_csv(
+            csv_paths=local_csv_paths,
+            output_dir=output_dir,
+            delimiter=delimiter,
+            header_map=header_map,
+            canonical_headers=canonical_headers,
+        )
+
+        if not master_path:
+            raise ValueError("Final master CSV could not be created.")
+
+        final_blob = f"{output_prefix}FINAL_MERGED_OUTPUT.csv"
+
+        upload_file(
+            container=container,
+            blob_path=final_blob,
+            local_path=master_path,
+        )
+
+        map_blob = f"{output_prefix}header_merge_map.csv"
+        map_path = output_dir / "header_merge_map.csv"
+
+        pd.DataFrame(
+            [
+                {
+                    "Original_Header": source,
+                    "Merged_Header": target,
+                }
+                for source, target in header_map.items()
+            ]
+        ).to_csv(
+            map_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+
+        upload_file(
+            container=container,
+            blob_path=map_blob,
+            local_path=map_path,
+        )
+
+        return {
+            "final_output_blob": final_blob,
+            "header_map_blob": map_blob,
+            "merged_input_files": [item["blob_path"] for item in output_blobs],
+        }
+
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+def normalize_text(value: str) -> str:
+    value = "" if value is None else str(value)
+    value = value.strip().lower()
+    value = value.replace("_", " ").replace("-", " ")
+    value = re.sub(r"\s+", " ", value)
+    value = re.sub(r"[^a-z0-9 ]+", "", value)
+    return value.strip()
+
+
+def fuzzy_best_match(value: str, candidates: list[str], cutoff: float = 0.60) -> str:
+    if not candidates:
+        return value
+
+    normalized_value = normalize_text(value)
+    best = None
+    best_score = 0.0
+
+    for candidate in candidates:
+        score = SequenceMatcher(None, normalized_value, normalize_text(candidate)).ratio()
+
+        if score > best_score:
+            best_score = score
+            best = candidate
+
+    return best if best is not None and best_score >= cutoff else value
+
+
+def row_has_meaningful_headers(headers: list[str]) -> bool:
+    cleaned = [str(h or "").strip() for h in headers]
+    cleaned = [h for h in cleaned if h and not h.lower().startswith("unnamed")]
+
+    if not cleaned:
+        return False
+
+    # If headers are just 0, 1, 2, 3 or blank placeholders, treat as no header.
+    numeric_like = 0
+
+    for header in cleaned:
+        normalized = normalize_text(header)
+
+        if normalized.isdigit():
+            numeric_like += 1
+
+    if cleaned and numeric_like / len(cleaned) >= 0.75:
+        return False
+
+    return True
+
+
+def dataframe_has_headers(df: pd.DataFrame) -> bool:
+    return row_has_meaningful_headers([str(c) for c in df.columns.tolist()])
+
+def get_protocol_folder_prefix(
+    workspace: str,
+    project: str,
+    client: str | None,
+) -> str:
+    return build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/protocol",
+    )
+
+
+def get_project_header_library_blob_paths(
+    workspace: str,
+    project: str,
+    client: str | None,
+) -> list[str]:
+    protocol_prefix = get_protocol_folder_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    clean_project = clean_folder(project)
+
+    return [
+        f"{protocol_prefix}{clean_project}_Header_Library.csv",
+        f"{protocol_prefix}{clean_project}_Header_Library.xlsx",
+    ]
+
+
+def get_project_header_library_blob_path(
+    workspace: str,
+    project: str,
+    client: str | None,
+) -> str:
+    """
+    Primary expected path. CSV is preferred because the header library is now
+    maintained as a downloadable/editable CSV.
+    """
+    return get_project_header_library_blob_paths(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )[0]
+
+
+def load_project_header_library(
+    container,
+    workspace: str,
+    project: str,
+    client: str | None,
+) -> tuple[dict[str, list[str]], str]:
+    """
+    Loads project-specific header library from source/protocol.
+
+    Preferred:
+      {client}/{workspace}/{project}/source/protocol/{Project}_Header_Library.csv
+
+    Fallback:
+      {client}/{workspace}/{project}/source/protocol/{Project}_Header_Library.xlsx
+
+    Format:
+      - Each column header is the canonical/final header.
+      - Each row value under that column is a synonym/source variation.
+    """
+    candidate_blob_paths = get_project_header_library_blob_paths(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    data = None
+    matched_blob_path = ""
+
+    for blob_path in candidate_blob_paths:
+        try:
+            data = container.download_blob(blob_path).readall()
+            matched_blob_path = blob_path
+            break
+        except Exception:
+            continue
+
+    if data is None:
+        return {}, ""
+
+    temp_root = Path(tempfile.mkdtemp(prefix="header_library_"))
+
+    try:
+        extension = get_extension(matched_blob_path)
+        local_path = temp_root / f"Header_Library.{extension}"
+
+        with local_path.open("wb") as file:
+            file.write(data)
+
+        if extension == "csv":
+            df = pd.read_csv(local_path, dtype=str).fillna("")
+        else:
+            df = pd.read_excel(local_path, dtype=str).fillna("")
+
+        library: dict[str, list[str]] = {}
+
+        for column in df.columns:
+            canonical = str(column or "").strip()
+
+            if not canonical:
+                continue
+
+            variations = [canonical]
+
+            for value in df[column].tolist():
+                variation = str(value or "").strip()
+
+                if variation:
+                    variations.append(variation)
+
+            seen = set()
+            clean_variations = []
+
+            for variation in variations:
+                key = normalize_text(variation)
+
+                if key and key not in seen:
+                    seen.add(key)
+                    clean_variations.append(variation)
+
+            library[canonical] = clean_variations
+
+        return library, matched_blob_path
+
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def get_protocol_header_library(
+    container,
+    workspace: str,
+    project: str,
+    client: str | None,
+    protocol: str | None = None,
+) -> tuple[dict[str, list[str]], str]:
+    """
+    Project-specific header library is source of truth.
+
+    Preferred:
+      {client}/{workspace}/{project}/source/protocol/{Project}_Header_Library.csv
+
+    Fallback:
+      {client}/{workspace}/{project}/source/protocol/{Project}_Header_Library.xlsx
+    """
+    return load_project_header_library(
+        container=container,
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+
+def build_synonym_lookup(library: dict[str, list[str]]) -> dict[str, str]:
+    lookup = {}
+
+    for canonical, variations in library.items():
+        canonical_clean = str(canonical or "").strip()
+
+        if not canonical_clean:
+            continue
+
+        lookup[normalize_text(canonical_clean)] = canonical_clean
+
+        for variation in variations:
+            variation_clean = str(variation or "").strip()
+
+            if not variation_clean:
+                continue
+
+            lookup[normalize_text(variation_clean)] = canonical_clean
+
+    return lookup
+
+
+def get_standard_header_targets(library: dict[str, list[str]]) -> list[str]:
+    return [str(header).strip() for header in library.keys() if str(header).strip()]
+
+
+def suggest_header(header: str, library: dict[str, list[str]]) -> str:
+    lookup = build_synonym_lookup(library)
+    targets = get_standard_header_targets(library)
+
+    key = normalize_text(header)
+
+    if key in lookup:
+        return lookup[key]
+
+    return fuzzy_best_match(header, targets, cutoff=0.60)
+
+def copy_blob_to_review_location(
+    container,
+    source_blob_path: str,
+    review_prefix: str,
+    reason: str,
+):
+    file_name = get_blob_file_name(source_blob_path)
+    target_blob_path = f"{review_prefix}{file_name}"
+
+    data = container.download_blob(source_blob_path).readall()
+
+    container.upload_blob(
+        name=target_blob_path,
+        data=data,
+        overwrite=True,
+    )
+
+    return {
+        "source_blob_path": source_blob_path,
+        "review_blob_path": target_blob_path,
+        "reason": reason,
+    }
 
 def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
     temp_root = Path(tempfile.mkdtemp(prefix=f"xl_processing_{job_id}_"))
@@ -300,6 +796,36 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
 
         container = get_workspace_container(workspace)
 
+        protocol = payload.options.get("protocol") or payload.options.get("project_protocol")
+
+        header_library, header_library_blob = get_protocol_header_library(
+            container=container,
+            workspace=workspace,
+            project=project,
+            client=client,
+            protocol=protocol,
+        )
+
+        expected_header_library_blob = get_project_header_library_blob_path(
+            workspace=workspace,
+            project=project,
+            client=client,
+        )
+
+        header_library_warning = ""
+
+        if not header_library:
+            expected_header_library_blobs = get_project_header_library_blob_paths(
+                workspace=workspace,
+                project=project,
+                client=client,
+            )
+
+            header_library_warning = (
+                "No project header library found. Expected one of: "
+                + ", ".join(expected_header_library_blobs)
+            )
+        
         selected_files = payload.options.get("selected_files") or []
         delimiter = payload.options.get("delimiter") or ","
         build_master = bool(payload.options.get("build_master", True))
@@ -347,6 +873,12 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             client=client,
             folder="source/spreadsheets/Logs",
         )
+        needs_review_prefix = build_canonical_project_prefix(
+            workspace=workspace,
+            project=project,
+            client=client,
+            folder="source/spreadsheets/Needs_Header_Review",
+        )
 
         set_job_status(
             job_id,
@@ -356,6 +888,7 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             processed_files=0,
         )
 
+        files_needing_header_review = []
         merged_headers: set[str] = set()
         generated_csvs: list[Path] = []
         processed = []
@@ -386,6 +919,23 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
                     df = pd.read_csv(local_input, sep=delimiter, dtype=str)
                     df = clean_dataframe(df)
 
+                    if not dataframe_has_headers(df):
+                        review_item = copy_blob_to_review_location(
+                            container=container,
+                            source_blob_path=blob_path,
+                            review_prefix=needs_review_prefix,
+                            reason="CSV appears to have no usable header row.",
+                        )
+                        files_needing_header_review.append(review_item)
+                        processed.append(blob_path)
+
+                        try:
+                            container.delete_blob(processing_blob)
+                        except Exception:
+                            pass
+
+                        continue
+
                     if extract_headers:
                         merged_headers.update(map(str, df.columns.tolist()))
 
@@ -403,6 +953,16 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
                             dtype=str,
                         )
                         df = clean_dataframe(df)
+
+                        if not dataframe_has_headers(df):
+                            review_item = copy_blob_to_review_location(
+                                container=container,
+                                source_blob_path=blob_path,
+                                review_prefix=needs_review_prefix,
+                                reason=f"Excel sheet '{sheet}' appears to have no usable header row.",
+                            )
+                            files_needing_header_review.append(review_item)
+                            continue
 
                         if extract_headers:
                             merged_headers.update(map(str, df.columns.tolist()))
@@ -448,15 +1008,33 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
 
         output_files = []
 
+        header_review_rows = []
+
         if extract_headers and merged_headers:
+            sorted_headers = sorted(merged_headers)
+
+            header_review_rows = [
+                {
+                    "source_header": header,
+                    "suggested_header": suggest_header(header, header_library),
+                    "final_header": suggest_header(header, header_library),
+                    "protocol": protocol or "",
+                    "header_library_blob": header_library_blob,
+                    "ai_suggestion": "",
+                    "confidence": "",
+                }
+                for header in sorted_headers
+            ]
+
             headers_path = output_dir / "Merged_Headers.csv"
-            pd.DataFrame(
-                sorted(merged_headers),
-                columns=["Header"],
-            ).to_csv(headers_path, index=False, encoding="utf-8")
+            pd.DataFrame(header_review_rows).to_csv(
+                headers_path,
+                index=False,
+                encoding="utf-8",
+            )
             output_files.append(headers_path)
 
-        if build_master:
+        if build_master and not extract_headers:
             master_path = build_master_csv(
                 csv_paths=generated_csvs,
                 output_dir=output_dir,
@@ -483,8 +1061,12 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             "workspace": workspace,
             "client": client,
             "project": project,
+            "protocol": protocol,
+            "header_library_blob": header_library_blob,
+            "header_library_warning": header_library_warning,
             "selected_files": selected_files,
             "processed_files": processed,
+            "files_needing_header_review": files_needing_header_review,
             "errors": errors,
             "outputs": uploaded_outputs,
             "completed_at": now_utc(),
@@ -497,13 +1079,28 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             content=json.dumps(log, indent=2),
         )
 
+        final_status = "header_review_required" if header_review_rows else (
+            "completed_with_errors" if errors else "completed"
+        )
+
+        final_message = (
+            "XL/CSV files converted and headers extracted. Header review required."
+            if header_review_rows
+            else "XL Processing completed."
+        )
+
         set_job_status(
             job_id,
-            status="completed" if not errors else "completed_with_errors",
-            message="XL Processing completed.",
+            status=final_status,
+            message=final_message,
             output_files=uploaded_outputs,
             log_blob=log_blob,
             errors=errors,
+            extracted_headers=header_review_rows,
+            files_needing_header_review=files_needing_header_review,
+            protocol=protocol,
+            header_library_blob=header_library_blob,
+            header_library_warning=header_library_warning,
         )
 
     except Exception as exc:
@@ -546,6 +1143,80 @@ def get_xl_processing_files(
         ),
     }
 
+@router.post("/xl-processing/apply-headers")
+def apply_xl_processing_headers(payload: ApplyHeaderMapRequest):
+    job = UTILITY_JOBS.get(payload.job_id)
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Utility job not found.",
+        )
+
+    if job.get("status") != "header_review_required":
+        raise HTTPException(
+            status_code=400,
+            detail="Job is not waiting for header review.",
+        )
+
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    clean_header_map = {
+        str(source).strip(): str(target).strip()
+        for source, target in payload.header_map.items()
+        if str(source).strip() and str(target).strip()
+    }
+
+    if not clean_header_map:
+        raise HTTPException(
+            status_code=400,
+            detail="No approved header map was provided.",
+        )
+
+    set_job_status(
+        payload.job_id,
+        status="final_merge_running",
+        message="Header map approved. Building FINAL_MERGED_OUTPUT.csv.",
+        approved_header_map=clean_header_map,
+    )
+
+    try:
+        result = rebuild_master_csv_from_outputs(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            header_map=clean_header_map,
+            delimiter=payload.delimiter,
+        )
+
+    except Exception as exc:
+        set_job_status(
+            payload.job_id,
+            status="final_merge_failed",
+            message=str(exc),
+            final_merge_error=str(exc),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+    set_job_status(
+        payload.job_id,
+        status="completed",
+        message="XL Processing completed. FINAL_MERGED_OUTPUT.csv created.",
+        approved_header_map=clean_header_map,
+        final_output_blob=result["final_output_blob"],
+        header_map_blob=result["header_map_blob"],
+        merged_input_files=result["merged_input_files"],
+    )
+
+    return UTILITY_JOBS[payload.job_id]
 
 @router.post("/jobs")
 def create_utility_job(
