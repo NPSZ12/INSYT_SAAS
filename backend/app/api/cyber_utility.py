@@ -6,9 +6,11 @@ from uuid import uuid4
 import json
 import shutil
 import tempfile
+from io import BytesIO
 
 import pandas as pd
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.workspace_files import build_prefix, clean_folder, get_workspace_container
@@ -59,6 +61,12 @@ class DeleteSpreadsheetFilesRequest(BaseModel):
 
 
 class RestoreSpreadsheetFilesRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    selected_blob_paths: list[str] = Field(default_factory=list)
+
+class ReworkCompletedSpreadsheetFilesRequest(BaseModel):
     workspace: str = "capture"
     project_id: str
     client: str | None = None
@@ -461,6 +469,93 @@ def list_deleted_spreadsheet_blobs(
                     else ""
                 ),
                 "status": "Deleted",
+            }
+        )
+
+    return files
+
+def list_in_progress_spreadsheet_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    in_progress_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/In_Progress",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=in_progress_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        if get_extension(file_name) not in SPREADSHEET_EXTENSIONS:
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "extension": get_extension(file_name),
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+                "status": "In Progress",
+            }
+        )
+
+    return files
+
+
+def list_completed_spreadsheet_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    completed_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Completed",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=completed_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        if get_extension(file_name) not in SPREADSHEET_EXTENSIONS:
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "extension": get_extension(file_name),
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+                "status": "Completed",
             }
         )
 
@@ -878,6 +973,345 @@ def get_protocol_folder_prefix(
         folder="source/protocol",
     )
 
+def get_project_protocol_blob_paths(
+    workspace: str,
+    project: str,
+    client: str | None,
+) -> list[str]:
+    protocol_prefix = get_protocol_folder_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    clean_project = clean_folder(project)
+
+    return [
+        f"{protocol_prefix}{clean_project}_Protocol.json",
+        f"{protocol_prefix}Project_Protocol.json",
+        f"{protocol_prefix}protocol.json",
+    ]
+
+
+def load_project_protocol_json(
+    container,
+    workspace: str,
+    project: str,
+    client: str | None,
+) -> tuple[dict, str]:
+    candidate_blob_paths = get_project_protocol_blob_paths(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    for blob_path in candidate_blob_paths:
+        try:
+            data = container.download_blob(blob_path).readall()
+            return json.loads(data.decode("utf-8")), blob_path
+        except Exception:
+            continue
+
+    return {}, ""
+
+def looks_like_protocol_header(value: str) -> bool:
+    clean = str(value or "").strip()
+
+    if not clean:
+        return False
+
+    lowered = clean.lower()
+
+    blocked_values = {
+        "true",
+        "false",
+        "yes",
+        "no",
+        "required",
+        "optional",
+        "high",
+        "medium",
+        "low",
+        "string",
+        "number",
+        "boolean",
+        "date",
+        "text",
+    }
+
+    if lowered in blocked_values:
+        return False
+
+    if len(clean) > 80:
+        return False
+
+    if clean.startswith("/") or clean.startswith("http"):
+        return False
+
+    return any(char.isalpha() for char in clean)
+
+
+def add_protocol_header(headers: list[str], value: str):
+    clean = str(value or "").strip()
+
+    if not looks_like_protocol_header(clean):
+        return
+
+    existing = {normalize_text(header) for header in headers}
+
+    if normalize_text(clean) not in existing:
+        headers.append(clean)
+
+
+def extract_protocol_headers_from_json(protocol_json: dict) -> list[str]:
+    """
+    Attempts to extract canonical review/header/entity names from the assigned
+    Project Protocol JSON without requiring one exact schema.
+
+    This supports common shapes such as:
+      - headers: ["First Name", "Last Name"]
+      - fields: [{"name": "First Name"}]
+      - entities: [{"label": "Email Address"}]
+      - columns: [{"header": "Date of Birth"}]
+      - nested protocol sections with name/label/title/header values
+    """
+    headers: list[str] = []
+
+    preferred_keys = {
+        "header",
+        "headers",
+        "column",
+        "columns",
+        "field",
+        "fields",
+        "entity",
+        "entities",
+        "label",
+        "labels",
+        "name",
+        "display_name",
+        "displayName",
+        "title",
+        "type",
+    }
+
+    ignored_keys = {
+        "description",
+        "instructions",
+        "instruction",
+        "notes",
+        "note",
+        "example",
+        "examples",
+        "regex",
+        "pattern",
+        "prompt",
+        "definition",
+        "guidance",
+        "created_at",
+        "updated_at",
+        "created_by",
+        "updated_by",
+        "id",
+        "uuid",
+        "key",
+        "value",
+    }
+
+    def walk(value, parent_key: str = ""):
+        if isinstance(value, dict):
+            # Prefer explicit list fields first.
+            for key, child in value.items():
+                key_text = str(key or "").strip()
+
+                if key_text in ignored_keys:
+                    continue
+
+                if key_text in preferred_keys:
+                    if isinstance(child, str):
+                        add_protocol_header(headers, child)
+                    else:
+                        walk(child, key_text)
+                else:
+                    walk(child, key_text)
+
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, parent_key)
+
+        elif isinstance(value, str):
+            if parent_key in preferred_keys:
+                add_protocol_header(headers, value)
+
+    walk(protocol_json)
+
+    return headers
+
+
+def build_protocol_header_library(protocol_headers: list[str]) -> dict[str, list[str]]:
+    """
+    Converts protocol headers into the same canonical->synonyms structure used
+    by the spreadsheet header suggestion engine.
+    """
+    library: dict[str, list[str]] = {}
+
+    for header in protocol_headers:
+        clean_header = str(header or "").strip()
+
+        if clean_header:
+            library[clean_header] = [clean_header]
+
+    return library
+
+COMMON_HEADER_ALIASES = {
+    "First Name": [
+        "fn",
+        "first",
+        "firstname",
+        "first_name",
+        "patient first name",
+        "member first name",
+    ],
+    "Last Name": [
+        "ln",
+        "last",
+        "lastname",
+        "last_name",
+        "surname",
+        "patient last name",
+        "member last name",
+    ],
+    "Full Name": [
+        "name",
+        "full name",
+        "fullname",
+        "patient name",
+        "member name",
+    ],
+    "Date of Birth": [
+        "dob",
+        "birth date",
+        "birthdate",
+        "date birth",
+    ],
+    "Email Address": [
+        "email",
+        "email address",
+        "e-mail",
+        "mail",
+    ],
+    "Phone Number": [
+        "phone",
+        "phone number",
+        "telephone",
+        "mobile",
+        "cell",
+    ],
+    "Address": [
+        "address",
+        "street address",
+        "mailing address",
+    ],
+    "ZIP Code": [
+        "zip",
+        "zipcode",
+        "zip code",
+        "postal code",
+    ],
+    "Social Security Number": [
+        "ssn",
+        "social security",
+        "social security number",
+    ],
+    "SSN": [
+        "ssn",
+        "social security number",
+    ],
+    "Medical Record Number": [
+        "mrn",
+        "medical record number",
+        "medical record no",
+    ],
+    "Patient ID": [
+        "patient id",
+        "patientid",
+        "member id",
+        "subscriber id",
+    ],
+    "Account Number": [
+        "account",
+        "account number",
+        "acct",
+        "acct number",
+    ],
+    "IP Address": [
+        "ip",
+        "ip address",
+        "ipaddress",
+    ],
+    "User ID": [
+        "user id",
+        "userid",
+        "account id",
+    ],
+    "Data Subject": [
+        "data subject",
+        "subject name",
+        "individual",
+    ],
+    "Doc ID": [
+        "doc id",
+        "docid",
+        "document id",
+        "control number",
+        "begdoc",
+        "beg doc",
+    ],
+    "File Name": [
+        "file name",
+        "filename",
+        "name",
+    ],
+    "File Path": [
+        "file path",
+        "path",
+        "folder path",
+    ],
+}
+
+
+def apply_common_aliases_to_library(library: dict[str, list[str]]) -> dict[str, list[str]]:
+    """
+    Adds common aliases only when the canonical header exists in the Project Protocol.
+    This prevents non-protocol headers from becoming final dropdown values.
+    """
+    updated = dict(library)
+
+    normalized_to_canonical = {
+        normalize_text(canonical): canonical
+        for canonical in updated.keys()
+    }
+
+    for alias_canonical, aliases in COMMON_HEADER_ALIASES.items():
+        normalized_alias_canonical = normalize_text(alias_canonical)
+
+        if normalized_alias_canonical not in normalized_to_canonical:
+            continue
+
+        actual_canonical = normalized_to_canonical[normalized_alias_canonical]
+        existing = updated.get(actual_canonical, [])
+        seen = {normalize_text(value) for value in existing}
+
+        for alias in aliases:
+            key = normalize_text(alias)
+
+            if key and key not in seen:
+                existing.append(alias)
+                seen.add(key)
+
+        updated[actual_canonical] = existing
+
+    return updated
 
 def get_project_header_library_blob_paths(
     workspace: str,
@@ -921,84 +1355,108 @@ def load_project_header_library(
     client: str | None,
 ) -> tuple[dict[str, list[str]], str]:
     """
-    Loads project-specific header library from source/protocol.
+    Source of truth:
+      1. Assigned Project Protocol JSON under source/protocol.
+      2. Optional spreadsheet header library CSV/XLSX only extends aliases.
 
-    Preferred:
-      {client}/{workspace}/{project}/source/protocol/{Project}_Header_Library.csv
-
-    Fallback:
-      {client}/{workspace}/{project}/source/protocol/{Project}_Header_Library.xlsx
-
-    Format:
-      - Each column header is the canonical/final header.
-      - Each row value under that column is a synonym/source variation.
+    Final dropdown values should come from Project Protocol headers.
     """
+    protocol_json, protocol_blob_path = load_project_protocol_json(
+        container=container,
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    protocol_headers = extract_protocol_headers_from_json(protocol_json)
+    library = build_protocol_header_library(protocol_headers)
+    library = apply_common_aliases_to_library(library)
+
+    # Optional alias/custom library.
+    # CSV/XLSX format:
+    #   Canonical header as column name.
+    #   Alias variations under that column.
+    #
+    # If canonical exists in protocol, aliases are appended.
+    # If canonical does NOT exist in protocol, it is ignored for final dropdown
+    # unless there is no protocol library at all.
     candidate_blob_paths = get_project_header_library_blob_paths(
         workspace=workspace,
         project=project,
         client=client,
     )
 
-    data = None
-    matched_blob_path = ""
+    extra_data = None
+    extra_blob_path = ""
 
     for blob_path in candidate_blob_paths:
         try:
-            data = container.download_blob(blob_path).readall()
-            matched_blob_path = blob_path
+            extra_data = container.download_blob(blob_path).readall()
+            extra_blob_path = blob_path
             break
         except Exception:
             continue
 
-    if data is None:
-        return {}, ""
+    if extra_data is not None:
+        temp_root = Path(tempfile.mkdtemp(prefix="header_library_"))
 
-    temp_root = Path(tempfile.mkdtemp(prefix="header_library_"))
+        try:
+            extension = get_extension(extra_blob_path)
+            local_path = temp_root / f"Header_Library.{extension}"
 
-    try:
-        extension = get_extension(matched_blob_path)
-        local_path = temp_root / f"Header_Library.{extension}"
+            with local_path.open("wb") as file:
+                file.write(extra_data)
 
-        with local_path.open("wb") as file:
-            file.write(data)
+            if extension == "csv":
+                df = pd.read_csv(local_path, dtype=str).fillna("")
+            else:
+                df = pd.read_excel(local_path, dtype=str).fillna("")
 
-        if extension == "csv":
-            df = pd.read_csv(local_path, dtype=str).fillna("")
-        else:
-            df = pd.read_excel(local_path, dtype=str).fillna("")
+            protocol_lookup = {
+                normalize_text(canonical): canonical
+                for canonical in library.keys()
+            }
 
-        library: dict[str, list[str]] = {}
+            for column in df.columns:
+                canonical_from_file = str(column or "").strip()
 
-        for column in df.columns:
-            canonical = str(column or "").strip()
+                if not canonical_from_file:
+                    continue
 
-            if not canonical:
-                continue
+                normalized_canonical = normalize_text(canonical_from_file)
 
-            variations = [canonical]
+                # If protocol exists, only extend protocol headers.
+                # If no protocol exists, allow fallback library to become source.
+                if library and normalized_canonical not in protocol_lookup:
+                    continue
 
-            for value in df[column].tolist():
-                variation = str(value or "").strip()
+                actual_canonical = (
+                    protocol_lookup.get(normalized_canonical)
+                    if library
+                    else canonical_from_file
+                )
 
-                if variation:
-                    variations.append(variation)
+                variations = library.get(actual_canonical, [actual_canonical])
+                seen = {normalize_text(value) for value in variations}
 
-            seen = set()
-            clean_variations = []
+                for value in df[column].tolist():
+                    variation = str(value or "").strip()
 
-            for variation in variations:
-                key = normalize_text(variation)
+                    if not variation:
+                        continue
 
-                if key and key not in seen:
-                    seen.add(key)
-                    clean_variations.append(variation)
+                    key = normalize_text(variation)
 
-            library[canonical] = clean_variations
+                    if key and key not in seen:
+                        variations.append(variation)
+                        seen.add(key)
 
-        return library, matched_blob_path
+                library[actual_canonical] = variations
 
-    finally:
-        shutil.rmtree(temp_root, ignore_errors=True)
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
+
+    return library, protocol_blob_path or extra_blob_path
 
 
 def get_protocol_header_library(
@@ -1133,6 +1591,12 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
         header_library_warning = ""
 
         if not header_library:
+            expected_protocol_blobs = get_project_protocol_blob_paths(
+                workspace=workspace,
+                project=project,
+                client=client,
+            )
+
             expected_header_library_blobs = get_project_header_library_blob_paths(
                 workspace=workspace,
                 project=project,
@@ -1140,7 +1604,9 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             )
 
             header_library_warning = (
-                "No project header library found. Expected one of: "
+                "No Project Protocol headers found. Expected assigned protocol at one of: "
+                + ", ".join(expected_protocol_blobs)
+                + ". Optional spreadsheet alias library may be placed at one of: "
                 + ", ".join(expected_header_library_blobs)
             )
         
@@ -1172,6 +1638,12 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             project=project,
             client=client,
             folder="source/spreadsheets/Processing",
+        )
+        in_progress_prefix = build_canonical_project_prefix(
+            workspace=workspace,
+            project=project,
+            client=client,
+            folder="source/spreadsheets/In_Progress",
         )
         completed_prefix = build_canonical_project_prefix(
             workspace=workspace,
@@ -1211,6 +1683,7 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
         generated_csvs: list[Path] = []
         processed = []
         errors = []
+        in_progress_files = []
 
         for index, blob_path in enumerate(selected_files, start=1):
             file_name = get_blob_file_name(blob_path)
@@ -1218,14 +1691,37 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             local_input = input_dir / file_name
 
             try:
+                source_prefix = build_canonical_project_prefix(
+                    workspace=workspace,
+                    project=project,
+                    client=client,
+                    folder="source/native",
+                )
+
+                in_progress_blob = f"{in_progress_prefix}{file_name}"
+
+                # When selected from Source XL / CSV Files, move it out of source/native
+                # so it disappears from the active source list and appears in In Progress.
+                if blob_path.startswith(source_prefix):
+                    move_blob(
+                        container=container,
+                        source_blob_path=blob_path,
+                        target_blob_path=in_progress_blob,
+                    )
+                    working_blob_path = in_progress_blob
+                else:
+                    # Allows retry/rework files that are already in In Progress.
+                    working_blob_path = blob_path
+
+                in_progress_files.append(working_blob_path)
+
                 original_bytes = download_blob_to_file(
                     container=container,
-                    blob_path=blob_path,
+                    blob_path=working_blob_path,
                     local_path=local_input,
                 )
 
                 processing_blob = f"{processing_prefix}{file_name}"
-                completed_blob = f"{completed_prefix}{file_name}"
 
                 container.upload_blob(
                     name=processing_blob,
@@ -1240,12 +1736,12 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
                     if not dataframe_has_headers(df):
                         review_item = copy_blob_to_review_location(
                             container=container,
-                            source_blob_path=blob_path,
+                            source_blob_path=working_blob_path,
                             review_prefix=needs_review_prefix,
                             reason="CSV appears to have no usable header row.",
                         )
                         files_needing_header_review.append(review_item)
-                        processed.append(blob_path)
+                        processed.append(working_blob_path)
 
                         try:
                             container.delete_blob(processing_blob)
@@ -1275,7 +1771,7 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
                         if not dataframe_has_headers(df):
                             review_item = copy_blob_to_review_location(
                                 container=container,
-                                source_blob_path=blob_path,
+                                source_blob_path=working_blob_path,
                                 review_prefix=needs_review_prefix,
                                 reason=f"Excel sheet '{sheet}' appears to have no usable header row.",
                             )
@@ -1297,18 +1793,12 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
                         )
                         generated_csvs.append(out_path)
 
-                container.upload_blob(
-                    name=completed_blob,
-                    data=original_bytes,
-                    overwrite=True,
-                )
-
                 try:
                     container.delete_blob(processing_blob)
                 except Exception:
                     pass
 
-                processed.append(blob_path)
+                processed.append(working_blob_path)
 
             except Exception as exc:
                 errors.append(
@@ -1383,6 +1873,7 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             "header_library_blob": header_library_blob,
             "header_library_warning": header_library_warning,
             "selected_files": selected_files,
+            "in_progress_files": in_progress_files,
             "processed_files": processed,
             "files_needing_header_review": files_needing_header_review,
             "errors": errors,
@@ -1419,6 +1910,7 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             protocol=protocol,
             header_library_blob=header_library_blob,
             header_library_warning=header_library_warning,
+            in_progress_files=in_progress_files,
         )
 
     except Exception as exc:
@@ -1482,6 +1974,16 @@ def get_xl_processing_center(
             project=project,
             client=client,
             folder="source/native",
+        ),
+        "in_progress_files": list_in_progress_spreadsheet_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "completed_files": list_completed_spreadsheet_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
         ),
         "output_csvs": list_output_csv_blobs(
             workspace=workspace,
@@ -1638,6 +2140,70 @@ def restore_spreadsheet_files(payload: RestoreSpreadsheetFilesRequest):
         "restored_files": restored,
     }
 
+@router.post("/xl-processing/rework-completed")
+def rework_completed_spreadsheet_files(payload: ReworkCompletedSpreadsheetFilesRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if not payload.selected_blob_paths:
+        raise HTTPException(
+            status_code=400,
+            detail="No completed files selected for rework.",
+        )
+
+    container = get_workspace_container(payload.workspace)
+
+    completed_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Completed",
+    )
+
+    in_progress_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/In_Progress",
+    )
+
+    moved = []
+
+    for blob_path in payload.selected_blob_paths:
+        if not blob_path.startswith(completed_prefix):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not in Completed: {blob_path}",
+            )
+
+        file_name = get_blob_file_name(blob_path)
+
+        if get_extension(file_name) not in SPREADSHEET_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not an XL/CSV spreadsheet: {file_name}",
+            )
+
+        target_blob_path = f"{in_progress_prefix}{file_name}"
+
+        moved.append(
+            move_blob(
+                container=container,
+                source_blob_path=blob_path,
+                target_blob_path=target_blob_path,
+            )
+        )
+
+    return {
+        "status": "completed",
+        "message": f"Moved {len(moved)} completed file(s) back to In Progress.",
+        "moved_count": len(moved),
+        "moved_files": moved,
+    }
+
 @router.get("/xl-processing/header-library")
 def get_xl_processing_header_library(
     workspace: str = Query(default="capture"),
@@ -1659,25 +2225,34 @@ def get_xl_processing_header_library(
         client=client,
     )
 
+    headers = get_standard_header_targets(header_library)
+
+    expected_protocol_blobs = get_project_protocol_blob_paths(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
     expected_header_library_blobs = get_project_header_library_blob_paths(
         workspace=workspace,
         project=project,
         client=client,
     )
 
-    headers = get_standard_header_targets(header_library)
-
     return {
         "workspace": workspace,
         "client": clean_folder(client) if client else "",
         "project": clean_folder(project),
         "header_library_blob": header_library_blob,
+        "expected_protocol_blobs": expected_protocol_blobs,
         "expected_header_library_blobs": expected_header_library_blobs,
         "headers": headers,
         "warning": ""
         if headers
         else (
-            "No project header library found. Expected one of: "
+            "No Project Protocol headers found. Expected assigned protocol at one of: "
+            + ", ".join(expected_protocol_blobs)
+            + ". Optional spreadsheet alias library may be placed at one of: "
             + ", ".join(expected_header_library_blobs)
         ),
     }
@@ -1731,6 +2306,39 @@ def apply_xl_processing_headers(payload: ApplyHeaderMapRequest):
             header_map=clean_header_map,
             delimiter=payload.delimiter,
         )
+        
+        container = get_workspace_container(payload.workspace)
+
+        in_progress_files = job.get("in_progress_files") or []
+
+        completed_prefix = build_canonical_project_prefix(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            folder="source/spreadsheets/Completed",
+        )
+
+        completed_files = []
+
+        for blob_path in in_progress_files:
+            file_name = get_blob_file_name(blob_path)
+
+            if not file_name:
+                continue
+
+            target_blob_path = f"{completed_prefix}{file_name}"
+
+            try:
+                completed_files.append(
+                    move_blob(
+                        container=container,
+                        source_blob_path=blob_path,
+                        target_blob_path=target_blob_path,
+                    )
+                )
+            except Exception:
+                # Do not fail final merge just because a state move failed.
+                pass
 
     except Exception as exc:
         set_job_status(
@@ -1753,6 +2361,7 @@ def apply_xl_processing_headers(payload: ApplyHeaderMapRequest):
         final_output_blob=result["final_output_blob"],
         header_map_blob=result["header_map_blob"],
         merged_input_files=result["merged_input_files"],
+        completed_files=completed_files,
     )
 
     return UTILITY_JOBS[payload.job_id]
@@ -1789,6 +2398,51 @@ def merge_selected_xl_csvs(payload: MergeSelectedCsvsRequest):
         )
 
     return result
+
+@router.get("/xl-processing/open-output")
+def open_xl_processing_output(
+    workspace: str = Query(default="capture"),
+    project: str = Query(...),
+    client: str | None = Query(default=None),
+    blob_path: str = Query(...),
+):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    if not blob_path.startswith(output_prefix):
+        raise HTTPException(
+            status_code=400,
+            detail="Requested file is not in spreadsheet Output.",
+        )
+
+    file_name = get_blob_file_name(blob_path)
+
+    if get_extension(file_name) != "csv":
+        raise HTTPException(
+            status_code=400,
+            detail="Only CSV outputs can be opened.",
+        )
+
+    container = get_workspace_container(workspace)
+    data = container.download_blob(blob_path).readall()
+
+    return StreamingResponse(
+        BytesIO(data),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'inline; filename="{file_name}"',
+        },
+    )
 
 @router.post("/jobs")
 def create_utility_job(

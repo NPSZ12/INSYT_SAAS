@@ -58,6 +58,8 @@ type XlProcessingCenterState = {
   client: string;
   project: string;
   source_files: SpreadsheetFile[];
+  in_progress_files: SpreadsheetFile[];
+  completed_files: SpreadsheetFile[];
   output_csvs: SpreadsheetFile[];
   merged_outputs: SpreadsheetFile[];
   needs_header_review: SpreadsheetFile[];
@@ -258,10 +260,12 @@ function SimpleFilesTable({
   files,
   emptyMessage,
   pathLabel,
+  onOpenFile,
 }: {
   files: SpreadsheetFile[];
   emptyMessage: string;
   pathLabel: string;
+  onOpenFile?: (blobPath: string) => void;
 }) {
   return (
     <div className="overflow-auto rounded-md border border-slate-800">
@@ -272,6 +276,7 @@ function SimpleFilesTable({
             <th className="px-3 py-2">{pathLabel}</th>
             <th className="px-3 py-2">Size</th>
             <th className="px-3 py-2">Last Modified</th>
+            {onOpenFile ? <th className="px-3 py-2">Actions</th> : null}
           </tr>
         </thead>
 
@@ -280,13 +285,25 @@ function SimpleFilesTable({
             files.map((file) => (
               <tr key={file.blob_path} className="border-t border-slate-800">
                 <td className="px-3 py-2 text-slate-100">{file.file_name}</td>
-                <td className="px-3 py-2 font-mono text-xs text-slate-400">{file.blob_path}</td>
+                <td className="px-3 py-2 font-mono text-xs text-slate-400">
+                  {file.blob_path}
+                </td>
                 <td className="px-3 py-2 text-slate-300">{fileSizeLabel(file.size)}</td>
                 <td className="px-3 py-2 text-slate-300">{formatDate(file.last_modified)}</td>
+                {onOpenFile ? (
+                  <td className="px-3 py-2">
+                    <button
+                      className="rounded-md bg-slate-800 px-2 py-1 text-xs text-white hover:bg-slate-700"
+                      onClick={() => onOpenFile(file.blob_path)}
+                    >
+                      Open
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             ))
           ) : (
-            <EmptyTableRow colSpan={4} message={emptyMessage} />
+            <EmptyTableRow colSpan={onOpenFile ? 5 : 4} message={emptyMessage} />
           )}
         </tbody>
       </table>
@@ -349,6 +366,77 @@ function DeletedFilesTable({
             ))
           ) : (
             <EmptyTableRow colSpan={isAdmin ? 6 : 5} message="No deleted spreadsheet files found." />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function WorkflowFilesTable({
+  files,
+  selectedFiles,
+  setSelectedFiles,
+  isAdmin,
+  emptyMessage,
+}: {
+  files: SpreadsheetFile[];
+  selectedFiles?: Record<string, boolean>;
+  setSelectedFiles?: Dispatch<SetStateAction<Record<string, boolean>>>;
+  isAdmin?: boolean;
+  emptyMessage: string;
+}) {
+  const showCheckboxes = Boolean(isAdmin && selectedFiles && setSelectedFiles);
+
+  return (
+    <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr>
+            {showCheckboxes ? <th className="px-3 py-2"></th> : null}
+            <th className="px-3 py-2">File Name</th>
+            <th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Blob Path</th>
+            <th className="px-3 py-2">Size</th>
+            <th className="px-3 py-2">Last Modified</th>
+            <th className="px-3 py-2">Status</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {files.length ? (
+            files.map((file) => (
+              <tr key={file.blob_path} className="border-t border-slate-800">
+                {showCheckboxes ? (
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedFiles?.[file.blob_path]}
+                      onChange={(event) =>
+                        setSelectedFiles?.((current) => ({
+                          ...current,
+                          [file.blob_path]: event.target.checked,
+                        }))
+                      }
+                    />
+                  </td>
+                ) : null}
+
+                <td className="px-3 py-2 text-slate-100">{file.file_name}</td>
+                <td className="px-3 py-2 text-slate-300">{file.extension || ""}</td>
+                <td className="px-3 py-2 font-mono text-xs text-slate-400">
+                  {file.blob_path}
+                </td>
+                <td className="px-3 py-2 text-slate-300">{fileSizeLabel(file.size)}</td>
+                <td className="px-3 py-2 text-slate-300">{formatDate(file.last_modified)}</td>
+                <td className="px-3 py-2 text-slate-300">{file.status || ""}</td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow
+              colSpan={showCheckboxes ? 7 : 6}
+              message={emptyMessage}
+            />
           )}
         </tbody>
       </table>
@@ -459,6 +547,7 @@ function SpreadsheetProcessingCenterPageContent() {
   const [selectedOutputCsvs, setSelectedOutputCsvs] = useState<Record<string, boolean>>({});
 
   const [selectedDeletedFiles, setSelectedDeletedFiles] = useState<Record<string, boolean>>({});
+  const [selectedCompletedFiles, setSelectedCompletedFiles] = useState<Record<string, boolean>>({});
 
   const [activeHeaderJob, setActiveHeaderJob] = useState<XlJob | null>(null);
   const [headerRows, setHeaderRows] = useState<HeaderReviewRow[]>([]);
@@ -488,6 +577,14 @@ function SpreadsheetProcessingCenterPageContent() {
         .filter(([, selected]) => selected)
         .map(([blob]) => blob),
     [selectedDeletedFiles]
+  );
+
+  const selectedCompletedBlobPaths = useMemo(
+    () =>
+      Object.entries(selectedCompletedFiles)
+        .filter(([, selected]) => selected)
+        .map(([blob]) => blob),
+    [selectedCompletedFiles]
   );
 
   async function loadProjectHeaderOptions() {
@@ -669,6 +766,44 @@ function SpreadsheetProcessingCenterPageContent() {
     }
   }
 
+  async function reworkSelectedCompletedFiles() {
+    if (!isAdmin) {
+      setMessage("Only Admin users can move completed spreadsheet files back to In Progress.");
+      return;
+    }
+
+    if (!selectedCompletedBlobPaths.length) {
+      setMessage("Select one or more completed files to move back to In Progress.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Move ${selectedCompletedBlobPaths.length} completed file(s) back to In Progress for redo?`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost("/api/cyber-utility/xl-processing/rework-completed", {
+        workspace,
+        client: clientId,
+        project_id: projectId,
+        selected_blob_paths: selectedCompletedBlobPaths,
+      });
+
+      setMessage(result.message || "Selected completed files moved back to In Progress.");
+      setSelectedCompletedFiles({});
+      await refreshCenter();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to move completed files back to In Progress.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function pollJob(jobId: string) {
     let attempts = 0;
 
@@ -834,6 +969,27 @@ function SpreadsheetProcessingCenterPageContent() {
     setSelectedDeletedFiles(next);
   }
 
+  function toggleAllCompletedFiles(selected: boolean) {
+    const next: Record<string, boolean> = {};
+
+    for (const file of state?.completed_files || []) {
+      next[file.blob_path] = selected;
+    }
+
+    setSelectedCompletedFiles(next);
+  }
+
+  function openMergedOutput(blobPath: string) {
+    const url =
+      `/api/cyber-utility/xl-processing/open-output?workspace=${encodeURIComponent(
+        workspace
+      )}&client=${encodeURIComponent(clientId)}&project=${encodeURIComponent(
+        projectId
+      )}&blob_path=${encodeURIComponent(blobPath)}`;
+
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <AppShell>
       <PageContainer>
@@ -996,6 +1152,58 @@ function SpreadsheetProcessingCenterPageContent() {
           />
         </ContentCard>
 
+        <ContentCard title="In Progress">
+          <WorkflowFilesTable
+            files={state?.in_progress_files || []}
+            emptyMessage="No spreadsheet files are currently in progress."
+          />
+        </ContentCard>
+
+        {isAdmin ? (
+          <ContentCard title="Completed">
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => toggleAllCompletedFiles(true)}
+                disabled={!state?.completed_files?.length}
+              >
+                Select All
+              </button>
+
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => toggleAllCompletedFiles(false)}
+                disabled={!state?.completed_files?.length}
+              >
+                Clear All
+              </button>
+
+              <button
+                className="rounded-md bg-amber-700 px-3 py-2 text-sm text-white hover:bg-amber-600 disabled:opacity-50"
+                onClick={reworkSelectedCompletedFiles}
+                disabled={!selectedCompletedBlobPaths.length || busy}
+              >
+                Send Back to In Progress
+              </button>
+            </div>
+
+            <WorkflowFilesTable
+              files={state?.completed_files || []}
+              selectedFiles={selectedCompletedFiles}
+              setSelectedFiles={setSelectedCompletedFiles}
+              isAdmin={isAdmin}
+              emptyMessage="No completed spreadsheet files found."
+            />
+          </ContentCard>
+        ) : (
+          <ContentCard title="Completed">
+            <WorkflowFilesTable
+              files={state?.completed_files || []}
+              emptyMessage="No completed spreadsheet files found."
+            />
+          </ContentCard>
+        )}
+
         <ContentCard title="XL Processing Jobs">
           <JobsTable
             jobs={state?.jobs || []}
@@ -1046,6 +1254,7 @@ function SpreadsheetProcessingCenterPageContent() {
             files={state?.merged_outputs || []}
             emptyMessage="No merged outputs found."
             pathLabel="Blob Path"
+            onOpenFile={openMergedOutput}
           />
         </ContentCard>
 
