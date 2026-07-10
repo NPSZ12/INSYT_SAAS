@@ -61,6 +61,7 @@ type XlProcessingCenterState = {
   output_csvs: SpreadsheetFile[];
   merged_outputs: SpreadsheetFile[];
   needs_header_review: SpreadsheetFile[];
+  deleted_files: SpreadsheetFile[];
   jobs: XlJob[];
 };
 
@@ -98,17 +99,19 @@ function SourceFilesTable({
   files,
   selectedSourceFiles,
   setSelectedSourceFiles,
+  isAdmin,
 }: {
   files: SpreadsheetFile[];
   selectedSourceFiles: Record<string, boolean>;
   setSelectedSourceFiles: Dispatch<SetStateAction<Record<string, boolean>>>;
+  isAdmin: boolean;
 }) {
   return (
-    <div className="overflow-auto rounded-md border border-slate-800">
+    <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-900 text-slate-300">
           <tr>
-            <th className="px-3 py-2"></th>
+            {isAdmin ? <th className="px-3 py-2"></th> : null}
             <th className="px-3 py-2">File Name</th>
             <th className="px-3 py-2">Type</th>
             <th className="px-3 py-2">Size</th>
@@ -121,18 +124,20 @@ function SourceFilesTable({
           {files.length ? (
             files.map((file) => (
               <tr key={file.blob_path} className="border-t border-slate-800">
-                <td className="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={!!selectedSourceFiles[file.blob_path]}
-                    onChange={(event) =>
-                      setSelectedSourceFiles((current) => ({
-                        ...current,
-                        [file.blob_path]: event.target.checked,
-                      }))
-                    }
-                  />
-                </td>
+                {isAdmin ? (
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedSourceFiles[file.blob_path]}
+                      onChange={(event) =>
+                        setSelectedSourceFiles((current) => ({
+                          ...current,
+                          [file.blob_path]: event.target.checked,
+                        }))
+                      }
+                    />
+                  </td>
+                ) : null}
                 <td className="px-3 py-2 text-slate-100">{file.file_name}</td>
                 <td className="px-3 py-2 text-slate-300">{file.extension || ""}</td>
                 <td className="px-3 py-2 text-slate-300">{fileSizeLabel(file.size)}</td>
@@ -141,7 +146,7 @@ function SourceFilesTable({
               </tr>
             ))
           ) : (
-            <EmptyTableRow colSpan={6} message="No source XL or CSV files found." />
+            <EmptyTableRow colSpan={isAdmin ? 6 : 5} message="No source XL or CSV files found." />
           )}
         </tbody>
       </table>
@@ -289,6 +294,68 @@ function SimpleFilesTable({
   );
 }
 
+function DeletedFilesTable({
+  files,
+  selectedDeletedFiles,
+  setSelectedDeletedFiles,
+  isAdmin,
+}: {
+  files: SpreadsheetFile[];
+  selectedDeletedFiles: Record<string, boolean>;
+  setSelectedDeletedFiles: Dispatch<SetStateAction<Record<string, boolean>>>;
+  isAdmin: boolean;
+}) {
+  return (
+    <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr>
+            {isAdmin ? <th className="px-3 py-2"></th> : null}
+            <th className="px-3 py-2">File Name</th>
+            <th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Deleted Blob Path</th>
+            <th className="px-3 py-2">Size</th>
+            <th className="px-3 py-2">Last Modified</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {files.length ? (
+            files.map((file) => (
+              <tr key={file.blob_path} className="border-t border-slate-800">
+                {isAdmin ? (
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedDeletedFiles[file.blob_path]}
+                      onChange={(event) =>
+                        setSelectedDeletedFiles((current) => ({
+                          ...current,
+                          [file.blob_path]: event.target.checked,
+                        }))
+                      }
+                    />
+                  </td>
+                ) : null}
+
+                <td className="px-3 py-2 text-slate-100">{file.file_name}</td>
+                <td className="px-3 py-2 text-slate-300">{file.extension || ""}</td>
+                <td className="px-3 py-2 font-mono text-xs text-slate-400">
+                  {file.blob_path}
+                </td>
+                <td className="px-3 py-2 text-slate-300">{fileSizeLabel(file.size)}</td>
+                <td className="px-3 py-2 text-slate-300">{formatDate(file.last_modified)}</td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow colSpan={isAdmin ? 6 : 5} message="No deleted spreadsheet files found." />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function SpreadsheetProcessingCenterPageContent() {
   const searchParams = useSearchParams();
 
@@ -296,12 +363,25 @@ function SpreadsheetProcessingCenterPageContent() {
   const projectId = searchParams.get("project") || "";
   const workspace = "capture";
 
+  const storedUser =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("insyt_user")
+      : null;
+
+  const currentUser = storedUser ? JSON.parse(storedUser) : null;
+
+  const isAdmin =
+    currentUser?.role === "Admin" ||
+    currentUser?.role === "INSYT Admin";
+
   const [state, setState] = useState<XlProcessingCenterState | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
   const [selectedSourceFiles, setSelectedSourceFiles] = useState<Record<string, boolean>>({});
   const [selectedOutputCsvs, setSelectedOutputCsvs] = useState<Record<string, boolean>>({});
+
+  const [selectedDeletedFiles, setSelectedDeletedFiles] = useState<Record<string, boolean>>({});
 
   const [activeHeaderJob, setActiveHeaderJob] = useState<XlJob | null>(null);
   const [headerRows, setHeaderRows] = useState<HeaderReviewRow[]>([]);
@@ -320,6 +400,14 @@ function SpreadsheetProcessingCenterPageContent() {
         .filter(([, selected]) => selected)
         .map(([blob]) => blob),
     [selectedOutputCsvs]
+  );
+
+  const selectedDeletedBlobPaths = useMemo(
+    () =>
+      Object.entries(selectedDeletedFiles)
+        .filter(([, selected]) => selected)
+        .map(([blob]) => blob),
+    [selectedDeletedFiles]
   );
 
   async function refreshCenter() {
@@ -392,6 +480,82 @@ function SpreadsheetProcessingCenterPageContent() {
       pollJob(job.job_id);
     } catch (err: any) {
       setMessage(err?.message || "Failed to start XL Processing.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteSelectedSourceFiles() {
+    if (!isAdmin) {
+      setMessage("Only Admin users can delete spreadsheet source files.");
+      return;
+    }
+
+    if (!selectedSourceBlobPaths.length) {
+      setMessage("Select one or more source files to delete.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${selectedSourceBlobPaths.length} selected file(s) from the active Files view? They will be moved to Deleted Files for restore.`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost("/api/cyber-utility/xl-processing/delete-files", {
+        workspace,
+        client: clientId,
+        project_id: projectId,
+        selected_blob_paths: selectedSourceBlobPaths,
+      });
+
+      setMessage(result.message || "Selected files deleted.");
+      setSelectedSourceFiles({});
+      await refreshCenter();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to delete selected files.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreSelectedDeletedFiles() {
+    if (!isAdmin) {
+      setMessage("Only Admin users can restore deleted spreadsheet files.");
+      return;
+    }
+
+    if (!selectedDeletedBlobPaths.length) {
+      setMessage("Select one or more deleted files to restore.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Reupload ${selectedDeletedBlobPaths.length} selected deleted file(s) back to the project source files?`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost("/api/cyber-utility/xl-processing/restore-files", {
+        workspace,
+        client: clientId,
+        project_id: projectId,
+        selected_blob_paths: selectedDeletedBlobPaths,
+      });
+
+      setMessage(result.message || "Selected deleted files restored.");
+      setSelectedDeletedFiles({});
+      await refreshCenter();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to restore selected files.");
     } finally {
       setBusy(false);
     }
@@ -548,6 +712,16 @@ function SpreadsheetProcessingCenterPageContent() {
     setSelectedOutputCsvs(next);
   }
 
+  function toggleAllDeletedFiles(selected: boolean) {
+    const next: Record<string, boolean> = {};
+
+    for (const file of state?.deleted_files || []) {
+      next[file.blob_path] = selected;
+    }
+
+    setSelectedDeletedFiles(next);
+  }
+
   return (
     <AppShell>
       <PageContainer>
@@ -564,13 +738,33 @@ function SpreadsheetProcessingCenterPageContent() {
 
         <ContentCard title="Spreadsheet Processing Controls">
           <div className="flex flex-wrap gap-2">
-            <button
-              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-              onClick={refreshCenter}
-              disabled={busy}
-            >
-              Refresh
-            </button>
+            {isAdmin ? (
+              <>
+                <button
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                  onClick={() => toggleAllSourceFiles(true)}
+                  disabled={!state?.source_files?.length}
+                >
+                  Select All Source Files
+                </button>
+
+                <button
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                  onClick={() => toggleAllSourceFiles(false)}
+                  disabled={!state?.source_files?.length}
+                >
+                  Clear Source Selection
+                </button>
+
+                <button
+                  className="rounded-md bg-red-700 px-3 py-2 text-sm text-white hover:bg-red-600 disabled:opacity-50"
+                  onClick={deleteSelectedSourceFiles}
+                  disabled={!selectedSourceBlobPaths.length || busy}
+                >
+                  Delete Files
+                </button>
+              </>
+            ) : null}
 
             <button
               className="rounded-md bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-600 disabled:opacity-50"
@@ -667,6 +861,7 @@ function SpreadsheetProcessingCenterPageContent() {
             files={state?.source_files || []}
             selectedSourceFiles={selectedSourceFiles}
             setSelectedSourceFiles={setSelectedSourceFiles}
+            isAdmin={isAdmin}
           />
         </ContentCard>
 
@@ -729,6 +924,43 @@ function SpreadsheetProcessingCenterPageContent() {
             pathLabel="Review Blob Path"
           />
         </ContentCard>
+
+        {isAdmin ? (
+          <ContentCard title="Deleted Files">
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => toggleAllDeletedFiles(true)}
+                disabled={!state?.deleted_files?.length}
+              >
+                Select All
+              </button>
+
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => toggleAllDeletedFiles(false)}
+                disabled={!state?.deleted_files?.length}
+              >
+                Clear All
+              </button>
+
+              <button
+                className="rounded-md bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-600 disabled:opacity-50"
+                onClick={restoreSelectedDeletedFiles}
+                disabled={!selectedDeletedBlobPaths.length || busy}
+              >
+                Reupload to Project
+              </button>
+            </div>
+
+            <DeletedFilesTable
+              files={state?.deleted_files || []}
+              selectedDeletedFiles={selectedDeletedFiles}
+              setSelectedDeletedFiles={setSelectedDeletedFiles}
+              isAdmin={isAdmin}
+            />
+          </ContentCard>
+        ) : null}
       </PageContainer>
     </AppShell>
   );

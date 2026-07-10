@@ -51,6 +51,19 @@ class MergeSelectedCsvsRequest(BaseModel):
     delimiter: str = ","
     output_name: str | None = None
 
+class DeleteSpreadsheetFilesRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    selected_blob_paths: list[str] = Field(default_factory=list)
+
+
+class RestoreSpreadsheetFilesRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    selected_blob_paths: list[str] = Field(default_factory=list)
+
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -405,6 +418,49 @@ def list_needs_header_review_blobs(
                     if blob.last_modified
                     else ""
                 ),
+            }
+        )
+
+    return files
+
+def list_deleted_spreadsheet_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    deleted_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Deleted_Files",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=deleted_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        if get_extension(file_name) not in SPREADSHEET_EXTENSIONS:
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "extension": get_extension(file_name),
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+                "status": "Deleted",
             }
         )
 
@@ -1029,6 +1085,22 @@ def copy_blob_to_review_location(
         "reason": reason,
     }
 
+def move_blob(container, source_blob_path: str, target_blob_path: str):
+    data = container.download_blob(source_blob_path).readall()
+
+    container.upload_blob(
+        name=target_blob_path,
+        data=data,
+        overwrite=True,
+    )
+
+    container.delete_blob(source_blob_path)
+
+    return {
+        "source_blob_path": source_blob_path,
+        "target_blob_path": target_blob_path,
+    }
+
 def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
     temp_root = Path(tempfile.mkdtemp(prefix=f"xl_processing_{job_id}_"))
 
@@ -1426,11 +1498,144 @@ def get_xl_processing_center(
             project=project,
             client=client,
         ),
+        "deleted_files": list_deleted_spreadsheet_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
         "jobs": list_xl_processing_jobs(
             workspace=workspace,
             project=project,
             client=client,
         ),
+    }
+
+@router.post("/xl-processing/delete-files")
+def delete_spreadsheet_files(payload: DeleteSpreadsheetFilesRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if not payload.selected_blob_paths:
+        raise HTTPException(
+            status_code=400,
+            detail="No files selected for deletion.",
+        )
+
+    container = get_workspace_container(payload.workspace)
+
+    source_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/native",
+    )
+
+    deleted_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Deleted_Files",
+    )
+
+    moved = []
+
+    for blob_path in payload.selected_blob_paths:
+        if not blob_path.startswith(source_prefix):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not in source/native: {blob_path}",
+            )
+
+        file_name = get_blob_file_name(blob_path)
+
+        if get_extension(file_name) not in SPREADSHEET_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not an XL/CSV spreadsheet: {file_name}",
+            )
+
+        target_blob_path = f"{deleted_prefix}{file_name}"
+
+        moved.append(
+            move_blob(
+                container=container,
+                source_blob_path=blob_path,
+                target_blob_path=target_blob_path,
+            )
+        )
+
+    return {
+        "status": "completed",
+        "message": f"Deleted {len(moved)} spreadsheet file(s).",
+        "deleted_count": len(moved),
+        "moved_files": moved,
+    }
+
+@router.post("/xl-processing/restore-files")
+def restore_spreadsheet_files(payload: RestoreSpreadsheetFilesRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if not payload.selected_blob_paths:
+        raise HTTPException(
+            status_code=400,
+            detail="No deleted files selected for restore.",
+        )
+
+    container = get_workspace_container(payload.workspace)
+
+    deleted_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Deleted_Files",
+    )
+
+    source_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/native",
+    )
+
+    restored = []
+
+    for blob_path in payload.selected_blob_paths:
+        if not blob_path.startswith(deleted_prefix):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not in Deleted_Files: {blob_path}",
+            )
+
+        file_name = get_blob_file_name(blob_path)
+
+        if get_extension(file_name) not in SPREADSHEET_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not an XL/CSV spreadsheet: {file_name}",
+            )
+
+        target_blob_path = f"{source_prefix}{file_name}"
+
+        restored.append(
+            move_blob(
+                container=container,
+                source_blob_path=blob_path,
+                target_blob_path=target_blob_path,
+            )
+        )
+
+    return {
+        "status": "completed",
+        "message": f"Restored {len(restored)} spreadsheet file(s) to source/native.",
+        "restored_count": len(restored),
+        "restored_files": restored,
     }
 
 @router.post("/xl-processing/apply-headers")
