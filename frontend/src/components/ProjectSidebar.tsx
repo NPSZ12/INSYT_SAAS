@@ -460,6 +460,7 @@ export default function ProjectSidebar() {
     return [
       "Batch Management",
       "Processing Center",
+      "Processing Center - Spreadsheets",
       "Overlays / Final Deliverables",
       "Search Folders",
       "Files",
@@ -498,6 +499,20 @@ export default function ProjectSidebar() {
           ? `/discovery/processing-center${projectQuery}`
           : `/capture/processing-center${projectQuery}`,
       icon: HardDriveUpload,
+    },
+    ...(isCapture
+      ? [
+          {
+            label: "Processing Center - Spreadsheets",
+            href: `/capture/spreadsheets/processing-center-spreadsheets${projectQuery}`,
+            icon: Database,
+          },
+        ]
+      : []),
+    {
+      label: "Overlays / Final Deliverables",
+      href: `/project-management/upload-overlay${overlaysQuery}`,
+      icon: UploadCloud,
     },
     {
       label: "Overlays / Final Deliverables",
