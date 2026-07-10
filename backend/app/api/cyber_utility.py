@@ -1638,6 +1638,50 @@ def restore_spreadsheet_files(payload: RestoreSpreadsheetFilesRequest):
         "restored_files": restored,
     }
 
+@router.get("/xl-processing/header-library")
+def get_xl_processing_header_library(
+    workspace: str = Query(default="capture"),
+    project: str = Query(...),
+    client: str | None = Query(default=None),
+):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    container = get_workspace_container(workspace)
+
+    header_library, header_library_blob = get_protocol_header_library(
+        container=container,
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    expected_header_library_blobs = get_project_header_library_blob_paths(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    headers = get_standard_header_targets(header_library)
+
+    return {
+        "workspace": workspace,
+        "client": clean_folder(client) if client else "",
+        "project": clean_folder(project),
+        "header_library_blob": header_library_blob,
+        "expected_header_library_blobs": expected_header_library_blobs,
+        "headers": headers,
+        "warning": ""
+        if headers
+        else (
+            "No project header library found. Expected one of: "
+            + ", ".join(expected_header_library_blobs)
+        ),
+    }
+
 @router.post("/xl-processing/apply-headers")
 def apply_xl_processing_headers(payload: ApplyHeaderMapRequest):
     job = UTILITY_JOBS.get(payload.job_id)

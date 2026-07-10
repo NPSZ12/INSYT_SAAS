@@ -159,7 +159,7 @@ function JobsTable({
   onOpenHeaderReview,
 }: {
   jobs: XlJob[];
-  onOpenHeaderReview: (job: XlJob) => void;
+  onOpenHeaderReview: (job: XlJob) => void | Promise<void>;
 }) {
   return (
     <div className="overflow-auto rounded-md border border-slate-800">
@@ -356,6 +356,83 @@ function DeletedFilesTable({
   );
 }
 
+function normalizeHeaderText(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]/g, " ")
+    .replace(/[^a-z0-9 ]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function bestHeaderOptionMatch(sourceHeader: string, options: string[]) {
+  const normalizedSource = normalizeHeaderText(sourceHeader);
+
+  if (!normalizedSource || !options.length) {
+    return sourceHeader || "";
+  }
+
+  const exact = options.find(
+    (option) => normalizeHeaderText(option) === normalizedSource
+  );
+
+  if (exact) {
+    return exact;
+  }
+
+  let best = "";
+  let bestScore = 0;
+
+  for (const option of options) {
+    const normalizedOption = normalizeHeaderText(option);
+
+    if (!normalizedOption) continue;
+
+    let score = 0;
+
+    if (normalizedOption.includes(normalizedSource)) {
+      score = normalizedSource.length / normalizedOption.length;
+    } else if (normalizedSource.includes(normalizedOption)) {
+      score = normalizedOption.length / normalizedSource.length;
+    } else {
+      const sourceParts = new Set(normalizedSource.split(" "));
+      const optionParts = normalizedOption.split(" ");
+      const overlap = optionParts.filter((part) => sourceParts.has(part)).length;
+      score = overlap / Math.max(sourceParts.size, optionParts.length);
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = option;
+    }
+  }
+
+  return bestScore >= 0.5 ? best : sourceHeader || "";
+}
+
+function normalizeHeaderReviewRows(
+  rows: HeaderReviewRow[],
+  options: string[]
+): HeaderReviewRow[] {
+  return rows.map((row) => {
+    const suggested =
+      row.suggested_header ||
+      bestHeaderOptionMatch(row.source_header, options);
+
+    const finalHeader =
+      row.final_header ||
+      suggested ||
+      bestHeaderOptionMatch(row.source_header, options);
+
+    return {
+      ...row,
+      suggested_header: suggested,
+      final_header: finalHeader,
+    };
+  });
+}
+
 function SpreadsheetProcessingCenterPageContent() {
   const searchParams = useSearchParams();
 
@@ -386,6 +463,9 @@ function SpreadsheetProcessingCenterPageContent() {
   const [activeHeaderJob, setActiveHeaderJob] = useState<XlJob | null>(null);
   const [headerRows, setHeaderRows] = useState<HeaderReviewRow[]>([]);
 
+  const [projectHeaderOptions, setProjectHeaderOptions] = useState<string[]>([]);
+  const [headerLibraryMessage, setHeaderLibraryMessage] = useState("");
+
   const selectedSourceBlobPaths = useMemo(
     () =>
       Object.entries(selectedSourceFiles)
@@ -410,6 +490,33 @@ function SpreadsheetProcessingCenterPageContent() {
     [selectedDeletedFiles]
   );
 
+  async function loadProjectHeaderOptions() {
+    if (!clientId || !projectId) {
+      setProjectHeaderOptions([]);
+      setHeaderLibraryMessage("");
+      return [];
+    }
+
+    try {
+      const data = await apiGet(
+        `/api/cyber-utility/xl-processing/header-library?workspace=${encodeURIComponent(
+          workspace
+        )}&client=${encodeURIComponent(clientId)}&project=${encodeURIComponent(projectId)}`
+      );
+
+      const headers = Array.isArray(data.headers) ? data.headers : [];
+
+      setProjectHeaderOptions(headers);
+      setHeaderLibraryMessage(data.warning || "");
+
+      return headers;
+    } catch (err: any) {
+      setProjectHeaderOptions([]);
+      setHeaderLibraryMessage(err?.message || "Unable to load project header library.");
+      return [];
+    }
+  }
+
   async function refreshCenter() {
     if (!clientId || !projectId) {
       setState(null);
@@ -428,6 +535,7 @@ function SpreadsheetProcessingCenterPageContent() {
       );
 
       setState(data);
+      await loadProjectHeaderOptions();
 
       const reviewJob = (data.jobs || []).find(
         (job: XlJob) => job.status === "header_review_required"
@@ -572,8 +680,12 @@ function SpreadsheetProcessingCenterPageContent() {
 
         if (job.status === "header_review_required") {
           window.clearInterval(timer);
+
+          const options = await loadProjectHeaderOptions();
+          const rows = normalizeHeaderReviewRows(job.extracted_headers || [], options);
+
           setActiveHeaderJob(job);
-          setHeaderRows(job.extracted_headers || []);
+          setHeaderRows(rows);
           setMessage(job.message || "Header review required.");
           await refreshCenter();
           return;
@@ -805,13 +917,19 @@ function SpreadsheetProcessingCenterPageContent() {
               Job ID: <span className="font-mono">{activeHeaderJob.job_id}</span>
             </div>
 
+            {headerLibraryMessage ? (
+              <div className="mb-3 rounded-md border border-amber-700 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+                {headerLibraryMessage}
+              </div>
+            ) : null}
+
             <div className="max-h-[480px] overflow-auto rounded-md border border-slate-800">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-900 text-slate-300">
                   <tr>
                     <th className="px-3 py-2">Detected Header</th>
                     <th className="px-3 py-2">Suggested Header</th>
-                    <th className="px-3 py-2">Final Header</th>
+                    <th className="px-3 py-2">Final Header / Project Library</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -822,11 +940,24 @@ function SpreadsheetProcessingCenterPageContent() {
                       </td>
                       <td className="px-3 py-2 text-slate-200">{row.suggested_header}</td>
                       <td className="px-3 py-2">
-                        <input
+                        <select
                           className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
                           value={row.final_header || ""}
                           onChange={(event) => updateHeaderRow(index, event.target.value)}
-                        />
+                        >
+                          <option value="">-- Select Header --</option>
+
+                          {row.final_header &&
+                          !projectHeaderOptions.includes(row.final_header) ? (
+                            <option value={row.final_header}>{row.final_header}</option>
+                          ) : null}
+
+                          {projectHeaderOptions.map((header) => (
+                            <option key={header} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                     </tr>
                   ))}
@@ -868,9 +999,10 @@ function SpreadsheetProcessingCenterPageContent() {
         <ContentCard title="XL Processing Jobs">
           <JobsTable
             jobs={state?.jobs || []}
-            onOpenHeaderReview={(job) => {
+            onOpenHeaderReview={async (job) => {
+              const options = await loadProjectHeaderOptions();
               setActiveHeaderJob(job);
-              setHeaderRows(job.extracted_headers || []);
+              setHeaderRows(normalizeHeaderReviewRows(job.extracted_headers || [], options));
             }}
           />
         </ContentCard>
