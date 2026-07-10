@@ -1,13 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
+
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "../../../../components/AppShell";
 import PageContainer from "../../../../components/PageContainer";
 import PageHeader from "../../../../components/PageHeader";
 import ContentCard from "../../../../components/ContentCard";
-import DataTable from "../../../../components/DataTable";
 import { apiGet, apiPost } from "../../../../lib/api";
 
 type SpreadsheetFile = {
@@ -77,7 +84,212 @@ function fileSizeLabel(value?: string) {
   return `${(size / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-export default function SpreadsheetProcessingCenterPage() {
+function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-3 py-4 text-center text-sm text-slate-500">
+        {message}
+      </td>
+    </tr>
+  );
+}
+
+function SourceFilesTable({
+  files,
+  selectedSourceFiles,
+  setSelectedSourceFiles,
+}: {
+  files: SpreadsheetFile[];
+  selectedSourceFiles: Record<string, boolean>;
+  setSelectedSourceFiles: Dispatch<SetStateAction<Record<string, boolean>>>;
+}) {
+  return (
+    <div className="overflow-auto rounded-md border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr>
+            <th className="px-3 py-2"></th>
+            <th className="px-3 py-2">File Name</th>
+            <th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Size</th>
+            <th className="px-3 py-2">Last Modified</th>
+            <th className="px-3 py-2">Status</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {files.length ? (
+            files.map((file) => (
+              <tr key={file.blob_path} className="border-t border-slate-800">
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedSourceFiles[file.blob_path]}
+                    onChange={(event) =>
+                      setSelectedSourceFiles((current) => ({
+                        ...current,
+                        [file.blob_path]: event.target.checked,
+                      }))
+                    }
+                  />
+                </td>
+                <td className="px-3 py-2 text-slate-100">{file.file_name}</td>
+                <td className="px-3 py-2 text-slate-300">{file.extension || ""}</td>
+                <td className="px-3 py-2 text-slate-300">{fileSizeLabel(file.size)}</td>
+                <td className="px-3 py-2 text-slate-300">{formatDate(file.last_modified)}</td>
+                <td className="px-3 py-2 text-slate-300">{file.status || ""}</td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow colSpan={6} message="No source XL or CSV files found." />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function JobsTable({
+  jobs,
+  onOpenHeaderReview,
+}: {
+  jobs: XlJob[];
+  onOpenHeaderReview: (job: XlJob) => void;
+}) {
+  return (
+    <div className="overflow-auto rounded-md border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr>
+            <th className="px-3 py-2">Job ID</th>
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Message</th>
+            <th className="px-3 py-2">Updated</th>
+            <th className="px-3 py-2">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {jobs.length ? (
+            jobs.map((job) => (
+              <tr key={job.job_id} className="border-t border-slate-800">
+                <td className="px-3 py-2 font-mono text-xs text-slate-200">{job.job_id}</td>
+                <td className="px-3 py-2 text-slate-300">{job.status}</td>
+                <td className="px-3 py-2 text-slate-300">{job.message || ""}</td>
+                <td className="px-3 py-2 text-slate-300">{formatDate(job.updated_at)}</td>
+                <td className="px-3 py-2">
+                  {job.status === "header_review_required" && job.extracted_headers?.length ? (
+                    <button
+                      className="rounded-md bg-emerald-700 px-2 py-1 text-xs text-white hover:bg-emerald-600"
+                      onClick={() => onOpenHeaderReview(job)}
+                    >
+                      Open Header Review
+                    </button>
+                  ) : null}
+                </td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow colSpan={5} message="No XL Processing jobs found." />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function OutputCsvsTable({
+  files,
+  selectedOutputCsvs,
+  setSelectedOutputCsvs,
+}: {
+  files: SpreadsheetFile[];
+  selectedOutputCsvs: Record<string, boolean>;
+  setSelectedOutputCsvs: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+}) {
+  return (
+    <div className="overflow-auto rounded-md border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr>
+            <th className="px-3 py-2"></th>
+            <th className="px-3 py-2">CSV Name</th>
+            <th className="px-3 py-2">Size</th>
+            <th className="px-3 py-2">Last Modified</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {files.length ? (
+            files.map((file) => (
+              <tr key={file.blob_path} className="border-t border-slate-800">
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedOutputCsvs[file.blob_path]}
+                    onChange={(event) =>
+                      setSelectedOutputCsvs((current) => ({
+                        ...current,
+                        [file.blob_path]: event.target.checked,
+                      }))
+                    }
+                  />
+                </td>
+                <td className="px-3 py-2 text-slate-100">{file.file_name}</td>
+                <td className="px-3 py-2 text-slate-300">{fileSizeLabel(file.size)}</td>
+                <td className="px-3 py-2 text-slate-300">{formatDate(file.last_modified)}</td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow colSpan={4} message="No converted CSV outputs found." />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SimpleFilesTable({
+  files,
+  emptyMessage,
+  pathLabel,
+}: {
+  files: SpreadsheetFile[];
+  emptyMessage: string;
+  pathLabel: string;
+}) {
+  return (
+    <div className="overflow-auto rounded-md border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr>
+            <th className="px-3 py-2">File Name</th>
+            <th className="px-3 py-2">{pathLabel}</th>
+            <th className="px-3 py-2">Size</th>
+            <th className="px-3 py-2">Last Modified</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {files.length ? (
+            files.map((file) => (
+              <tr key={file.blob_path} className="border-t border-slate-800">
+                <td className="px-3 py-2 text-slate-100">{file.file_name}</td>
+                <td className="px-3 py-2 font-mono text-xs text-slate-400">{file.blob_path}</td>
+                <td className="px-3 py-2 text-slate-300">{fileSizeLabel(file.size)}</td>
+                <td className="px-3 py-2 text-slate-300">{formatDate(file.last_modified)}</td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow colSpan={4} message={emptyMessage} />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SpreadsheetProcessingCenterPageContent() {
   const searchParams = useSearchParams();
 
   const clientId = searchParams.get("client") || "";
@@ -451,71 +663,20 @@ export default function SpreadsheetProcessingCenterPage() {
         ) : null}
 
         <ContentCard title="Source XL / CSV Files">
-          <DataTable
-            columns={[
-              {
-                key: "select",
-                label: "",
-                render: (_: any, row: SpreadsheetFile) => (
-                  <input
-                    type="checkbox"
-                    checked={!!selectedSourceFiles[row.blob_path]}
-                    onChange={(event) =>
-                      setSelectedSourceFiles((current) => ({
-                        ...current,
-                        [row.blob_path]: event.target.checked,
-                      }))
-                    }
-                  />
-                ),
-              },
-              { key: "file_name", label: "File Name" },
-              { key: "extension", label: "Type" },
-              {
-                key: "size",
-                label: "Size",
-                render: (value: string) => fileSizeLabel(value),
-              },
-              {
-                key: "last_modified",
-                label: "Last Modified",
-                render: (value: string) => formatDate(value),
-              },
-              { key: "status", label: "Status" },
-            ]}
-            rows={state?.source_files || []}
+          <SourceFilesTable
+            files={state?.source_files || []}
+            selectedSourceFiles={selectedSourceFiles}
+            setSelectedSourceFiles={setSelectedSourceFiles}
           />
         </ContentCard>
 
         <ContentCard title="XL Processing Jobs">
-          <DataTable
-            columns={[
-              { key: "job_id", label: "Job ID" },
-              { key: "status", label: "Status" },
-              { key: "message", label: "Message" },
-              {
-                key: "updated_at",
-                label: "Updated",
-                render: (value: string) => formatDate(value),
-              },
-              {
-                key: "actions",
-                label: "Actions",
-                render: (_: any, row: XlJob) =>
-                  row.status === "header_review_required" && row.extracted_headers?.length ? (
-                    <button
-                      className="rounded-md bg-emerald-700 px-2 py-1 text-xs text-white"
-                      onClick={() => {
-                        setActiveHeaderJob(row);
-                        setHeaderRows(row.extracted_headers || []);
-                      }}
-                    >
-                      Open Header Review
-                    </button>
-                  ) : null,
-              },
-            ]}
-            rows={state?.jobs || []}
+          <JobsTable
+            jobs={state?.jobs || []}
+            onOpenHeaderReview={(job) => {
+              setActiveHeaderJob(job);
+              setHeaderRows(job.extracted_headers || []);
+            }}
           />
         </ContentCard>
 
@@ -546,80 +707,48 @@ export default function SpreadsheetProcessingCenterPage() {
             </button>
           </div>
 
-          <DataTable
-            columns={[
-              {
-                key: "select",
-                label: "",
-                render: (_: any, row: SpreadsheetFile) => (
-                  <input
-                    type="checkbox"
-                    checked={!!selectedOutputCsvs[row.blob_path]}
-                    onChange={(event) =>
-                      setSelectedOutputCsvs((current) => ({
-                        ...current,
-                        [row.blob_path]: event.target.checked,
-                      }))
-                    }
-                  />
-                ),
-              },
-              { key: "file_name", label: "CSV Name" },
-              {
-                key: "size",
-                label: "Size",
-                render: (value: string) => fileSizeLabel(value),
-              },
-              {
-                key: "last_modified",
-                label: "Last Modified",
-                render: (value: string) => formatDate(value),
-              },
-            ]}
-            rows={state?.output_csvs || []}
+          <OutputCsvsTable
+            files={state?.output_csvs || []}
+            selectedOutputCsvs={selectedOutputCsvs}
+            setSelectedOutputCsvs={setSelectedOutputCsvs}
           />
         </ContentCard>
 
         <ContentCard title="Merged Outputs">
-          <DataTable
-            columns={[
-              { key: "file_name", label: "Merged File" },
-              { key: "blob_path", label: "Blob Path" },
-              {
-                key: "size",
-                label: "Size",
-                render: (value: string) => fileSizeLabel(value),
-              },
-              {
-                key: "last_modified",
-                label: "Last Modified",
-                render: (value: string) => formatDate(value),
-              },
-            ]}
-            rows={state?.merged_outputs || []}
+          <SimpleFilesTable
+            files={state?.merged_outputs || []}
+            emptyMessage="No merged outputs found."
+            pathLabel="Blob Path"
           />
         </ContentCard>
 
         <ContentCard title="Needs Header Review">
-          <DataTable
-            columns={[
-              { key: "file_name", label: "File Name" },
-              { key: "blob_path", label: "Review Blob Path" },
-              {
-                key: "size",
-                label: "Size",
-                render: (value: string) => fileSizeLabel(value),
-              },
-              {
-                key: "last_modified",
-                label: "Last Modified",
-                render: (value: string) => formatDate(value),
-              },
-            ]}
-            rows={state?.needs_header_review || []}
+          <SimpleFilesTable
+            files={state?.needs_header_review || []}
+            emptyMessage="No files currently need header review."
+            pathLabel="Review Blob Path"
           />
         </ContentCard>
       </PageContainer>
     </AppShell>
+  );
+}
+
+export default function SpreadsheetProcessingCenterPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <PageContainer>
+            <PageHeader
+              title="Processing Center - Spreadsheets"
+              subtitle="Loading spreadsheet processing center..."
+            />
+          </PageContainer>
+        </AppShell>
+      }
+    >
+      <SpreadsheetProcessingCenterPageContent />
+    </Suspense>
   );
 }
