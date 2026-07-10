@@ -164,7 +164,7 @@ function JobsTable({
   onOpenHeaderReview: (job: XlJob) => void | Promise<void>;
 }) {
   return (
-    <div className="overflow-auto rounded-md border border-slate-800">
+    <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-900 text-slate-300">
           <tr>
@@ -215,7 +215,7 @@ function OutputCsvsTable({
   setSelectedOutputCsvs: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 }) {
   return (
-    <div className="overflow-auto rounded-md border border-slate-800">
+    <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-900 text-slate-300">
           <tr>
@@ -268,7 +268,7 @@ function SimpleFilesTable({
   onOpenFile?: (blobPath: string) => void;
 }) {
   return (
-    <div className="overflow-auto rounded-md border border-slate-800">
+    <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-900 text-slate-300">
           <tr>
@@ -1079,7 +1079,7 @@ function SpreadsheetProcessingCenterPageContent() {
               </div>
             ) : null}
 
-            <div className="max-h-[480px] overflow-auto rounded-md border border-slate-800">
+            <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-900 text-slate-300">
                   <tr>
