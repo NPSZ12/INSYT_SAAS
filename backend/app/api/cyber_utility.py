@@ -64,6 +64,12 @@ class DedupeCsvsRequest(BaseModel):
     fuzzy_threshold: float = 0.85
     output_name: str | None = None
 
+class ReworkDeduplicationInputFilesRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    selected_blob_paths: list[str] = Field(default_factory=list)
+
 class DeleteSpreadsheetFilesRequest(BaseModel):
     workspace: str = "capture"
     project_id: str
@@ -446,6 +452,48 @@ def list_merged_output_blobs(
                     if blob.last_modified
                     else ""
                 ),
+            }
+        )
+
+    return files
+
+def list_completed_deduplication_input_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    completed_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Deduplication/Completed_Inputs",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=completed_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        if get_extension(file_name) != "csv":
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+                "status": "Completed",
             }
         )
 
@@ -1282,11 +1330,40 @@ def dedupe_selected_merged_outputs(
             blob_path=log_blob,
             content=json.dumps(log, indent=2),
         )
+        
+        completed_inputs_prefix = build_canonical_project_prefix(
+            workspace=workspace,
+            project=project,
+            client=client,
+            folder="source/spreadsheets/Deduplication/Completed_Inputs",
+        )
+
+        completed_input_files = []
+
+        for input_blob_path in input_files:
+            file_name = get_blob_file_name(input_blob_path)
+
+            if not file_name:
+                continue
+
+            target_blob_path = f"{completed_inputs_prefix}{file_name}"
+
+            try:
+                completed_input_files.append(
+                    move_blob(
+                        container=container,
+                        source_blob_path=input_blob_path,
+                        target_blob_path=target_blob_path,
+                    )
+                )
+            except Exception:
+                pass
 
         return {
             "status": "completed",
             "message": "Deduplication completed.",
             "input_files": input_files,
+            "completed_input_files": completed_input_files,
             "output_blob": output_blob,
             "log_blob": log_blob,
             "rows_in": len(combined_df),
@@ -2484,20 +2561,25 @@ def get_xl_deduplication_center(
         )
 
     return {
-        "workspace": workspace,
-        "client": clean_folder(client) if client else "",
-        "project": clean_folder(project),
-        "merged_outputs": list_merged_output_blobs(
-            workspace=workspace,
-            project=project,
-            client=client,
-        ),
-        "deduped_outputs": list_deduplication_output_blobs(
-            workspace=workspace,
-            project=project,
-            client=client,
-        ),
-    }
+    "workspace": workspace,
+    "client": clean_folder(client) if client else "",
+    "project": clean_folder(project),
+    "merged_outputs": list_merged_output_blobs(
+        workspace=workspace,
+        project=project,
+        client=client,
+    ),
+    "completed_inputs": list_completed_deduplication_input_blobs(
+        workspace=workspace,
+        project=project,
+        client=client,
+    ),
+    "deduped_outputs": list_deduplication_output_blobs(
+        workspace=workspace,
+        project=project,
+        client=client,
+    ),
+}
 
 @router.post("/xl-processing/delete-files")
 def delete_spreadsheet_files(payload: DeleteSpreadsheetFilesRequest):
@@ -2926,6 +3008,70 @@ def dedupe_selected_xl_csvs(payload: DedupeCsvsRequest):
         )
 
     return result
+
+@router.post("/xl-processing/rework-deduplication-inputs")
+def rework_deduplication_input_files(payload: ReworkDeduplicationInputFilesRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if not payload.selected_blob_paths:
+        raise HTTPException(
+            status_code=400,
+            detail="No completed deduplication input files selected.",
+        )
+
+    container = get_workspace_container(payload.workspace)
+
+    completed_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Deduplication/Completed_Inputs",
+    )
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Output",
+    )
+
+    moved = []
+
+    for blob_path in payload.selected_blob_paths:
+        if not blob_path.startswith(completed_prefix):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not in Deduplication Completed Inputs: {blob_path}",
+            )
+
+        file_name = get_blob_file_name(blob_path)
+
+        if get_extension(file_name) != "csv":
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not a CSV: {file_name}",
+            )
+
+        target_blob_path = f"{output_prefix}{file_name}"
+
+        moved.append(
+            move_blob(
+                container=container,
+                source_blob_path=blob_path,
+                target_blob_path=target_blob_path,
+            )
+        )
+
+    return {
+        "status": "completed",
+        "message": f"Moved {len(moved)} file(s) back to Merged Outputs Available for Deduplication.",
+        "moved_count": len(moved),
+        "moved_files": moved,
+    }
 
 @router.get("/xl-processing/open-output")
 def open_xl_processing_output(

@@ -26,6 +26,7 @@ type DeduplicationCenterState = {
   client: string;
   project: string;
   merged_outputs: CsvFile[];
+  completed_inputs: CsvFile[];
   deduped_outputs: CsvFile[];
 };
 
@@ -177,6 +178,7 @@ function DeduplicationCenterContent() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedMerged, setSelectedMerged] = useState<Record<string, boolean>>({});
+  const [selectedCompletedInputs, setSelectedCompletedInputs] = useState<Record<string, boolean>>({});
   const [dedupeHeaders, setDedupeHeaders] = useState<string[]>([]);
   const [showDedupeModal, setShowDedupeModal] = useState(false);
   const [availableHeaders, setAvailableHeaders] = useState<string[]>([]);
@@ -190,6 +192,14 @@ function DeduplicationCenterContent() {
         .filter(([, value]) => value)
         .map(([blob]) => blob),
     [selectedMerged]
+  );
+
+  const selectedCompletedInputBlobPaths = useMemo(
+    () =>
+      Object.entries(selectedCompletedInputs)
+        .filter(([, value]) => value)
+        .map(([blob]) => blob),
+    [selectedCompletedInputs]
   );
 
   async function refreshCenter() {
@@ -230,6 +240,16 @@ function DeduplicationCenterContent() {
     }
 
     setSelectedMerged(next);
+  }
+
+  function toggleAllCompletedInputs(selected: boolean) {
+    const next: Record<string, boolean> = {};
+
+    for (const file of state?.completed_inputs || []) {
+      next[file.blob_path] = selected;
+    }
+
+    setSelectedCompletedInputs(next);
   }
 
   async function openDedupeSetup() {
@@ -328,6 +348,42 @@ function DeduplicationCenterContent() {
     }
   }
 
+  async function moveCompletedInputsBack() {
+    if (!selectedCompletedInputBlobPaths.length) {
+      setMessage("Select one or more completed deduplication input files.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Move ${selectedCompletedInputBlobPaths.length} completed input file(s) back to Merged Outputs Available for Deduplication?`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost(
+        "/api/cyber-utility/xl-processing/rework-deduplication-inputs",
+        {
+          workspace,
+          client: clientId,
+          project_id: projectId,
+          selected_blob_paths: selectedCompletedInputBlobPaths,
+        }
+      );
+
+      setMessage(result.message || "Completed inputs moved back.");
+      setSelectedCompletedInputs({});
+      await refreshCenter();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to move completed inputs back.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function openCsv(blobPath: string) {
     const url =
       `/api/cyber-utility/xl-processing/open-output?workspace=${encodeURIComponent(
@@ -395,6 +451,41 @@ function DeduplicationCenterContent() {
             selected={selectedMerged}
             setSelected={setSelectedMerged}
             emptyMessage="No merged spreadsheet outputs found."
+          />
+        </ContentCard>
+
+        <ContentCard title="Completed">
+          <div className="mb-3 flex flex-wrap gap-2">
+            <button
+              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+              onClick={() => toggleAllCompletedInputs(true)}
+              disabled={!state?.completed_inputs?.length}
+            >
+              Select All
+            </button>
+
+            <button
+              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+              onClick={() => toggleAllCompletedInputs(false)}
+              disabled={!state?.completed_inputs?.length}
+            >
+              Clear Selection
+            </button>
+
+            <button
+              className="rounded-md bg-amber-700 px-3 py-2 text-sm text-white hover:bg-amber-600 disabled:opacity-50"
+              onClick={moveCompletedInputsBack}
+              disabled={!selectedCompletedInputBlobPaths.length || busy}
+            >
+              Move Back to Merged Outputs Available
+            </button>
+          </div>
+
+          <CsvSelectTable
+            files={state?.completed_inputs || []}
+            selected={selectedCompletedInputs}
+            setSelected={setSelectedCompletedInputs}
+            emptyMessage="No completed deduplication input files found."
           />
         </ContentCard>
 
