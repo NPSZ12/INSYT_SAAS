@@ -83,6 +83,12 @@ class RestoreSpreadsheetFilesRequest(BaseModel):
     client: str | None = None
     selected_blob_paths: list[str] = Field(default_factory=list)
 
+class GroupReadyCsvsRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    group_size: int = 50
+
 class ReworkCompletedSpreadsheetFilesRequest(BaseModel):
     workspace: str = "capture"
     project_id: str
@@ -368,6 +374,155 @@ def list_headers_row_1_csv_blobs(
 
     return files
 
+def list_ready_csv_groups(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    groups_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output/Ready_Groups",
+    )
+
+    grouped: dict[str, dict] = {}
+
+    for blob in container.list_blobs(name_starts_with=groups_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        relative = blob_path.replace(groups_prefix, "", 1)
+        parts = relative.split("/")
+
+        if len(parts) < 2:
+            continue
+
+        run_id = parts[0]
+        group_name = parts[1]
+        group_key = f"{run_id}/{group_name}"
+
+        if group_key not in grouped:
+            grouped[group_key] = {
+                "group_key": group_key,
+                "run_id": run_id,
+                "group_name": group_name,
+                "prefix": f"{groups_prefix}{run_id}/{group_name}/",
+                "csv_count": 0,
+                "manifest_blob": "",
+                "last_modified": "",
+            }
+
+        if file_name.lower().endswith(".json"):
+            grouped[group_key]["manifest_blob"] = blob_path
+        elif get_extension(file_name) == "csv":
+            grouped[group_key]["csv_count"] += 1
+
+        if blob.last_modified:
+            current = grouped[group_key].get("last_modified") or ""
+            blob_modified = blob.last_modified.isoformat()
+
+            if not current or blob_modified > current:
+                grouped[group_key]["last_modified"] = blob_modified
+
+    return sorted(
+        grouped.values(),
+        key=lambda item: item.get("last_modified") or "",
+        reverse=True,
+    )
+
+def create_ready_csv_folder_groups(
+    workspace: str,
+    project: str,
+    client: str | None,
+    group_size: int,
+):
+    if group_size <= 0:
+        raise ValueError("Group size must be greater than zero.")
+
+    ready_files = list_output_csv_blobs(
+        workspace=workspace,
+        project=project,
+        client=client,
+    )
+
+    if not ready_files:
+        raise ValueError("No Ready for Header Mapping / Merge CSVs found.")
+
+    container = get_workspace_container(workspace)
+
+    run_id = f"GROUPS_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+
+    groups_root_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder=f"source/spreadsheets/Output/Ready_Groups/{run_id}",
+    )
+
+    created_groups = []
+
+    for group_index in range(0, len(ready_files), group_size):
+        chunk = ready_files[group_index : group_index + group_size]
+        group_number = int(group_index / group_size) + 1
+        group_name = f"Group_{group_number:03d}"
+        group_prefix = f"{groups_root_prefix}{group_name}/"
+
+        copied_files = []
+
+        for item in chunk:
+            file_name = get_blob_file_name(item["blob_path"])
+            target_blob_path = f"{group_prefix}{file_name}"
+
+            copied_files.append(
+                copy_blob(
+                    container=container,
+                    source_blob_path=item["blob_path"],
+                    target_blob_path=target_blob_path,
+                )
+            )
+
+        manifest = {
+            "run_id": run_id,
+            "group_name": group_name,
+            "group_size": group_size,
+            "csv_count": len(copied_files),
+            "source_files": [item["source_blob_path"] for item in copied_files],
+            "group_files": [item["target_blob_path"] for item in copied_files],
+            "created_at": now_utc(),
+        }
+
+        manifest_blob = f"{group_prefix}manifest.json"
+
+        upload_text(
+            container=container,
+            blob_path=manifest_blob,
+            content=json.dumps(manifest, indent=2),
+        )
+
+        created_groups.append(
+            {
+                "run_id": run_id,
+                "group_name": group_name,
+                "prefix": group_prefix,
+                "manifest_blob": manifest_blob,
+                "csv_count": len(copied_files),
+            }
+        )
+
+    return {
+        "status": "completed",
+        "message": f"Created {len(created_groups)} ready CSV group(s).",
+        "run_id": run_id,
+        "group_size": group_size,
+        "source_csv_count": len(ready_files),
+        "created_groups": created_groups,
+    }
 
 def list_no_headers_row_1_csv_blobs(
     workspace: str,
@@ -2086,6 +2241,20 @@ def move_blob(container, source_blob_path: str, target_blob_path: str):
         "target_blob_path": target_blob_path,
     }
 
+def copy_blob(container, source_blob_path: str, target_blob_path: str):
+    data = container.download_blob(source_blob_path).readall()
+
+    container.upload_blob(
+        name=target_blob_path,
+        data=data,
+        overwrite=True,
+    )
+
+    return {
+        "source_blob_path": source_blob_path,
+        "target_blob_path": target_blob_path,
+    }
+
 def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
     temp_root = Path(tempfile.mkdtemp(prefix=f"xl_processing_{job_id}_"))
 
@@ -2526,6 +2695,11 @@ def get_xl_processing_center(
             project=project,
             client=client,
         ),
+        "ready_csv_groups": list_ready_csv_groups(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
         "merged_outputs": list_merged_output_blobs(
             workspace=workspace,
             project=project,
@@ -2547,7 +2721,35 @@ def get_xl_processing_center(
             client=client,
         ),
     }
-    
+
+@router.post("/xl-processing/group-ready-csvs")
+def group_ready_xl_csvs(payload: GroupReadyCsvsRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if payload.group_size <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Group size must be greater than zero.",
+        )
+
+    try:
+        return create_ready_csv_folder_groups(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            group_size=payload.group_size,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+   
 @router.get("/xl-processing/deduplication-center")
 def get_xl_deduplication_center(
     workspace: str = Query(default="capture"),

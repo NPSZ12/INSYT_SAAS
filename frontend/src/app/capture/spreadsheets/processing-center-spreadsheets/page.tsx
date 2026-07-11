@@ -28,6 +28,16 @@ type SpreadsheetFile = {
   matched_prefix?: string;
 };
 
+type ReadyCsvGroup = {
+  group_key: string;
+  run_id: string;
+  group_name: string;
+  prefix: string;
+  csv_count: number;
+  manifest_blob?: string;
+  last_modified?: string;
+};
+
 type XlJob = {
   job_id: string;
   status: string;
@@ -63,6 +73,7 @@ type XlProcessingCenterState = {
   headers_row_1_csvs: SpreadsheetFile[];
   no_headers_row_1_csvs: SpreadsheetFile[];
   output_csvs: SpreadsheetFile[];
+  ready_csv_groups: ReadyCsvGroup[];
   merged_outputs: SpreadsheetFile[];
   needs_header_review: SpreadsheetFile[];
   deleted_files: SpreadsheetFile[];
@@ -87,6 +98,77 @@ function fileSizeLabel(value?: string) {
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
 
   return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function countTitle(title: string, count: number | undefined) {
+  return `${title} (${count || 0})`;
+}
+
+function PaneRefreshButton({
+  onRefresh,
+  disabled,
+}: {
+  onRefresh: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      className="rounded-md bg-slate-800 px-2 py-1 text-xs text-white hover:bg-slate-700 disabled:opacity-50"
+      onClick={onRefresh}
+      disabled={disabled}
+    >
+      Refresh
+    </button>
+  );
+}
+
+function JobProgressSummary({ jobs }: { jobs: XlJob[] }) {
+  const activeJob = jobs.find((job) =>
+    ["queued", "running", "header_review_required", "final_merge_running"].includes(
+      String(job.status || "")
+    )
+  );
+
+  if (!activeJob) {
+    return (
+      <div className="mb-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-400">
+        No active XL processing job.
+      </div>
+    );
+  }
+
+  const processed = Number(activeJob.processed_files || 0);
+  const total = Number(activeJob.total_files || 0);
+  const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+  return (
+    <div className="mb-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-3">
+      <div className="mb-2 flex items-center justify-between text-sm">
+        <div className="text-slate-200">
+          Status: <span className="font-semibold">{activeJob.status}</span>
+        </div>
+
+        <div className="text-slate-400">
+          {processed}/{total || "?"} files
+        </div>
+      </div>
+
+      <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+        <div
+          className="h-2 rounded-full bg-emerald-600"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+
+      <div className="mt-2 text-xs text-slate-400">
+        {activeJob.message || "Processing..."}
+      </div>
+
+      <div className="mt-1 font-mono text-[11px] text-slate-500">
+        {activeJob.job_id}
+      </div>
+    </div>
+  );
 }
 
 function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string }) {
@@ -446,6 +528,44 @@ function WorkflowFilesTable({
   );
 }
 
+function ReadyCsvGroupsTable({ groups }: { groups: ReadyCsvGroup[] }) {
+  return (
+    <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr>
+            <th className="px-3 py-2">Run</th>
+            <th className="px-3 py-2">Group</th>
+            <th className="px-3 py-2">CSV Count</th>
+            <th className="px-3 py-2">Prefix</th>
+            <th className="px-3 py-2">Last Modified</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {groups.length ? (
+            groups.map((group) => (
+              <tr key={group.group_key} className="border-t border-slate-800">
+                <td className="px-3 py-2 text-slate-100">{group.run_id}</td>
+                <td className="px-3 py-2 text-slate-100">{group.group_name}</td>
+                <td className="px-3 py-2 text-slate-300">{group.csv_count}</td>
+                <td className="px-3 py-2 font-mono text-xs text-slate-400">
+                  {group.prefix}
+                </td>
+                <td className="px-3 py-2 text-slate-300">
+                  {formatDate(group.last_modified)}
+                </td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow colSpan={5} message="No ready CSV folder groups found." />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function normalizeHeaderText(value: string) {
   return String(value || "")
     .trim()
@@ -556,6 +676,8 @@ function SpreadsheetProcessingCenterPageContent() {
 
   const [projectHeaderOptions, setProjectHeaderOptions] = useState<string[]>([]);
   const [headerLibraryMessage, setHeaderLibraryMessage] = useState("");
+  const [customGroupSize, setCustomGroupSize] = useState("50");
+
 
   const selectedSourceBlobPaths = useMemo(
     () =>
@@ -941,6 +1063,38 @@ function SpreadsheetProcessingCenterPageContent() {
     }
   }
 
+  async function createReadyCsvGroups(groupSize: number) {
+    if (!groupSize || groupSize <= 0) {
+      setMessage("Enter a valid group size.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Create folder groups of ${groupSize} from all Ready for Header Mapping / Merge CSVs?`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost("/api/cyber-utility/xl-processing/group-ready-csvs", {
+        workspace,
+        client: clientId,
+        project_id: projectId,
+        group_size: groupSize,
+      });
+
+      setMessage(result.message || "Ready CSV groups created.");
+      await refreshCenter();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to create ready CSV groups.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function toggleAllSourceFiles(selected: boolean) {
     const next: Record<string, boolean> = {};
 
@@ -997,7 +1151,7 @@ function SpreadsheetProcessingCenterPageContent() {
       <PageContainer>
         <PageHeader
           title="Processing Center - Spreadsheets"
-          subtitle="Convert Excel files to CSV, review headers, build merged outputs, and re-merge spreadsheet phases."
+          subtitle="Review headers, build merged outputs, and re-merge spreadsheet phases."
         />
 
         {message ? (
@@ -1042,22 +1196,6 @@ function SpreadsheetProcessingCenterPageContent() {
               disabled={busy}
             >
               Run Processing
-            </button>
-
-            <button
-              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-              onClick={() => toggleAllSourceFiles(true)}
-              disabled={!state?.source_files?.length}
-            >
-              Select All Source Files
-            </button>
-
-            <button
-              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-              onClick={() => toggleAllSourceFiles(false)}
-              disabled={!state?.source_files?.length}
-            >
-              Clear Source Selection
             </button>
           </div>
 
@@ -1145,7 +1283,11 @@ function SpreadsheetProcessingCenterPageContent() {
           </ContentCard>
         ) : null}
 
-        <ContentCard title="Source XL / CSV Files">
+        <ContentCard title={countTitle("Source XL / CSV Files", state?.source_files?.length)}>
+          <div className="mb-3 flex justify-end">
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
+
           <SourceFilesTable
             files={state?.source_files || []}
             selectedSourceFiles={selectedSourceFiles}
@@ -1154,14 +1296,24 @@ function SpreadsheetProcessingCenterPageContent() {
           />
         </ContentCard>
 
-        <ContentCard title="In Progress">
+        <ContentCard title={countTitle("In Progress", state?.in_progress_files?.length)}>
+          <div className="mb-3 flex justify-end">
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
+
+          <JobProgressSummary jobs={state?.jobs || []} />
+
           <WorkflowFilesTable
             files={state?.in_progress_files || []}
             emptyMessage="No spreadsheet files are currently in progress."
           />
         </ContentCard>
 
-        <ContentCard title="Headers in Row 1">
+        <ContentCard title={countTitle("Headers in Row 1", state?.headers_row_1_csvs?.length)}>
+          <div className="mb-3 flex justify-end">
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
+
           <SimpleFilesTable
             files={state?.headers_row_1_csvs || []}
             emptyMessage="No converted CSVs with headers in Row 1 found."
@@ -1169,7 +1321,11 @@ function SpreadsheetProcessingCenterPageContent() {
           />
         </ContentCard>
 
-        <ContentCard title="No Headers in Row 1">
+        <ContentCard title={countTitle("No Headers in Row 1", state?.no_headers_row_1_csvs?.length)}>
+          <div className="mb-3 flex justify-end">
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
+
           <SimpleFilesTable
             files={state?.no_headers_row_1_csvs || []}
             emptyMessage="No converted CSVs without headers in Row 1 found."
@@ -1178,7 +1334,7 @@ function SpreadsheetProcessingCenterPageContent() {
         </ContentCard>
 
         {isAdmin ? (
-          <ContentCard title="Completed">
+          <ContentCard title={countTitle("Completed", state?.completed_files?.length)}>
             <div className="mb-3 flex flex-wrap gap-2">
               <button
                 className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
@@ -1203,6 +1359,7 @@ function SpreadsheetProcessingCenterPageContent() {
               >
                 Send Back to In Progress
               </button>
+              <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
             </div>
 
             <WorkflowFilesTable
@@ -1214,7 +1371,11 @@ function SpreadsheetProcessingCenterPageContent() {
             />
           </ContentCard>
         ) : (
-          <ContentCard title="Completed">
+          <ContentCard title={countTitle("Completed", state?.completed_files?.length)}>
+            <div className="mb-3 flex justify-end">
+              <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+            </div>
+
             <WorkflowFilesTable
               files={state?.completed_files || []}
               emptyMessage="No completed spreadsheet files found."
@@ -1222,7 +1383,10 @@ function SpreadsheetProcessingCenterPageContent() {
           </ContentCard>
         )}
 
-        <ContentCard title="XL Processing Jobs">
+        <ContentCard title={countTitle("XL Processing Jobs", state?.jobs?.length)}>
+          <div className="mb-3 flex justify-end">
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
           <JobsTable
             jobs={state?.jobs || []}
             onOpenHeaderReview={async (job) => {
@@ -1233,31 +1397,69 @@ function SpreadsheetProcessingCenterPageContent() {
           />
         </ContentCard>
 
-        <ContentCard title="Ready for Header Mapping / Merge">
-          <div className="mb-3 flex flex-wrap gap-2">
-            <button
-              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-              onClick={() => toggleAllOutputCsvs(true)}
-              disabled={!state?.output_csvs?.length}
-            >
-              Select All
-            </button>
+        <ContentCard title={countTitle("Ready for Header Mapping / Merge", state?.output_csvs?.length)}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => toggleAllOutputCsvs(true)}
+                disabled={!state?.output_csvs?.length}
+              >
+                Select All
+              </button>
 
-            <button
-              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-              onClick={() => toggleAllOutputCsvs(false)}
-              disabled={!state?.output_csvs?.length}
-            >
-              Clear
-            </button>
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => toggleAllOutputCsvs(false)}
+                disabled={!state?.output_csvs?.length}
+              >
+                Clear
+              </button>
 
-            <button
-              className="rounded-md bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-600 disabled:opacity-50"
-              onClick={mergeSelectedOutputs}
-              disabled={!selectedOutputBlobPaths.length || busy}
-            >
-              Merge Selected CSVs
-            </button>
+              <button
+                className="rounded-md bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-600 disabled:opacity-50"
+                onClick={mergeSelectedOutputs}
+                disabled={!selectedOutputBlobPaths.length || busy}
+              >
+                Merge Selected CSVs
+              </button>
+            </div>
+
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
+
+          <div className="mb-3 rounded-md border border-slate-800 bg-slate-950 p-3">
+            <div className="mb-2 text-sm font-semibold text-slate-200">
+              Create Folder Groups
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {[50, 100, 200].map((size) => (
+                <button
+                  key={size}
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                  onClick={() => createReadyCsvGroups(size)}
+                  disabled={!state?.output_csvs?.length || busy}
+                >
+                  Groups of {size}
+                </button>
+              ))}
+
+              <input
+                className="w-24 rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-sm text-slate-100"
+                value={customGroupSize}
+                onChange={(event) => setCustomGroupSize(event.target.value)}
+                placeholder="Custom"
+              />
+
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => createReadyCsvGroups(Number(customGroupSize))}
+                disabled={!state?.output_csvs?.length || busy}
+              >
+                Custom
+              </button>
+            </div>
           </div>
 
           <OutputCsvsTable
@@ -1267,7 +1469,18 @@ function SpreadsheetProcessingCenterPageContent() {
           />
         </ContentCard>
 
-        <ContentCard title="Merged Outputs">
+        <ContentCard title={countTitle("Ready CSV Folder Groups", state?.ready_csv_groups?.length)}>
+          <div className="mb-3 flex justify-end">
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
+
+          <ReadyCsvGroupsTable groups={state?.ready_csv_groups || []} />
+        </ContentCard>
+
+        <ContentCard title={countTitle("Merged Outputs", state?.merged_outputs?.length)}>
+          <div className="mb-3 flex justify-end">
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
           <SimpleFilesTable
             files={state?.merged_outputs || []}
             emptyMessage="No merged outputs found."
@@ -1276,7 +1489,10 @@ function SpreadsheetProcessingCenterPageContent() {
           />
         </ContentCard>
 
-        <ContentCard title="Needs Header Review">
+        <ContentCard title={countTitle("Needs Header Review", state?.needs_header_review?.length)}>
+          <div className="mb-3 flex justify-end">
+            <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
+          </div>
           <SimpleFilesTable
             files={state?.needs_header_review || []}
             emptyMessage="No files currently need header review."
@@ -1285,7 +1501,7 @@ function SpreadsheetProcessingCenterPageContent() {
         </ContentCard>
 
         {isAdmin ? (
-          <ContentCard title="Deleted Files">
+          <ContentCard title={countTitle("Deleted Files", state?.deleted_files?.length)}>
             <div className="mb-3 flex flex-wrap gap-2">
               <button
                 className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
@@ -1310,6 +1526,7 @@ function SpreadsheetProcessingCenterPageContent() {
               >
                 Reupload to Project
               </button>
+              <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
             </div>
 
             <DeletedFilesTable
