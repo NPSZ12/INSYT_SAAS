@@ -493,7 +493,7 @@ export default function ProjectSidebar() {
       icon: FileText,
     },
     {
-      label: "Processing Center",
+      label: "Processing Center - Initial Ingestion",
       href: isSummaries
         ? `/summaries/processing-center${projectQuery}`
         : isDiscovery
