@@ -461,6 +461,7 @@ export default function ProjectSidebar() {
       "Batch Management",
       "Processing Center",
       "Processing Center - Spreadsheets",
+      "Processing Center - Deduplication",
       "Overlays / Final Deliverables",
       "Search Folders",
       "Files",
@@ -505,6 +506,11 @@ export default function ProjectSidebar() {
           {
             label: "Processing Center - Spreadsheets",
             href: `/capture/spreadsheets/processing-center-spreadsheets${projectQuery}`,
+            icon: Database,
+          },
+          {
+            label: "Processing Center - Deduplication",
+            href: `/capture/spreadsheets/processing-center-deduplication${projectQuery}`,
             icon: Database,
           },
         ]

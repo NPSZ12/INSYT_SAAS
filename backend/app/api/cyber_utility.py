@@ -53,6 +53,17 @@ class MergeSelectedCsvsRequest(BaseModel):
     delimiter: str = ","
     output_name: str | None = None
 
+class DedupeCsvsRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    selected_csv_blobs: list[str] = Field(default_factory=list)
+    dedupe_headers: list[str] = Field(default_factory=list)
+    merge_delimiter: str = " | "
+    enable_fuzzy: bool = False
+    fuzzy_threshold: float = 0.85
+    output_name: str | None = None
+
 class DeleteSpreadsheetFilesRequest(BaseModel):
     workspace: str = "capture"
     project_id: str
@@ -373,6 +384,47 @@ def list_merged_output_blobs(
         lower_name = file_name.lower()
 
         if not lower_name.startswith("final_merged_output"):
+            continue
+
+        if get_extension(file_name) != "csv":
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+            }
+        )
+
+    return files
+
+def list_deduplication_output_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    dedupe_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Deduplication",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=dedupe_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
             continue
 
         if get_extension(file_name) != "csv":
@@ -904,6 +956,295 @@ def rebuild_master_csv_from_selected_outputs(
             "message": "Selected CSV files merged.",
             "final_output_blob": final_blob,
             "merged_input_files": merged_input_files,
+        }
+
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+NAME_DEDUPE_COLUMNS = {"first name", "middle name", "last name"}
+
+
+def merge_series_values(series, delimiter: str):
+    unique_values = []
+
+    for value in series.fillna("").astype(str).tolist():
+        clean_value = str(value or "").strip()
+
+        if not clean_value:
+            continue
+
+        if clean_value not in unique_values:
+            unique_values.append(clean_value)
+
+    return delimiter.join(unique_values)
+
+
+def split_name_dedupe_columns(selected_cols: list[str]) -> tuple[list[str], list[str]]:
+    name_cols = [
+        col
+        for col in selected_cols
+        if str(col).strip().lower() in NAME_DEDUPE_COLUMNS
+    ]
+
+    other_cols = [
+        col
+        for col in selected_cols
+        if str(col).strip().lower() not in NAME_DEDUPE_COLUMNS
+    ]
+
+    return name_cols, other_cols
+
+
+def build_name_dedupe_key(row, name_cols: list[str]) -> str:
+    return " ".join(str(row[col]).strip() for col in name_cols).strip()
+
+
+def fuzzy_match_ratio(value_a: str, value_b: str) -> float:
+    return SequenceMatcher(None, value_a, value_b).ratio()
+
+
+def should_use_fuzzy_dedupe(selected_cols: list[str]) -> bool:
+    return any(
+        str(col).strip().lower() in NAME_DEDUPE_COLUMNS
+        for col in selected_cols
+    )
+
+
+def dedupe_dataframe(
+    df: pd.DataFrame,
+    selected_cols: list[str],
+    merge_delimiter: str,
+    enable_fuzzy: bool,
+    fuzzy_threshold: float,
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    if not selected_cols:
+        raise ValueError("Select at least one header for deduplication.")
+
+    missing_cols = [
+        col
+        for col in selected_cols
+        if col not in df.columns
+    ]
+
+    if missing_cols:
+        raise ValueError(
+            "Selected dedupe header(s) not found in CSV: "
+            + ", ".join(missing_cols)
+        )
+
+    df = df.fillna("").astype(str)
+
+    name_cols, other_cols = split_name_dedupe_columns(selected_cols)
+
+    use_fuzzy = bool(enable_fuzzy and name_cols)
+
+    clusters = []
+    used = set()
+
+    for i in range(len(df)):
+        if i in used:
+            continue
+
+        group = [i]
+        row_i = df.iloc[i]
+
+        name_i = (
+            build_name_dedupe_key(row_i, name_cols)
+            if name_cols
+            else ""
+        )
+
+        for j in range(i + 1, len(df)):
+            if j in used:
+                continue
+
+            row_j = df.iloc[j]
+
+            exact_ok = True
+
+            for col in other_cols:
+                if str(row_i[col]).strip() != str(row_j[col]).strip():
+                    exact_ok = False
+                    break
+
+            if not exact_ok:
+                continue
+
+            if use_fuzzy:
+                name_j = build_name_dedupe_key(row_j, name_cols)
+                score = fuzzy_match_ratio(name_i, name_j)
+
+                if score >= fuzzy_threshold:
+                    group.append(j)
+                    used.add(j)
+            else:
+                names_exact = True
+
+                for col in name_cols:
+                    if str(row_i[col]).strip() != str(row_j[col]).strip():
+                        names_exact = False
+                        break
+
+                if names_exact:
+                    group.append(j)
+                    used.add(j)
+
+        used.add(i)
+        clusters.append(group)
+
+    rows = []
+
+    for group in clusters:
+        merged = df.loc[group].agg(lambda series: merge_series_values(series, merge_delimiter))
+        rows.append(merged)
+
+    return pd.DataFrame(rows)
+
+def dedupe_selected_merged_outputs(
+    workspace: str,
+    project: str,
+    client: str | None,
+    selected_csv_blobs: list[str],
+    dedupe_headers: list[str],
+    merge_delimiter: str = " | ",
+    enable_fuzzy: bool = False,
+    fuzzy_threshold: float = 0.85,
+    output_name: str | None = None,
+):
+    container = get_workspace_container(workspace)
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    dedupe_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Deduplication",
+    )
+
+    if not selected_csv_blobs:
+        raise ValueError("Select at least one merged CSV file.")
+
+    temp_root = Path(tempfile.mkdtemp(prefix="xl_dedupe_"))
+
+    try:
+        input_dir = temp_root / "input"
+        output_dir = temp_root / "output"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        frames = []
+        input_files = []
+
+        for blob_path in selected_csv_blobs:
+            if not blob_path.startswith(output_prefix):
+                raise ValueError(f"Selected file is not in spreadsheet Output: {blob_path}")
+
+            file_name = get_blob_file_name(blob_path)
+
+            if get_extension(file_name) != "csv":
+                continue
+
+            local_path = input_dir / file_name
+
+            download_blob_to_file(
+                container=container,
+                blob_path=blob_path,
+                local_path=local_path,
+            )
+
+            df = pd.read_csv(
+                local_path,
+                dtype=str,
+                keep_default_na=False,
+            ).fillna("")
+
+            if "Source Merge File" not in df.columns:
+                df.insert(0, "Source Merge File", file_name)
+
+            frames.append(df)
+            input_files.append(blob_path)
+
+        if not frames:
+            raise ValueError("No valid CSV files selected for deduplication.")
+
+        combined_df = pd.concat(frames, ignore_index=True, sort=False).fillna("")
+
+        deduped_df = dedupe_dataframe(
+            df=combined_df,
+            selected_cols=dedupe_headers,
+            merge_delimiter=merge_delimiter,
+            enable_fuzzy=enable_fuzzy,
+            fuzzy_threshold=fuzzy_threshold,
+        )
+
+        safe_output_name = str(output_name or "").strip()
+
+        if not safe_output_name:
+            safe_output_name = (
+                "DEDUPED_OUTPUT_"
+                f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+
+        if not safe_output_name.lower().endswith(".csv"):
+            safe_output_name = f"{safe_output_name}.csv"
+
+        safe_output_name = safe_output_name.replace("/", "_").replace("\\", "_")
+
+        local_output = output_dir / safe_output_name
+
+        deduped_df.to_csv(
+            local_output,
+            index=False,
+            encoding="utf-8-sig",
+        )
+
+        output_blob = f"{dedupe_prefix}{safe_output_name}"
+
+        upload_file(
+            container=container,
+            blob_path=output_blob,
+            local_path=local_output,
+        )
+
+        log = {
+            "status": "completed",
+            "input_files": input_files,
+            "output_blob": output_blob,
+            "rows_in": len(combined_df),
+            "rows_out": len(deduped_df),
+            "dedupe_headers": dedupe_headers,
+            "merge_delimiter": merge_delimiter,
+            "enable_fuzzy": enable_fuzzy,
+            "fuzzy_threshold": fuzzy_threshold,
+            "completed_at": now_utc(),
+        }
+
+        log_blob = f"{dedupe_prefix}{safe_output_name.rsplit('.', 1)[0]}_log.json"
+
+        upload_text(
+            container=container,
+            blob_path=log_blob,
+            content=json.dumps(log, indent=2),
+        )
+
+        return {
+            "status": "completed",
+            "message": "Deduplication completed.",
+            "input_files": input_files,
+            "output_blob": output_blob,
+            "log_blob": log_blob,
+            "rows_in": len(combined_df),
+            "rows_out": len(deduped_df),
+            "dedupe_headers": dedupe_headers,
         }
 
     finally:
@@ -2011,6 +2352,34 @@ def get_xl_processing_center(
             client=client,
         ),
     }
+    
+@router.get("/xl-processing/deduplication-center")
+def get_xl_deduplication_center(
+    workspace: str = Query(default="capture"),
+    project: str = Query(...),
+    client: str | None = Query(default=None),
+):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    return {
+        "workspace": workspace,
+        "client": clean_folder(client) if client else "",
+        "project": clean_folder(project),
+        "merged_outputs": list_merged_output_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "deduped_outputs": list_deduplication_output_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+    }
 
 @router.post("/xl-processing/delete-files")
 def delete_spreadsheet_files(payload: DeleteSpreadsheetFilesRequest):
@@ -2399,6 +2768,47 @@ def merge_selected_xl_csvs(payload: MergeSelectedCsvsRequest):
 
     return result
 
+@router.post("/xl-processing/dedupe-selected")
+def dedupe_selected_xl_csvs(payload: DedupeCsvsRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if not payload.selected_csv_blobs:
+        raise HTTPException(
+            status_code=400,
+            detail="No merged CSV files selected for deduplication.",
+        )
+
+    if not payload.dedupe_headers:
+        raise HTTPException(
+            status_code=400,
+            detail="No dedupe headers selected.",
+        )
+
+    try:
+        result = dedupe_selected_merged_outputs(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            selected_csv_blobs=payload.selected_csv_blobs,
+            dedupe_headers=payload.dedupe_headers,
+            merge_delimiter=payload.merge_delimiter,
+            enable_fuzzy=payload.enable_fuzzy,
+            fuzzy_threshold=payload.fuzzy_threshold,
+            output_name=payload.output_name,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+    return result
+
 @router.get("/xl-processing/open-output")
 def open_xl_processing_output(
     workspace: str = Query(default="capture"),
@@ -2419,10 +2829,17 @@ def open_xl_processing_output(
         folder="source/spreadsheets/Output",
     )
 
-    if not blob_path.startswith(output_prefix):
+    dedupe_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Deduplication",
+    )
+
+    if not blob_path.startswith(output_prefix) and not blob_path.startswith(dedupe_prefix):
         raise HTTPException(
             status_code=400,
-            detail="Requested file is not in spreadsheet Output.",
+            detail="Requested file is not in spreadsheet Output or Deduplication.",
         )
 
     file_name = get_blob_file_name(blob_path)
