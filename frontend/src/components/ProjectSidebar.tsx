@@ -521,11 +521,6 @@ export default function ProjectSidebar() {
       icon: UploadCloud,
     },
     {
-      label: "Overlays / Final Deliverables",
-      href: `/project-management/upload-overlay${overlaysQuery}`,
-      icon: UploadCloud,
-    },
-    {
       label: "Batches",
       href: `${workspaceBase}/batches${projectQuery}`,
       icon: Layers,

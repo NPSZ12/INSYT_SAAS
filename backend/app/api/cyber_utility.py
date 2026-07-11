@@ -2979,6 +2979,85 @@ def open_xl_processing_output(
         },
     )
 
+@router.get("/xl-processing/csv-headers")
+def get_xl_processing_csv_headers(
+    workspace: str = Query(default="capture"),
+    project: str = Query(...),
+    client: str | None = Query(default=None),
+    blob_path: str = Query(...),
+):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    dedupe_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Deduplication",
+    )
+
+    if not blob_path.startswith(output_prefix) and not blob_path.startswith(dedupe_prefix):
+        raise HTTPException(
+            status_code=400,
+            detail="CSV headers can only be read from spreadsheet Output or Deduplication files.",
+        )
+
+    file_name = get_blob_file_name(blob_path)
+
+    if get_extension(file_name) != "csv":
+        raise HTTPException(
+            status_code=400,
+            detail="Selected file is not a CSV.",
+        )
+
+    container = get_workspace_container(workspace)
+
+    temp_root = Path(tempfile.mkdtemp(prefix="xl_csv_headers_"))
+
+    try:
+        local_path = temp_root / file_name
+
+        download_blob_to_file(
+            container=container,
+            blob_path=blob_path,
+            local_path=local_path,
+        )
+
+        df = pd.read_csv(
+            local_path,
+            dtype=str,
+            nrows=0,
+            keep_default_na=False,
+        )
+
+        headers = [
+            str(column or "").strip()
+            for column in df.columns.tolist()
+            if str(column or "").strip()
+        ]
+
+        return {
+            "workspace": workspace,
+            "client": clean_folder(client) if client else "",
+            "project": clean_folder(project),
+            "blob_path": blob_path,
+            "file_name": file_name,
+            "headers": headers,
+        }
+
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
 @router.post("/jobs")
 def create_utility_job(
     payload: UtilityJobRequest,

@@ -244,27 +244,28 @@ function DeduplicationCenterContent() {
     try {
       const firstBlob = selectedMergedBlobPaths[0];
 
-      const url =
-        `/api/cyber-utility/xl-processing/open-output?workspace=${encodeURIComponent(
+      const data = await apiGet(
+        `/api/cyber-utility/xl-processing/csv-headers?workspace=${encodeURIComponent(
           workspace
         )}&client=${encodeURIComponent(clientId)}&project=${encodeURIComponent(
           projectId
-        )}&blob_path=${encodeURIComponent(firstBlob)}`;
+        )}&blob_path=${encodeURIComponent(firstBlob)}`
+      );
 
-      const response = await fetch(url);
-      const text = await response.text();
+      const headers = Array.isArray(data.headers) ? data.headers : [];
 
-      const firstLine = text.split(/\r?\n/)[0] || "";
-      const headers = firstLine
-        .split(",")
-        .map((header) => header.replace(/^"|"$/g, "").trim())
-        .filter(Boolean);
+      if (!headers.length) {
+        setAvailableHeaders([]);
+        setMessage("No headers found in the selected merged CSV.");
+        return;
+      }
 
       setAvailableHeaders(headers);
       setDedupeHeaders([]);
       setShowDedupeModal(true);
     } catch (err: any) {
-      setMessage(err?.message || "Failed to load CSV headers.");
+      setAvailableHeaders([]);
+      setMessage(err?.message || "Failed to load merged CSV headers.");
     } finally {
       setBusy(false);
     }
