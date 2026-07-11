@@ -310,34 +310,37 @@ def list_output_csv_blobs(
     project: str,
     client: str | None,
 ):
-    container = get_workspace_container(workspace)
-
-    output_prefix = build_canonical_project_prefix(
+    """
+    Converted CSV outputs eligible for header extraction and merge.
+    These are only the converted CSVs that have usable headers in Row 1.
+    """
+    return list_headers_row_1_csv_blobs(
         workspace=workspace,
         project=project,
         client=client,
-        folder="source/spreadsheets/Output",
     )
 
-    excluded = {
-        "Merged_Headers.csv",
-        "header_merge_map.csv",
-        "FINAL_MERGED_OUTPUT.csv",
-    }
+def list_headers_row_1_csv_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output/Headers_Row_1",
+    )
 
     files = []
 
-    for blob in container.list_blobs(name_starts_with=output_prefix):
+    for blob in container.list_blobs(name_starts_with=prefix):
         blob_path = blob.name
         file_name = get_blob_file_name(blob_path)
 
         if not file_name:
-            continue
-
-        if file_name in excluded:
-            continue
-
-        if file_name.lower().startswith("final_merged_output"):
             continue
 
         if get_extension(file_name) != "csv":
@@ -353,6 +356,50 @@ def list_output_csv_blobs(
                     if blob.last_modified
                     else ""
                 ),
+                "status": "Headers in Row 1",
+            }
+        )
+
+    return files
+
+
+def list_no_headers_row_1_csv_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output/No_Headers_Row_1",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        if get_extension(file_name) != "csv":
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+                "status": "No Headers in Row 1",
             }
         )
 
@@ -1302,6 +1349,68 @@ def row_has_meaningful_headers(headers: list[str]) -> bool:
 def dataframe_has_headers(df: pd.DataFrame) -> bool:
     return row_has_meaningful_headers([str(c) for c in df.columns.tolist()])
 
+def csv_file_has_headers_in_row_1(csv_path: Path, delimiter: str = ",") -> bool:
+    """
+    Determines whether a converted CSV appears to have real headers in Row 1.
+
+    Reads the CSV normally and evaluates the resulting DataFrame columns.
+    This matches the current processing assumption that Row 1 becomes df.columns.
+    """
+    try:
+        df = pd.read_csv(
+            csv_path,
+            sep=delimiter,
+            dtype=str,
+            nrows=25,
+            keep_default_na=False,
+        ).fillna("")
+
+        return dataframe_has_headers(df)
+
+    except Exception:
+        return False
+
+def upload_classified_converted_csv(
+    container,
+    local_csv_path: Path,
+    workspace: str,
+    project: str,
+    client: str | None,
+    delimiter: str,
+):
+    has_headers = csv_file_has_headers_in_row_1(
+        csv_path=local_csv_path,
+        delimiter=delimiter,
+    )
+
+    folder = (
+        "source/spreadsheets/Output/Headers_Row_1"
+        if has_headers
+        else "source/spreadsheets/Output/No_Headers_Row_1"
+    )
+
+    target_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder=folder,
+    )
+
+    target_blob = f"{target_prefix}{local_csv_path.name}"
+
+    upload_file(
+        container=container,
+        blob_path=target_blob,
+        local_path=local_csv_path,
+    )
+
+    return {
+        "file_name": local_csv_path.name,
+        "blob_path": target_blob,
+        "has_headers_in_row_1": has_headers,
+        "status": "Headers in Row 1" if has_headers else "No Headers in Row 1",
+    }
+
 def get_protocol_folder_prefix(
     workspace: str,
     project: str,
@@ -2074,23 +2183,6 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
                     df = pd.read_csv(local_input, sep=delimiter, dtype=str)
                     df = clean_dataframe(df)
 
-                    if not dataframe_has_headers(df):
-                        review_item = copy_blob_to_review_location(
-                            container=container,
-                            source_blob_path=working_blob_path,
-                            review_prefix=needs_review_prefix,
-                            reason="CSV appears to have no usable header row.",
-                        )
-                        files_needing_header_review.append(review_item)
-                        processed.append(working_blob_path)
-
-                        try:
-                            container.delete_blob(processing_blob)
-                        except Exception:
-                            pass
-
-                        continue
-
                     if extract_headers:
                         merged_headers.update(map(str, df.columns.tolist()))
 
@@ -2108,16 +2200,6 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
                             dtype=str,
                         )
                         df = clean_dataframe(df)
-
-                        if not dataframe_has_headers(df):
-                            review_item = copy_blob_to_review_location(
-                                container=container,
-                                source_blob_path=working_blob_path,
-                                review_prefix=needs_review_prefix,
-                                reason=f"Excel sheet '{sheet}' appears to have no usable header row.",
-                            )
-                            files_needing_header_review.append(review_item)
-                            continue
 
                         if extract_headers:
                             merged_headers.update(map(str, df.columns.tolist()))
@@ -2194,16 +2276,28 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             if master_path:
                 output_files.append(master_path)
 
-        for csv_path in generated_csvs:
-            if csv_path not in output_files:
-                output_files.append(csv_path)
-
+        classified_csv_outputs = []
         uploaded_outputs = []
 
+        # Upload Merged_Headers.csv or other non-converted artifacts to normal Output root.
         for local_output in output_files:
             output_blob = f"{output_prefix}{local_output.name}"
             upload_file(container, output_blob, local_output)
             uploaded_outputs.append(output_blob)
+
+        # Converted CSVs are classified into Headers_Row_1 or No_Headers_Row_1.
+        for csv_path in generated_csvs:
+            classified = upload_classified_converted_csv(
+                container=container,
+                local_csv_path=csv_path,
+                workspace=workspace,
+                project=project,
+                client=client,
+                delimiter=delimiter,
+            )
+
+            classified_csv_outputs.append(classified)
+            uploaded_outputs.append(classified["blob_path"])
 
         log = {
             "job_id": job_id,
@@ -2216,6 +2310,13 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             "selected_files": selected_files,
             "in_progress_files": in_progress_files,
             "processed_files": processed,
+            "classified_csv_outputs": classified_csv_outputs,
+            "headers_row_1_csvs": [
+                item for item in classified_csv_outputs if item.get("has_headers_in_row_1")
+            ],
+            "no_headers_row_1_csvs": [
+                item for item in classified_csv_outputs if not item.get("has_headers_in_row_1")
+            ],
             "files_needing_header_review": files_needing_header_review,
             "errors": errors,
             "outputs": uploaded_outputs,
@@ -2247,6 +2348,13 @@ def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
             log_blob=log_blob,
             errors=errors,
             extracted_headers=header_review_rows,
+            classified_csv_outputs=classified_csv_outputs,
+            headers_row_1_csvs=[
+                item for item in classified_csv_outputs if item.get("has_headers_in_row_1")
+            ],
+            no_headers_row_1_csvs=[
+                item for item in classified_csv_outputs if not item.get("has_headers_in_row_1")
+            ],
             files_needing_header_review=files_needing_header_review,
             protocol=protocol,
             header_library_blob=header_library_blob,
@@ -2322,6 +2430,16 @@ def get_xl_processing_center(
             client=client,
         ),
         "completed_files": list_completed_spreadsheet_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "headers_row_1_csvs": list_headers_row_1_csv_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "no_headers_row_1_csvs": list_no_headers_row_1_csv_blobs(
             workspace=workspace,
             project=project,
             client=client,

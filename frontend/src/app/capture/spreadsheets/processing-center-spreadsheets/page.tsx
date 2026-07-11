@@ -60,6 +60,8 @@ type XlProcessingCenterState = {
   source_files: SpreadsheetFile[];
   in_progress_files: SpreadsheetFile[];
   completed_files: SpreadsheetFile[];
+  headers_row_1_csvs: SpreadsheetFile[];
+  no_headers_row_1_csvs: SpreadsheetFile[];
   output_csvs: SpreadsheetFile[];
   merged_outputs: SpreadsheetFile[];
   needs_header_review: SpreadsheetFile[];
@@ -1159,6 +1161,22 @@ function SpreadsheetProcessingCenterPageContent() {
           />
         </ContentCard>
 
+        <ContentCard title="Headers in Row 1">
+          <SimpleFilesTable
+            files={state?.headers_row_1_csvs || []}
+            emptyMessage="No converted CSVs with headers in Row 1 found."
+            pathLabel="CSV Blob Path"
+          />
+        </ContentCard>
+
+        <ContentCard title="No Headers in Row 1">
+          <SimpleFilesTable
+            files={state?.no_headers_row_1_csvs || []}
+            emptyMessage="No converted CSVs without headers in Row 1 found."
+            pathLabel="CSV Blob Path"
+          />
+        </ContentCard>
+
         {isAdmin ? (
           <ContentCard title="Completed">
             <div className="mb-3 flex flex-wrap gap-2">
@@ -1215,7 +1233,7 @@ function SpreadsheetProcessingCenterPageContent() {
           />
         </ContentCard>
 
-        <ContentCard title="Converted CSV Outputs">
+        <ContentCard title="Ready for Header Mapping / Merge">
           <div className="mb-3 flex flex-wrap gap-2">
             <button
               className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
