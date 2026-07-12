@@ -117,6 +117,30 @@ class ReworkCompletedSpreadsheetFilesRequest(BaseModel):
     project_id: str
     client: str | None = None
     selected_blob_paths: list[str] = Field(default_factory=list)
+    
+class CsvEditorSaveRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    blob_path: str
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict] = Field(default_factory=list)
+
+
+class CsvOutputActionRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    blob_path: str
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict] = Field(default_factory=list)
+
+
+class MergeCompletedDedupedRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    output_name: str | None = None
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -731,6 +755,12 @@ def list_deduplication_output_blobs(
     project: str,
     client: str | None,
 ):
+    """
+    Pending deduplicated outputs awaiting internal editor review.
+    Only includes CSV files directly under:
+      source/spreadsheets/Deduplication/
+    Excludes subfolders such as Completed and Completed_Inputs.
+    """
     container = get_workspace_container(workspace)
 
     dedupe_prefix = build_canonical_project_prefix(
@@ -752,6 +782,12 @@ def list_deduplication_output_blobs(
         if get_extension(file_name) != "csv":
             continue
 
+        relative = blob_path.replace(dedupe_prefix, "", 1)
+
+        # Only root-level dedupe CSVs. Skip nested folders.
+        if "/" in relative:
+            continue
+
         files.append(
             {
                 "file_name": file_name,
@@ -762,6 +798,49 @@ def list_deduplication_output_blobs(
                     if blob.last_modified
                     else ""
                 ),
+                "status": "Pending Review",
+            }
+        )
+
+    return files
+
+def list_completed_deduped_output_blobs(
+    workspace: str,
+    project: str,
+    client: str | None,
+):
+    container = get_workspace_container(workspace)
+
+    completed_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Deduplication/Completed",
+    )
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=completed_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        if get_extension(file_name) != "csv":
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+                "status": "Completed",
             }
         )
 
@@ -2478,6 +2557,113 @@ def unique_blob_path(container, desired_blob_path: str) -> str:
         except Exception:
             return candidate
 
+def validate_csv_editor_blob_path(
+    workspace: str,
+    project: str,
+    client: str | None,
+    blob_path: str,
+):
+    dedupe_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Deduplication",
+    )
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    final_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Final",
+    )
+
+    if (
+        not blob_path.startswith(dedupe_prefix)
+        and not blob_path.startswith(output_prefix)
+        and not blob_path.startswith(final_prefix)
+    ):
+        raise ValueError("CSV editor can only open spreadsheet Output, Deduplication, or Final files.")
+
+    file_name = get_blob_file_name(blob_path)
+
+    if get_extension(file_name) != "csv":
+        raise ValueError("Selected file is not a CSV.")
+
+    return file_name
+
+
+def dataframe_to_editor_payload(df: pd.DataFrame):
+    df = df.fillna("").astype(str)
+
+    columns = [str(column or "").strip() for column in df.columns.tolist()]
+    rows = df.to_dict(orient="records")
+
+    return columns, rows
+
+
+def editor_payload_to_dataframe(columns: list[str], rows: list[dict]) -> pd.DataFrame:
+    clean_columns = [
+        str(column or "").strip()
+        for column in columns
+        if str(column or "").strip()
+    ]
+
+    if not clean_columns:
+        raise ValueError("No columns provided.")
+
+    normalized_rows = []
+
+    for row in rows:
+        normalized_rows.append(
+            {
+                column: str(row.get(column, "") or "")
+                for column in clean_columns
+            }
+        )
+
+    return pd.DataFrame(normalized_rows, columns=clean_columns)
+
+
+def upload_editor_dataframe(
+    container,
+    blob_path: str,
+    columns: list[str],
+    rows: list[dict],
+):
+    temp_root = Path(tempfile.mkdtemp(prefix="csv_editor_save_"))
+
+    try:
+        local_path = temp_root / get_blob_file_name(blob_path)
+
+        df = editor_payload_to_dataframe(columns, rows)
+
+        df.to_csv(
+            local_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+
+        upload_file(
+            container=container,
+            blob_path=blob_path,
+            local_path=local_path,
+        )
+
+        return {
+            "row_count": len(df),
+            "column_count": len(df.columns),
+        }
+
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
 def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
     temp_root = Path(tempfile.mkdtemp(prefix=f"xl_processing_{job_id}_"))
 
@@ -3198,25 +3384,30 @@ def get_xl_deduplication_center(
         )
 
     return {
-    "workspace": workspace,
-    "client": clean_folder(client) if client else "",
-    "project": clean_folder(project),
-    "merged_outputs": list_merged_output_blobs(
-        workspace=workspace,
-        project=project,
-        client=client,
-    ),
-    "completed_inputs": list_completed_deduplication_input_blobs(
-        workspace=workspace,
-        project=project,
-        client=client,
-    ),
-    "deduped_outputs": list_deduplication_output_blobs(
-        workspace=workspace,
-        project=project,
-        client=client,
-    ),
-}
+        "workspace": workspace,
+        "client": clean_folder(client) if client else "",
+        "project": clean_folder(project),
+        "merged_outputs": list_merged_output_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "completed_inputs": list_completed_deduplication_input_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "deduped_outputs": list_deduplication_output_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+        "completed_deduped_outputs": list_completed_deduped_output_blobs(
+            workspace=workspace,
+            project=project,
+            client=client,
+        ),
+    }
 
 @router.post("/xl-processing/delete-files")
 def delete_spreadsheet_files(payload: DeleteSpreadsheetFilesRequest):
@@ -3837,6 +4028,312 @@ def get_xl_processing_csv_headers(
             "file_name": file_name,
             "headers": headers,
         }
+
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+@router.get("/xl-processing/csv-editor-data")
+def get_csv_editor_data(
+    workspace: str = Query(default="capture"),
+    project: str = Query(...),
+    client: str | None = Query(default=None),
+    blob_path: str = Query(...),
+    max_rows: int = Query(default=5000),
+):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    try:
+        file_name = validate_csv_editor_blob_path(
+            workspace=workspace,
+            project=project,
+            client=client,
+            blob_path=blob_path,
+        )
+
+        container = get_workspace_container(workspace)
+
+        temp_root = Path(tempfile.mkdtemp(prefix="csv_editor_load_"))
+
+        try:
+            local_path = temp_root / file_name
+
+            download_blob_to_file(
+                container=container,
+                blob_path=blob_path,
+                local_path=local_path,
+            )
+
+            df = pd.read_csv(
+                local_path,
+                dtype=str,
+                keep_default_na=False,
+            ).fillna("")
+
+            total_rows = len(df)
+
+            if max_rows and max_rows > 0:
+                df = df.head(max_rows)
+
+            columns, rows = dataframe_to_editor_payload(df)
+
+            return {
+                "workspace": workspace,
+                "client": clean_folder(client) if client else "",
+                "project": clean_folder(project),
+                "blob_path": blob_path,
+                "file_name": file_name,
+                "columns": columns,
+                "rows": rows,
+                "row_count": len(rows),
+                "total_rows": total_rows,
+                "truncated": total_rows > len(rows),
+            }
+
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+
+@router.post("/xl-processing/csv-editor-save")
+def save_csv_editor_data(payload: CsvEditorSaveRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    try:
+        validate_csv_editor_blob_path(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            blob_path=payload.blob_path,
+        )
+
+        container = get_workspace_container(payload.workspace)
+
+        stats = upload_editor_dataframe(
+            container=container,
+            blob_path=payload.blob_path,
+            columns=payload.columns,
+            rows=payload.rows,
+        )
+
+        return {
+            "status": "completed",
+            "message": "CSV editor changes saved.",
+            "blob_path": payload.blob_path,
+            **stats,
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+
+@router.post("/xl-processing/save-deduped-to-completed")
+def save_deduped_output_to_completed(payload: CsvOutputActionRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    try:
+        file_name = validate_csv_editor_blob_path(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            blob_path=payload.blob_path,
+        )
+
+        container = get_workspace_container(payload.workspace)
+
+        completed_prefix = build_canonical_project_prefix(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            folder="source/spreadsheets/Deduplication/Completed",
+        )
+
+        completed_blob = unique_blob_path(
+            container,
+            f"{completed_prefix}{file_name}",
+        )
+
+        stats = upload_editor_dataframe(
+            container=container,
+            blob_path=completed_blob,
+            columns=payload.columns,
+            rows=payload.rows,
+        )
+
+        try:
+            container.delete_blob(payload.blob_path)
+        except Exception:
+            pass
+
+        return {
+            "status": "completed",
+            "message": "Deduplicated output saved to Completed.",
+            "completed_blob": completed_blob,
+            "source_blob": payload.blob_path,
+            **stats,
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+
+@router.post("/xl-processing/delete-deduped-output")
+def delete_deduped_output(payload: CsvOutputActionRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    try:
+        validate_csv_editor_blob_path(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            blob_path=payload.blob_path,
+        )
+
+        container = get_workspace_container(payload.workspace)
+        container.delete_blob(payload.blob_path)
+
+        return {
+            "status": "completed",
+            "message": "Deduplicated output deleted.",
+            "deleted_blob": payload.blob_path,
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+
+@router.post("/xl-processing/merge-completed-deduped")
+def merge_completed_deduped_outputs(payload: MergeCompletedDedupedRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    completed_files = list_completed_deduped_output_blobs(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+    )
+
+    if not completed_files:
+        raise HTTPException(
+            status_code=400,
+            detail="No completed deduplicated outputs found to merge.",
+        )
+
+    container = get_workspace_container(payload.workspace)
+
+    final_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Final",
+    )
+
+    temp_root = Path(tempfile.mkdtemp(prefix="merge_completed_deduped_"))
+
+    try:
+        input_dir = temp_root / "input"
+        output_dir = temp_root / "output"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        frames = []
+
+        for item in completed_files:
+            file_name = get_blob_file_name(item["blob_path"])
+            local_path = input_dir / file_name
+
+            download_blob_to_file(
+                container=container,
+                blob_path=item["blob_path"],
+                local_path=local_path,
+            )
+
+            df = pd.read_csv(
+                local_path,
+                dtype=str,
+                keep_default_na=False,
+            ).fillna("")
+
+            if "Completed Source File" not in df.columns:
+                df.insert(0, "Completed Source File", file_name)
+
+            frames.append(df)
+
+        final_df = pd.concat(frames, ignore_index=True, sort=False).fillna("")
+        final_df = collapse_duplicate_columns(final_df)
+
+        output_name = str(payload.output_name or "").strip()
+
+        if not output_name:
+            output_name = "FINAL_SPREADSHEET_OUTPUT.csv"
+
+        if not output_name.lower().endswith(".csv"):
+            output_name = f"{output_name}.csv"
+
+        output_name = output_name.replace("/", "_").replace("\\", "_")
+
+        local_output = output_dir / output_name
+
+        final_df.to_csv(
+            local_output,
+            index=False,
+            encoding="utf-8-sig",
+        )
+
+        final_blob = f"{final_prefix}{output_name}"
+
+        upload_file(
+            container=container,
+            blob_path=final_blob,
+            local_path=local_output,
+        )
+
+        return {
+            "status": "completed",
+            "message": "Completed deduplicated outputs merged into final spreadsheet.",
+            "final_blob": final_blob,
+            "input_files": [item["blob_path"] for item in completed_files],
+            "row_count": len(final_df),
+            "column_count": len(final_df.columns),
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
 
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)

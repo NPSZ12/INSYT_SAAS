@@ -28,6 +28,7 @@ type DeduplicationCenterState = {
   merged_outputs: CsvFile[];
   completed_inputs: CsvFile[];
   deduped_outputs: CsvFile[];
+  completed_deduped_outputs: CsvFile[];
 };
 
 function formatDate(value?: string) {
@@ -396,15 +397,56 @@ function DeduplicationCenterContent() {
     }
   }
 
-  function openCsv(blobPath: string) {
-    const path =
-      `/api/cyber-utility/xl-processing/open-output?workspace=${encodeURIComponent(
-        workspace
-      )}&client=${encodeURIComponent(clientId)}&project=${encodeURIComponent(
-        projectId
-      )}&blob_path=${encodeURIComponent(blobPath)}`;
+  async function mergeCompletedDedupedOutputs() {
+    const confirmed = window.confirm(
+      "Merge all Completed deduplicated outputs into one final spreadsheet file?"
+    );
 
-    window.open(buildApiUrl(path), "_blank", "noopener,noreferrer");
+    if (!confirmed) return;
+
+    const outputName = window.prompt(
+      "Final spreadsheet filename:",
+      "FINAL_SPREADSHEET_OUTPUT.csv"
+    );
+
+    if (!outputName) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost("/api/cyber-utility/xl-processing/merge-completed-deduped", {
+        workspace,
+        client: clientId,
+        project_id: projectId,
+        output_name: outputName,
+      });
+
+      setMessage(
+        `${result.message || "Final spreadsheet created."} Rows: ${result.row_count}; Columns: ${result.column_count}`
+      );
+
+      await refreshCenter();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to merge Completed deduplicated outputs.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openCsv(blobPath: string) {
+    const params = new URLSearchParams({
+      workspace,
+      client: clientId,
+      project: projectId,
+      blob_path: blobPath,
+    });
+
+    window.open(
+      `/capture/spreadsheets/output-editor?${params.toString()}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   return (
@@ -466,46 +508,29 @@ function DeduplicationCenterContent() {
           />
         </ContentCard>
 
-        <ContentCard title="Completed">
-          <div className="mb-3 flex flex-wrap gap-2">
-            <button
-              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-              onClick={() => toggleAllCompletedInputs(true)}
-              disabled={!state?.completed_inputs?.length}
-            >
-              Select All
-            </button>
-
-            <button
-              className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-              onClick={() => toggleAllCompletedInputs(false)}
-              disabled={!state?.completed_inputs?.length}
-            >
-              Clear Selection
-            </button>
-
-            <button
-              className="rounded-md bg-amber-700 px-3 py-2 text-sm text-white hover:bg-amber-600 disabled:opacity-50"
-              onClick={moveCompletedInputsBack}
-              disabled={!selectedCompletedInputBlobPaths.length || busy}
-            >
-              Move Back to Merged Outputs Available
-            </button>
-          </div>
-
-          <CsvSelectTable
-            files={state?.completed_inputs || []}
-            selected={selectedCompletedInputs}
-            setSelected={setSelectedCompletedInputs}
-            emptyMessage="No completed deduplication input files found."
-          />
-        </ContentCard>
-
         <ContentCard title="Deduplicated Outputs">
           <OutputTable
             files={state?.deduped_outputs || []}
             onOpen={openCsv}
             emptyMessage="No deduplicated outputs found."
+          />
+        </ContentCard>
+
+        <ContentCard title="Completed">
+          <div className="mb-3 flex flex-wrap gap-2">
+            <button
+              className="rounded-md bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-600 disabled:opacity-50"
+              onClick={mergeCompletedDedupedOutputs}
+              disabled={!state?.completed_deduped_outputs?.length || busy}
+            >
+              Merge Completed to Final Spreadsheet
+            </button>
+          </div>
+
+          <OutputTable
+            files={state?.completed_deduped_outputs || []}
+            onOpen={openCsv}
+            emptyMessage="No completed deduplicated outputs found."
           />
         </ContentCard>
 
