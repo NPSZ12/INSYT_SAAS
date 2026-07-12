@@ -296,7 +296,7 @@ function OutputCsvsTable({
 }: {
   files: SpreadsheetFile[];
   selectedOutputCsvs: Record<string, boolean>;
-  setSelectedOutputCsvs: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  setSelectedOutputCsvs: Dispatch<SetStateAction<Record<string, boolean>>>;
 }) {
   return (
     <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
@@ -528,17 +528,31 @@ function WorkflowFilesTable({
   );
 }
 
-function ReadyCsvGroupsTable({ groups }: { groups: ReadyCsvGroup[] }) {
+function ReadyCsvGroupsTable({
+  groups,
+  selectedReadyGroups,
+  setSelectedReadyGroups,
+  onOpenGroup,
+  onDeleteGroup,
+}: {
+  groups: ReadyCsvGroup[];
+  selectedReadyGroups: Record<string, boolean>;
+  setSelectedReadyGroups: Dispatch<SetStateAction<Record<string, boolean>>>;
+  onOpenGroup: (group: ReadyCsvGroup) => void;
+  onDeleteGroup: (group: ReadyCsvGroup) => void;
+}) {
   return (
     <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-900 text-slate-300">
           <tr>
+            <th className="px-3 py-2"></th>
             <th className="px-3 py-2">Run</th>
             <th className="px-3 py-2">Group</th>
             <th className="px-3 py-2">CSV Count</th>
             <th className="px-3 py-2">Prefix</th>
             <th className="px-3 py-2">Last Modified</th>
+            <th className="px-3 py-2">Actions</th>
           </tr>
         </thead>
 
@@ -546,6 +560,19 @@ function ReadyCsvGroupsTable({ groups }: { groups: ReadyCsvGroup[] }) {
           {groups.length ? (
             groups.map((group) => (
               <tr key={group.group_key} className="border-t border-slate-800">
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedReadyGroups[group.prefix]}
+                    onChange={(event) =>
+                      setSelectedReadyGroups((current) => ({
+                        ...current,
+                        [group.prefix]: event.target.checked,
+                      }))
+                    }
+                  />
+                </td>
+
                 <td className="px-3 py-2 text-slate-100">{group.run_id}</td>
                 <td className="px-3 py-2 text-slate-100">{group.group_name}</td>
                 <td className="px-3 py-2 text-slate-300">{group.csv_count}</td>
@@ -555,10 +582,83 @@ function ReadyCsvGroupsTable({ groups }: { groups: ReadyCsvGroup[] }) {
                 <td className="px-3 py-2 text-slate-300">
                   {formatDate(group.last_modified)}
                 </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="rounded-md bg-slate-800 px-2 py-1 text-xs text-white hover:bg-slate-700"
+                      onClick={() => onOpenGroup(group)}
+                    >
+                      Open
+                    </button>
+
+                    <button
+                      className="rounded-md bg-red-700 px-2 py-1 text-xs text-white hover:bg-red-600"
+                      onClick={() => onDeleteGroup(group)}
+                    >
+                      Delete Folder
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))
           ) : (
-            <EmptyTableRow colSpan={5} message="No ready CSV folder groups found." />
+            <EmptyTableRow colSpan={7} message="No ready CSV folder groups found." />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReadyGroupFilesTable({
+  files,
+  selectedFiles,
+  setSelectedFiles,
+}: {
+  files: SpreadsheetFile[];
+  selectedFiles: Record<string, boolean>;
+  setSelectedFiles: Dispatch<SetStateAction<Record<string, boolean>>>;
+}) {
+  return (
+    <div className="max-h-72 overflow-auto rounded-md border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr>
+            <th className="px-3 py-2"></th>
+            <th className="px-3 py-2">File Name</th>
+            <th className="px-3 py-2">Blob Path</th>
+            <th className="px-3 py-2">Size</th>
+            <th className="px-3 py-2">Last Modified</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {files.length ? (
+            files.map((file) => (
+              <tr key={file.blob_path} className="border-t border-slate-800">
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedFiles[file.blob_path]}
+                    onChange={(event) =>
+                      setSelectedFiles((current) => ({
+                        ...current,
+                        [file.blob_path]: event.target.checked,
+                      }))
+                    }
+                  />
+                </td>
+
+                <td className="px-3 py-2 text-slate-100">{file.file_name}</td>
+                <td className="px-3 py-2 font-mono text-xs text-slate-400">
+                  {file.blob_path}
+                </td>
+                <td className="px-3 py-2 text-slate-300">{fileSizeLabel(file.size)}</td>
+                <td className="px-3 py-2 text-slate-300">{formatDate(file.last_modified)}</td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow colSpan={5} message="No files found in this Ready CSV folder." />
           )}
         </tbody>
       </table>
@@ -674,6 +774,11 @@ function SpreadsheetProcessingCenterPageContent() {
   const [activeHeaderJob, setActiveHeaderJob] = useState<XlJob | null>(null);
   const [headerRows, setHeaderRows] = useState<HeaderReviewRow[]>([]);
 
+  const [selectedReadyGroups, setSelectedReadyGroups] = useState<Record<string, boolean>>({});
+  const [activeReadyGroup, setActiveReadyGroup] = useState<ReadyCsvGroup | null>(null);
+  const [activeReadyGroupFiles, setActiveReadyGroupFiles] = useState<SpreadsheetFile[]>([]);
+  const [selectedReadyGroupFiles, setSelectedReadyGroupFiles] = useState<Record<string, boolean>>({});
+
   const [projectHeaderOptions, setProjectHeaderOptions] = useState<string[]>([]);
   const [headerLibraryMessage, setHeaderLibraryMessage] = useState("");
   const [customGroupSize, setCustomGroupSize] = useState("50");
@@ -709,6 +814,22 @@ function SpreadsheetProcessingCenterPageContent() {
         .filter(([, selected]) => selected)
         .map(([blob]) => blob),
     [selectedCompletedFiles]
+  );
+
+  const selectedReadyGroupPrefixes = useMemo(
+    () =>
+      Object.entries(selectedReadyGroups)
+        .filter(([, selected]) => selected)
+        .map(([prefix]) => prefix),
+    [selectedReadyGroups]
+  );
+
+  const selectedReadyGroupFileBlobPaths = useMemo(
+    () =>
+      Object.entries(selectedReadyGroupFiles)
+        .filter(([, selected]) => selected)
+        .map(([blob]) => blob),
+    [selectedReadyGroupFiles]
   );
 
   async function loadProjectHeaderOptions() {
@@ -1095,6 +1216,163 @@ function SpreadsheetProcessingCenterPageContent() {
     }
   }
 
+  function toggleAllReadyGroups(selected: boolean) {
+    const next: Record<string, boolean> = {};
+
+    for (const group of state?.ready_csv_groups || []) {
+      next[group.prefix] = selected;
+    }
+
+    setSelectedReadyGroups(next);
+  }
+
+  function toggleAllReadyGroupFiles(selected: boolean) {
+    const next: Record<string, boolean> = {};
+
+    for (const file of activeReadyGroupFiles || []) {
+      next[file.blob_path] = selected;
+    }
+
+    setSelectedReadyGroupFiles(next);
+  }
+
+  async function openReadyGroup(group: ReadyCsvGroup) {
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const data = await apiGet(
+        `/api/cyber-utility/xl-processing/ready-group-files?workspace=${encodeURIComponent(
+          workspace
+        )}&client=${encodeURIComponent(clientId)}&project=${encodeURIComponent(
+          projectId
+        )}&group_prefix=${encodeURIComponent(group.prefix)}`
+      );
+
+      setActiveReadyGroup(group);
+      setActiveReadyGroupFiles(data.files || []);
+      setSelectedReadyGroupFiles({});
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to open Ready CSV folder group.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function mergeSelectedReadyGroups() {
+    if (!selectedReadyGroupPrefixes.length) {
+      setMessage("Select one or more Ready CSV folder groups to merge.");
+      return;
+    }
+
+    const outputName = window.prompt(
+      "Output filename for this group merge:",
+      `FINAL_MERGED_OUTPUT_GROUPS_${new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[-:T]/g, "")}.csv`
+    );
+
+    if (!outputName) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost("/api/cyber-utility/xl-processing/merge-ready-groups", {
+        workspace,
+        client: clientId,
+        project_id: projectId,
+        selected_group_prefixes: selectedReadyGroupPrefixes,
+        header_map: {},
+        delimiter: ",",
+        output_name: outputName,
+      });
+
+      setMessage(result.message || "Selected Ready CSV folder groups merged.");
+      setSelectedReadyGroups({});
+      await refreshCenter();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to merge selected Ready CSV groups.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteReadyGroup(group: ReadyCsvGroup) {
+    const confirmed = window.confirm(
+      `Delete folder ${group.group_name}? Files will be restored back to Ready for Header Mapping / Merge, not deleted.`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost("/api/cyber-utility/xl-processing/delete-ready-group", {
+        workspace,
+        client: clientId,
+        project_id: projectId,
+        group_prefix: group.prefix,
+      });
+
+      setMessage(result.message || "Ready CSV folder removed.");
+      await refreshCenter();
+
+      if (activeReadyGroup?.prefix === group.prefix) {
+        setActiveReadyGroup(null);
+        setActiveReadyGroupFiles([]);
+        setSelectedReadyGroupFiles({});
+      }
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to delete Ready CSV folder.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendSelectedReadyGroupFilesToSource() {
+    if (!selectedReadyGroupFileBlobPaths.length) {
+      setMessage("Select one or more files from the opened Ready CSV folder.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Send ${selectedReadyGroupFileBlobPaths.length} selected file(s) back to Source XL / CSV Files?`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const result = await apiPost(
+        "/api/cyber-utility/xl-processing/send-ready-group-files-to-source",
+        {
+          workspace,
+          client: clientId,
+          project_id: projectId,
+          selected_blob_paths: selectedReadyGroupFileBlobPaths,
+        }
+      );
+
+      setMessage(result.message || "Selected files sent back to Source XL / CSV Files.");
+      setSelectedReadyGroupFiles({});
+
+      if (activeReadyGroup) {
+        await openReadyGroup(activeReadyGroup);
+      }
+
+      await refreshCenter();
+    } catch (err: any) {
+      setMessage(err?.message || "Failed to send files back to source.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function toggleAllSourceFiles(selected: boolean) {
     const next: Record<string, boolean> = {};
 
@@ -1470,12 +1748,107 @@ function SpreadsheetProcessingCenterPageContent() {
         </ContentCard>
 
         <ContentCard title={countTitle("Ready CSV Folder Groups", state?.ready_csv_groups?.length)}>
-          <div className="mb-3 flex justify-end">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => toggleAllReadyGroups(true)}
+                disabled={!state?.ready_csv_groups?.length}
+              >
+                Select All
+              </button>
+
+              <button
+                className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={() => toggleAllReadyGroups(false)}
+                disabled={!state?.ready_csv_groups?.length}
+              >
+                Clear Selection
+              </button>
+
+              <button
+                className="rounded-md bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-600 disabled:opacity-50"
+                onClick={mergeSelectedReadyGroups}
+                disabled={!selectedReadyGroupPrefixes.length || busy}
+              >
+                Merge Selected Folder Groups
+              </button>
+            </div>
+
             <PaneRefreshButton onRefresh={refreshCenter} disabled={busy} />
           </div>
 
-          <ReadyCsvGroupsTable groups={state?.ready_csv_groups || []} />
+          <ReadyCsvGroupsTable
+            groups={state?.ready_csv_groups || []}
+            selectedReadyGroups={selectedReadyGroups}
+            setSelectedReadyGroups={setSelectedReadyGroups}
+            onOpenGroup={openReadyGroup}
+            onDeleteGroup={deleteReadyGroup}
+          />
         </ContentCard>
+
+        {activeReadyGroup ? (
+          <ContentCard title={`Opened Ready CSV Folder - ${activeReadyGroup.group_name} (${activeReadyGroupFiles.length})`}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                  onClick={() => toggleAllReadyGroupFiles(true)}
+                  disabled={!activeReadyGroupFiles.length}
+                >
+                  Select All
+                </button>
+
+                <button
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                  onClick={() => toggleAllReadyGroupFiles(false)}
+                  disabled={!activeReadyGroupFiles.length}
+                >
+                  Clear Selection
+                </button>
+
+                <button
+                  className="rounded-md bg-amber-700 px-3 py-2 text-sm text-white hover:bg-amber-600 disabled:opacity-50"
+                  onClick={sendSelectedReadyGroupFilesToSource}
+                  disabled={!selectedReadyGroupFileBlobPaths.length || busy}
+                >
+                  Send Back to Source XL / CSV Files
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                  onClick={() => {
+                    if (activeReadyGroup) {
+                      openReadyGroup(activeReadyGroup);
+                    }
+                  }}
+                  disabled={busy}
+                >
+                  Refresh Folder
+                </button>
+
+                <button
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700"
+                  onClick={() => {
+                    setActiveReadyGroup(null);
+                    setActiveReadyGroupFiles([]);
+                    setSelectedReadyGroupFiles({});
+                  }}
+                >
+                  Close Folder
+                </button>
+              </div>
+            </div>
+
+            <ReadyGroupFilesTable
+              files={activeReadyGroupFiles}
+              selectedFiles={selectedReadyGroupFiles}
+              setSelectedFiles={setSelectedReadyGroupFiles}
+            />
+          </ContentCard>
+        ) : null}
 
         <ContentCard title={countTitle("Merged Outputs", state?.merged_outputs?.length)}>
           <div className="mb-3 flex justify-end">

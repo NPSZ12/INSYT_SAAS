@@ -89,6 +89,29 @@ class GroupReadyCsvsRequest(BaseModel):
     client: str | None = None
     group_size: int = 50
 
+class MergeReadyCsvGroupsRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    selected_group_prefixes: list[str] = Field(default_factory=list)
+    header_map: dict[str, str] = Field(default_factory=dict)
+    delimiter: str = ","
+    output_name: str | None = None
+
+
+class DeleteReadyCsvGroupRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    group_prefix: str
+
+
+class SendReadyGroupFilesToSourceRequest(BaseModel):
+    workspace: str = "capture"
+    project_id: str
+    client: str | None = None
+    selected_blob_paths: list[str] = Field(default_factory=list)
+
 class ReworkCompletedSpreadsheetFilesRequest(BaseModel):
     workspace: str = "capture"
     project_id: str
@@ -436,6 +459,52 @@ def list_ready_csv_groups(
         reverse=True,
     )
 
+def list_ready_csv_group_files(
+    workspace: str,
+    project: str,
+    client: str | None,
+    group_prefix: str,
+):
+    container = get_workspace_container(workspace)
+
+    allowed_root = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output/Ready_Groups",
+    )
+
+    if not group_prefix.startswith(allowed_root):
+        raise ValueError("Group prefix is not inside Ready_Groups.")
+
+    files = []
+
+    for blob in container.list_blobs(name_starts_with=group_prefix):
+        blob_path = blob.name
+        file_name = get_blob_file_name(blob_path)
+
+        if not file_name:
+            continue
+
+        if get_extension(file_name) != "csv":
+            continue
+
+        files.append(
+            {
+                "file_name": file_name,
+                "blob_path": blob_path,
+                "size": str(blob.size or ""),
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if blob.last_modified
+                    else ""
+                ),
+                "status": "Grouped",
+            }
+        )
+
+    return files
+
 def create_ready_csv_folder_groups(
     workspace: str,
     project: str,
@@ -473,14 +542,17 @@ def create_ready_csv_folder_groups(
         group_name = f"Group_{group_number:03d}"
         group_prefix = f"{groups_root_prefix}{group_name}/"
 
-        copied_files = []
+        moved_files = []
 
         for item in chunk:
             file_name = get_blob_file_name(item["blob_path"])
-            target_blob_path = f"{group_prefix}{file_name}"
+            target_blob_path = unique_blob_path(
+                container,
+                f"{group_prefix}{file_name}",
+            )
 
-            copied_files.append(
-                copy_blob(
+            moved_files.append(
+                move_blob(
                     container=container,
                     source_blob_path=item["blob_path"],
                     target_blob_path=target_blob_path,
@@ -491,9 +563,9 @@ def create_ready_csv_folder_groups(
             "run_id": run_id,
             "group_name": group_name,
             "group_size": group_size,
-            "csv_count": len(copied_files),
-            "source_files": [item["source_blob_path"] for item in copied_files],
-            "group_files": [item["target_blob_path"] for item in copied_files],
+            "csv_count": len(moved_files),
+            "source_files": [item["source_blob_path"] for item in moved_files],
+            "group_files": [item["target_blob_path"] for item in moved_files],
             "created_at": now_utc(),
         }
 
@@ -511,7 +583,7 @@ def create_ready_csv_folder_groups(
                 "group_name": group_name,
                 "prefix": group_prefix,
                 "manifest_blob": manifest_blob,
-                "csv_count": len(copied_files),
+                "csv_count": len(moved_files),
             }
         )
 
@@ -1213,6 +1285,130 @@ def rebuild_master_csv_from_selected_outputs(
 
 NAME_DEDUPE_COLUMNS = {"first name", "middle name", "last name"}
 
+def rebuild_master_csv_from_ready_groups(
+    workspace: str,
+    project: str,
+    client: str | None,
+    selected_group_prefixes: list[str],
+    header_map: dict[str, str],
+    delimiter: str = ",",
+    output_name: str | None = None,
+):
+    if not selected_group_prefixes:
+        raise ValueError("No Ready CSV folder groups selected.")
+
+    container = get_workspace_container(workspace)
+
+    groups_root = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output/Ready_Groups",
+    )
+
+    output_prefix = build_canonical_project_prefix(
+        workspace=workspace,
+        project=project,
+        client=client,
+        folder="source/spreadsheets/Output",
+    )
+
+    temp_root = Path(tempfile.mkdtemp(prefix="xl_ready_group_merge_"))
+
+    try:
+        input_dir = temp_root / "input"
+        output_dir = temp_root / "output"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        local_csv_paths = []
+        merged_input_files = []
+
+        for group_prefix in selected_group_prefixes:
+            if not group_prefix.startswith(groups_root):
+                raise ValueError(f"Invalid Ready Group prefix: {group_prefix}")
+
+            for blob in container.list_blobs(name_starts_with=group_prefix):
+                blob_path = blob.name
+                file_name = get_blob_file_name(blob_path)
+
+                if not file_name:
+                    continue
+
+                if get_extension(file_name) != "csv":
+                    continue
+
+                safe_local_name = blob_path.replace("/", "__")
+                local_path = input_dir / safe_local_name
+
+                download_blob_to_file(
+                    container=container,
+                    blob_path=blob_path,
+                    local_path=local_path,
+                )
+
+                local_csv_paths.append(local_path)
+                merged_input_files.append(blob_path)
+
+        if not local_csv_paths:
+            raise ValueError("No CSV files found in selected Ready Groups.")
+
+        clean_header_map = {
+            str(source).strip(): str(target).strip()
+            for source, target in header_map.items()
+            if str(source).strip() and str(target).strip()
+        }
+
+        canonical_headers = []
+
+        for target in clean_header_map.values():
+            clean_target = str(target or "").strip()
+
+            if clean_target and clean_target not in canonical_headers:
+                canonical_headers.append(clean_target)
+
+        master_path = build_master_csv(
+            csv_paths=local_csv_paths,
+            output_dir=output_dir,
+            delimiter=delimiter,
+            header_map=clean_header_map,
+            canonical_headers=canonical_headers,
+        )
+
+        if not master_path:
+            raise ValueError("Ready Group merge output could not be created.")
+
+        safe_output_name = str(output_name or "").strip()
+
+        if not safe_output_name:
+            safe_output_name = (
+                "FINAL_MERGED_OUTPUT_GROUPS_"
+                f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+
+        if not safe_output_name.lower().endswith(".csv"):
+            safe_output_name = f"{safe_output_name}.csv"
+
+        safe_output_name = safe_output_name.replace("/", "_").replace("\\", "_")
+
+        final_blob = f"{output_prefix}{safe_output_name}"
+
+        upload_file(
+            container=container,
+            blob_path=final_blob,
+            local_path=master_path,
+        )
+
+        return {
+            "status": "completed",
+            "message": "Selected Ready CSV folder groups merged.",
+            "final_output_blob": final_blob,
+            "merged_input_files": merged_input_files,
+            "selected_group_prefixes": selected_group_prefixes,
+        }
+
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
 
 def merge_series_values(series, delimiter: str):
     unique_values = []
@@ -2255,6 +2451,33 @@ def copy_blob(container, source_blob_path: str, target_blob_path: str):
         "target_blob_path": target_blob_path,
     }
 
+def unique_blob_path(container, desired_blob_path: str) -> str:
+    """
+    Avoid overwriting when restoring/moving files back into a folder.
+    """
+    try:
+        container.get_blob_client(desired_blob_path).get_blob_properties()
+    except Exception:
+        return desired_blob_path
+
+    if "." in desired_blob_path:
+        base, ext = desired_blob_path.rsplit(".", 1)
+        ext = f".{ext}"
+    else:
+        base = desired_blob_path
+        ext = ""
+
+    counter = 1
+
+    while True:
+        candidate = f"{base}_{counter}{ext}"
+
+        try:
+            container.get_blob_client(candidate).get_blob_properties()
+            counter += 1
+        except Exception:
+            return candidate
+
 def run_xl_processing_job(job_id: str, payload: UtilityJobRequest):
     temp_root = Path(tempfile.mkdtemp(prefix=f"xl_processing_{job_id}_"))
 
@@ -2749,7 +2972,219 @@ def group_ready_xl_csvs(payload: GroupReadyCsvsRequest):
             status_code=500,
             detail=str(exc),
         )
+
+@router.get("/xl-processing/ready-group-files")
+def get_ready_csv_group_files(
+    workspace: str = Query(default="capture"),
+    project: str = Query(...),
+    client: str | None = Query(default=None),
+    group_prefix: str = Query(...),
+):
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    try:
+        return {
+            "workspace": workspace,
+            "client": clean_folder(client) if client else "",
+            "project": clean_folder(project),
+            "group_prefix": group_prefix,
+            "files": list_ready_csv_group_files(
+                workspace=workspace,
+                project=project,
+                client=client,
+                group_prefix=group_prefix,
+            ),
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
    
+@router.post("/xl-processing/merge-ready-groups")
+def merge_ready_csv_groups(payload: MergeReadyCsvGroupsRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if not payload.selected_group_prefixes:
+        raise HTTPException(
+            status_code=400,
+            detail="No Ready CSV folder groups selected.",
+        )
+
+    try:
+        return rebuild_master_csv_from_ready_groups(
+            workspace=payload.workspace,
+            project=payload.project_id,
+            client=payload.client,
+            selected_group_prefixes=payload.selected_group_prefixes,
+            header_map=payload.header_map,
+            delimiter=payload.delimiter,
+            output_name=payload.output_name,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )   
+ 
+@router.post("/xl-processing/delete-ready-group")
+def delete_ready_csv_group(payload: DeleteReadyCsvGroupRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    container = get_workspace_container(payload.workspace)
+
+    groups_root = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Output/Ready_Groups",
+    )
+
+    ready_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Output/Headers_Row_1",
+    )
+
+    group_prefix = payload.group_prefix
+
+    if not group_prefix.startswith(groups_root):
+        raise HTTPException(
+            status_code=400,
+            detail="Group prefix is not inside Ready_Groups.",
+        )
+
+    restored_files = []
+    removed_metadata = []
+
+    try:
+        blobs = list(container.list_blobs(name_starts_with=group_prefix))
+
+        for blob in blobs:
+            blob_path = blob.name
+            file_name = get_blob_file_name(blob_path)
+
+            if not file_name:
+                continue
+
+            if get_extension(file_name) == "csv":
+                target_blob_path = unique_blob_path(
+                    container,
+                    f"{ready_prefix}{file_name}",
+                )
+
+                restored_files.append(
+                    move_blob(
+                        container=container,
+                        source_blob_path=blob_path,
+                        target_blob_path=target_blob_path,
+                    )
+                )
+            else:
+                try:
+                    container.delete_blob(blob_path)
+                    removed_metadata.append(blob_path)
+                except Exception:
+                    pass
+
+        return {
+            "status": "completed",
+            "message": (
+                f"Removed Ready CSV folder and restored "
+                f"{len(restored_files)} file(s) back to Ready."
+            ),
+            "restored_files": restored_files,
+            "removed_metadata": removed_metadata,
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+@router.post("/xl-processing/send-ready-group-files-to-source")
+def send_ready_group_files_to_source(payload: SendReadyGroupFilesToSourceRequest):
+    if payload.workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace must be capture, summaries, or discovery",
+        )
+
+    if not payload.selected_blob_paths:
+        raise HTTPException(
+            status_code=400,
+            detail="No Ready Group files selected.",
+        )
+
+    container = get_workspace_container(payload.workspace)
+
+    groups_root = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/spreadsheets/Output/Ready_Groups",
+    )
+
+    source_prefix = build_canonical_project_prefix(
+        workspace=payload.workspace,
+        project=payload.project_id,
+        client=payload.client,
+        folder="source/native",
+    )
+
+    moved = []
+
+    for blob_path in payload.selected_blob_paths:
+        if not blob_path.startswith(groups_root):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not in Ready_Groups: {blob_path}",
+            )
+
+        file_name = get_blob_file_name(blob_path)
+
+        if get_extension(file_name) != "csv":
+            raise HTTPException(
+                status_code=400,
+                detail=f"File is not a CSV: {file_name}",
+            )
+
+        target_blob_path = unique_blob_path(
+            container,
+            f"{source_prefix}{file_name}",
+        )
+
+        moved.append(
+            move_blob(
+                container=container,
+                source_blob_path=blob_path,
+                target_blob_path=target_blob_path,
+            )
+        )
+
+    return {
+        "status": "completed",
+        "message": f"Moved {len(moved)} file(s) back to Source XL / CSV Files.",
+        "moved_count": len(moved),
+        "moved_files": moved,
+    }
+
 @router.get("/xl-processing/deduplication-center")
 def get_xl_deduplication_center(
     workspace: str = Query(default="capture"),
