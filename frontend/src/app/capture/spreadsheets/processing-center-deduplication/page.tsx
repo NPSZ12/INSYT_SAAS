@@ -39,6 +39,18 @@ function formatDate(value?: string) {
   }
 }
 
+function getApiBaseUrl() {
+  return (
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "https://api.insyt360.com"
+  ).replace(/\/$/, "");
+}
+
+function buildApiUrl(path: string) {
+  return `${getApiBaseUrl()}${path}`;
+}
+
 function fileSizeLabel(value?: string) {
   const size = Number(value || 0);
 
@@ -385,14 +397,14 @@ function DeduplicationCenterContent() {
   }
 
   function openCsv(blobPath: string) {
-    const url =
+    const path =
       `/api/cyber-utility/xl-processing/open-output?workspace=${encodeURIComponent(
         workspace
       )}&client=${encodeURIComponent(clientId)}&project=${encodeURIComponent(
         projectId
       )}&blob_path=${encodeURIComponent(blobPath)}`;
 
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(buildApiUrl(path), "_blank", "noopener,noreferrer");
   }
 
   return (
