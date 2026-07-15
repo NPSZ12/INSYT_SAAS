@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+
 import Button from "../../components/Button";
 
 type StoredUser = {
@@ -12,6 +13,15 @@ type StoredUser = {
   workspace_access?: string[];
 };
 
+type LauncherApp = {
+  key: string;
+  name: string;
+  description: string;
+  path: string;
+  requiresLogin: boolean;
+  buttonLabel?: string;
+};
+
 export default function LauncherPage() {
   const router = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
@@ -19,63 +29,103 @@ export default function LauncherPage() {
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
 
-    if (storedUser) {
+    if (!storedUser) {
+      return;
+    }
+
+    try {
       setUser(JSON.parse(storedUser));
+    } catch (error) {
+      console.error("Unable to parse stored INSYT user.", error);
+      localStorage.removeItem("insyt_user");
     }
   }, []);
 
-  const apps = [
+  const apps: LauncherApp[] = [
     {
       key: "capture",
       name: "INSYT Capture",
       description: "Protocol-driven breach and entity capture workflows.",
       path: "/capture/projects",
+      requiresLogin: true,
     },
     {
       key: "discovery",
       name: "INSYT Discovery",
       description: "eDiscovery processing, review, and production workflows.",
       path: "/discovery/projects",
+      requiresLogin: true,
     },
     {
       key: "summaries",
       name: "INSYT Summaries",
       description: "Medical, deposition, and litigation summary workflows.",
       path: "/summaries/projects",
+      requiresLogin: true,
     },
     {
-      key: "developer",
-      name: "INSYT Developer",
-      description: "Internal tools, configuration, and system utilities.",
-      path: "/developer",
+      key: "advantage",
+      name: "INSYT Advantage",
+      description:
+        "Explore the INSYT360 platform, products, industries, pricing, and real-world solutions.",
+      path: "/advantage",
+      requiresLogin: true,
+      buttonLabel: "Explore INSYT360",
     },
   ];
 
   function hasWorkspaceAccess(appKey: string) {
-    if (!user) return false;
+    if (!user) {
+      return false;
+    }
 
     if (user.role === "INSYT Admin" || user.role === "CDS Admin") {
       return true;
     }
 
-    return user.workspace_access?.includes(appKey);
+    return user.workspace_access?.includes(appKey) ?? false;
+  }
+
+  function openApp(app: LauncherApp) {
+    if (!app.requiresLogin) {
+      router.push(app.path);
+      return;
+    }
+
+    if (!user) {
+      router.push(
+        `/login?next=${encodeURIComponent(app.path)}`
+      );
+      return;
+    }
+
+    router.push(app.path);
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-10">
+    <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mb-10">
         <div className="flex flex-col items-start">
-          <div className="flex items-end gap-0.5 mb-2">
-            <span className="insyt-brand text-5xl font-bold text-white">I</span>
-            <span className="insyt-brand text-5xl font-bold text-sky-400">N</span>
-            <span className="insyt-brand text-5xl font-bold text-white">SYT</span>
-            <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-400 font-bold">
+          <div className="mb-2 flex items-end gap-0.5">
+            <span className="insyt-brand text-5xl font-bold text-white">
+              I
+            </span>
+
+            <span className="insyt-brand text-5xl font-bold text-sky-400">
+              N
+            </span>
+
+            <span className="insyt-brand text-5xl font-bold text-white">
+              SYT
+            </span>
+
+            <span className="insyt-brand mb-[0.11em] text-[2.1em] font-bold leading-none text-sky-400">
               360
             </span>
           </div>
 
-          <div className="flex items-center gap-3 mt-1">
-            <span className="text-slate-300 text-xl font-medium">
+          <div className="mt-1 flex items-center gap-3">
+            <span className="text-xl font-medium text-slate-300">
               Powered by:
             </span>
 
@@ -85,31 +135,40 @@ export default function LauncherPage() {
               width={195}
               height={45}
               priority
-              style={{ width: "260px", height: "auto" }}
+              style={{
+                width: "260px",
+                height: "auto",
+              }}
             />
           </div>
         </div>
 
-        <div className="text-center mt-3">
-          <p className="text-slate-400 text-lg">
-            Select a workspace to continue.
+        <div className="mt-3 text-center">
+          <p className="text-lg text-slate-400">
+            Select a workspace or explore the INSYT360 platform.
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mt-2">
+      <div className="mx-auto mt-2 grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
         {apps.map((app) => {
           const loggedIn = Boolean(user);
-          const allowed = loggedIn ? hasWorkspaceAccess(app.key) : true;
+
+          const allowed =
+            !app.requiresLogin ||
+            !loggedIn ||
+            hasWorkspaceAccess(app.key);
 
           return (
             <div
-              key={app.name}
-              className={`bg-slate-900 border border-slate-800 rounded-3xl p-6 transition min-h-[230px] flex flex-col justify-between shadow-xl ${
-                allowed ? "hover:border-sky-500" : ""
+              key={app.key}
+              className={`flex min-h-[230px] flex-col justify-between rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl transition ${
+                allowed
+                  ? "hover:border-sky-500"
+                  : ""
               }`}
             >
-              <h2 className="insyt-workspace text-3xl font-bold mb-4">
+              <h2 className="insyt-workspace mb-4 text-3xl font-bold">
                 <span className="text-white">I</span>
                 <span className="text-sky-400">N</span>
                 <span className="text-white">SYT</span>
@@ -118,17 +177,17 @@ export default function LauncherPage() {
                 </span>
               </h2>
 
-              <p className="text-slate-400 text-base leading-relaxed min-h-[90px]">
+              <p className="min-h-[90px] text-base leading-relaxed text-slate-400">
                 {app.description}
               </p>
 
               {!allowed && (
-                <div className="flex-1 flex flex-col justify-center items-center text-center">
-                  <p className="text-slate-300 font-semibold text-base">
+                <div className="flex flex-1 flex-col items-center justify-center text-center">
+                  <p className="text-base font-semibold text-slate-300">
                     Current Access Restricted.
                   </p>
 
-                  <p className="text-slate-400 text-sm mt-1">
+                  <p className="mt-1 text-sm text-slate-400">
                     Please contact an INSYT Administrator for assistance.
                   </p>
                 </div>
@@ -138,16 +197,10 @@ export default function LauncherPage() {
                 <div className="mt-6">
                   <Button
                     fullWidth
-                    onClick={() => {
-                      if (!loggedIn) {
-                        router.push(`/login?workspace=${app.key}`);
-                        return;
-                      }
-
-                      router.push(app.path);
-                    }}
+                    onClick={() => openApp(app)}
                   >
-                    {loggedIn ? "Open" : "Sign In"}
+                    {app.buttonLabel ??
+                      (loggedIn ? "Open" : "Sign In")}
                   </Button>
                 </div>
               )}
