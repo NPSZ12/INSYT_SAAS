@@ -43,6 +43,15 @@ export default function LauncherPage() {
 
   const apps: LauncherApp[] = [
     {
+      key: "advantage",
+      name: "INSYT Advantage",
+      description:
+        "Explore the INSYT360 platform, products, industries, pricing, and real-world solutions.",
+      path: "/advantage",
+      requiresLogin: true,
+      buttonLabel: "Explore INSYT360",
+    },
+    {
       key: "capture",
       name: "INSYT Capture",
       description: "Protocol-driven breach and entity capture workflows.",
@@ -62,15 +71,6 @@ export default function LauncherPage() {
       description: "Medical, deposition, and litigation summary workflows.",
       path: "/summaries/projects",
       requiresLogin: true,
-    },
-    {
-      key: "advantage",
-      name: "INSYT Advantage",
-      description:
-        "Explore the INSYT360 platform, products, industries, pricing, and real-world solutions.",
-      path: "/advantage",
-      requiresLogin: true,
-      buttonLabel: "Explore INSYT360",
     },
   ];
 
@@ -150,7 +150,7 @@ export default function LauncherPage() {
         </div>
       </div>
 
-      <div className="mx-auto mt-2 grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="mx-auto mt-2 grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-3">
         {apps.map((app) => {
           const loggedIn = Boolean(user);
 
@@ -159,16 +159,28 @@ export default function LauncherPage() {
             !loggedIn ||
             hasWorkspaceAccess(app.key);
 
+          const isAdvantage = app.key === "advantage";
+
           return (
             <div
               key={app.key}
-              className={`flex min-h-[230px] flex-col justify-between rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl transition ${
+              className={`flex min-h-[230px] flex-col justify-between rounded-3xl border bg-slate-900 p-6 shadow-xl transition ${
+                isAdvantage
+                  ? "md:col-span-3 md:mx-auto md:w-full md:max-w-4xl border-sky-500/60"
+                  : "border-slate-800"
+              } ${
                 allowed
                   ? "hover:border-sky-500"
                   : ""
               }`}
             >
-              <h2 className="insyt-workspace mb-4 text-3xl font-bold">
+              <h2
+                className={`insyt-workspace mb-4 font-bold ${
+                  isAdvantage
+                    ? "text-center text-4xl"
+                    : "text-3xl"
+                }`}
+              >
                 <span className="text-white">I</span>
                 <span className="text-sky-400">N</span>
                 <span className="text-white">SYT</span>
@@ -177,7 +189,13 @@ export default function LauncherPage() {
                 </span>
               </h2>
 
-              <p className="min-h-[90px] text-base leading-relaxed text-slate-400">
+              <p
+                className={`text-base leading-relaxed text-slate-400 ${
+                  isAdvantage
+                    ? "mx-auto min-h-[70px] max-w-3xl text-center"
+                    : "min-h-[90px]"
+                }`}
+              >
                 {app.description}
               </p>
 
@@ -194,9 +212,20 @@ export default function LauncherPage() {
               )}
 
               {allowed && (
-                <div className="mt-6">
+                <div
+                  className={
+                    isAdvantage
+                      ? "mx-auto mt-6 w-full max-w-md"
+                      : "mt-6"
+                  }
+                >
                   <Button
                     fullWidth
+                    className={
+                      isAdvantage
+                        ? "bg-white text-sky-600 hover:bg-slate-100 hover:text-sky-500 active:bg-slate-200 shadow-lg shadow-black/20"
+                        : ""
+                    }
                     onClick={() => openApp(app)}
                   >
                     {app.buttonLabel ??
