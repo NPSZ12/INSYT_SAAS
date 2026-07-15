@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
+// import Image from "next/image";
 
 import Button from "../../components/Button";
 
@@ -124,28 +124,27 @@ export default function LauncherPage() {
             </span>
           </div>
 
-          <div className="mt-1 flex items-center gap-3">
-            <span className="text-xl font-medium text-slate-300">
-              Powered by:
-            </span>
+          {/*
+            <div className="flex items-center gap-3 mt-1">
+              <span className="text-slate-300 text-xl font-medium">
+                Powered by:
+              </span>
 
-            <Image
-              src="/CDS_Logo_W.svg"
-              alt="Cyber Discovery Solutions"
-              width={195}
-              height={45}
-              priority
-              style={{
-                width: "260px",
-                height: "auto",
-              }}
-            />
-          </div>
+              <Image
+                src="/CDS_Logo_W.svg"
+                alt="Cyber Discovery Solutions"
+                width={195}
+                height={45}
+                priority
+                style={{ width: "260px", height: "auto" }}
+              />
+            </div>
+            */}
         </div>
 
         <div className="mt-3 text-center">
           <p className="text-lg text-slate-400">
-            Select a workspace or explore the INSYT360 platform.
+            Explore the INSYT360 Platform Advantage or Select a Workspace to Begin.
           </p>
         </div>
       </div>
@@ -221,9 +220,10 @@ export default function LauncherPage() {
                 >
                   <Button
                     fullWidth
+                    unstyled={isAdvantage}
                     className={
                       isAdvantage
-                        ? "bg-white text-sky-600 hover:bg-slate-100 hover:text-sky-500 active:bg-slate-200 shadow-lg shadow-black/20"
+                        ? "insyt-workspace w-full rounded-xl border-2 border-white bg-white px-5 py-3.5 text-lg font-bold tracking-wide text-sky-600 shadow-lg shadow-black/20 transition-all duration-150 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-500 hover:shadow-xl hover:shadow-sky-950/30 active:scale-[0.98] active:bg-sky-100 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-slate-950"
                         : ""
                     }
                     onClick={() => openApp(app)}
