@@ -173,16 +173,20 @@ export default function LauncherPage() {
               }`}
             >
               {isAdvantage ? (
-                <h2 className="mb-4 text-center text-4xl font-bold">
-                  <span className="text-sky-400">The </span>
+                <h2 className="mb-4 text-center font-bold">
+                  <span className="text-2xl text-sky-400">
+                    The{" "}
+                  </span>
 
-                  <span className="insyt-workspace">
+                  <span className="insyt-workspace text-4xl">
                     <span className="text-white">I</span>
                     <span className="text-sky-400">N</span>
                     <span className="text-white">SYT</span>
                   </span>
 
-                  <span className="text-sky-400"> Advantage</span>
+                  <span className="text-2xl text-sky-400">
+                    {" "}Advantage
+                  </span>
                 </h2>
               ) : (
                 <h2 className="insyt-workspace mb-4 text-3xl font-bold">
