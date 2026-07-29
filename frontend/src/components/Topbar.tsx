@@ -88,7 +88,7 @@ export default function Topbar() {
   }
 
   return (
-    <header className="relative h-16 bg-slate-950 border-b border-slate-800 px-8 flex items-center justify-between">
+    <header className="relative z-40 flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950 px-8 shadow-md shadow-black/10">
 
       {/* LEFT */}
       <div className="flex flex-col items-start leading-tight">

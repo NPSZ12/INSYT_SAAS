@@ -19,6 +19,7 @@ function AppShellContent({ children }: AppShellProps) {
   const projectId = searchParams.get("project");
 
   const projectSidebarVisible = Boolean(projectId);
+
   const [mainSidebarCollapsed, setMainSidebarCollapsed] =
     useState(projectSidebarVisible);
 
@@ -49,18 +50,20 @@ function AppShellContent({ children }: AppShellProps) {
   }, []);
 
   if (!authChecked) {
-  return null;
-}
+    return null;
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex">
+    <div className="flex h-screen overflow-hidden bg-slate-950 text-white">
       <AutoLogout />
       <UrgentMessageOverlay />
+
+      {/* MAIN SIDEBAR — remains visible while page content scrolls */}
       <div
         className={
           projectSidebarVisible && mainSidebarCollapsed
-            ? "relative w-16 shrink-0 overflow-hidden border-r border-slate-800"
-            : "relative w-64 shrink-0 border-r border-slate-800"
+            ? "relative h-screen w-16 shrink-0 overflow-hidden border-r border-slate-800"
+            : "relative h-screen w-64 shrink-0 overflow-hidden border-r border-slate-800"
         }
       >
         {projectSidebarVisible && (
@@ -69,7 +72,12 @@ function AppShellContent({ children }: AppShellProps) {
             onClick={() =>
               setMainSidebarCollapsed((current) => !current)
             }
-            className="absolute top-1/2 -translate-y-1/2 right-[-14px] z-50 rounded-full border-2 border-slate-600 bg-slate-900 p-2 text-slate-200 shadow-lg hover:bg-slate-800 hover:border-sky-500 transition"
+            className="absolute right-[-14px] top-1/2 z-50 -translate-y-1/2 rounded-full border-2 border-slate-600 bg-slate-900 p-2 text-slate-200 shadow-lg transition hover:border-sky-500 hover:bg-slate-800"
+            aria-label={
+              mainSidebarCollapsed
+                ? "Expand main sidebar"
+                : "Collapse main sidebar"
+            }
           >
             {mainSidebarCollapsed ? (
               <ChevronRight size={20} strokeWidth={2.5} />
@@ -82,29 +90,44 @@ function AppShellContent({ children }: AppShellProps) {
         <div
           className={
             projectSidebarVisible && mainSidebarCollapsed
-              ? "w-64 scale-90 origin-top-left"
-              : "w-64"
+              ? "h-screen w-64 origin-top-left scale-90"
+              : "h-screen w-64"
           }
         >
-          <Sidebar collapsed={projectSidebarVisible && mainSidebarCollapsed} />
+          <Sidebar
+            collapsed={
+              projectSidebarVisible &&
+              mainSidebarCollapsed
+            }
+          />
         </div>
       </div>
 
-      <ProjectSidebar />
+      {/* PROJECT SIDEBAR — also remains visible */}
+      <div className="h-screen shrink-0 overflow-hidden">
+        <ProjectSidebar />
+      </div>
 
-      <div className="flex-1 min-w-0">
+      {/* TOPBAR REMAINS VISIBLE; ONLY MAIN CONTENT SCROLLS */}
+      <div className="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar />
 
-        <main>{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </main>
       </div>
     </div>
   );
 }
 
-export default function AppShell({ children }: AppShellProps) {
+export default function AppShell({
+  children,
+}: AppShellProps) {
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      <AppShellContent>{children}</AppShellContent>
+      <AppShellContent>
+        {children}
+      </AppShellContent>
     </Suspense>
   );
 }
