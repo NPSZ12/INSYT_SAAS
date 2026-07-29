@@ -162,10 +162,10 @@ export default function LauncherPage() {
           return (
             <div
               key={app.key}
-              className={`flex min-h-[230px] flex-col justify-between rounded-3xl border bg-slate-900 p-6 shadow-xl transition ${
+              className={`flex flex-col justify-between rounded-3xl border bg-slate-900 p-6 shadow-xl transition ${
                 isAdvantage
-                  ? "md:col-span-3 md:mx-auto md:w-full md:max-w-4xl border-sky-500/60"
-                  : "border-slate-800"
+                  ? "md:col-span-3 md:mx-auto md:w-full md:max-w-4xl min-h-[170px] border-sky-500/60 py-5"
+                  : "min-h-[230px] border-slate-800"
               } ${
                 allowed
                   ? "hover:border-sky-500"
@@ -174,7 +174,7 @@ export default function LauncherPage() {
             >
               {isAdvantage ? (
                 <h2 className="mb-4 text-center text-4xl font-bold">
-                  <span className="text-white">The </span>
+                  <span className="text-sky-400">The </span>
 
                   <span className="insyt-workspace">
                     <span className="text-white">I</span>
@@ -217,7 +217,7 @@ export default function LauncherPage() {
                 <div
                   className={
                     isAdvantage
-                      ? "mx-auto mt-6 w-full max-w-md"
+                      ? "mx-auto mt-3 w-full max-w-md"
                       : "mt-6"
                   }
                 >
