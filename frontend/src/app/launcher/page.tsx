@@ -44,9 +44,8 @@ export default function LauncherPage() {
   const apps: LauncherApp[] = [
     {
       key: "advantage",
-      name: "INSYT Advantage",
-      description:
-        "Explore the INSYT360 platform, products, industries, pricing, and real-world solutions.",
+      name: "The INSYT Advantage",
+      description: "",
       path: "/advantage",
       requiresLogin: true,
       buttonLabel: "Explore INSYT360",
@@ -173,30 +172,34 @@ export default function LauncherPage() {
                   : ""
               }`}
             >
-              <h2
-                className={`insyt-workspace mb-4 font-bold ${
-                  isAdvantage
-                    ? "text-center text-4xl"
-                    : "text-3xl"
-                }`}
-              >
-                <span className="text-white">I</span>
-                <span className="text-sky-400">N</span>
-                <span className="text-white">SYT</span>
-                <span className="text-sky-400">
-                  {app.name.replace("INSYT", "")}
-                </span>
-              </h2>
+              {isAdvantage ? (
+                <h2 className="mb-4 text-center text-4xl font-bold">
+                  <span className="text-white">The </span>
 
-              <p
-                className={`text-base leading-relaxed text-slate-400 ${
-                  isAdvantage
-                    ? "mx-auto min-h-[70px] max-w-3xl text-center"
-                    : "min-h-[90px]"
-                }`}
-              >
-                {app.description}
-              </p>
+                  <span className="insyt-workspace">
+                    <span className="text-white">I</span>
+                    <span className="text-sky-400">N</span>
+                    <span className="text-white">SYT</span>
+                  </span>
+
+                  <span className="text-sky-400"> Advantage</span>
+                </h2>
+              ) : (
+                <h2 className="insyt-workspace mb-4 text-3xl font-bold">
+                  <span className="text-white">I</span>
+                  <span className="text-sky-400">N</span>
+                  <span className="text-white">SYT</span>
+                  <span className="text-sky-400">
+                    {app.name.replace("INSYT", "")}
+                  </span>
+                </h2>
+              )}
+
+              {!isAdvantage && (
+                <p className="min-h-[90px] text-base leading-relaxed text-slate-400">
+                  {app.description}
+                </p>
+              )}
 
               {!allowed && (
                 <div className="flex flex-1 flex-col items-center justify-center text-center">
@@ -223,13 +226,24 @@ export default function LauncherPage() {
                     unstyled={isAdvantage}
                     className={
                       isAdvantage
-                        ? "insyt-workspace w-full rounded-xl border-2 border-white bg-white px-5 py-3.5 text-lg font-bold tracking-wide text-sky-600 shadow-lg shadow-black/20 transition-all duration-150 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-500 hover:shadow-xl hover:shadow-sky-950/30 active:scale-[0.98] active:bg-sky-100 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+                        ? "w-full rounded-xl border-2 border-white bg-white px-5 py-3.5 text-lg font-bold tracking-wide text-sky-600 shadow-lg shadow-black/20 transition-all duration-150 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-500 hover:shadow-xl hover:shadow-sky-950/30 active:scale-[0.98] active:bg-sky-100 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-slate-950"
                         : ""
                     }
                     onClick={() => openApp(app)}
                   >
-                    {app.buttonLabel ??
-                      (loggedIn ? "Open" : "Sign In")}
+                    {isAdvantage ? (
+                      <>
+                        <span className="font-sans">Explore </span>
+
+                        <span className="insyt-workspace">
+                          <span>INSYT</span>
+                          <span className="text-sky-500">360</span>
+                        </span>
+                      </>
+                    ) : (
+                      app.buttonLabel ??
+                      (loggedIn ? "Open" : "Sign In")
+                    )}
                   </Button>
                 </div>
               )}

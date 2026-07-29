@@ -23,6 +23,22 @@ type StoredUser = {
   role?: string;
 };
 
+type Product = {
+  name: string;
+  description: string;
+  icon: React.ElementType;
+  features: string[];
+  href: string;
+  screenshot?: string;
+  screenshotAlt?: string;
+};
+
+type SelectedScreenshot = {
+  src: string;
+  alt: string;
+  title: string;
+};
+
 const navigationItems = [
   {
     label: "Why INSYT",
@@ -50,7 +66,7 @@ const navigationItems = [
   },
 ];
 
-const products = [
+const products: Product[] = [
   {
     name: "INSYT Capture",
     description:
@@ -86,6 +102,9 @@ const products = [
       "Linked source-document navigation",
     ],
     href: "/summaries/projects",
+    screenshot: "/advantage/insyt-summaries.png",
+    screenshotAlt:
+      "INSYT Summaries document viewer and Summary QC Review workspace",
   },
   {
     name: "Cyber² Utility Suite",
@@ -148,6 +167,9 @@ export default function AdvantagePage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const [selectedScreenshot, setSelectedScreenshot] =
+    useState<SelectedScreenshot | null>(null);
+
   useEffect(() => {
     const storedUser = localStorage.getItem("insyt_user");
 
@@ -171,8 +193,42 @@ export default function AdvantagePage() {
     }
     }, []);
 
+  useEffect(() => {
+    if (!selectedScreenshot) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedScreenshot(null);
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedScreenshot]);
+
   function closeMobileMenu() {
     setMobileMenuOpen(false);
+  }
+
+  function openProductScreenshot(product: Product) {
+    if (!product.screenshot) {
+      return;
+    }
+
+    setSelectedScreenshot({
+      src: product.screenshot,
+      alt:
+        product.screenshotAlt ??
+        `${product.name} screenshot`,
+      title: product.name,
+    });
   }
 
   if (!authChecked) {
@@ -354,6 +410,7 @@ export default function AdvantagePage() {
             <div className="space-y-3">
               {products.map((product) => {
                 const Icon = product.icon;
+                const screenshot = product.screenshot;
 
                 return (
                   <div
@@ -473,6 +530,33 @@ export default function AdvantagePage() {
                     {product.name}
                   </h3>
 
+                  {product.screenshot && (
+                    <button
+                      type="button"
+                      onClick={() => openProductScreenshot(product)}
+                      className="group relative mt-6 block w-full overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 text-left transition hover:border-sky-500"
+                    >
+                      <div className="relative aspect-[16/8.5] w-full overflow-hidden">
+                        <Image
+                          src={product.screenshot}
+                          alt={
+                            product.screenshotAlt ??
+                            `${product.name} screenshot`
+                          }
+                          fill
+                          sizes="(max-width: 1024px) 100vw, 50vw"
+                          className="object-cover object-top transition duration-300 group-hover:scale-[1.02]"
+                        />
+                      </div>
+
+                      <div className="absolute inset-0 flex items-center justify-center bg-slate-950/0 transition group-hover:bg-slate-950/35">
+                        <span className="translate-y-2 rounded-xl border border-white/20 bg-slate-950/90 px-5 py-2.5 text-sm font-semibold text-white opacity-0 shadow-xl transition group-hover:translate-y-0 group-hover:opacity-100">
+                          View Full Screenshot
+                        </span>
+                      </div>
+                    </button>
+                  )}
+
                   <p className="mt-4 flex-1 leading-relaxed text-slate-400">
                     {product.description}
                   </p>
@@ -495,13 +579,20 @@ export default function AdvantagePage() {
                     ))}
                   </div>
 
-                  <Link
-                    href={product.href}
-                    className="mt-8 inline-flex items-center gap-2 font-semibold text-sky-400 transition hover:text-sky-300"
-                  >
-                    Open product
-                    <ArrowRight size={17} />
-                  </Link>
+                  {product.screenshot ? (
+                    <button
+                      type="button"
+                      onClick={() => openProductScreenshot(product)}
+                      className="mt-8 inline-flex items-center gap-2 self-start font-semibold text-sky-400 transition hover:text-sky-300"
+                    >
+                      View Screenshot
+                      <ArrowRight size={17} />
+                    </button>
+                  ) : (
+                    <span className="mt-8 inline-flex items-center gap-2 text-sm font-medium text-slate-600">
+                      Screenshot coming soon
+                    </span>
+                  )}
                 </article>
               );
             })}
@@ -633,19 +724,48 @@ export default function AdvantagePage() {
             </p>
           </div>
 
-          <div className="mt-14 rounded-3xl border border-dashed border-slate-700 bg-slate-900/60 px-8 py-20 text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-sky-500/20 bg-sky-500/10 text-sky-400">
-              <Layers3 size={30} />
-            </div>
+          <div className="mt-14">
+            <button
+              type="button"
+              onClick={() =>
+                setSelectedScreenshot({
+                  src: "/advantage/insyt-summaries.png",
+                  alt:
+                    "INSYT Summaries document viewer and Summary QC Review workspace",
+                  title: "INSYT Summaries",
+                })
+              }
+              className="group block w-full overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 text-left shadow-2xl transition hover:border-sky-500"
+            >
+              <div className="relative aspect-[16/8] w-full overflow-hidden bg-slate-950">
+                <Image
+                  src="/advantage/insyt-summaries.png"
+                  alt="INSYT Summaries document viewer and Summary QC Review workspace"
+                  fill
+                  sizes="100vw"
+                  className="object-cover object-top transition duration-300 group-hover:scale-[1.01]"
+                  priority={false}
+                />
+              </div>
 
-            <h3 className="insyt-workspace mt-6 text-2xl font-bold">
-              Demo screenshots coming next
-            </h3>
+              <div className="flex flex-col gap-3 border-t border-slate-800 p-6 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="insyt-workspace text-2xl font-bold text-white">
+                    INSYT Summaries
+                  </h3>
 
-            <p className="mx-auto mt-4 max-w-2xl leading-relaxed text-slate-400">
-              This section is ready for the Capture, Discovery, Summaries,
-              and Cyber² screenshots selected from the Demo Docs.
-            </p>
+                  <p className="mt-2 text-slate-400">
+                    Source-document navigation, structured summary review,
+                    and editable QC workflows within one synchronized workspace.
+                  </p>
+                </div>
+
+                <span className="inline-flex shrink-0 items-center gap-2 font-semibold text-sky-400 transition group-hover:text-sky-300">
+                  View Screenshot
+                  <ArrowRight size={17} />
+                </span>
+              </div>
+            </button>
           </div>
         </div>
       </section>
@@ -693,6 +813,53 @@ export default function AdvantagePage() {
           </div>
         </div>
       </section>
+
+      {selectedScreenshot && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/95 p-4 backdrop-blur-sm md:p-8"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${selectedScreenshot.title} screenshot`}
+          onClick={() => setSelectedScreenshot(null)}
+        >
+          <div
+            className="relative flex max-h-[94vh] w-full max-w-[1700px] flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">
+                  INSYT360 Demo
+                </p>
+
+                <h2 className="insyt-workspace mt-1 text-xl font-bold text-white md:text-2xl">
+                  {selectedScreenshot.title}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedScreenshot(null)}
+                className="rounded-xl border border-slate-700 bg-slate-950 p-2.5 text-slate-300 transition hover:border-sky-500 hover:text-white"
+                aria-label="Close screenshot"
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="overflow-auto bg-slate-950 p-2 md:p-4">
+              <Image
+                src={selectedScreenshot.src}
+                alt={selectedScreenshot.alt}
+                width={1768}
+                height={864}
+                className="h-auto w-full rounded-xl"
+                sizes="100vw"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="border-t border-slate-800 bg-slate-950">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-10 md:flex-row md:items-center md:justify-between lg:px-10">
