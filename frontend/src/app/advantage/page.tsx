@@ -298,26 +298,12 @@ export default function AdvantagePage() {
             ))}
           </nav>
 
-          <div className="hidden items-center gap-3 md:flex">
+          <div className="hidden items-center md:flex">
             <Link
               href="/launcher"
-              className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-sky-500 hover:text-white"
+              className="rounded-xl border-2 border-sky-400 bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:border-sky-300 hover:bg-sky-400"
             >
               Launcher
-            </Link>
-
-            <Link
-              href={user ? "/launcher" : "/login"}
-              className="rounded-xl border-2 border-sky-400 bg-white px-5 py-2.5 text-sm font-semibold text-sky-600 shadow-md transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-500"
-            >
-              {user ? (
-                <>
-                  Open{" "}
-                  <Insyt360Brand lightBackground />
-                </>
-              ) : (
-                "Secure Sign In"
-              )}
             </Link>
           </div>
 
@@ -351,26 +337,13 @@ export default function AdvantagePage() {
                 </a>
               ))}
 
-              <div className="mt-2 grid grid-cols-2 gap-3">
+              <div className="mt-2">
                 <Link
                   href="/launcher"
-                  className="rounded-xl border border-slate-700 px-4 py-3 text-center text-sm font-semibold text-slate-200"
+                  onClick={closeMobileMenu}
+                  className="block w-full rounded-xl border-2 border-sky-400 bg-sky-500 px-4 py-3 text-center text-sm font-semibold text-white shadow-md transition hover:border-sky-300 hover:bg-sky-400"
                 >
                   Launcher
-                </Link>
-
-                <Link
-                  href={user ? "/launcher" : "/login"}
-                  className="rounded-xl bg-sky-500 px-4 py-3 text-center text-sm font-semibold text-slate-950"
-                >
-                  {user ? (
-                    <>
-                      Open{" "}
-                      <Insyt360Brand />
-                    </>
-                  ) : (
-                    "Sign In"
-                  )}
                 </Link>
               </div>
             </nav>
@@ -431,8 +404,14 @@ export default function AdvantagePage() {
                   Platform Overview
                 </p>
 
-                <h2 className="insyt-workspace mt-2 text-2xl font-bold">
-                  One Platform. Multiple Workflows.
+                <h2 className="insyt-workspace mt-2 text-2xl font-bold leading-tight">
+                  <span className="block">
+                    One Platform.
+                  </span>
+
+                  <span className="block">
+                    Multiple Workflows.
+                  </span>
                 </h2>
               </div>
 
