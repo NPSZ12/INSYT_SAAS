@@ -39,6 +39,28 @@ type SelectedScreenshot = {
   title: string;
 };
 
+type Insyt360BrandProps = {
+  className?: string;
+};
+
+function Insyt360Brand({
+  className = "",
+}: Insyt360BrandProps) {
+  return (
+    <span
+      className={`insyt-brand inline-flex items-end gap-0 whitespace-nowrap ${className}`}
+      aria-label="INSYT360"
+    >
+      <span className="text-white">I</span>
+      <span className="text-sky-400">N</span>
+      <span className="text-white">SYT</span>
+      <span className="mb-[0.18em] text-[0.75em] leading-none text-sky-400">
+        360
+      </span>
+    </span>
+  );
+}
+
 const navigationItems = [
   {
     label: "Why INSYT",
@@ -243,24 +265,10 @@ export default function AdvantagePage() {
         <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-6 lg:px-10">
           <Link
             href="/launcher"
-            className="flex items-end gap-0.5"
+            className="flex items-center"
             aria-label="Return to INSYT360 Launcher"
           >
-            <span className="insyt-brand text-4xl font-bold text-white">
-              I
-            </span>
-
-            <span className="insyt-brand text-4xl font-bold text-sky-400">
-              N
-            </span>
-
-            <span className="insyt-brand text-4xl font-bold text-white">
-              SYT
-            </span>
-
-            <span className="insyt-brand mb-[0.18em] text-[1.45em] font-bold leading-none text-sky-400">
-              360
-            </span>
+            <Insyt360Brand className="text-4xl font-bold" />
           </Link>
 
           <nav className="hidden items-center gap-7 xl:flex">
@@ -287,7 +295,14 @@ export default function AdvantagePage() {
               href={user ? "/launcher" : "/login"}
               className="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
             >
-              {user ? "Open INSYT360" : "Secure Sign In"}
+              {user ? (
+                <>
+                  Open{" "}
+                  <Insyt360Brand />
+                </>
+              ) : (
+                "Secure Sign In"
+              )}
             </Link>
           </div>
 
@@ -333,7 +348,14 @@ export default function AdvantagePage() {
                   href={user ? "/launcher" : "/login"}
                   className="rounded-xl bg-sky-500 px-4 py-3 text-center text-sm font-semibold text-slate-950"
                 >
-                  {user ? "Open INSYT360" : "Sign In"}
+                  {user ? (
+                    <>
+                      Open{" "}
+                      <Insyt360Brand />
+                    </>
+                  ) : (
+                    "Sign In"
+                  )}
                 </Link>
               </div>
             </nav>
@@ -351,12 +373,9 @@ export default function AdvantagePage() {
               INSYT Advantage
             </div>
 
-            <h1 className="insyt-workspace max-w-4xl text-5xl font-bold leading-tight text-white md:text-6xl lg:text-7xl">
-              Explore{" "}
-              <span className="text-white">I</span>
-              <span className="text-sky-400">N</span>
-              <span className="text-white">SYT</span>
-              <span className="text-sky-400">360</span>
+            <h1 className="max-w-4xl text-5xl font-bold leading-tight text-white md:text-6xl lg:text-7xl">
+              <span>Explore </span>
+              <Insyt360Brand />
             </h1>
 
             <p className="mt-7 max-w-3xl text-xl leading-relaxed text-slate-300">
@@ -366,7 +385,7 @@ export default function AdvantagePage() {
             </p>
 
             <p className="mt-5 max-w-3xl text-base leading-relaxed text-slate-400">
-              INSYT360 combines structured processing, AI-assisted
+              <Insyt360Brand /> combines structured processing, AI-assisted
               analysis, professional human review, quality control, and
               long-term project accessibility within one secure platform.
             </p>
@@ -427,7 +446,7 @@ export default function AdvantagePage() {
                       </p>
 
                       <p className="mt-1 text-sm text-slate-500">
-                        Connected INSYT360 workflow
+                        Connected <Insyt360Brand /> workflow
                       </p>
                     </div>
                   </div>
@@ -470,9 +489,9 @@ export default function AdvantagePage() {
             </h2>
 
             <p className="mt-6 text-lg leading-relaxed text-slate-400">
-              INSYT360 is designed to reduce disconnected tools, repetitive
-              processing, and unnecessary review effort while preserving
-              professional oversight and defensible results.
+              <Insyt360Brand /> is designed to reduce disconnected tools,
+              repetitive processing, and unnecessary review effort while
+              preserving professional oversight and defensible results.
             </p>
           </div>
 
@@ -655,9 +674,9 @@ export default function AdvantagePage() {
             </h2>
 
             <p className="mt-6 text-lg leading-relaxed text-slate-400">
-              INSYT360 supports flexible pricing based on project volume,
-              workflow requirements, platform access, managed services, and
-              the level of professional review required.
+              <Insyt360Brand /> supports flexible pricing based on project
+              volume, workflow requirements, platform access, managed services,
+              and the level of professional review required.
             </p>
           </div>
 
@@ -714,8 +733,8 @@ export default function AdvantagePage() {
               Demo Gallery
             </p>
 
-            <h2 className="insyt-workspace mt-4 text-4xl font-bold md:text-5xl">
-              See INSYT360 workflows in action.
+            <h2 className="mt-4 text-4xl font-bold md:text-5xl">
+              See <Insyt360Brand /> workflows in action.
             </h2>
 
             <p className="mt-6 text-lg leading-relaxed text-slate-400">
@@ -782,14 +801,13 @@ export default function AdvantagePage() {
                   Contact
                 </p>
 
-                <h2 className="insyt-workspace mt-4 text-4xl font-bold">
-                  Start a conversation about INSYT360.
+                <h2 className="mt-4 text-4xl font-bold">
+                  Start a conversation about <Insyt360Brand />.
                 </h2>
 
                 <p className="mt-5 max-w-3xl text-lg leading-relaxed text-slate-400">
-                  Contact Cyber Discovery Solutions to discuss a
-                  demonstration, pilot project, pricing, or a custom
-                  INSYT360 workflow.
+                  Contact INSYT to discuss a demonstration,
+                  pilot project, pricing, or a custom <Insyt360Brand /> workflow.
                 </p>
               </div>
 
@@ -828,8 +846,9 @@ export default function AdvantagePage() {
           >
             <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">
-                  INSYT360 Demo
+                <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">
+                  <Insyt360Brand />
+                  <span>Demo</span>
                 </p>
 
                 <h2 className="insyt-workspace mt-1 text-xl font-bold text-white md:text-2xl">
@@ -864,22 +883,8 @@ export default function AdvantagePage() {
       <footer className="border-t border-slate-800 bg-slate-950">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-10 md:flex-row md:items-center md:justify-between lg:px-10">
           <div>
-            <div className="flex items-end gap-0.5">
-              <span className="insyt-brand text-3xl font-bold text-white">
-                I
-              </span>
-
-              <span className="insyt-brand text-3xl font-bold text-sky-400">
-                N
-              </span>
-
-              <span className="insyt-brand text-3xl font-bold text-white">
-                SYT
-              </span>
-
-              <span className="insyt-brand mb-[0.2em] text-[1.15em] font-bold leading-none text-sky-400">
-                360
-              </span>
+            <div className="flex items-center">
+              <Insyt360Brand className="text-3xl font-bold" />
             </div>
 
             <p className="mt-2 text-sm text-slate-500">
