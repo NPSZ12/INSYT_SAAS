@@ -42,19 +42,25 @@ type SelectedScreenshot = {
 
 type Insyt360BrandProps = {
   className?: string;
+  lightBackground?: boolean;
 };
 
 function Insyt360Brand({
   className = "",
+  lightBackground = false,
 }: Insyt360BrandProps) {
+  const primaryText = lightBackground
+    ? "text-sky-700"
+    : "text-white";
+
   return (
     <span
       className={`insyt-brand inline-flex items-baseline gap-0 whitespace-nowrap ${className}`}
       aria-label="INSYT360"
     >
-      <span className="text-white">I</span>
+      <span className={primaryText}>I</span>
       <span className="text-sky-400">N</span>
-      <span className="text-white">SYT</span>
+      <span className={primaryText}>SYT</span>
       <span className="relative bottom-[0.12em] text-[0.75em] leading-none text-sky-400">
         360
       </span>
@@ -302,12 +308,12 @@ export default function AdvantagePage() {
 
             <Link
               href={user ? "/launcher" : "/login"}
-              className="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
+              className="rounded-xl border-2 border-sky-400 bg-white px-5 py-2.5 text-sm font-semibold text-sky-600 shadow-md transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-500"
             >
               {user ? (
                 <>
                   Open{" "}
-                  <Insyt360Brand />
+                  <Insyt360Brand lightBackground />
                 </>
               ) : (
                 "Secure Sign In"
