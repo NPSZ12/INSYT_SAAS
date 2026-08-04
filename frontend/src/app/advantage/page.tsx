@@ -26,6 +26,7 @@ type StoredUser = {
 type Product = {
   name: string;
   description: string;
+  overviewHighlight: string;
   icon: React.ElementType;
   features: string[];
   href: string;
@@ -48,13 +49,13 @@ function Insyt360Brand({
 }: Insyt360BrandProps) {
   return (
     <span
-      className={`insyt-brand inline-flex items-end gap-0 whitespace-nowrap ${className}`}
+      className={`insyt-brand inline-flex items-baseline gap-0 whitespace-nowrap ${className}`}
       aria-label="INSYT360"
     >
       <span className="text-white">I</span>
       <span className="text-sky-400">N</span>
       <span className="text-white">SYT</span>
-      <span className="mb-[0.18em] text-[0.75em] leading-none text-sky-400">
+      <span className="relative bottom-[0.12em] text-[0.75em] leading-none text-sky-400">
         360
       </span>
     </span>
@@ -93,6 +94,8 @@ const products: Product[] = [
     name: "INSYT Capture",
     description:
       "Protocol-driven cyber incident response workflows for identifying, reviewing, validating, and reporting sensitive information.",
+    overviewHighlight:
+      "Sensitive-data detection, protocol-driven review, entity validation, reporting, and final deliverable overlays.",
     icon: ShieldCheck,
     features: [
       "PII, PHI, and regulatory data review",
@@ -105,6 +108,8 @@ const products: Product[] = [
     name: "INSYT Discovery",
     description:
       "Structured eDiscovery processing and review workflows designed to reduce review volume and improve project consistency.",
+    overviewHighlight:
+      "Document processing, advanced search, batching, first-level review, quality control, and production workflows.",
     icon: FileSearch,
     features: [
       "Document processing and review",
@@ -117,6 +122,8 @@ const products: Product[] = [
     name: "INSYT Summaries",
     description:
       "Collaborative summary review for medical records, depositions, claim files, and other large document collections.",
+    overviewHighlight:
+      "Linked source-document navigation, collaborative summary review, editable QC, and completed-summary delivery.",
     icon: Layers3,
     features: [
       "Concurrent summary review",
@@ -132,6 +139,8 @@ const products: Product[] = [
     name: "Cyber² Utility Suite",
     description:
       "Internal data-processing utilities that prepare, normalize, merge, deduplicate, and organize project information.",
+    overviewHighlight:
+      "File conversion, normalization, spreadsheet processing, header mapping, merging, and deduplication utilities.",
     icon: Sparkles,
     features: [
       "Spreadsheet conversion and normalization",
@@ -429,7 +438,6 @@ export default function AdvantagePage() {
             <div className="space-y-3">
               {products.map((product) => {
                 const Icon = product.icon;
-                const screenshot = product.screenshot;
 
                 return (
                   <div
@@ -445,8 +453,8 @@ export default function AdvantagePage() {
                         {product.name}
                       </p>
 
-                      <p className="mt-1 text-sm text-slate-500">
-                        Connected <Insyt360Brand /> workflow
+                      <p className="mt-1 max-w-md text-sm leading-relaxed text-slate-400">
+                        {product.overviewHighlight}
                       </p>
                     </div>
                   </div>
