@@ -14,7 +14,7 @@ export default function Insyt360Brand({
     : "text-white";
 
   const alignmentClass = inlineText
-    ? "mb-0 translate-y-[0.02em]"
+    ? "mb-0 translate-y-[0.01em]"
     : "mb-[0.07em]";
 
   return (
