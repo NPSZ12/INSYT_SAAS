@@ -20,7 +20,7 @@ export default function Insyt360Brand({
       <span className="text-sky-400">N</span>
       <span className={primaryText}>SYT</span>
 
-      <span className="insyt-brand mb-[0.22em] text-[0.75em] font-bold leading-none text-sky-400">
+      <span className="insyt-brand mb-[0.10em] text-[0.75em] font-bold leading-none text-sky-400">
         360
       </span>
     </span>
