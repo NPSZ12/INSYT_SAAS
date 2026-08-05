@@ -347,7 +347,7 @@ export default function AdvantagePage() {
             </p>
 
             <p className="mt-5 max-w-3xl text-base leading-relaxed text-slate-400">
-              <Insyt360Brand /> combines structured processing, AI-assisted
+              <Insyt360Brand inlineText /> combines structured processing, AI-assisted
               analysis, professional human review, quality control, and
               long-term project accessibility within one secure platform.
             </p>
@@ -456,7 +456,7 @@ export default function AdvantagePage() {
             </h2>
 
             <p className="mt-6 text-lg leading-relaxed text-slate-400">
-              <Insyt360Brand /> is designed to reduce disconnected tools,
+              <Insyt360Brand inlineText /> is designed to reduce disconnected tools,
               repetitive processing, and unnecessary review effort while
               preserving professional oversight and defensible results.
             </p>
@@ -641,7 +641,7 @@ export default function AdvantagePage() {
             </h2>
 
             <p className="mt-6 text-lg leading-relaxed text-slate-400">
-              <Insyt360Brand /> supports flexible pricing based on project
+              <Insyt360Brand inlineText /> supports flexible pricing based on project
               volume, workflow requirements, platform access, managed services,
               and the level of professional review required.
             </p>
@@ -775,7 +775,7 @@ export default function AdvantagePage() {
                 <p className="mt-5 max-w-3xl text-lg leading-relaxed text-slate-400">
                   Contact INSYT to discuss a demonstration,
                   pilot project, pricing, or a custom{" "}
-                  <Insyt360Brand /> workflow.
+                  <Insyt360Brand inlineText /> workflow.
                 </p>
               </div>
 
