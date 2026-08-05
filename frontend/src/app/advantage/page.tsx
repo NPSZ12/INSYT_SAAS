@@ -55,13 +55,13 @@ function Insyt360Brand({
 
   return (
     <span
-      className={`insyt-brand inline-flex items-baseline gap-0 whitespace-nowrap ${className}`}
+      className={`insyt-brand inline-flex items-end gap-0 whitespace-nowrap ${className}`}
       aria-label="INSYT360"
     >
       <span className={primaryText}>I</span>
       <span className="text-sky-400">N</span>
       <span className={primaryText}>SYT</span>
-      <span className="relative bottom-[0.12em] text-[0.75em] leading-none text-sky-400">
+      <span className="insyt-brand mb-[0.22em] text-[1.4em] font-bold leading-none text-sky-400">
         360
       </span>
     </span>
@@ -301,7 +301,7 @@ export default function AdvantagePage() {
           <div className="hidden items-center md:flex">
             <Link
               href="/launcher"
-              className="rounded-xl border-2 border-sky-400 bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:border-sky-300 hover:bg-sky-400"
+              className="rounded-xl border-2 border-sky-400 bg-sky-500 px-5 py-2.5 text-sm font-semibold text-black shadow-md transition hover:border-sky-300 hover:bg-sky-400"
             >
               Launcher
             </Link>
@@ -341,7 +341,7 @@ export default function AdvantagePage() {
                 <Link
                   href="/launcher"
                   onClick={closeMobileMenu}
-                  className="block w-full rounded-xl border-2 border-sky-400 bg-sky-500 px-4 py-3 text-center text-sm font-semibold text-white shadow-md transition hover:border-sky-300 hover:bg-sky-400"
+                  className="block w-full rounded-xl border-2 border-sky-400 bg-sky-500 px-4 py-3 text-center text-sm font-semibold text-black shadow-md transition hover:border-sky-300 hover:bg-sky-400"
                 >
                   Launcher
                 </Link>
