@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import Insyt360Brand from "../../components/Insyt360Brand";
 
 import {
   ArrowRight,
@@ -40,45 +41,6 @@ type SelectedScreenshot = {
   title: string;
 };
 
-type Insyt360BrandProps = {
-  className?: string;
-  lightBackground?: boolean;
-  alignment?: "raise" | "default" | "lower";
-};
-
-function Insyt360Brand({
-  className = "",
-  lightBackground = false,
-  alignment = "default",
-}: Insyt360BrandProps) {
-  const primaryText = lightBackground
-    ? "text-sky-700"
-    : "text-white";
-
-  const alignmentClass =
-    alignment === "raise"
-      ? "mb-[0.30em]"
-      : alignment === "lower"
-        ? "mb-[0.12em]"
-        : "mb-[0.22em]";
-
-  return (
-    <span
-      className={`insyt-brand inline-flex items-end gap-0 whitespace-nowrap ${className}`}
-      aria-label="INSYT360"
-    >
-      <span className={primaryText}>I</span>
-      <span className="text-sky-400">N</span>
-      <span className={primaryText}>SYT</span>
-
-      <span
-        className={`insyt-brand text-[0.75em] font-bold leading-none text-sky-400 ${alignmentClass}`}
-      >
-        360
-      </span>
-    </span>
-  );
-}
 
 const navigationItems = [
   {
@@ -295,10 +257,7 @@ export default function AdvantagePage() {
             className="flex items-center"
             aria-label="Return to INSYT360 Launcher"
           >
-            <Insyt360Brand
-              className="text-4xl font-bold"
-              alignment="lower"
-            />
+            <Insyt360Brand className="text-4xl font-bold" />
           </Link>
 
           <nav className="hidden items-center gap-7 xl:flex">
@@ -388,7 +347,7 @@ export default function AdvantagePage() {
             </p>
 
             <p className="mt-5 max-w-3xl text-base leading-relaxed text-slate-400">
-              <Insyt360Brand alignment="raise" /> combines structured processing, AI-assisted
+              <Insyt360Brand /> combines structured processing, AI-assisted
               analysis, professional human review, quality control, and
               long-term project accessibility within one secure platform.
             </p>
@@ -497,7 +456,7 @@ export default function AdvantagePage() {
             </h2>
 
             <p className="mt-6 text-lg leading-relaxed text-slate-400">
-              <Insyt360Brand alignment="raise" /> is designed to reduce disconnected tools,
+              <Insyt360Brand /> is designed to reduce disconnected tools,
               repetitive processing, and unnecessary review effort while
               preserving professional oversight and defensible results.
             </p>
@@ -682,7 +641,7 @@ export default function AdvantagePage() {
             </h2>
 
             <p className="mt-6 text-lg leading-relaxed text-slate-400">
-              <Insyt360Brand alignment="raise" /> supports flexible pricing based on project
+              <Insyt360Brand /> supports flexible pricing based on project
               volume, workflow requirements, platform access, managed services,
               and the level of professional review required.
             </p>
@@ -742,7 +701,7 @@ export default function AdvantagePage() {
             </p>
 
             <h2 className="mt-4 text-4xl font-bold md:text-5xl">
-              See <Insyt360Brand alignment="lower" /> workflows in action.
+              See <Insyt360Brand /> workflows in action.
             </h2>
 
             <p className="mt-6 text-lg leading-relaxed text-slate-400">
@@ -816,7 +775,7 @@ export default function AdvantagePage() {
                 <p className="mt-5 max-w-3xl text-lg leading-relaxed text-slate-400">
                   Contact INSYT to discuss a demonstration,
                   pilot project, pricing, or a custom{" "}
-                  <Insyt360Brand alignment="raise" /> workflow.
+                  <Insyt360Brand /> workflow.
                 </p>
               </div>
 
