@@ -187,11 +187,76 @@ def _read_textish(path: Path, ext: str) -> tuple[str, str]:
             return path.read_bytes().decode("utf-8", errors="replace"), "native_text_file_binary_decode"
     return "", "none"
 
+def _row_value(row, *names: str):
+    for name in names:
+        try:
+            if hasattr(row, "keys") and name not in row.keys():
+                continue
+
+            value = row[name]
+        except Exception:
+            try:
+                value = getattr(row, name, None)
+            except Exception:
+                value = None
+
+        if value not in (None, ""):
+            return value
+
+    return None
+
+
+def _read_existing_extracted_text(row) -> tuple[str, str] | None:
+    """
+    Prefer text already produced by an earlier processing stage, especially
+    Azure Document Intelligence Live OCR.
+
+    The OCR stage runs before review_promotion and may populate one of several
+    text-path fields depending on the current database schema.
+    """
+
+    text_path = _row_value(
+        row,
+        "ocr_text_path",
+        "extracted_text_path",
+        "text_path",
+        "review_text_path",
+        "output_text_path",
+    )
+
+    if not text_path:
+        return None
+
+    path = Path(str(text_path))
+
+    if not path.exists() or not path.is_file():
+        return None
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+
+    if not text.strip():
+        return None
+
+    text_source = (
+        _row_value(
+            row,
+            "text_extraction_method",
+            "ocr_engine",
+        )
+        or "existing_extracted_text"
+    )
+
+    return text, str(text_source)
 
 def _build_text_output(row, workspace: str = "capture") -> tuple[str, str]:
     path = Path(row["original_path"])
     ext = _safe_ext(row["extension"])
     workspace_key = str(workspace or "capture").strip().lower()
+
+    existing_text = _read_existing_extracted_text(row)
+
+    if existing_text is not None:
+        return existing_text
 
     if ext in TEXT_EXTENSIONS:
         return _read_textish(path, ext)
@@ -275,9 +340,7 @@ def run_review_promotion(
     """
     rows = db.query(
         """
-        SELECT file_id, doc_id, original_path, normalized_path, extension, source_bytes, page_count,
-            text_bytes, has_native_text, requires_ocr, is_duplicate, is_denisted, family_id,
-            parent_file_id, md5, sha1, sha256, stage_status_json
+        SELECT *
         FROM file_processing_metrics
         WHERE job_id=? AND is_container=0 AND is_denisted=0 AND is_duplicate=0 AND doc_id IS NOT NULL
         ORDER BY doc_id
