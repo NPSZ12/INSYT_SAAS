@@ -201,9 +201,24 @@ def run_local_pipeline(
         if int(live_ocr_result.get("exception_count") or 0) > 0:
             warnings = live_ocr_result.get("warnings") or []
 
-            raise RuntimeError(
-                "Live OCR failed: "
-                + (" | ".join(str(item) for item in warnings) or "Unknown OCR error.")
+            db.execute(
+                """
+                UPDATE processing_job
+                SET metadata_json=json_patch(
+                    coalesce(metadata_json, '{}'),
+                    ?
+                )
+                WHERE job_id=?
+                """,
+                (
+                    json_dumps(
+                        {
+                            "live_ocr_status": "completed_with_exceptions",
+                            "live_ocr_warnings": warnings,
+                        }
+                    ),
+                    job_id,
+                ),
             )
 
     elif enable_ocr_dry_run:
