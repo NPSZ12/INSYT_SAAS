@@ -43,12 +43,27 @@ def finalize_job(db: LedgerDB, job_id: str) -> None:
     counts = db.query_one(
         """
         SELECT
-          coalesce(sum(CASE WHEN is_container=0 AND is_denisted=0 AND is_duplicate=0 THEN 1 ELSE 0 END),0) AS unique_docs,
-          coalesce(sum(CASE WHEN is_container=0 AND is_duplicate=1 THEN 1 ELSE 0 END),0) AS duplicate_docs,
-          coalesce(sum(CASE WHEN is_container=0 AND is_denisted=1 THEN 1 ELSE 0 END),0) AS denist_docs,
-          coalesce(sum(CASE WHEN is_container=0 AND requires_ocr=1 THEN page_count ELSE 0 END),0) AS ocr_pages,
-          (SELECT coalesce(source_bytes,0) FROM processing_job WHERE job_id=?) AS source_bytes,
-          (SELECT coalesce(source_file_count,0) FROM processing_job WHERE job_id=?) AS source_file_count
+        coalesce(sum(CASE WHEN is_container=0 AND is_denisted=0 AND is_duplicate=0 THEN 1 ELSE 0 END),0) AS unique_docs,
+        coalesce(sum(CASE WHEN is_container=0 AND is_duplicate=1 THEN 1 ELSE 0 END),0) AS duplicate_docs,
+        coalesce(sum(CASE WHEN is_container=0 AND is_denisted=1 THEN 1 ELSE 0 END),0) AS denist_docs,
+        coalesce(
+            sum(
+                CASE
+                    WHEN is_container=0
+                        AND coalesce(ocr_page_count,0) > 0
+                    THEN ocr_page_count
+
+                    WHEN is_container=0
+                        AND requires_ocr=1
+                    THEN page_count
+
+                    ELSE 0
+                END
+            ),
+            0
+        ) AS ocr_pages,
+        (SELECT coalesce(source_bytes,0) FROM processing_job WHERE job_id=?) AS source_bytes,
+        (SELECT coalesce(source_file_count,0) FROM processing_job WHERE job_id=?) AS source_file_count
         FROM file_processing_metrics WHERE job_id=?
         """,
         (job_id, job_id, job_id),
