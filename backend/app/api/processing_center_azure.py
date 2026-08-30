@@ -101,6 +101,16 @@ class PromoteStagedResultsRequest(BaseModel):
     doc_ids: list[str] = []
     promote_all: bool = False
     overwrite: bool = False
+    
+class StartDataElementDetectionRequest(BaseModel):
+    client: str
+    project: str
+    source_job_id: str
+    doc_ids: list[str] = []
+    detect_all_ready: bool = False
+    protocol_name: str | None = None
+    protocol_version: str | None = None
+    include_phi: bool = True
 
 def _bool_env(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {
@@ -2281,6 +2291,508 @@ def get_processing_center_staged_results(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+@router.get("/{workspace}/processing-center/data-element-detection/ready")
+def list_data_element_detection_ready(
+    workspace: Literal["capture", "discovery", "summaries"],
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    """
+    Return documents that completed Initial Ingestion and have staged text
+    available for Data Element Detection.
+
+    This does not run detection. It is the staging population shown in the
+    Processing Center - Data Element Detection page.
+    """
+
+    try:
+        history = _list_processing_job_history(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+
+        jobs: list[dict[str, Any]] = []
+        docs: list[dict[str, Any]] = []
+
+        for job in history.get("jobs") or []:
+            if not isinstance(job, dict):
+                continue
+
+            apc_job_id = job.get("apc_job_id")
+
+            if not apc_job_id:
+                continue
+
+            staged = _build_staged_results_payload(
+                workspace=workspace,
+                client=client,
+                project=project,
+                job_id=str(apc_job_id),
+            )
+
+            staged_docs = staged.get("docs") or []
+
+            job_ready_docs: list[dict[str, Any]] = []
+
+            for doc in staged_docs:
+                if not isinstance(doc, dict):
+                    continue
+
+                doc_id = str(doc.get("doc_id") or "").strip()
+                text_blob_path = doc.get("text_staged_blob_path")
+
+                if not doc_id or not text_blob_path:
+                    continue
+
+                detection_ready = bool(
+                    text_blob_path
+                    and not doc.get("is_duplicate")
+                    and not doc.get("is_denisted")
+                    and not doc.get("requires_ocr")
+                    and str(
+                        doc.get("promotion_status") or ""
+                    ).strip().lower() != "promoted"
+                )
+
+                if not detection_ready:
+                    continue
+
+                row = {
+                    "doc_id": doc_id,
+                    "source_job_id": str(apc_job_id),
+                    "tracked_job_id": job.get("job_id"),
+                    "original_filename": doc.get("original_filename"),
+                    "extension": doc.get("extension"),
+                    "source_bytes": doc.get("source_bytes") or 0,
+                    "page_count": doc.get("page_count") or 0,
+                    "native_staged_blob_path": doc.get(
+                        "native_staged_blob_path"
+                    ),
+                    "text_staged_blob_path": text_blob_path,
+                    "text_staged_bytes": doc.get(
+                        "text_staged_bytes"
+                    ) or 0,
+                    "promotion_status": doc.get(
+                        "promotion_status"
+                    ) or "",
+                    "detection_status": "READY",
+                }
+
+                docs.append(row)
+                job_ready_docs.append(row)
+
+            if job_ready_docs:
+                jobs.append(
+                    {
+                        "source_job_id": str(apc_job_id),
+                        "tracked_job_id": job.get("job_id"),
+                        "completed_at": (
+                            job.get("completed_at")
+                            or job.get("last_modified")
+                        ),
+                        "ready_count": len(job_ready_docs),
+                    }
+                )
+
+        docs.sort(
+            key=lambda item: (
+                item.get("source_job_id") or "",
+                item.get("doc_id") or "",
+            )
+        )
+
+        return {
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "detection_ready_count": len(docs),
+            "job_count": len(jobs),
+            "jobs": jobs,
+            "docs": docs,
+            "storage_account": _review_account(),
+            "container": _review_container(workspace),
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+@router.post("/{workspace}/processing-center/data-element-detection/start")
+def start_data_element_detection(
+    workspace: Literal["capture", "discovery", "summaries"],
+    request: StartDataElementDetectionRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """
+    Queue a Data Element Detection run for staged, ingestion-complete docs.
+    """
+
+    try:
+        staged = _build_staged_results_payload(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+            job_id=request.source_job_id,
+        )
+
+        ready_docs = []
+
+        for doc in staged.get("docs") or []:
+            if not isinstance(doc, dict):
+                continue
+
+            doc_id = str(doc.get("doc_id") or "").strip()
+            text_blob_path = doc.get("text_staged_blob_path")
+
+            if not doc_id or not text_blob_path:
+                continue
+
+            if doc.get("is_duplicate"):
+                continue
+
+            if doc.get("is_denisted"):
+                continue
+
+            if doc.get("requires_ocr"):
+                continue
+
+            if str(
+                doc.get("promotion_status") or ""
+            ).strip().lower() == "promoted":
+                continue
+
+            ready_docs.append(doc)
+
+        if request.detect_all_ready:
+            selected_docs = ready_docs
+        else:
+            requested_doc_ids = {
+                str(doc_id).strip()
+                for doc_id in request.doc_ids
+                if str(doc_id).strip()
+            }
+
+            selected_docs = [
+                doc
+                for doc in ready_docs
+                if str(doc.get("doc_id") or "") in requested_doc_ids
+            ]
+
+        if not selected_docs:
+            raise HTTPException(
+                status_code=400,
+                detail="No detection-ready documents selected.",
+            )
+
+        detection_job_id = f"DET-{uuid4().hex[:16].upper()}"
+
+        base_path = _project_base_path(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+
+        request_blob_path = (
+            f"{base_path}/processing_center/detection/jobs/"
+            f"{detection_job_id}/request.json"
+        )
+
+        status_blob_path = (
+            f"{base_path}/processing_center/detection/jobs/"
+            f"{detection_job_id}/status.json"
+        )
+
+        requested_by = (
+            getattr(admin, "username", None)
+            or getattr(admin, "email", None)
+            or "INSYT Admin"
+        )
+
+        request_payload = {
+            "job_type": "data_element_detection",
+            "detection_job_id": detection_job_id,
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+            "source_job_id": request.source_job_id,
+            "doc_ids": [
+                str(doc.get("doc_id"))
+                for doc in selected_docs
+            ],
+            "documents": [
+                {
+                    "doc_id": str(doc.get("doc_id") or ""),
+                    "text_staged_blob_path": doc.get(
+                        "text_staged_blob_path"
+                    ),
+                    "native_staged_blob_path": doc.get(
+                        "native_staged_blob_path"
+                    ),
+                    "page_count": doc.get("page_count") or 0,
+                }
+                for doc in selected_docs
+            ],
+            "protocol_name": request.protocol_name,
+            "protocol_version": request.protocol_version,
+            "include_phi": request.include_phi,
+            "requested_by": requested_by,
+            "requested_at": _utc_now(),
+            "request_blob_path": request_blob_path,
+            "status_blob_path": status_blob_path,
+        }
+
+        status_payload = {
+            "job_type": "data_element_detection",
+            "detection_job_id": detection_job_id,
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+            "source_job_id": request.source_job_id,
+            "status": "queued",
+            "stage": "queued",
+            "progress_pct": 0,
+            "selected_doc_count": len(selected_docs),
+            "documents_scanned": 0,
+            "documents_with_hits": 0,
+            "documents_no_hits": 0,
+            "documents_nfr": 0,
+            "documents_exception": 0,
+            "entity_hit_count": 0,
+            "message": "Data Element Detection job queued.",
+            "requested_by": requested_by,
+            "requested_at": request_payload["requested_at"],
+            "created_at": _utc_now(),
+            "updated_at": _utc_now(),
+            "request_blob_path": request_blob_path,
+            "status_blob_path": status_blob_path,
+        }
+
+        request_upload = _write_processing_json_blob(
+            blob_path=request_blob_path,
+            payload=request_payload,
+            overwrite=True,
+        )
+
+        status_upload = _write_processing_json_blob(
+            blob_path=status_blob_path,
+            payload=status_payload,
+            overwrite=True,
+        )
+
+        queue_payload = {
+            **request_payload,
+            "status_blob_path": status_blob_path,
+        }
+
+        queue_result = _send_apc_queue_message(queue_payload)
+
+        return {
+            **status_payload,
+            "request_upload": request_upload,
+            "status_upload": status_upload,
+            "queue": queue_result,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+@router.get(
+    "/{workspace}/processing-center/data-element-detection/{detection_job_id}/status"
+)
+def get_data_element_detection_status(
+    workspace: Literal["capture", "discovery", "summaries"],
+    detection_job_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    status_blob_path = (
+        f"{base_path}/processing_center/detection/jobs/"
+        f"{detection_job_id}/status.json"
+    )
+
+    try:
+        return _read_processing_json_blob(
+            status_blob_path
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+@router.get(
+    "/{workspace}/processing-center/data-element-detection/{detection_job_id}/summary"
+)
+def get_data_element_detection_summary(
+    workspace: Literal["capture", "discovery", "summaries"],
+    detection_job_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    summary_blob_path = (
+        f"{base_path}/processing_center/detection/jobs/"
+        f"{detection_job_id}/results/summary.json"
+    )
+
+    documents_blob_path = (
+        f"{base_path}/processing_center/detection/jobs/"
+        f"{detection_job_id}/results/documents.json"
+    )
+
+    entities_blob_path = (
+        f"{base_path}/processing_center/detection/jobs/"
+        f"{detection_job_id}/results/entities.json"
+    )
+
+    try:
+        summary = _read_processing_json_blob(
+            summary_blob_path
+        )
+
+        documents = _read_processing_json_blob(
+            documents_blob_path
+        )
+
+        entities = _read_processing_json_blob(
+            entities_blob_path
+        )
+
+        if not isinstance(documents, list):
+            documents = []
+
+        if not isinstance(entities, list):
+            entities = []
+
+        hit_docs = [
+            row
+            for row in documents
+            if str(
+                row.get("classification") or ""
+            ).upper()
+            == "HIT"
+        ]
+
+        no_hit_docs = [
+            row
+            for row in documents
+            if str(
+                row.get("classification") or ""
+            ).upper()
+            == "NO_HIT"
+        ]
+
+        nfr_docs = [
+            row
+            for row in documents
+            if str(
+                row.get("classification") or ""
+            ).upper()
+            == "NFR"
+        ]
+
+        exception_docs = [
+            row
+            for row in documents
+            if str(
+                row.get("classification") or ""
+            ).upper()
+            == "EXCEPTION"
+        ]
+
+        return {
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "detection_job_id": detection_job_id,
+            "summary": summary,
+            "documents": documents,
+            "entities": entities,
+            "populations": {
+                "hits": hit_docs,
+                "no_hits": no_hit_docs,
+                "nfr": nfr_docs,
+                "exceptions": exception_docs,
+            },
+            "counts": {
+                "documents_total": (
+                    summary.get(
+                        "documents_total",
+                        len(documents),
+                    )
+                ),
+                "documents_scanned": (
+                    summary.get(
+                        "documents_scanned",
+                        0,
+                    )
+                ),
+                "documents_with_hits": (
+                    summary.get(
+                        "documents_with_hits",
+                        len(hit_docs),
+                    )
+                ),
+                "documents_no_hits": (
+                    summary.get(
+                        "documents_no_hits",
+                        len(no_hit_docs),
+                    )
+                ),
+                "documents_nfr": (
+                    summary.get(
+                        "documents_nfr",
+                        len(nfr_docs),
+                    )
+                ),
+                "documents_exception": (
+                    summary.get(
+                        "documents_exception",
+                        len(exception_docs),
+                    )
+                ),
+                "entity_hit_count": (
+                    summary.get(
+                        "entity_hit_count",
+                        len(entities),
+                    )
+                ),
+            },
+            "entity_type_counts": (
+                summary.get(
+                    "entity_type_counts",
+                    [],
+                )
+            ),
+            "summary_blob_path": summary_blob_path,
+            "documents_blob_path": documents_blob_path,
+            "entities_blob_path": entities_blob_path,
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
 
 @router.post("/{workspace}/processing-center/promote")
 def promote_processing_center_staged_results(

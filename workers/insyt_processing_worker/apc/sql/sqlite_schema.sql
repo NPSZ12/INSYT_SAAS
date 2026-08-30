@@ -213,3 +213,183 @@ CREATE TABLE IF NOT EXISTS denist_hash (
     source_version TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS processing_detection_run (
+    detection_run_id TEXT PRIMARY KEY,
+
+    matter_id TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    workspace TEXT NOT NULL DEFAULT 'capture',
+
+    source_job_id TEXT,
+
+    protocol_name TEXT,
+    protocol_version TEXT,
+
+    detector_name TEXT NOT NULL DEFAULT 'azure_language_pii',
+    detector_version TEXT,
+
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+
+    status TEXT NOT NULL DEFAULT 'created',
+
+    documents_total INTEGER NOT NULL DEFAULT 0,
+    documents_scanned INTEGER NOT NULL DEFAULT 0,
+    documents_with_hits INTEGER NOT NULL DEFAULT 0,
+    documents_no_hits INTEGER NOT NULL DEFAULT 0,
+    documents_nfr INTEGER NOT NULL DEFAULT 0,
+    documents_exception INTEGER NOT NULL DEFAULT 0,
+
+    entity_hit_count INTEGER NOT NULL DEFAULT 0,
+
+    estimated_azure_cost_usd REAL NOT NULL DEFAULT 0,
+
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+
+    FOREIGN KEY(source_job_id) REFERENCES processing_job(job_id)
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_detection_run_matter
+ON processing_detection_run(matter_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_run_source_job
+ON processing_detection_run(source_job_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_run_status
+ON processing_detection_run(status);
+
+
+
+CREATE TABLE IF NOT EXISTS processing_detection_document (
+    detection_document_id TEXT PRIMARY KEY,
+
+    detection_run_id TEXT NOT NULL,
+    matter_id TEXT NOT NULL,
+
+    source_job_id TEXT,
+    file_id TEXT NOT NULL,
+    doc_id TEXT NOT NULL,
+
+    text_source TEXT,
+    text_path TEXT,
+
+    detection_status TEXT NOT NULL DEFAULT 'pending',
+
+    classification TEXT NOT NULL DEFAULT 'PENDING',
+
+    hit_count INTEGER NOT NULL DEFAULT 0,
+
+    highest_confidence REAL,
+    average_confidence REAL,
+
+    protocol_name TEXT,
+    protocol_version TEXT,
+
+    exception_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+
+    FOREIGN KEY(detection_run_id)
+        REFERENCES processing_detection_run(detection_run_id),
+
+    FOREIGN KEY(source_job_id)
+        REFERENCES processing_job(job_id),
+
+    FOREIGN KEY(file_id)
+        REFERENCES file_processing_metrics(file_id)
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_detection_document_run
+ON processing_detection_document(detection_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_document_doc
+ON processing_detection_document(doc_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_document_classification
+ON processing_detection_document(
+    detection_run_id,
+    classification
+);
+
+CREATE INDEX IF NOT EXISTS idx_detection_document_status
+ON processing_detection_document(
+    detection_run_id,
+    detection_status
+);
+
+
+
+CREATE TABLE IF NOT EXISTS processing_detection_entity (
+    detection_entity_id TEXT PRIMARY KEY,
+
+    detection_run_id TEXT NOT NULL,
+    detection_document_id TEXT NOT NULL,
+
+    matter_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    doc_id TEXT NOT NULL,
+
+    entity_type TEXT NOT NULL,
+    entity_subtype TEXT,
+
+    detected_value TEXT,
+    normalized_value TEXT,
+    masked_value TEXT,
+
+    confidence REAL,
+
+    start_offset INTEGER,
+    end_offset INTEGER,
+
+    page_number INTEGER,
+
+    detector_name TEXT NOT NULL,
+    detector_version TEXT,
+
+    detection_rule TEXT,
+
+    protocol_name TEXT,
+    protocol_version TEXT,
+
+    reportability TEXT NOT NULL DEFAULT 'UNCLASSIFIED',
+
+    source_text_type TEXT,
+
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+
+    created_at TEXT NOT NULL,
+
+    FOREIGN KEY(detection_run_id)
+        REFERENCES processing_detection_run(detection_run_id),
+
+    FOREIGN KEY(detection_document_id)
+        REFERENCES processing_detection_document(detection_document_id),
+
+    FOREIGN KEY(file_id)
+        REFERENCES file_processing_metrics(file_id)
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_detection_entity_run
+ON processing_detection_entity(detection_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_entity_doc
+ON processing_detection_entity(doc_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_entity_type
+ON processing_detection_entity(
+    detection_run_id,
+    entity_type
+);
+
+CREATE INDEX IF NOT EXISTS idx_detection_entity_reportability
+ON processing_detection_entity(
+    detection_run_id,
+    reportability
+);

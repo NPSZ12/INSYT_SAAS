@@ -28,6 +28,7 @@ import {
   ChevronRight,
   HardDriveUpload,
   UploadCloud,
+  ScanSearch,
 } from "lucide-react";
 
 type NavItem = {
@@ -460,6 +461,7 @@ export default function ProjectSidebar() {
     return [
       "Batch Management",
       "Processing Center",
+      "Processing Center - Data Element Detection",
       "Processing Center - Spreadsheets",
       "Processing Center - Deduplication",
       "Overlays / Final Deliverables",
@@ -500,6 +502,15 @@ export default function ProjectSidebar() {
           ? `/discovery/processing-center${projectQuery}`
           : `/capture/processing-center${projectQuery}`,
       icon: HardDriveUpload,
+    },
+    {
+      label: "Processing Center - Data Element Detection",
+      href: isSummaries
+        ? `/summaries/data-element-detection${projectQuery}`
+        : isDiscovery
+          ? `/discovery/data-element-detection${projectQuery}`
+          : `/capture/data-element-detection${projectQuery}`,
+      icon: ScanSearch,
     },
     ...(isCapture
       ? [

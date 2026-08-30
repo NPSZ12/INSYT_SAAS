@@ -22,7 +22,9 @@ from apc.azure_blob_adapter import (
     azure_archive_processing_uploads,
 )
 from apc.azure_job_runner import run_azure_processing_job
+from apc.detection_job_runner import run_data_element_detection_job
 from apc.azure_layout import AzureRoutingConfig
+
 from apc.config import DEFAULT_SETTINGS
 from apc.db import LedgerDB
 from apc.reports import export_job_report, job_report_data
@@ -343,8 +345,237 @@ def _summarize_result_for_status(result_dict: dict[str, Any]) -> dict[str, Any]:
         ),
     }
 
+def _process_data_element_detection_message(
+    payload: dict[str, Any],
+) -> None:
+    detection_job_id = str(
+        payload.get("detection_job_id") or ""
+    ).strip()
+
+    workspace = str(
+        payload.get("workspace") or "capture"
+    ).strip().lower()
+
+    client = str(
+        payload.get("client") or ""
+    ).strip()
+
+    project = str(
+        payload.get("project") or ""
+    ).strip()
+
+    status_blob_path = str(
+        payload.get("status_blob_path") or ""
+    ).strip()
+
+    if not detection_job_id:
+        raise ValueError(
+            "Detection queue message missing detection_job_id"
+        )
+
+    if not client:
+        raise ValueError(
+            "Detection queue message missing client"
+        )
+
+    if not project:
+        raise ValueError(
+            "Detection queue message missing project"
+        )
+
+    if not status_blob_path:
+        raise ValueError(
+            "Detection queue message missing status_blob_path"
+        )
+
+    db = LedgerDB(_db_path(detection_job_id))
+
+    try:
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="running",
+            stage="starting",
+            progress_pct=5,
+            message="Data Element Detection worker accepted job.",
+            extra={
+                "current_step": (
+                    "Worker accepted queued Data Element Detection job."
+                ),
+                "worker_started_at": utc_now(),
+                "job_type": "data_element_detection",
+                "detection_job_id": detection_job_id,
+                "source_job_id": payload.get("source_job_id"),
+                "client": client,
+                "project": project,
+                "workspace": workspace,
+            },
+        )
+
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="running",
+            stage="preparing_detection",
+            progress_pct=15,
+            message=(
+                "Preparing staged text for Data Element Detection."
+            ),
+            extra={
+                "current_step": (
+                    "Downloading ingestion-complete staged text."
+                ),
+            },
+        )
+
+        result = run_data_element_detection_job(
+            db=db,
+            payload=payload,
+        )
+
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="running",
+            stage="finalizing_detection",
+            progress_pct=95,
+            message=(
+                "Data Element Detection completed. "
+                "Preparing impact assessment."
+            ),
+            extra={
+                "current_step": (
+                    "Writing detection totals and entity counts."
+                ),
+                "detection_run_id": result.get(
+                    "detection_run_id"
+                ),
+                "documents_total": result.get(
+                    "documents_total",
+                    0,
+                ),
+                "documents_scanned": result.get(
+                    "documents_scanned",
+                    0,
+                ),
+                "documents_with_hits": result.get(
+                    "documents_with_hits",
+                    0,
+                ),
+                "documents_no_hits": result.get(
+                    "documents_no_hits",
+                    0,
+                ),
+                "documents_nfr": result.get(
+                    "documents_nfr",
+                    0,
+                ),
+                "documents_exception": result.get(
+                    "documents_exception",
+                    0,
+                ),
+                "entity_hit_count": result.get(
+                    "entity_hit_count",
+                    0,
+                ),
+                "entity_type_counts": result.get(
+                    "entity_type_counts",
+                    [],
+                ),
+            },
+        )
+
+        existing_status = _read_json_blob(
+            status_blob_path,
+            default={},
+        )
+
+        existing_events = (
+            existing_status.get("events") or []
+        )
+
+        if not isinstance(existing_events, list):
+            existing_events = []
+
+        completed_event = _status_event(
+            status="completed",
+            stage="completed",
+            progress_pct=100,
+            message="Data Element Detection completed.",
+            extra={
+                "current_step": (
+                    "Detection completed and impact assessment is ready."
+                ),
+            },
+        )
+
+        final_status = {
+            **existing_status,
+            **result,
+            "job_type": "data_element_detection",
+            "detection_job_id": detection_job_id,
+            "source_job_id": payload.get("source_job_id"),
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "status": "completed",
+            "stage": "completed",
+            "current_stage": "completed",
+            "current_step": (
+                "Detection completed and impact assessment is ready."
+            ),
+            "progress_pct": 100,
+            "message": "Data Element Detection completed.",
+            "completed_at": utc_now(),
+            "updated_at": utc_now(),
+            "last_updated_at": utc_now(),
+            "events": [
+                *existing_events,
+                completed_event,
+            ][-25:],
+        }
+
+        _write_json_blob(
+            status_blob_path,
+            final_status,
+        )
+
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {exc}"
+
+        _update_status(
+            status_blob_path=status_blob_path,
+            status="failed",
+            stage="failed",
+            progress_pct=100,
+            message=(
+                f"Data Element Detection worker failed: {message}"
+            ),
+            extra={
+                "current_step": (
+                    "Data Element Detection worker failed."
+                ),
+                "failed_at": utc_now(),
+                "error": message,
+                "job_type": "data_element_detection",
+                "detection_job_id": detection_job_id,
+            },
+        )
+
+        raise
+
+    finally:
+        db.close()
+
 def process_job_message(message_content: str):
     payload = json.loads(message_content)
+
+    job_type = str(
+        payload.get("job_type") or "initial_ingestion"
+    ).strip().lower()
+
+    if job_type == "data_element_detection":
+        _process_data_element_detection_message(
+            payload
+        )
+        return
 
     job_id = payload.get("job_id")
     workspace = payload.get("workspace", "capture")

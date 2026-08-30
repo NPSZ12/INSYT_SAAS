@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS file_processing_metrics (
     mime_type text,
     source_bytes bigint NOT NULL DEFAULT 0,
     expanded_bytes bigint NOT NULL DEFAULT 0,
+
+    is_container boolean NOT NULL DEFAULT false,
+    is_extracted boolean NOT NULL DEFAULT false,
+    source_container_file_id text,
+    container_depth integer NOT NULL DEFAULT 0,
+    container_path text,
+
     page_count bigint NOT NULL DEFAULT 0,
     text_bytes bigint NOT NULL DEFAULT 0,
     has_native_text boolean NOT NULL DEFAULT false,
@@ -190,4 +197,180 @@ CREATE TABLE IF NOT EXISTS denist_hash (
     source_name text NOT NULL,
     source_version text,
     created_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS processing_detection_run (
+    detection_run_id TEXT PRIMARY KEY,
+
+    matter_id TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    workspace TEXT NOT NULL DEFAULT 'capture',
+
+    source_job_id TEXT,
+
+    protocol_name TEXT,
+    protocol_version TEXT,
+
+    detector_name TEXT NOT NULL DEFAULT 'azure_language_pii',
+    detector_version TEXT,
+
+    created_at timestamptz NOT NULL,
+    started_at timestamptz,
+    completed_at timestamptz,
+
+    status TEXT NOT NULL DEFAULT 'created',
+
+    documents_total bigint NOT NULL DEFAULT 0,
+    documents_scanned bigint NOT NULL DEFAULT 0,
+    documents_with_hits bigint NOT NULL DEFAULT 0,
+    documents_no_hits bigint NOT NULL DEFAULT 0,
+    documents_nfr bigint NOT NULL DEFAULT 0,
+    documents_exception bigint NOT NULL DEFAULT 0,
+    entity_hit_count bigint NOT NULL DEFAULT 0,
+
+    estimated_azure_cost_usd numeric(18,6) NOT NULL DEFAULT 0,
+    metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+    FOREIGN KEY(source_job_id) REFERENCES processing_job(job_id)
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_detection_run_matter
+ON processing_detection_run(matter_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_run_source_job
+ON processing_detection_run(source_job_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_run_status
+ON processing_detection_run(status);
+
+
+
+CREATE TABLE IF NOT EXISTS processing_detection_document (
+    detection_document_id TEXT PRIMARY KEY,
+
+    detection_run_id TEXT NOT NULL,
+    matter_id TEXT NOT NULL,
+
+    source_job_id TEXT,
+    file_id TEXT NOT NULL,
+    doc_id TEXT NOT NULL,
+
+    text_source TEXT,
+    text_path TEXT,
+
+    detection_status TEXT NOT NULL DEFAULT 'pending',
+
+    classification TEXT NOT NULL DEFAULT 'PENDING',
+
+    hit_count bigint NOT NULL DEFAULT 0,
+
+    highest_confidence DOUBLE PRECISION,
+    average_confidence DOUBLE PRECISION,
+
+    protocol_name TEXT,
+    protocol_version TEXT,
+
+    exception_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+    metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+
+    FOREIGN KEY(detection_run_id)
+        REFERENCES processing_detection_run(detection_run_id),
+
+    FOREIGN KEY(source_job_id)
+        REFERENCES processing_job(job_id),
+
+    FOREIGN KEY(file_id)
+        REFERENCES file_processing_metrics(file_id)
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_detection_document_run
+ON processing_detection_document(detection_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_document_doc
+ON processing_detection_document(doc_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_document_classification
+ON processing_detection_document(
+    detection_run_id,
+    classification
+);
+
+CREATE INDEX IF NOT EXISTS idx_detection_document_status
+ON processing_detection_document(
+    detection_run_id,
+    detection_status
+);
+
+
+
+CREATE TABLE IF NOT EXISTS processing_detection_entity (
+    detection_entity_id TEXT PRIMARY KEY,
+
+    detection_run_id TEXT NOT NULL,
+    detection_document_id TEXT NOT NULL,
+
+    matter_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    doc_id TEXT NOT NULL,
+
+    entity_type TEXT NOT NULL,
+    entity_subtype TEXT,
+
+    detected_value TEXT,
+    normalized_value TEXT,
+    masked_value TEXT,
+
+    confidence DOUBLE PRECISION,
+
+    start_offset bigint,
+    end_offset bigint,
+    page_number bigint,
+
+    detector_name TEXT NOT NULL,
+    detector_version TEXT,
+
+    detection_rule TEXT,
+
+    protocol_name TEXT,
+    protocol_version TEXT,
+
+    reportability TEXT NOT NULL DEFAULT 'UNCLASSIFIED',
+
+    source_text_type TEXT,
+
+    metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL,
+
+    FOREIGN KEY(detection_run_id)
+        REFERENCES processing_detection_run(detection_run_id),
+
+    FOREIGN KEY(detection_document_id)
+        REFERENCES processing_detection_document(detection_document_id),
+
+    FOREIGN KEY(file_id)
+        REFERENCES file_processing_metrics(file_id)
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_detection_entity_run
+ON processing_detection_entity(detection_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_entity_doc
+ON processing_detection_entity(doc_id);
+
+CREATE INDEX IF NOT EXISTS idx_detection_entity_type
+ON processing_detection_entity(
+    detection_run_id,
+    entity_type
+);
+
+CREATE INDEX IF NOT EXISTS idx_detection_entity_reportability
+ON processing_detection_entity(
+    detection_run_id,
+    reportability
 );
