@@ -50,8 +50,21 @@ def finalize_job(db: LedgerDB, job_id: str) -> None:
             sum(
                 CASE
                     WHEN is_container=0
-                        AND coalesce(ocr_page_count,0) > 0
-                    THEN ocr_page_count
+                        AND coalesce(
+                            CAST(
+                                json_extract(
+                                    stage_status_json,
+                                    '$.ocr_live.page_count'
+                                ) AS INTEGER
+                            ),
+                            0
+                        ) > 0
+                    THEN CAST(
+                        json_extract(
+                            stage_status_json,
+                            '$.ocr_live.page_count'
+                        ) AS INTEGER
+                    )
 
                     WHEN is_container=0
                         AND requires_ocr=1
