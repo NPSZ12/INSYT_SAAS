@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ScanSearch, RefreshCw, Play } from "lucide-react";
 
@@ -85,7 +85,7 @@ type DetectionSummary = {
   entities?: any[];
 };
 
-export default function DataElementDetectionPage() {
+function DataElementDetectionPageContent() {
   const searchParams = useSearchParams();
 
   const clientId = searchParams.get("client") || "";
@@ -900,5 +900,23 @@ function StatusValue({
         {value}
       </div>
     </div>
+  );
+}
+
+export default function DataElementDetectionPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-slate-950 text-slate-100">
+          <div className="mx-auto max-w-[1800px] px-6 py-6">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-5 py-10 text-center text-sm text-slate-500">
+              Loading Data Element Detection...
+            </div>
+          </div>
+        </main>
+      }
+    >
+      <DataElementDetectionPageContent />
+    </Suspense>
   );
 }
