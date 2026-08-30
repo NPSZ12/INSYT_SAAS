@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import mimetypes
 import os
 from pathlib import Path
@@ -85,6 +86,129 @@ def _guess_content_type(path: str) -> str:
     guessed, _ = mimetypes.guess_type(path)
     return guessed or "application/octet-stream"
 
+def _prepare_image_for_ocr(
+    content: bytes,
+    content_type: str,
+) -> tuple[bytes, str]:
+    """
+    Prepare oversized raster images for Azure Document Intelligence OCR.
+
+    The original source file is never modified. Any resizing/compression is
+    performed entirely in memory and is used only for the OCR request.
+    """
+
+    max_ocr_bytes = 3_500_000
+
+    if len(content) <= max_ocr_bytes:
+        return content, content_type
+
+    normalized_type = (content_type or "").lower()
+
+    if normalized_type not in {
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/tiff",
+        "image/bmp",
+        "image/webp",
+    }:
+        return content, content_type
+
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError(
+            "Oversized OCR image requires Pillow for automatic image "
+            "compression, but Pillow is not installed."
+        ) from exc
+
+    with Image.open(io.BytesIO(content)) as image:
+        image.load()
+
+        # Azure OCR does not need the full resolution of extremely large
+        # raster images. Reduce oversized dimensions while maintaining the
+        # original aspect ratio.
+        max_dimension = 8000
+
+        width, height = image.size
+        largest_dimension = max(width, height)
+
+        if largest_dimension > max_dimension:
+            scale = max_dimension / float(largest_dimension)
+            new_size = (
+                max(1, int(width * scale)),
+                max(1, int(height * scale)),
+            )
+
+            image = image.resize(
+                new_size,
+                Image.Resampling.LANCZOS,
+            )
+
+        # JPEG is substantially smaller than large PNG/BMP/TIFF images and is
+        # well suited to the temporary working copy used for OCR.
+        if image.mode not in ("RGB", "L"):
+            if "A" in image.getbands():
+                background = Image.new("RGB", image.size, "white")
+                alpha = image.getchannel("A")
+                background.paste(image, mask=alpha)
+                image = background
+            else:
+                image = image.convert("RGB")
+
+        if image.mode == "L":
+            image = image.convert("RGB")
+
+        for quality in (90, 85, 80, 75, 70, 65, 60):
+            buffer = io.BytesIO()
+            image.save(
+                buffer,
+                format="JPEG",
+                quality=quality,
+                optimize=True,
+            )
+
+            prepared = buffer.getvalue()
+
+            if len(prepared) <= max_ocr_bytes:
+                return prepared, "image/jpeg"
+
+        # If JPEG quality reduction alone is insufficient, progressively
+        # reduce the dimensions until the working copy falls below the OCR
+        # request threshold.
+        working_image = image
+
+        while len(prepared) > max_ocr_bytes:
+            width, height = working_image.size
+
+            if width <= 1000 or height <= 1000:
+                break
+
+            working_image = working_image.resize(
+                (
+                    max(1, int(width * 0.8)),
+                    max(1, int(height * 0.8)),
+                ),
+                Image.Resampling.LANCZOS,
+            )
+
+            buffer = io.BytesIO()
+            working_image.save(
+                buffer,
+                format="JPEG",
+                quality=75,
+                optimize=True,
+            )
+
+            prepared = buffer.getvalue()
+
+        if len(prepared) > max_ocr_bytes:
+            raise RuntimeError(
+                "Unable to reduce OCR image below the Azure request size "
+                f"threshold. Prepared size: {len(prepared)} bytes."
+            )
+
+        return prepared, "image/jpeg"
 
 def _ocr_bytes(content: bytes, content_type: str) -> tuple[str, int]:
     client = _get_document_intelligence_client()
@@ -341,6 +465,12 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
         try:
             content = Path(source_path).read_bytes()
             content_type = _guess_content_type(source_path)
+
+            content, content_type = _prepare_image_for_ocr(
+                content,
+                content_type,
+            )
+
             text, page_count = _ocr_bytes(content, content_type)
             output_text_path = _write_ocr_text(row, source_path, doc_id, text)
 
