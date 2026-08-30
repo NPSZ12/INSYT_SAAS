@@ -1,5 +1,6 @@
 from __future__ import annotations
 from ..util import json_dumps
+from ..telemetry import StageRunner
 
 import io
 import mimetypes
@@ -427,14 +428,12 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
     """
     Live OCR implementation for APC.
 
-    This preserves the v0.2 function name so orchestrator.py does not need to
-    change. It scans OCR-required rows from file_processing_metrics, sends the
-    source file bytes to Azure Document Intelligence prebuilt-read, writes a
-    .txt file next to the native output area, and updates available metric fields.
+    Processes OCR-required documents through Azure Document Intelligence
+    prebuilt-read, stores the resulting OCR text, updates document metrics,
+    and records actual OCR page usage against current Azure retail pricing.
     """
 
     stage_name = "ocr_live"
-    _record_stage_start(db, job_id, stage_name)
 
     columns = _table_columns(db, "file_processing_metrics")
 
@@ -464,73 +463,133 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
 
     processed_count = 0
     exception_count = 0
+    actual_ocr_pages = 0
     warnings: list[str] = []
 
-    for row in rows:
-        doc_id = _find_doc_id(row)
-        source_path = _find_source_path(row)
-        metric_id = _row_get(row, "id")
+    with StageRunner(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        stage_name,
+        "azure-document-intelligence-prebuilt-read",
+    ) as stage:
 
-        if not source_path:
-            exception_count += 1
-            warnings.append(f"{doc_id}: no source path found for OCR.")
-            continue
+        stage.metrics.files_in = len(rows)
+        stage.metrics.documents_in = len(rows)
 
-        if not Path(source_path).exists():
-            exception_count += 1
-            warnings.append(f"{doc_id}: source file does not exist: {source_path}")
-            continue
+        for row in rows:
+            doc_id = _find_doc_id(row)
+            source_path = _find_source_path(row)
+            metric_id = _row_get(row, "id")
+            file_id = _row_get(row, "file_id")
 
-        try:
-            content = Path(source_path).read_bytes()
-            content_type = _guess_content_type(source_path)
+            if not source_path:
+                exception_count += 1
+                warnings.append(
+                    f"{doc_id}: no source path found for OCR."
+                )
+                continue
 
-            content, content_type = _prepare_image_for_ocr(
-                content,
-                content_type,
-            )
+            if not Path(source_path).exists():
+                exception_count += 1
+                warnings.append(
+                    f"{doc_id}: source file does not exist: {source_path}"
+                )
+                continue
 
-            text, page_count = _ocr_bytes(content, content_type)
+            try:
+                content = Path(source_path).read_bytes()
+                content_type = _guess_content_type(source_path)
 
-            if not (text or "").strip():
-                raise RuntimeError(
-                    "Azure Document Intelligence completed the OCR request "
-                    "but returned no recognized text."
+                content, content_type = _prepare_image_for_ocr(
+                    content,
+                    content_type,
                 )
 
-            output_text_path = _write_ocr_text(
-                row,
-                source_path,
-                doc_id,
-                text,
-            )
+                text, page_count = _ocr_bytes(
+                    content,
+                    content_type,
+                )
 
-            _update_metric_after_ocr(
-                db=db,
-                row=row,
-                metric_id=metric_id,
-                doc_id=doc_id,
-                output_text_path=output_text_path,
-                page_count=page_count,
-            )
+                if not (text or "").strip():
+                    raise RuntimeError(
+                        "Azure Document Intelligence completed the OCR request "
+                        "but returned no recognized text."
+                    )
 
-            processed_count += 1
-        except Exception as exc:
-            exception_count += 1
-            warnings.append(f"{doc_id}: live OCR failed: {type(exc).__name__}: {exc}")
+                output_text_path = _write_ocr_text(
+                    row,
+                    source_path,
+                    doc_id,
+                    text,
+                )
 
-    _record_stage_complete(
-        db=db,
-        job_id=job_id,
-        stage_name=stage_name,
-        processed_count=processed_count,
-        exception_count=exception_count,
-    )
+                _update_metric_after_ocr(
+                    db=db,
+                    row=row,
+                    metric_id=metric_id,
+                    doc_id=doc_id,
+                    output_text_path=output_text_path,
+                    page_count=page_count,
+                )
+
+                #
+                # Ledger the ACTUAL pages returned by Azure Document
+                # Intelligence. PricingEngine resolves the current regional
+                # standard Read rate from the Azure Retail Prices API.
+                #
+                if page_count > 0:
+                    stage.quote_cost(
+                        azure_service="Azure Document Intelligence",
+                        meter_name="Read Pages",
+                        quantity=float(page_count),
+                        unit="pages",
+                        file_id=str(file_id) if file_id else None,
+                        confidence_note=(
+                            "Actual pages returned by Azure Document "
+                            "Intelligence prebuilt-read; rate resolved from "
+                            "current Azure retail pricing when available."
+                        ),
+                        cost_type="estimated",
+                    )
+
+                actual_ocr_pages += int(page_count or 0)
+                processed_count += 1
+
+            except Exception as exc:
+                exception_count += 1
+                warnings.append(
+                    f"{doc_id}: live OCR failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        stage.metrics.files_out = processed_count
+        stage.metrics.documents_out = processed_count
+        stage.metrics.pages_out = actual_ocr_pages
+        stage.metrics.exceptions = exception_count
+
+        stage.metrics.extra.update(
+            {
+                "ocr_engine": "azure_document_intelligence_read",
+                "model_id": "prebuilt-read",
+                "processed_count": processed_count,
+                "actual_ocr_pages": actual_ocr_pages,
+                "exception_count": exception_count,
+                "warnings": warnings[:50],
+                "pricing_basis": "actual_ocr_pages",
+            }
+        )
 
     return {
         "stage": stage_name,
-        "status": "completed" if exception_count == 0 else "completed_with_exceptions",
+        "status": (
+            "completed"
+            if exception_count == 0
+            else "completed_with_exceptions"
+        ),
         "processed_count": processed_count,
+        "page_count": actual_ocr_pages,
         "exception_count": exception_count,
         "warnings": warnings,
     }
