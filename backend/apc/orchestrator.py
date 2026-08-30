@@ -190,7 +190,22 @@ def run_local_pipeline(
                 "Live OCR requested but neither APC_ENABLE_LIVE_OCR nor "
                 "APC_API_ALLOW_LIVE_OCR is true."
             )
-        run_live_ocr_placeholder(db, settings, job_id, matter_id)
+
+        live_ocr_result = run_live_ocr_placeholder(
+            db,
+            settings,
+            job_id,
+            matter_id,
+        )
+
+        if int(live_ocr_result.get("exception_count") or 0) > 0:
+            warnings = live_ocr_result.get("warnings") or []
+
+            raise RuntimeError(
+                "Live OCR failed: "
+                + (" | ".join(str(item) for item in warnings) or "Unknown OCR error.")
+            )
+
     elif enable_ocr_dry_run:
         run_ocr_dry_run(db, settings, job_id, matter_id)
 
