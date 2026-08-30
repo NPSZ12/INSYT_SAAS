@@ -258,7 +258,7 @@ def _live_source_account() -> str:
     return (
         os.getenv("INSYT_LIVE_SOURCE_STORAGE_ACCOUNT")
         or os.getenv("CDS_INTAKE_STORAGE_ACCOUNT")
-        or "cdsintakestorage"
+        or "insytintakestorage"
     )
 
 

@@ -313,6 +313,12 @@ def get_project_storage_targets(workspace: str):
     )
 
     review_connection = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
+    
+    live_account = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_ACCOUNT")
+        or os.getenv("CDS_INTAKE_STORAGE_ACCOUNT")
+        or "insytintakestorage"
+    )
 
     live_connection = (
         os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")
@@ -340,7 +346,7 @@ def get_project_storage_targets(workspace: str):
         ),
         (
             "live",
-            "cdsintakestorage",
+            live_account,
             live_connection,
             get_live_source_container_name(workspace),
         ),

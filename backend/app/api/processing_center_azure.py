@@ -19,7 +19,7 @@ Environment expected in production:
     INSYT_REVIEW_CONTAINER_CAPTURE=insyt-capture
     INSYT_REVIEW_CONTAINER_SUMMARIES=insyt-summaries
     INSYT_REVIEW_CONTAINER_DISCOVERY=insyt-discovery
-    INSYT_LIVE_SOURCE_STORAGE_ACCOUNT=cdsintakestorage
+    INSYT_LIVE_SOURCE_STORAGE_ACCOUNT=insytintakestorage
     INSYT_LIVE_SOURCE_CONTAINER_CAPTURE=insyt-capture
     INSYT_LIVE_SOURCE_CONTAINER_SUMMARIES=insyt-summaries
     INSYT_LIVE_SOURCE_CONTAINER_DISCOVERY=insyt-discovery
@@ -1667,7 +1667,7 @@ def _live_source_account() -> str:
         os.getenv("INSYT_LIVE_SOURCE_STORAGE_ACCOUNT")
         or os.getenv("INSYT_FILES_STORAGE_ACCOUNT")
         or os.getenv("CDS_INTAKE_STORAGE_ACCOUNT")
-        or "cdsintakestorage"
+        or "insytintakestorage"
     )
 
 

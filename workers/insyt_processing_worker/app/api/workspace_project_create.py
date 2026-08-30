@@ -113,6 +113,12 @@ def get_required_storage_targets(workspace: str):
             detail="Invalid workspace container.",
         )
 
+    live_account = (
+        os.getenv("INSYT_LIVE_SOURCE_STORAGE_ACCOUNT")
+        or os.getenv("CDS_INTAKE_STORAGE_ACCOUNT")
+        or "insytintakestorage"
+    )
+    
     processing_connection = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
     review_connection = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")
     live_connection = (
@@ -133,7 +139,7 @@ def get_required_storage_targets(workspace: str):
         ),
         (
             "live",
-            "cdsintakestorage",
+            live_account,
             live_connection,
         ),
     ]
