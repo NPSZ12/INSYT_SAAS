@@ -4,7 +4,9 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ScanSearch, RefreshCw, Play } from "lucide-react";
 
+import AppShell from "../../../components/AppShell";
 import { apiGet, apiPost } from "../../../lib/api";
+
 
 type DetectionReadyDoc = {
   doc_id: string;
@@ -414,7 +416,7 @@ function DataElementDetectionPageContent() {
     [];
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-full bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-[1800px] px-6 py-6">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
@@ -833,7 +835,7 @@ function DataElementDetectionPageContent() {
           Project: {projectId || "—"}
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -905,18 +907,20 @@ function StatusValue({
 
 export default function DataElementDetectionPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen bg-slate-950 text-slate-100">
-          <div className="mx-auto max-w-[1800px] px-6 py-6">
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-5 py-10 text-center text-sm text-slate-500">
-              Loading Data Element Detection...
+    <AppShell>
+      <Suspense
+        fallback={
+          <div className="min-h-full bg-slate-950 text-slate-100">
+            <div className="mx-auto max-w-[1800px] px-6 py-6">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-5 py-10 text-center text-sm text-slate-500">
+                Loading Data Element Detection...
+              </div>
             </div>
           </div>
-        </main>
-      }
-    >
-      <DataElementDetectionPageContent />
-    </Suspense>
+        }
+      >
+        <DataElementDetectionPageContent />
+      </Suspense>
+    </AppShell>
   );
 }
