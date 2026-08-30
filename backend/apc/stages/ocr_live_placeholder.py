@@ -472,7 +472,19 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
             )
 
             text, page_count = _ocr_bytes(content, content_type)
-            output_text_path = _write_ocr_text(row, source_path, doc_id, text)
+
+            if not (text or "").strip():
+                raise RuntimeError(
+                    "Azure Document Intelligence completed the OCR request "
+                    "but returned no recognized text."
+                )
+
+            output_text_path = _write_ocr_text(
+                row,
+                source_path,
+                doc_id,
+                text,
+            )
 
             _update_metric_after_ocr(
                 db=db,
