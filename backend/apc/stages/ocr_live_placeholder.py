@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ..util import json_dumps
 
 import io
 import mimetypes
@@ -353,6 +354,24 @@ def _update_metric_after_ocr(
     if "ocr_engine" in columns:
         assignments.append("ocr_engine=?")
         params.append("azure_document_intelligence_read")
+        
+    if "stage_status_json" in columns:
+        assignments.append(
+            "stage_status_json=json_patch("
+            "coalesce(stage_status_json, '{}'), ?)"
+        )
+        params.append(
+            json_dumps(
+                {
+                    "ocr_live": {
+                        "status": "completed",
+                        "text_path": output_text_path,
+                        "page_count": page_count,
+                        "engine": "azure_document_intelligence_read",
+                    }
+                }
+            )
+        )
 
     if not assignments:
         return

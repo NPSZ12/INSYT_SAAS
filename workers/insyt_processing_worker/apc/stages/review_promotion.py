@@ -218,6 +218,15 @@ def _read_existing_extracted_text(row) -> tuple[str, str] | None:
     deterministic OCR output path derived from original_path and doc_id.
     """
 
+    stage_status = _get_stage_status(row)
+    ocr_live = stage_status.get("ocr_live") or {}
+
+    stage_ocr_text_path = (
+        ocr_live.get("text_path")
+        if isinstance(ocr_live, dict)
+        else None
+    )
+
     text_path = _row_value(
         row,
         "ocr_text_path",
@@ -229,8 +238,16 @@ def _read_existing_extracted_text(row) -> tuple[str, str] | None:
 
     candidate_paths: list[Path] = []
 
+    if stage_ocr_text_path:
+        candidate_paths.append(
+            Path(str(stage_ocr_text_path))
+        )
+
     if text_path:
-        candidate_paths.append(Path(str(text_path)))
+        text_path_obj = Path(str(text_path))
+
+        if text_path_obj not in candidate_paths:
+            candidate_paths.append(text_path_obj)
 
     # Live OCR fallback path:
     #
@@ -282,7 +299,12 @@ def _read_existing_extracted_text(row) -> tuple[str, str] | None:
             continue
 
         text_source = (
-            _row_value(
+            (
+                ocr_live.get("engine")
+                if isinstance(ocr_live, dict)
+                else None
+            )
+            or _row_value(
                 row,
                 "text_extraction_method",
                 "ocr_engine",
