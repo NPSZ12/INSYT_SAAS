@@ -213,6 +213,9 @@ def _read_existing_extracted_text(row) -> tuple[str, str] | None:
 
     The OCR stage runs before review_promotion and may populate one of several
     text-path fields depending on the current database schema.
+
+    If the schema does not expose one of those path fields, fall back to the
+    deterministic OCR output path derived from original_path and doc_id.
     """
 
     text_path = _row_value(
@@ -224,29 +227,72 @@ def _read_existing_extracted_text(row) -> tuple[str, str] | None:
         "output_text_path",
     )
 
-    if not text_path:
-        return None
+    candidate_paths: list[Path] = []
 
-    path = Path(str(text_path))
+    if text_path:
+        candidate_paths.append(Path(str(text_path)))
 
-    if not path.exists() or not path.is_file():
-        return None
-
-    text = path.read_text(encoding="utf-8", errors="replace")
-
-    if not text.strip():
-        return None
-
-    text_source = (
-        _row_value(
-            row,
-            "text_extraction_method",
-            "ocr_engine",
-        )
-        or "existing_extracted_text"
+    # Live OCR fallback path:
+    #
+    #   source:
+    #   .../<project>/uploads/example.png
+    #
+    #   OCR text:
+    #   .../<project>/text/<DOC_ID>.txt
+    #
+    # This is the same deterministic location used by ocr_live_placeholder.py
+    # when file_processing_metrics does not contain a writable text-path field.
+    original_path = _row_value(
+        row,
+        "original_path",
+        "source_path",
+        "file_path",
+        "path",
     )
 
-    return text, str(text_source)
+    doc_id = _row_value(
+        row,
+        "doc_id",
+        "assigned_doc_id",
+        "document_id",
+    )
+
+    if original_path and doc_id:
+        source = Path(str(original_path))
+
+        derived_ocr_path = (
+            source.parent.parent
+            / "text"
+            / f"{doc_id}.txt"
+        )
+
+        if derived_ocr_path not in candidate_paths:
+            candidate_paths.append(derived_ocr_path)
+
+    for path in candidate_paths:
+        if not path.exists() or not path.is_file():
+            continue
+
+        text = path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        if not text.strip():
+            continue
+
+        text_source = (
+            _row_value(
+                row,
+                "text_extraction_method",
+                "ocr_engine",
+            )
+            or "azure_document_intelligence_read"
+        )
+
+        return text, str(text_source)
+
+    return None
 
 def _build_text_output(row, workspace: str = "capture") -> tuple[str, str]:
     path = Path(row["original_path"])
