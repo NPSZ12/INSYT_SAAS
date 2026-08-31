@@ -430,6 +430,59 @@ def _generic_identifier_context(
         " ".join(after.split()),
     )
 
+def _infer_generic_identifier_label(
+    context_before: str,
+) -> tuple[str, float]:
+    """
+    Infer a nearby human-readable identifier label.
+
+    Examples:
+        "Internal File Key:" -> "Internal File Key"
+        "Matter Token:" -> "Matter Token"
+        "Custom Reference:" -> "Custom Reference"
+
+    Only alphabetic label words are accepted here so an
+    earlier identifier value is not accidentally absorbed
+    into the inferred label.
+    """
+
+    value = str(
+        context_before or ""
+    ).strip()
+
+    if not value:
+        return "", 0.0
+
+    match = re.search(
+        r"("
+        r"(?:[A-Za-z][A-Za-z_-]*\s+){0,3}"
+        r"[A-Za-z][A-Za-z_-]*"
+        r")"
+        r"\s*[:#\-]\s*$",
+        value,
+    )
+
+    if not match:
+        return "", 0.0
+
+    label = " ".join(
+        str(match.group(1) or "").split()
+    ).strip()
+
+    if not label:
+        return "", 0.0
+
+    #
+    # Directly adjacent labeled values are strong evidence.
+    #
+    confidence = 0.88
+
+    if _GENERIC_IDENTIFIER_LABEL_RE.search(
+        label
+    ):
+        confidence = 0.95
+
+    return label, confidence
 
 def _looks_like_generic_identifier(
     value: str,
@@ -553,6 +606,12 @@ def _find_generic_identifier_candidates(
                 end,
             )
         )
+        
+        inferred_label, inferred_label_confidence = (
+            _infer_generic_identifier_label(
+                context_before
+            )
+        )
 
         accepted, candidate_score = (
             _looks_like_generic_identifier(
@@ -593,6 +652,11 @@ def _find_generic_identifier_candidates(
                 "candidate_type": (
                     "generic_identifier"
                 ),
+                "inferred_label": inferred_label,
+                "inferred_label_confidence": round(
+                    inferred_label_confidence,
+                    4,
+                ),
             }
         )
         
@@ -630,6 +694,12 @@ def _find_generic_identifier_candidates(
                 text,
                 start,
                 end,
+            )
+        )
+        
+        inferred_label, inferred_label_confidence = (
+            _infer_generic_identifier_label(
+                context_before
             )
         )
 
@@ -708,6 +778,11 @@ def _find_generic_identifier_candidates(
                 "reconstruction_method": (
                     "space_to_separator"
                 ),
+                "inferred_label": inferred_label,
+                "inferred_label_confidence": round(
+                    inferred_label_confidence,
+                    4,
+                ),
             }
         )
 
@@ -737,13 +812,13 @@ def _build_generic_identifier_clusters(
             cluster_key,
             {
                 "cluster_key": cluster_key,
-                "normalized_shape": (
-                    normalized_shape
-                ),
+                "normalized_shape": normalized_shape,
                 "occurrence_count": 0,
                 "document_ids": set(),
                 "examples": [],
                 "context_samples": [],
+                "label_counts": {},
+                "label_confidence_totals": {},
             },
         )
 
@@ -789,6 +864,44 @@ def _build_generic_identifier_clusters(
             cluster[
                 "context_samples"
             ].append(context_before)
+            
+        inferred_label = str(
+            candidate.get("inferred_label")
+            or ""
+        ).strip()
+
+        try:
+            inferred_label_confidence = float(
+                candidate.get(
+                    "inferred_label_confidence"
+                )
+                or 0.0
+            )
+        except (TypeError, ValueError):
+            inferred_label_confidence = 0.0
+
+        if inferred_label:
+            cluster["label_counts"][
+                inferred_label
+            ] = (
+                cluster["label_counts"].get(
+                    inferred_label,
+                    0,
+                )
+                + 1
+            )
+
+            cluster[
+                "label_confidence_totals"
+            ][inferred_label] = (
+                cluster[
+                    "label_confidence_totals"
+                ].get(
+                    inferred_label,
+                    0.0,
+                )
+                + inferred_label_confidence
+            )
 
     results: list[dict[str, Any]] = []
 
@@ -796,6 +909,70 @@ def _build_generic_identifier_clusters(
         document_ids = sorted(
             cluster["document_ids"]
         )
+        
+        label_counts = dict(
+            cluster.get("label_counts")
+            or {}
+        )
+
+        suggested_label = ""
+        suggested_label_confidence = 0.0
+        suggested_label_occurrences = 0
+
+        if label_counts:
+            suggested_label = max(
+                label_counts,
+                key=lambda label: (
+                    int(label_counts[label]),
+                    float(
+                        cluster[
+                            "label_confidence_totals"
+                        ].get(
+                            label,
+                            0.0,
+                        )
+                    ),
+                ),
+            )
+
+            suggested_label_occurrences = int(
+                label_counts.get(
+                    suggested_label,
+                    0,
+                )
+            )
+
+            total_label_confidence = float(
+                cluster[
+                    "label_confidence_totals"
+                ].get(
+                    suggested_label,
+                    0.0,
+                )
+            )
+
+            if suggested_label_occurrences:
+                average_label_confidence = (
+                    total_label_confidence
+                    / suggested_label_occurrences
+                )
+
+                agreement_ratio = (
+                    suggested_label_occurrences
+                    / max(
+                        1,
+                        int(
+                            cluster[
+                                "occurrence_count"
+                            ]
+                        ),
+                    )
+                )
+
+                suggested_label_confidence = (
+                    average_label_confidence
+                    * agreement_ratio
+                )
 
         results.append(
             {
@@ -821,6 +998,16 @@ def _build_generic_identifier_clusters(
                     cluster[
                         "context_samples"
                     ]
+                ),
+                "suggested_label": (
+                    suggested_label
+                ),
+                "suggested_label_confidence": round(
+                    suggested_label_confidence,
+                    4,
+                ),
+                "suggested_label_occurrences": (
+                    suggested_label_occurrences
                 ),
             }
         )
