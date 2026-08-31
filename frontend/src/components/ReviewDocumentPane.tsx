@@ -14,11 +14,24 @@ const PdfDocumentViewer = dynamic(
   }
 );
 
+type DetectionHit = {
+  entity_type: string;
+  entity_subtype?: string;
+  detected_value?: string;
+  confidence?: number;
+  start_offset: number;
+  end_offset: number;
+  protocol?: string;
+  detector?: string;
+  reportability?: string;
+};
+
 type ReviewDocumentPaneProps = {
   text: string;
   nativeUrl?: string;
   nativeBlob?: string;
   targetPage?: number | null;
+  detectionHits?: DetectionHit[];
 };
 
 type NativePreviewResponse = {
@@ -237,17 +250,118 @@ function NativeTextPreview({
   );
 }
 
+function renderHighlightedText(
+  text: string,
+  hits: DetectionHit[]
+) {
+  if (!text || !hits.length) {
+    return text;
+  }
+
+  const validHits = hits
+    .filter((hit) => {
+      const start = Number(hit.start_offset);
+      const end = Number(hit.end_offset);
+
+      return (
+        Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        start >= 0 &&
+        end > start &&
+        start < text.length
+      );
+    })
+    .map((hit) => ({
+      ...hit,
+      start_offset: Math.max(0, Number(hit.start_offset)),
+      end_offset: Math.min(text.length, Number(hit.end_offset)),
+    }))
+    .sort((a, b) => {
+      if (a.start_offset !== b.start_offset) {
+        return a.start_offset - b.start_offset;
+      }
+
+      return b.end_offset - a.end_offset;
+    });
+
+  if (!validHits.length) {
+    return text;
+  }
+
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+
+  validHits.forEach((hit, index) => {
+    if (hit.start_offset < cursor) {
+      return;
+    }
+
+    if (hit.start_offset > cursor) {
+      parts.push(
+        <span key={`plain-${index}`}>
+          {text.slice(cursor, hit.start_offset)}
+        </span>
+      );
+    }
+
+    const highlightedText = text.slice(
+      hit.start_offset,
+      hit.end_offset
+    );
+
+    const confidence =
+      typeof hit.confidence === "number"
+        ? `${Math.round(hit.confidence * 100)}%`
+        : "";
+
+    const tooltip = [
+      hit.entity_type,
+      hit.entity_subtype,
+      confidence ? `Confidence ${confidence}` : "",
+      hit.protocol,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    parts.push(
+      <mark
+        key={`hit-${index}`}
+        title={tooltip}
+        className="rounded-sm bg-amber-300 px-0.5 text-slate-950 ring-1 ring-amber-400/70"
+      >
+        {highlightedText}
+      </mark>
+    );
+
+    cursor = hit.end_offset;
+  });
+
+  if (cursor < text.length) {
+    parts.push(
+      <span key="plain-final">
+        {text.slice(cursor)}
+      </span>
+    );
+  }
+
+  return parts;
+}
+
 export default function ReviewDocumentPane({
   text,
   nativeUrl,
   nativeBlob,
   targetPage,
+  detectionHits = [],
 }: ReviewDocumentPaneProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const [viewMode, setViewMode] =
     useState<"text" | "native">("native");
+
+  const [showDetectionHighlights, setShowDetectionHighlights] =
+  useState(true);
 
   const [reviewPreview, setReviewPreview] =
     useState<ReviewPreviewResponse | null>(null);
@@ -407,7 +521,22 @@ export default function ReviewDocumentPane({
           </p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          {viewMode === "text" && detectionHits.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setShowDetectionHighlights((current) => !current)
+              }
+              className={
+                showDetectionHighlights
+                  ? "rounded-lg border border-amber-400/60 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-200"
+                  : "rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-300"
+              }
+            >
+              Highlights {showDetectionHighlights ? "On" : "Off"}
+            </button>
+          )}
           <Button
             variant={
               viewMode === "text"
@@ -437,7 +566,11 @@ export default function ReviewDocumentPane({
           <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
             <div className="h-full w-full overflow-auto p-5">
               <pre className="m-0 whitespace-pre-wrap break-words text-sm leading-7 text-slate-300 font-sans">
-                {text || "No extracted text available."}
+                {text
+                  ? showDetectionHighlights
+                    ? renderHighlightedText(text, detectionHits)
+                    : text
+                  : "No extracted text available."}
               </pre>
             </div>
           </div>

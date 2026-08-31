@@ -2794,6 +2794,302 @@ def get_data_element_detection_summary(
             detail=str(exc),
         ) from exc
 
+@router.get(
+    "/{workspace}/processing-center/data-element-detection/document-hits"
+)
+def get_data_element_detection_document_hits(
+    workspace: Literal["capture", "discovery", "summaries"],
+    client: str = Query(...),
+    project: str = Query(...),
+    doc_id: str = Query(...),
+) -> dict[str, Any]:
+    """
+    Return Data Element Detection hits for one document.
+
+    Detection results remain stored separately from the source text.
+    The frontend uses the returned character offsets to render highlights
+    without altering the extracted/OCR text.
+    """
+
+    requested_doc_id = str(doc_id or "").strip()
+
+    if not requested_doc_id:
+        raise HTTPException(
+            status_code=400,
+            detail="doc_id is required.",
+        )
+
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+    
+    document_index_blob_path = (
+        f"{base_path}/processing_center/detection/"
+        f"documents/{requested_doc_id}.json"
+    )
+
+    try:
+        document_index = _read_processing_json_blob(
+            document_index_blob_path
+        )
+
+        if isinstance(document_index, dict):
+            indexed_hits = document_index.get("hits") or []
+
+            if not isinstance(indexed_hits, list):
+                indexed_hits = []
+
+            return {
+                "workspace": workspace,
+                "client": client,
+                "project": project,
+                "doc_id": requested_doc_id,
+                "hit_count": len(indexed_hits),
+                "detection_job_ids": [
+                    document_index.get("latest_detection_job_id")
+                ]
+                if document_index.get("latest_detection_job_id")
+                else [],
+                "classification": (
+                    document_index.get("classification")
+                    or ""
+                ),
+                "entity_type_counts": (
+                    document_index.get("entity_type_counts")
+                    or {}
+                ),
+                "source": "document_index",
+                "document_index_blob_path": (
+                    document_index_blob_path
+                ),
+                "hits": indexed_hits,
+            }
+
+    except Exception:
+        pass
+
+    detection_jobs_prefix = (
+        f"{base_path}/processing_center/detection/jobs/"
+    )
+
+    try:
+        container_client = _processing_container_client()
+
+        entity_result_blobs = [
+            blob
+            for blob in container_client.list_blobs(
+                name_starts_with=detection_jobs_prefix
+            )
+            if str(blob.name).endswith("/results/entities.json")
+        ]
+
+        entity_result_blobs.sort(
+            key=lambda blob: (
+                getattr(blob, "last_modified", None)
+                or datetime.min.replace(tzinfo=timezone.utc)
+            ),
+            reverse=True,
+        )
+
+        hits: list[dict[str, Any]] = []
+        detection_job_ids: list[str] = []
+
+        for blob in entity_result_blobs:
+            blob_path = str(blob.name)
+
+            try:
+                entities = _read_processing_json_blob(blob_path)
+            except Exception:
+                continue
+
+            if not isinstance(entities, list):
+                continue
+
+            relative_path = blob_path[len(detection_jobs_prefix):]
+            detection_job_id = relative_path.split("/", 1)[0]
+
+            job_hits: list[dict[str, Any]] = []
+
+            for entity in entities:
+                if not isinstance(entity, dict):
+                    continue
+
+                entity_doc_id = str(
+                    entity.get("doc_id")
+                    or entity.get("document_id")
+                    or ""
+                ).strip()
+
+                if entity_doc_id != requested_doc_id:
+                    continue
+
+                start_offset = entity.get("start_offset")
+
+                if start_offset is None:
+                    start_offset = entity.get("offset")
+
+                length = entity.get("length")
+
+                end_offset = entity.get("end_offset")
+
+                try:
+                    normalized_start = int(start_offset)
+                except (TypeError, ValueError):
+                    continue
+
+                if end_offset is not None:
+                    try:
+                        normalized_end = int(end_offset)
+                    except (TypeError, ValueError):
+                        continue
+                elif length is not None:
+                    try:
+                        normalized_end = normalized_start + int(length)
+                    except (TypeError, ValueError):
+                        continue
+                else:
+                    detected_value = str(
+                        entity.get("detected_value")
+                        or entity.get("text")
+                        or ""
+                    )
+
+                    if not detected_value:
+                        continue
+
+                    normalized_end = (
+                        normalized_start + len(detected_value)
+                    )
+
+                if normalized_start < 0:
+                    continue
+
+                if normalized_end <= normalized_start:
+                    continue
+
+                confidence_raw = (
+                    entity.get("confidence")
+                    if entity.get("confidence") is not None
+                    else entity.get("confidence_score")
+                )
+
+                try:
+                    confidence = (
+                        float(confidence_raw)
+                        if confidence_raw is not None
+                        else None
+                    )
+                except (TypeError, ValueError):
+                    confidence = None
+
+                entity_type = str(
+                    entity.get("entity_type")
+                    or entity.get("category")
+                    or entity.get("type")
+                    or ""
+                ).strip()
+
+                entity_subtype = str(
+                    entity.get("entity_subtype")
+                    or entity.get("subcategory")
+                    or ""
+                ).strip()
+
+                detected_value = str(
+                    entity.get("detected_value")
+                    or entity.get("text")
+                    or ""
+                )
+
+                job_hits.append(
+                    {
+                        "entity_type": entity_type,
+                        "entity_subtype": entity_subtype,
+                        "detected_value": detected_value,
+                        "confidence": confidence,
+                        "start_offset": normalized_start,
+                        "end_offset": normalized_end,
+                        "protocol": (
+                            entity.get("protocol")
+                            or entity.get("protocol_name")
+                            or ""
+                        ),
+                        "detector": (
+                            entity.get("detector")
+                            or entity.get("detector_name")
+                            or "azure_language"
+                        ),
+                        "reportability": (
+                            entity.get("reportability")
+                            or "UNCLASSIFIED"
+                        ),
+                        "page_number": (
+                            entity.get("page_number")
+                            or entity.get("page")
+                        ),
+                        "detection_job_id": detection_job_id,
+                    }
+                )
+
+            if job_hits:
+                hits.extend(job_hits)
+
+                if detection_job_id not in detection_job_ids:
+                    detection_job_ids.append(detection_job_id)
+
+        #
+        # A document can appear in more than one detection run.
+        # Deduplicate identical detections while preserving the most recent
+        # detection result encountered first above.
+        #
+        deduplicated_hits: list[dict[str, Any]] = []
+        seen_hits: set[tuple[Any, ...]] = set()
+
+        for hit in hits:
+            key = (
+                hit.get("entity_type"),
+                hit.get("entity_subtype"),
+                hit.get("start_offset"),
+                hit.get("end_offset"),
+                hit.get("detected_value"),
+            )
+
+            if key in seen_hits:
+                continue
+
+            seen_hits.add(key)
+            deduplicated_hits.append(hit)
+
+        deduplicated_hits.sort(
+            key=lambda hit: (
+                int(hit.get("start_offset") or 0),
+                int(hit.get("end_offset") or 0),
+            )
+        )
+
+        return {
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "doc_id": requested_doc_id,
+            "hit_count": len(deduplicated_hits),
+            "detection_job_ids": detection_job_ids,
+            "source": "historical_detection_scan",
+            "document_index_blob_path": document_index_blob_path,
+            "hits": deduplicated_hits,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Unable to load document detection hits: {exc}",
+        ) from exc
+
 @router.post("/{workspace}/processing-center/promote")
 def promote_processing_center_staged_results(
     workspace: Literal["capture", "discovery", "summaries"],

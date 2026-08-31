@@ -121,8 +121,9 @@ function ReviewPageContent() {
   const [fileDocIds, setFileDocIds] = useState<string[]>([]);
   const isFileView = Boolean(docId && !batchId);
   const [savedDocumentCoding, setSavedDocumentCoding] = useState("");
+  const [detectionHits, setDetectionHits] = useState<any[]>([]);
 
-  useEffect(() => {
+    useEffect(() => {
     if (!projectId || (!batchId && !docId)) {
       return;
     }
@@ -148,7 +149,12 @@ function ReviewPageContent() {
         })
         .catch((error) => {
           console.error(error);
-          setError(String(error?.message || "Failed to open document directly."));
+          setError(
+            String(
+              error?.message ||
+                "Failed to open document directly."
+            )
+          );
         })
         .finally(() => {
           setIsLoading(false);
@@ -173,12 +179,65 @@ function ReviewPageContent() {
       })
       .catch((error) => {
         console.error(error);
-        setError(String(error?.message || "Failed to load review document."));
+        setError(
+          String(
+            error?.message ||
+              "Failed to load review document."
+          )
+        );
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, [clientId, projectId, batchId, docId]);
+  }, [
+    clientId,
+    projectId,
+    batchId,
+    docId,
+    nativeBlobParam,
+  ]);
+
+  useEffect(() => {
+    const effectiveDocId =
+      reviewDoc?.doc_id ||
+      docId ||
+      "";
+
+    if (!clientId || !projectId || !effectiveDocId) {
+      setDetectionHits([]);
+      return;
+    }
+
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+      doc_id: effectiveDocId,
+    });
+
+    apiGet(
+      `/api/capture/processing-center/data-element-detection/document-hits?${params.toString()}`
+    )
+      .then((response: any) => {
+        const hits = Array.isArray(response?.hits)
+          ? response.hits
+          : [];
+
+        setDetectionHits(hits);
+      })
+      .catch((error) => {
+        console.warn(
+          "Unable to load Data Element Detection highlights:",
+          error
+        );
+
+        setDetectionHits([]);
+      });
+  }, [
+    clientId,
+    projectId,
+    docId,
+    reviewDoc?.doc_id,
+  ]);
 
   useEffect(() => {
     if (!projectId || !docId) {
@@ -793,6 +852,7 @@ function ReviewPageContent() {
               text={reviewDoc.text}
               nativeUrl={reviewDoc.native_url}
               nativeBlob={reviewDoc.native_blob}
+              detectionHits={detectionHits}
             />
 
             {fieldsForCapture.length === 0 ? (

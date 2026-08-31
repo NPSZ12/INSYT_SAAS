@@ -574,6 +574,233 @@ def run_data_element_detection_job(
         f"{result_prefix}/entities.json",
         entity_rows,
     )
+    
+    document_index_prefix = (
+        f"{project_base}/processing_center/"
+        f"detection/documents"
+    )
+
+    document_index_uploads: list[dict[str, Any]] = []
+
+    entities_by_doc_id: dict[str, list[dict[str, Any]]] = {}
+
+    for entity in entity_rows:
+        entity_doc_id = str(
+            entity.get("doc_id") or ""
+        ).strip()
+
+        if not entity_doc_id:
+            continue
+
+        entities_by_doc_id.setdefault(
+            entity_doc_id,
+            [],
+        ).append(entity)
+
+    for document_row in document_rows:
+        doc_id = str(
+            document_row.get("doc_id") or ""
+        ).strip()
+
+        if not doc_id:
+            continue
+
+        document_entities = entities_by_doc_id.get(
+            doc_id,
+            [],
+        )
+
+        entity_type_counts: dict[str, int] = {}
+
+        normalized_hits: list[dict[str, Any]] = []
+
+        for entity in document_entities:
+            entity_type = str(
+                entity.get("entity_type")
+                or entity.get("category")
+                or ""
+            ).strip()
+
+            if entity_type:
+                entity_type_counts[entity_type] = (
+                    entity_type_counts.get(entity_type, 0) + 1
+                )
+
+            start_offset = entity.get("start_offset")
+
+            if start_offset is None:
+                start_offset = entity.get("offset")
+
+            end_offset = entity.get("end_offset")
+            length = entity.get("length")
+
+            try:
+                normalized_start = int(start_offset)
+            except (TypeError, ValueError):
+                continue
+
+            if end_offset is not None:
+                try:
+                    normalized_end = int(end_offset)
+                except (TypeError, ValueError):
+                    continue
+
+            elif length is not None:
+                try:
+                    normalized_end = (
+                        normalized_start + int(length)
+                    )
+                except (TypeError, ValueError):
+                    continue
+
+            else:
+                detected_value = str(
+                    entity.get("detected_value")
+                    or entity.get("text")
+                    or ""
+                )
+
+                if not detected_value:
+                    continue
+
+                normalized_end = (
+                    normalized_start + len(detected_value)
+                )
+
+            if normalized_start < 0:
+                continue
+
+            if normalized_end <= normalized_start:
+                continue
+
+            confidence_raw = (
+                entity.get("confidence")
+                if entity.get("confidence") is not None
+                else entity.get("confidence_score")
+            )
+
+            try:
+                confidence = (
+                    float(confidence_raw)
+                    if confidence_raw is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                confidence = None
+
+            normalized_hits.append(
+                {
+                    "entity_type": entity_type,
+                    "entity_subtype": str(
+                        entity.get("entity_subtype")
+                        or entity.get("subcategory")
+                        or ""
+                    ).strip(),
+                    "detected_value": str(
+                        entity.get("detected_value")
+                        or entity.get("text")
+                        or ""
+                    ),
+                    "normalized_value": entity.get(
+                        "normalized_value"
+                    ),
+                    "masked_value": entity.get(
+                        "masked_value"
+                    ),
+                    "confidence": confidence,
+                    "start_offset": normalized_start,
+                    "end_offset": normalized_end,
+                    "page_number": (
+                        entity.get("page_number")
+                        or entity.get("page")
+                    ),
+                    "detector": (
+                        entity.get("detector")
+                        or entity.get("detector_name")
+                        or "azure_language"
+                    ),
+                    "detector_version": entity.get(
+                        "detector_version"
+                    ),
+                    "rule_id": entity.get("rule_id"),
+                    "protocol": (
+                        entity.get("protocol")
+                        or entity.get("protocol_name")
+                        or payload.get("protocol_name")
+                        or ""
+                    ),
+                    "protocol_version": (
+                        entity.get("protocol_version")
+                        or payload.get("protocol_version")
+                        or ""
+                    ),
+                    "reportability": (
+                        entity.get("reportability")
+                        or "UNCLASSIFIED"
+                    ),
+                }
+            )
+
+        normalized_hits.sort(
+            key=lambda hit: (
+                int(hit.get("start_offset") or 0),
+                int(hit.get("end_offset") or 0),
+            )
+        )
+
+        document_index_payload = {
+            "schema_version": 1,
+            "workspace": workspace,
+            "client": client_id,
+            "project": project,
+            "doc_id": doc_id,
+            "classification": (
+                document_row.get("classification")
+                or "PENDING"
+            ),
+            "detection_status": (
+                document_row.get("status")
+                or document_row.get("detection_status")
+                or ""
+            ),
+            "hit_count": len(normalized_hits),
+            "entity_type_counts": entity_type_counts,
+            "source_job_id": source_job_id,
+            "latest_detection_job_id": detection_job_id,
+            "detection_run_id": detection_run_id,
+            "protocol_name": payload.get(
+                "protocol_name"
+            ),
+            "protocol_version": payload.get(
+                "protocol_version"
+            ),
+            "include_phi": bool(
+                payload.get("include_phi", True)
+            ),
+            "text_source": (
+                document_row.get("text_source")
+                or document_row.get("source_text_type")
+                or ""
+            ),
+            "text_path": (
+                document_row.get("text_path")
+                or document_row.get("text_output_path")
+                or ""
+            ),
+            "detected_at": (
+                document_row.get("completed_at")
+                or document_row.get("updated_at")
+                or summary_payload.get("completed_at")
+            ),
+            "hits": normalized_hits,
+        }
+
+        document_index_uploads.append(
+            _write_processing_json(
+                f"{document_index_prefix}/{doc_id}.json",
+                document_index_payload,
+            )
+        )
 
     return {
         **summary_payload,
@@ -590,6 +817,9 @@ def run_data_element_detection_job(
         "entities_blob_path": (
             entities_upload["blob_path"]
         ),
+        "document_index_prefix": document_index_prefix,
+        "document_index_count": len(document_index_uploads),
+        "document_index_uploads": document_index_uploads,
         "documents": document_rows,
         "entity_type_counts": entity_counts,
     }
