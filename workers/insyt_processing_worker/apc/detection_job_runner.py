@@ -321,12 +321,19 @@ _GENERIC_IDENTIFIER_TOKEN_RE = re.compile(
     r"(?![A-Za-z0-9])"
 )
 
+_GENERIC_IDENTIFIER_SPACED_RE = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:[A-Za-z0-9]{1,8}[ \t]+){1,3}"
+    r"[A-Za-z0-9]{1,8}"
+    r"(?![A-Za-z0-9])"
+)
+
 _GENERIC_IDENTIFIER_LABEL_RE = re.compile(
     r"\b("
     r"account|acct|claim|case|member|patient|customer|cust|"
     r"reference|ref|record|policy|invoice|inv|order|ticket|"
     r"authorization|auth|confirmation|confirm|tracking|"
-    r"identifier|identification|id|number|no"
+    r"identifier|identification|id|number|no|key|token"
     r")\b",
     re.IGNORECASE,
 )
@@ -388,6 +395,19 @@ def _compress_shape(shape: str) -> str:
 
     return "".join(result)
 
+def _normalize_spaced_identifier(
+    value: str,
+) -> str:
+    parts = [
+        part
+        for part in re.split(
+            r"[ \t]+",
+            str(value or "").strip(),
+        )
+        if part
+    ]
+
+    return "_".join(parts)
 
 def _generic_identifier_context(
     text: str,
@@ -572,6 +592,121 @@ def _find_generic_identifier_candidates(
                 "detector_version": "v1",
                 "candidate_type": (
                     "generic_identifier"
+                ),
+            }
+        )
+        
+    existing_candidate_spans = [
+        (
+            int(candidate.get("start_offset") or 0),
+            int(candidate.get("end_offset") or 0),
+        )
+        for candidate in candidates
+    ]
+
+    for match in _GENERIC_IDENTIFIER_SPACED_RE.finditer(
+        text
+    ):
+        start = match.start()
+        end = match.end()
+        value = match.group(0).strip()
+
+        if _span_overlaps_known_hit(
+            start,
+            end,
+            existing_candidate_spans,
+        ):
+            continue
+
+        if _span_overlaps_known_hit(
+            start,
+            end,
+            known_spans,
+        ):
+            continue
+
+        context_before, context_after = (
+            _generic_identifier_context(
+                text,
+                start,
+                end,
+            )
+        )
+
+        normalized_value = (
+            _normalize_spaced_identifier(
+                value
+            )
+        )
+
+        accepted, candidate_score = (
+            _looks_like_generic_identifier(
+                normalized_value,
+                context_before,
+                context_after,
+            )
+        )
+
+        if not accepted:
+            continue
+
+        #
+        # Require stronger context for OCR-spaced
+        # identifiers so ordinary prose is not
+        # accidentally treated as an identifier.
+        #
+        label_context = (
+            f"{context_before} {context_after}"
+        )
+
+        if not _GENERIC_IDENTIFIER_LABEL_RE.search(
+            label_context
+        ):
+            continue
+
+        shape = _identifier_shape(
+            normalized_value
+        )
+
+        normalized_shape = _compress_shape(
+            shape
+        )
+
+        candidates.append(
+            {
+                "detected_value": value,
+                "normalized_value": (
+                    normalized_value.upper()
+                ),
+                "start_offset": start,
+                "end_offset": end,
+                "shape": shape,
+                "normalized_shape": (
+                    normalized_shape
+                ),
+                "context_before": (
+                    context_before
+                ),
+                "context_after": (
+                    context_after
+                ),
+                "candidate_score": round(
+                    min(
+                        candidate_score,
+                        0.95,
+                    ),
+                    4,
+                ),
+                "detector": (
+                    "insyt_fsm_generic_identifier"
+                ),
+                "detector_version": "v1",
+                "candidate_type": (
+                    "generic_identifier"
+                ),
+                "ocr_reconstructed": True,
+                "reconstruction_method": (
+                    "space_to_separator"
                 ),
             }
         )
