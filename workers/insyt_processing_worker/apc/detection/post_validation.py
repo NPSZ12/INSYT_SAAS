@@ -546,12 +546,27 @@ def post_validate_candidate(
     entity_type = _normalized_type(
         candidate
     )
+    
+    #
+    # Azure contextual categories that are too broad
+    # to count as standalone reportable PII in Capture.
+    #
+    if (
+        candidate.detector_name.startswith("azure")
+        and entity_type in {
+            "persontype",
+            "organization",
+        }
+    ):
+        return None
 
     #
     # Contextual NER entities are generally left alone.
     #
+    
     if entity_type not in STRUCTURED_ENTITY_TYPES:
         return candidate
+
 
     if entity_type == "phonenumber":
         return _validate_phone(

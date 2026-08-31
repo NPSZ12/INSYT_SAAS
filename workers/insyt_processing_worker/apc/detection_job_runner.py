@@ -409,6 +409,34 @@ def _normalize_spaced_identifier(
 
     return "_".join(parts)
 
+def _is_internal_insyt_identifier(
+    value: str,
+) -> bool:
+    text = str(value or "").strip()
+
+    if not text:
+        return False
+
+    upper = text.upper()
+
+    # INSYT assigned Doc IDs, e.g. INSYT000000019
+    if re.fullmatch(
+        r"INSYT\d{9}",
+        upper,
+    ):
+        return True
+
+    # INSYT demo/source IDs and filenames, e.g.
+    # INSYTDEMO000053
+    # INSYTDEMO000040.docx
+    if re.fullmatch(
+        r"INSYTDEMO\d{6}(?:\.[A-Z0-9]{1,8})?",
+        upper,
+    ):
+        return True
+
+    return False
+
 def _generic_identifier_context(
     text: str,
     start: int,
@@ -601,6 +629,11 @@ def _find_generic_identifier_candidates(
         start = match.start()
         end = match.end()
         value = match.group(0)
+        
+        if _is_internal_insyt_identifier(
+            value
+        ):
+            continue
 
         if _span_overlaps_known_hit(
             start,
@@ -676,6 +709,11 @@ def _find_generic_identifier_candidates(
         start = match.start()
         end = match.end()
         value = match.group(0).strip()
+        
+        if _is_internal_insyt_identifier(
+            value
+        ):
+            continue
 
         if _span_overlaps_known_hit(
             start,

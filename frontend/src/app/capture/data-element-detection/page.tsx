@@ -650,7 +650,7 @@ function DataElementDetectionPageContent() {
                             type="button"
                             onClick={() => selectAllForJob(docs)}
                             disabled={docs.length === 0}
-                            className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                            className="rounded-lg border border-indigo-600 bg-indigo-950/50 px-3 py-2 text-xs font-medium text-indigo-200 transition-colors hover:border-violet-500 hover:bg-violet-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             Select All
                           </button>
@@ -663,7 +663,7 @@ function DataElementDetectionPageContent() {
                                 selectedDocIds.has(doc.doc_id)
                               )
                             }
-                            className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                            className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             Clear Selection
                           </button>
@@ -680,7 +680,7 @@ function DataElementDetectionPageContent() {
                                 false
                               )
                             }
-                            className="inline-flex items-center gap-2 rounded-lg border border-sky-700 bg-sky-950/40 px-3 py-2 text-xs text-sky-200 hover:bg-sky-900/60 disabled:opacity-40"
+                            className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-700 px-3 py-2 text-xs font-medium text-white transition-colors duration-150 hover:border-sky-400 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <Play className="h-3.5 w-3.5" />
 
@@ -702,7 +702,7 @@ function DataElementDetectionPageContent() {
                                 true
                               )
                             }
-                            className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-3 py-2 text-xs font-medium text-white hover:bg-teal-500 disabled:opacity-40"
+                            className="inline-flex items-center gap-2 rounded-lg border border-teal-500 bg-teal-600 px-3 py-2 text-xs font-medium text-white transition-colors duration-150 hover:border-teal-300 hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <Play className="h-3.5 w-3.5" />
 
