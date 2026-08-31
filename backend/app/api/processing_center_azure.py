@@ -28,6 +28,8 @@ Environment expected in production:
 from __future__ import annotations
 
 import os
+import csv
+import io
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
@@ -39,6 +41,7 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.storage.queue import QueueClient
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.models.user import User
@@ -2634,6 +2637,147 @@ def get_data_element_detection_status(
             detail=str(exc),
         ) from exc
 
+def _build_detection_impact_assessment(
+    *,
+    documents: list[dict[str, Any]],
+    entities: list[dict[str, Any]],
+) -> dict[str, Any]:
+    hit_doc_ids = {
+        str(row.get("doc_id") or "").strip()
+        for row in documents
+        if str(row.get("classification") or "").strip().upper() == "HIT"
+        and str(row.get("doc_id") or "").strip()
+    }
+
+    entity_docs_by_type: dict[str, set[str]] = {}
+    hit_counts_by_type: dict[str, int] = {}
+
+    docs_with_non_person_elements: set[str] = set()
+
+    for entity in entities:
+        if not isinstance(entity, dict):
+            continue
+
+        doc_id = str(
+            entity.get("doc_id")
+            or entity.get("document_id")
+            or ""
+        ).strip()
+
+        entity_type = str(
+            entity.get("entity_type")
+            or entity.get("category")
+            or entity.get("type")
+            or "Unknown"
+        ).strip() or "Unknown"
+
+        entity_docs_by_type.setdefault(
+            entity_type,
+            set(),
+        )
+
+        if doc_id:
+            entity_docs_by_type[entity_type].add(doc_id)
+
+        hit_counts_by_type[entity_type] = (
+            hit_counts_by_type.get(entity_type, 0) + 1
+        )
+
+        if (
+            doc_id
+            and entity_type.casefold() != "person"
+        ):
+            docs_with_non_person_elements.add(doc_id)
+
+    #
+    # Rough Name Count:
+    #
+    # Count distinct normalized Person values where that same document
+    # contains at least one additional non-Person detected element.
+    #
+    # This is intentionally an estimate and is not identity resolution.
+    #
+    distinct_names_with_elements: set[str] = set()
+
+    for entity in entities:
+        if not isinstance(entity, dict):
+            continue
+
+        entity_type = str(
+            entity.get("entity_type")
+            or entity.get("category")
+            or ""
+        ).strip()
+
+        if entity_type.casefold() != "person":
+            continue
+
+        doc_id = str(
+            entity.get("doc_id")
+            or entity.get("document_id")
+            or ""
+        ).strip()
+
+        if doc_id not in docs_with_non_person_elements:
+            continue
+
+        detected_value = str(
+            entity.get("detected_value")
+            or entity.get("text")
+            or entity.get("normalized_value")
+            or ""
+        ).strip()
+
+        normalized_name = " ".join(
+            detected_value.split()
+        ).casefold()
+
+        if normalized_name:
+            distinct_names_with_elements.add(
+                normalized_name
+            )
+
+    element_breakdown = [
+        {
+            "entity_type": entity_type,
+            "document_count": len(
+                entity_docs_by_type.get(
+                    entity_type,
+                    set(),
+                )
+            ),
+            "hit_count": int(
+                hit_counts_by_type.get(
+                    entity_type,
+                    0,
+                )
+            ),
+        }
+        for entity_type in hit_counts_by_type
+    ]
+
+    element_breakdown.sort(
+        key=lambda row: (
+            -int(row.get("document_count") or 0),
+            -int(row.get("hit_count") or 0),
+            str(row.get("entity_type") or ""),
+        )
+    )
+
+    return {
+        "documents_with_hits_only": len(hit_doc_ids),
+        "rough_names_with_attached_elements": len(
+            distinct_names_with_elements
+        ),
+        "total_elements_identified": len(entities),
+        "rough_name_method": (
+            "Distinct detected Person values appearing in "
+            "documents containing at least one additional "
+            "non-Person detected element."
+        ),
+        "element_breakdown": element_breakdown,
+    }
+
 @router.get(
     "/{workspace}/processing-center/data-element-detection/{detection_job_id}/summary"
 )
@@ -2718,6 +2862,13 @@ def get_data_element_detection_summary(
             ).upper()
             == "EXCEPTION"
         ]
+        
+        impact_assessment = (
+            _build_detection_impact_assessment(
+                documents=documents,
+                entities=entities,
+            )
+        )
 
         return {
             "workspace": workspace,
@@ -2727,6 +2878,7 @@ def get_data_element_detection_summary(
             "summary": summary,
             "documents": documents,
             "entities": entities,
+            "impact_assessment": impact_assessment,
             "populations": {
                 "hits": hit_docs,
                 "no_hits": no_hit_docs,
@@ -2792,6 +2944,274 @@ def get_data_element_detection_summary(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
+        ) from exc
+
+@router.get(
+    "/{workspace}/processing-center/data-element-detection/"
+    "{detection_job_id}/impact-assessment.csv"
+)
+def export_data_element_detection_impact_assessment(
+    workspace: Literal["capture", "discovery", "summaries"],
+    detection_job_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+):
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    result_prefix = (
+        f"{base_path}/processing_center/detection/jobs/"
+        f"{detection_job_id}/results"
+    )
+
+    summary_blob_path = (
+        f"{result_prefix}/summary.json"
+    )
+
+    documents_blob_path = (
+        f"{result_prefix}/documents.json"
+    )
+
+    entities_blob_path = (
+        f"{result_prefix}/entities.json"
+    )
+
+    try:
+        summary = _read_processing_json_blob(
+            summary_blob_path
+        )
+
+        documents = _read_processing_json_blob(
+            documents_blob_path
+        )
+
+        entities = _read_processing_json_blob(
+            entities_blob_path
+        )
+
+        if not isinstance(summary, dict):
+            summary = {}
+
+        if not isinstance(documents, list):
+            documents = []
+
+        if not isinstance(entities, list):
+            entities = []
+
+        impact = _build_detection_impact_assessment(
+            documents=documents,
+            entities=entities,
+        )
+
+        output = io.StringIO(newline="")
+
+        writer = csv.writer(output)
+
+        writer.writerow(
+            [
+                "INSYT Data Element Detection "
+                "Impact Assessment"
+            ]
+        )
+
+        writer.writerow([])
+
+        writer.writerow(
+            [
+                "Report Section",
+                "Metric / Data Element",
+                "Document Count",
+                "Total Hits",
+                "Value",
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Metadata",
+                "Client",
+                "",
+                "",
+                client,
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Metadata",
+                "Project",
+                "",
+                "",
+                project,
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Metadata",
+                "Detection Job ID",
+                "",
+                "",
+                detection_job_id,
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Metadata",
+                "Detection Run ID",
+                "",
+                "",
+                summary.get("detection_run_id") or "",
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Metadata",
+                "Source Job ID",
+                "",
+                "",
+                summary.get("source_job_id") or "",
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Metadata",
+                "Protocol",
+                "",
+                "",
+                summary.get("protocol_name") or "",
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Metadata",
+                "Protocol Version",
+                "",
+                "",
+                summary.get("protocol_version") or "",
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Metadata",
+                "Completed Date",
+                "",
+                "",
+                summary.get("completed_at") or "",
+            ]
+        )
+
+        writer.writerow([])
+
+        writer.writerow(
+            [
+                "Summary",
+                "Document Count With Hits Only",
+                impact[
+                    "documents_with_hits_only"
+                ],
+                "",
+                "",
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Summary",
+                (
+                    "Rough Count of Names With At Least "
+                    "One Data Element Attached"
+                ),
+                "",
+                "",
+                impact[
+                    "rough_names_with_attached_elements"
+                ],
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Summary",
+                "Total Elements Identified",
+                "",
+                impact[
+                    "total_elements_identified"
+                ],
+                "",
+            ]
+        )
+
+        writer.writerow(
+            [
+                "Summary",
+                "Rough Name Count Method",
+                "",
+                "",
+                impact["rough_name_method"],
+            ]
+        )
+
+        writer.writerow([])
+
+        for row in impact["element_breakdown"]:
+            writer.writerow(
+                [
+                    "Element",
+                    row.get("entity_type") or "Unknown",
+                    row.get("document_count") or 0,
+                    row.get("hit_count") or 0,
+                    "",
+                ]
+            )
+
+        csv_bytes = output.getvalue().encode(
+            "utf-8-sig"
+        )
+
+        output.close()
+
+        safe_project = (
+            str(project or "project")
+            .replace(" ", "_")
+            .replace("/", "_")
+            .replace("\\", "_")
+        )
+
+        filename = (
+            f"{safe_project}_"
+            f"{detection_job_id}_"
+            f"Impact_Assessment.csv"
+        )
+
+        return StreamingResponse(
+            iter([csv_bytes]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{filename}"'
+                )
+            },
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Unable to export Impact Assessment: "
+                f"{exc}"
+            ),
         ) from exc
 
 @router.get(

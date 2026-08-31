@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ScanSearch, RefreshCw, Play } from "lucide-react";
+import { ScanSearch, RefreshCw, Play, Download } from "lucide-react";
 
 import AppShell from "../../../components/AppShell";
 import { apiGet, apiPost } from "../../../lib/api";
@@ -85,6 +85,18 @@ type DetectionSummary = {
 
   documents?: any[];
   entities?: any[];
+
+  impact_assessment?: {
+    documents_with_hits_only?: number;
+    rough_names_with_attached_elements?: number;
+    total_elements_identified?: number;
+    rough_name_method?: string;
+    element_breakdown?: Array<{
+      entity_type: string;
+      document_count: number;
+      hit_count: number;
+    }>;
+  };
 };
 
 function DataElementDetectionPageContent() {
@@ -414,6 +426,41 @@ function DataElementDetectionPageContent() {
     detectionSummary?.entity_type_counts ||
     detectionStatus?.entity_type_counts ||
     [];
+  
+  const impactAssessment =
+    detectionSummary?.impact_assessment || {};
+
+  const impactDocumentsWithHits =
+    impactAssessment.documents_with_hits_only ??
+    documentsWithHits;
+
+  const roughNamesWithElements =
+    impactAssessment.rough_names_with_attached_elements ??
+    0;
+
+  const totalElementsIdentified =
+    impactAssessment.total_elements_identified ??
+    counts.entity_hit_count ??
+    detectionStatus?.entity_hit_count ??
+    0;
+
+  function exportImpactAssessmentCsv() {
+    if (!detectionJobId || !clientId || !projectId) {
+      return;
+    }
+
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+    });
+
+    const url =
+      `/api/capture/processing-center/data-element-detection/` +
+      `${encodeURIComponent(detectionJobId)}/impact-assessment.csv?` +
+      params.toString();
+
+    window.open(url, "_blank");
+  }
 
   return (
     <div className="min-h-full bg-slate-950 text-slate-100">
@@ -529,7 +576,7 @@ function DataElementDetectionPageContent() {
             </div>
           </div>
 
-          <div className="p-5">
+          <div className="max-h-[520px] overflow-y-auto p-5">
             {loadingReady ? (
               <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
                 Loading Detection Ready documents...
@@ -598,9 +645,9 @@ function DataElementDetectionPageContent() {
                         </div>
                       </div>
 
-                      <div className="overflow-x-auto">
+                      <div className="max-h-[360px] overflow-auto">
                         <table className="min-w-full text-sm">
-                          <thead className="bg-slate-900/70 text-left text-xs uppercase tracking-wide text-slate-500">
+                          <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs uppercase tracking-wide text-slate-500">
                             <tr>
                               <th className="w-12 px-4 py-3">
                                 Select
@@ -687,7 +734,7 @@ function DataElementDetectionPageContent() {
             </h2>
           </div>
 
-          <div className="p-5">
+          <div className="max-h-[260px] overflow-y-auto p-5">
             {!detectionJobId ? (
               <div className="rounded-xl border border-dashed border-slate-700 px-5 py-8 text-center text-sm text-slate-500">
                 No Data Element Detection job started.
@@ -767,26 +814,56 @@ function DataElementDetectionPageContent() {
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60">
-          <div className="border-b border-slate-800 px-5 py-4">
-            <h2 className="text-base font-semibold text-white">
-              Impact Assessment
-            </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
+            <div>
+              <h2 className="text-base font-semibold text-white">
+                Impact Assessment
+              </h2>
 
-            <p className="mt-1 text-sm text-slate-400">
-              Project-level counts by detected data element
-              from the most recent detection run.
-            </p>
+              <p className="mt-1 text-sm text-slate-400">
+                Project-level counts by detected data element
+                from the most recent detection run.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={exportImpactAssessmentCsv}
+              disabled={!detectionJobId || !detectionSummary}
+              className="inline-flex items-center gap-2 rounded-lg border border-sky-700 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/60 disabled:opacity-40"
+            >
+              <Download className="h-4 w-4" />
+              Export Impact Assessment CSV
+            </button>
           </div>
 
           <div className="p-5">
+              <div className="mb-5 grid gap-4 md:grid-cols-3">
+                <MetricCard
+                  label="Documents With Hits Only"
+                  value={String(impactDocumentsWithHits)}
+                />
+
+                <MetricCard
+                  label="Rough Names With Attached Elements"
+                  value={String(roughNamesWithElements)}
+                />
+
+                <MetricCard
+                  label="Total Elements Identified"
+                  value={String(totalElementsIdentified)}
+                />
+              </div>
+
+
             {entityTypeCounts.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
                 No detection results yet.
               </div>
             ) : (
-              <div className="overflow-hidden rounded-xl border border-slate-800">
+              <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-800">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-slate-950/80 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <thead className="sticky top-0 z-10 bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-4 py-3">
                         Data Element
