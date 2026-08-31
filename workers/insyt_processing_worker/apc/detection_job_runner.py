@@ -435,15 +435,6 @@ def _infer_generic_identifier_label(
 ) -> tuple[str, float]:
     """
     Infer a nearby human-readable identifier label.
-
-    Examples:
-        "Internal File Key:" -> "Internal File Key"
-        "Matter Token:" -> "Matter Token"
-        "Custom Reference:" -> "Custom Reference"
-
-    Only alphabetic label words are accepted here so an
-    earlier identifier value is not accidentally absorbed
-    into the inferred label.
     """
 
     value = str(
@@ -452,6 +443,25 @@ def _infer_generic_identifier_label(
 
     if not value:
         return "", 0.0
+
+    previous_identifier_tokens = list(
+        re.finditer(
+            r"\S*\d\S*",
+            value,
+        )
+    )
+
+    if previous_identifier_tokens:
+        last_identifier = (
+            previous_identifier_tokens[-1]
+        )
+
+        trailing_text = value[
+            last_identifier.end():
+        ].strip()
+
+        if trailing_text:
+            value = trailing_text
 
     match = re.search(
         r"("
