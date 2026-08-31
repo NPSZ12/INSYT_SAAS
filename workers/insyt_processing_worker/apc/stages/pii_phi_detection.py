@@ -1,44 +1,17 @@
 from __future__ import annotations
 
-import os
+
 from pathlib import Path
 from typing import Any
 
-from azure.ai.textanalytics import TextAnalyticsClient
-from azure.core.credentials import AzureKeyCredential
+from ..detection.engine import run_detection_engine
+from ..detection.models import DetectionCandidate
 
 from ..util import json_dumps, new_id, utc_now
 
 
-DETECTOR_NAME = "azure_language_pii"
+DETECTOR_NAME = "insyt_detection_engine"
 DETECTOR_VERSION = "v1"
-
-MAX_TEXT_CHARS_PER_REQUEST = 5000
-
-
-def _get_language_client() -> TextAnalyticsClient:
-    endpoint = (
-        os.getenv("AZURE_LANGUAGE_ENDPOINT")
-        or os.getenv("AZURE_TEXT_ANALYTICS_ENDPOINT")
-        or ""
-    ).strip()
-
-    key = (
-        os.getenv("AZURE_LANGUAGE_KEY")
-        or os.getenv("AZURE_TEXT_ANALYTICS_KEY")
-        or ""
-    ).strip()
-
-    if not endpoint or not key:
-        raise RuntimeError(
-            "Azure Language PII detection credentials are missing. "
-            "Set AZURE_LANGUAGE_ENDPOINT and AZURE_LANGUAGE_KEY."
-        )
-
-    return TextAnalyticsClient(
-        endpoint=endpoint,
-        credential=AzureKeyCredential(key),
-    )
 
 
 def _row_get(row: Any, *names: str):
@@ -141,99 +114,7 @@ def _mask_value(value: str) -> str:
     return text[:2] + ("*" * (len(text) - 4)) + text[-2:]
 
 
-def _chunk_text(text: str) -> list[tuple[int, str]]:
-    value = str(text or "")
-
-    if not value:
-        return []
-
-    chunks: list[tuple[int, str]] = []
-
-    start = 0
-
-    while start < len(value):
-        end = min(
-            len(value),
-            start + MAX_TEXT_CHARS_PER_REQUEST,
-        )
-
-        chunk = value[start:end]
-
-        if chunk:
-            chunks.append((start, chunk))
-
-        start = end
-
-    return chunks
-
-
-def _detect_chunk(
-    client: TextAnalyticsClient,
-    text: str,
-    *,
-    domain_filter: str | None = None,
-) -> list[dict]:
-    kwargs: dict[str, Any] = {
-        "language": "en",
-        "disable_service_logs": True,
-    }
-
-    if domain_filter:
-        kwargs["domain_filter"] = domain_filter
-
-    results = client.recognize_pii_entities(
-        documents=[text],
-        **kwargs,
-    )
-
-    if not results:
-        return []
-
-    document = results[0]
-
-    if getattr(document, "is_error", False):
-        error = getattr(document, "error", None)
-
-        raise RuntimeError(
-            f"Azure Language PII detection failed: {error}"
-        )
-
-    entities: list[dict] = []
-
-    for entity in getattr(document, "entities", []) or []:
-        entities.append(
-            {
-                "text": str(
-                    getattr(entity, "text", "")
-                    or ""
-                ),
-                "category": str(
-                    getattr(entity, "category", "")
-                    or ""
-                ),
-                "subcategory": (
-                    str(getattr(entity, "subcategory", "") or "")
-                    or None
-                ),
-                "confidence": float(
-                    getattr(entity, "confidence_score", 0.0)
-                    or 0.0
-                ),
-                "offset": int(
-                    getattr(entity, "offset", 0)
-                    or 0
-                ),
-                "length": int(
-                    getattr(entity, "length", 0)
-                    or 0
-                ),
-            }
-        )
-
-    return entities
-
-
-def _insert_detection_entity(
+def _insert_detection_candidate(
     db,
     *,
     detection_run_id: str,
@@ -241,19 +122,23 @@ def _insert_detection_entity(
     matter_id: str,
     file_id: str,
     doc_id: str,
-    entity: dict,
-    chunk_start_offset: int,
-    protocol_name: str | None,
-    protocol_version: str | None,
+    candidate: DetectionCandidate,
     source_text_type: str,
 ):
-    entity_text = str(entity.get("text") or "")
+    entity_text = str(
+        candidate.detected_value
+        or ""
+    )
 
-    local_offset = int(entity.get("offset") or 0)
-    entity_length = int(entity.get("length") or len(entity_text))
+    normalized_value = str(
+        candidate.normalized_value
+        or entity_text.strip()
+    )
 
-    start_offset = chunk_start_offset + local_offset
-    end_offset = start_offset + entity_length
+    masked_value = str(
+        candidate.masked_value
+        or _mask_value(entity_text)
+    )
 
     db.execute(
         """
@@ -291,27 +176,53 @@ def _insert_detection_entity(
             matter_id,
             file_id,
             doc_id,
-            str(entity.get("category") or "Unknown"),
-            entity.get("subcategory"),
+            candidate.entity_type or "Unknown",
+            candidate.entity_subtype or None,
             entity_text,
-            entity_text.strip(),
-            _mask_value(entity_text),
-            float(entity.get("confidence") or 0.0),
-            start_offset,
-            end_offset,
-            None,
-            DETECTOR_NAME,
-            DETECTOR_VERSION,
-            "azure_language_pii",
-            protocol_name,
-            protocol_version,
-            "UNCLASSIFIED",
+            normalized_value,
+            masked_value,
+            float(
+                candidate.confidence
+                or 0.0
+            ),
+            int(
+                candidate.start_offset
+            ),
+            int(
+                candidate.end_offset
+            ),
+            candidate.page_number,
+            candidate.detector_name
+            or DETECTOR_NAME,
+            candidate.detector_version
+            or DETECTOR_VERSION,
+            candidate.detection_rule
+            or "",
+            candidate.protocol_name
+            or None,
+            candidate.protocol_version
+            or None,
+            candidate.reportability
+            or "UNCLASSIFIED",
             source_text_type,
             json_dumps(
                 {
-                    "azure_offset": local_offset,
-                    "azure_length": entity_length,
-                    "chunk_start_offset": chunk_start_offset,
+                    "methods": list(
+                        candidate.methods
+                    ),
+                    "context_terms": list(
+                        candidate.context_terms
+                    ),
+                    "validation_status": (
+                        candidate.validation_status
+                    ),
+                    "validation_method": (
+                        candidate.validation_method
+                    ),
+                    **dict(
+                        candidate.metadata
+                        or {}
+                    ),
                 }
             ),
             utc_now(),
@@ -331,14 +242,18 @@ def run_pii_phi_detection(
     include_phi: bool = True,
 ) -> dict:
     """
-    Scan ingestion-complete documents for Azure Language PII / PHI entities.
+    Scan ingestion-complete documents with the unified INSYT
+    Data Element Detection engine.
+
+    Current detector stack:
+    - Azure AI Language PII / PHI NER
+    - INSYT structured regex/context/validator rules
+    - merge/deduplication
 
     This stage is intentionally separate from Initial Ingestion. It is called
     by the Data Element Detection workflow after Doc ID assignment, native
     text extraction, and any required OCR have completed.
     """
-
-    client = _get_language_client()
 
     detection_run_id = new_id("DETRUN")
     now = utc_now()
@@ -377,8 +292,10 @@ def run_pii_phi_detection(
             json_dumps(
                 {
                     "include_phi": include_phi,
-                    "service": "Azure AI Language",
-                    "operation": "recognize_pii_entities",
+                    "engine": "INSYT Data Element Detection",
+                    "azure_ner_enabled": True,
+                    "structured_rules_enabled": True,
+                    "merge_enabled": True,
                     "service_logs_disabled": True,
                 }
             ),
@@ -405,6 +322,10 @@ def run_pii_phi_detection(
     documents_no_hits = 0
     documents_exception = 0
     entity_hit_count = 0
+    
+    azure_candidate_count = 0
+    structured_candidate_count = 0
+    merged_candidate_count = 0
 
     for row in rows:
         file_id = str(_row_get(row, "file_id") or "")
@@ -491,77 +412,68 @@ def run_pii_phi_detection(
                     "Detection text file is empty."
                 )
 
-            all_entities: list[dict] = []
+            engine_result = run_detection_engine(
+                text,
+                include_phi=include_phi,
+                protocol_name=protocol_name,
+                protocol_version=protocol_version,
+                enable_azure=True,
+                enable_structured_rules=True,
+            )
 
-            for chunk_start, chunk in _chunk_text(text):
-                pii_entities = _detect_chunk(
-                    client,
-                    chunk,
-                    domain_filter=None,
+            candidates = (
+                engine_result.get("candidates")
+                or []
+            )
+
+            azure_candidate_count += int(
+                engine_result.get(
+                    "azure_candidate_count",
+                    0,
                 )
+                or 0
+            )
 
-                for entity in pii_entities:
-                    entity["_chunk_start"] = chunk_start
-                    all_entities.append(entity)
-
-                if include_phi:
-                    phi_entities = _detect_chunk(
-                        client,
-                        chunk,
-                        domain_filter="phi",
-                    )
-
-                    for entity in phi_entities:
-                        entity["_chunk_start"] = chunk_start
-                        entity["_phi_domain"] = True
-                        all_entities.append(entity)
-
-            # Avoid exact duplicate hits when an entity is returned by both
-            # the general PII request and PHI-domain request.
-            unique_entities: list[dict] = []
-            seen: set[tuple] = set()
-
-            for entity in all_entities:
-                key = (
-                    str(entity.get("category") or ""),
-                    str(entity.get("subcategory") or ""),
-                    str(entity.get("text") or ""),
-                    int(entity.get("_chunk_start") or 0)
-                    + int(entity.get("offset") or 0),
+            structured_candidate_count += int(
+                engine_result.get(
+                    "structured_candidate_count",
+                    0,
                 )
+                or 0
+            )
 
-                if key in seen:
-                    continue
-
-                seen.add(key)
-                unique_entities.append(entity)
+            merged_candidate_count += int(
+                engine_result.get(
+                    "merged_candidate_count",
+                    len(candidates),
+                )
+                or 0
+            )
 
             confidences: list[float] = []
 
-            for entity in unique_entities:
+            for candidate in candidates:
                 confidence = float(
-                    entity.get("confidence") or 0.0
+                    candidate.confidence
+                    or 0.0
                 )
 
-                confidences.append(confidence)
+                confidences.append(
+                    confidence
+                )
 
-                _insert_detection_entity(
+                _insert_detection_candidate(
                     db,
                     detection_run_id=detection_run_id,
                     detection_document_id=detection_document_id,
                     matter_id=matter_id,
                     file_id=file_id,
                     doc_id=doc_id,
-                    entity=entity,
-                    chunk_start_offset=int(
-                        entity.get("_chunk_start") or 0
-                    ),
-                    protocol_name=protocol_name,
-                    protocol_version=protocol_version,
+                    candidate=candidate,
                     source_text_type=text_source,
                 )
 
-            hit_count = len(unique_entities)
+            hit_count = len(candidates)
 
             highest_confidence = (
                 max(confidences)
@@ -603,6 +515,33 @@ def run_pii_phi_detection(
                         {
                             "general_pii_enabled": True,
                             "phi_enabled": include_phi,
+                            "azure_ner_enabled": True,
+                            "structured_rules_enabled": True,
+                            "merge_enabled": True,
+                            "azure_candidate_count": (
+                                engine_result.get(
+                                    "azure_candidate_count",
+                                    0,
+                                )
+                            ),
+                            "structured_candidate_count": (
+                                engine_result.get(
+                                    "structured_candidate_count",
+                                    0,
+                                )
+                            ),
+                            "merged_candidate_count": (
+                                engine_result.get(
+                                    "merged_candidate_count",
+                                    hit_count,
+                                )
+                            ),
+                            "detectors": (
+                                engine_result.get(
+                                    "detectors",
+                                    [],
+                                )
+                            ),
                         }
                     ),
                     utc_now(),
@@ -680,7 +619,19 @@ def run_pii_phi_detection(
                 {
                     "general_pii_enabled": True,
                     "phi_enabled": include_phi,
+                    "azure_ner_enabled": True,
+                    "structured_rules_enabled": True,
+                    "merge_enabled": True,
                     "service_logs_disabled": True,
+                    "azure_candidate_count": (
+                        azure_candidate_count
+                    ),
+                    "structured_candidate_count": (
+                        structured_candidate_count
+                    ),
+                    "merged_candidate_count": (
+                        merged_candidate_count
+                    ),
                 }
             ),
             detection_run_id,
@@ -701,4 +652,7 @@ def run_pii_phi_detection(
         "documents_nfr": 0,
         "documents_exception": documents_exception,
         "entity_hit_count": entity_hit_count,
+        "azure_candidate_count": azure_candidate_count,
+        "structured_candidate_count": structured_candidate_count,
+        "merged_candidate_count": merged_candidate_count,
     }
