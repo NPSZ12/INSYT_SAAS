@@ -22,6 +22,15 @@ STRUCTURED_ENTITY_TYPES = {
     "iban",
     "creditcardnumber",
     "bankaccountnumber",
+
+    # INSYT labeled identifiers
+    "medicalrecordnumber",
+    "claimnumber",
+    "memberid",
+    "policynumber",
+    "patientid",
+    "insuranceid",
+    "accountnumber",
 }
 
 
@@ -374,6 +383,160 @@ def _validate_generic_named_validator(
         },
     )
 
+def _validate_labeled_identifier(
+    candidate: DetectionCandidate,
+    *,
+    text: str,
+) -> DetectionCandidate | None:
+    value = str(
+        candidate.detected_value or ""
+    ).strip()
+
+    if not value:
+        return None
+
+    if _has_line_break(value):
+        return None
+
+    #
+    # Labeled identifiers are intentionally broad because
+    # legitimate client identifiers may contain letters,
+    # digits, and hyphens in many combinations.
+    #
+    if len(value) < 4 or len(value) > 32:
+        return None
+
+    allowed = all(
+        char.isalnum() or char in "-_/"
+        for char in value
+    )
+
+    if not allowed:
+        return None
+
+    has_alpha = any(
+        char.isalpha()
+        for char in value
+    )
+
+    has_digit = any(
+        char.isdigit()
+        for char in value
+    )
+
+    #
+    # Require at least one digit. This prevents ordinary
+    # words after labels from becoming identifiers.
+    #
+    if not has_digit:
+        return None
+
+    entity_type = _normalized_type(
+        candidate
+    )
+
+    context_terms_by_type = {
+        "medicalrecordnumber": (
+            "mrn",
+            "medical record",
+            "medical record number",
+        ),
+        "claimnumber": (
+            "claim",
+            "claim number",
+            "claim #",
+        ),
+        "memberid": (
+            "member id",
+            "member number",
+        ),
+        "policynumber": (
+            "policy number",
+            "policy #",
+        ),
+        "patientid": (
+            "patient id",
+            "patient number",
+        ),
+        "insuranceid": (
+            "insurance id",
+            "insurance number",
+        ),
+        "accountnumber": (
+            "account number",
+            "account #",
+            "acct",
+        ),
+    }
+
+    context_matches = find_context_matches(
+        text,
+        candidate_start=candidate.start_offset,
+        candidate_end=candidate.end_offset,
+        context_terms=context_terms_by_type.get(
+            entity_type,
+            (),
+        ),
+        window_chars=80,
+    )
+
+    context_terms = get_context_terms(
+        context_matches
+    )
+
+    confidence = float(
+        candidate.confidence or 0.0
+    )
+
+    #
+    # These identifiers do not have deterministic checksum
+    # validation. Do not allow context alone to imply 1.00.
+    #
+    confidence = min(
+        confidence,
+        0.97,
+    )
+
+    #
+    # Mixed alpha/numeric tokens are structurally stronger.
+    #
+    if has_alpha and has_digit:
+        confidence = max(
+            confidence,
+            0.90,
+        )
+
+    if context_terms:
+        confidence = max(
+            confidence,
+            0.92,
+        )
+
+    metadata_updates = {
+        "post_validation": "accepted",
+        "post_validation_context_terms": (
+            context_terms
+        ),
+        "post_validation_identifier_length": (
+            len(value)
+        ),
+        "post_validation_has_alpha": (
+            has_alpha
+        ),
+        "post_validation_has_digit": (
+            has_digit
+        ),
+    }
+
+    return _copy_candidate(
+        candidate,
+        confidence=confidence,
+        validation_status="valid",
+        validation_method=(
+            "labeled_identifier_post_validation"
+        ),
+        metadata_updates=metadata_updates,
+    )
 
 def post_validate_candidate(
     candidate: DetectionCandidate,
@@ -410,6 +573,20 @@ def post_validate_candidate(
     if entity_type == "drugenforcementagencynumber":
         return _validate_dea(
             candidate
+        )
+        
+    if entity_type in {
+        "medicalrecordnumber",
+        "claimnumber",
+        "memberid",
+        "policynumber",
+        "patientid",
+        "insuranceid",
+        "accountnumber",
+    }:
+        return _validate_labeled_identifier(
+            candidate,
+            text=text,
         )
 
     if entity_type == "nationalprovideridentifier":
