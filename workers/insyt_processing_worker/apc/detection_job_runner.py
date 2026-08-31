@@ -323,8 +323,8 @@ _GENERIC_IDENTIFIER_TOKEN_RE = re.compile(
 
 _GENERIC_IDENTIFIER_SPACED_RE = re.compile(
     r"(?<![A-Za-z0-9])"
-    r"(?:[A-Za-z0-9]{1,8}[ \t]+){1,3}"
-    r"[A-Za-z0-9]{1,8}"
+    r"(?:[A-Za-z0-9][A-Za-z0-9._/\-]{0,11}[ \t]+){1,3}"
+    r"[A-Za-z0-9][A-Za-z0-9._/\-]{0,11}"
     r"(?![A-Za-z0-9])"
 )
 
@@ -669,14 +669,6 @@ def _find_generic_identifier_candidates(
                 ),
             }
         )
-        
-    existing_candidate_spans = [
-        (
-            int(candidate.get("start_offset") or 0),
-            int(candidate.get("end_offset") or 0),
-        )
-        for candidate in candidates
-    ]
 
     for match in _GENERIC_IDENTIFIER_SPACED_RE.finditer(
         text
@@ -684,13 +676,6 @@ def _find_generic_identifier_candidates(
         start = match.start()
         end = match.end()
         value = match.group(0).strip()
-
-        if _span_overlaps_known_hit(
-            start,
-            end,
-            existing_candidate_spans,
-        ):
-            continue
 
         if _span_overlaps_known_hit(
             start,
@@ -751,6 +736,32 @@ def _find_generic_identifier_candidates(
         normalized_shape = _compress_shape(
             shape
         )
+        
+        #
+        # Prefer the larger OCR-reconstructed identifier
+        # when it fully contains an earlier generic FSM
+        # candidate.
+        #
+        candidates = [
+            candidate
+            for candidate in candidates
+            if not (
+                start
+                <= int(
+                    candidate.get(
+                        "start_offset"
+                    )
+                    or 0
+                )
+                and end
+                >= int(
+                    candidate.get(
+                        "end_offset"
+                    )
+                    or 0
+                )
+            )
+        ]
 
         candidates.append(
             {
