@@ -6,13 +6,16 @@ from .engine import run_detection_engine
 TEST_TEXT = """
 INSYT DEMO MEDICAL RECORD
 
-Patient: Ahmed109 O'Reilly797
-DOB: 2013-06-12
-Address: 857 Kling Arcade, Worcester, MA, 01604
-Phone: 555-768-4657
-Email: o.reilly@example.test
+Patient: Mickey Mouse
+Email: mickey.mouse@example.com
+
+Phone: 423-555-1212
+Bad Phone: 56412346
+Bad 11 Digit Phone: 84545616654
 
 SSN: 464-12-1234
+Bad SSN: 654651654
+
 MRN: MRN-882199
 Insurance ID: INS-551122
 Claim Number: CLM-443829
@@ -20,8 +23,6 @@ Member ID: MEM-332211
 Policy Number: POL-998877
 Patient ID: PAT-112233
 Account Number: ACCT-778899
-
-Provider: Emily Jones
 """
 
 
@@ -38,30 +39,35 @@ def main() -> None:
     candidates = result["candidates"]
 
     print()
-    print("INSYT DETECTION ENGINE TEST")
-    print("=" * 90)
+    print("INSYT DETECTION ENGINE POST-VALIDATION TEST")
+    print("=" * 100)
 
     print(
-        f"Azure candidates:      "
+        f"Azure candidates:        "
         f"{result['azure_candidate_count']}"
     )
 
     print(
-        f"Structured candidates: "
+        f"Structured candidates:   "
         f"{result['structured_candidate_count']}"
     )
 
     print(
-        f"Merged candidates:     "
+        f"Validated candidates:    "
+        f"{result['validated_candidate_count']}"
+    )
+
+    print(
+        f"Merged candidates:       "
         f"{result['merged_candidate_count']}"
     )
 
     print(
-        f"Detectors:             "
+        f"Detectors:               "
         f"{result['detectors']}"
     )
 
-    print("-" * 90)
+    print("-" * 100)
 
     for candidate in candidates:
         print(
@@ -71,7 +77,8 @@ def main() -> None:
             f"{candidate.confidence:.2f} "
             f"{candidate.detected_value!r} "
             f"detector={candidate.detector_name} "
-            f"rule={candidate.detection_rule}"
+            f"rule={candidate.detection_rule} "
+            f"validation={candidate.validation_status}"
         )
 
     expected_types = {
@@ -100,21 +107,89 @@ def main() -> None:
             f"{sorted(missing)}"
         )
 
-    if result["structured_candidate_count"] != 10:
+    #
+    # Valid phone should survive.
+    #
+    valid_phone_hits = [
+        candidate
+        for candidate in candidates
+        if (
+            candidate.entity_type == "PhoneNumber"
+            and candidate.detected_value == "423-555-1212"
+        )
+    ]
+
+    if not valid_phone_hits:
         raise AssertionError(
-            "Expected exactly 10 structured candidates."
+            "Valid phone number was not retained."
         )
 
-    if result["merged_candidate_count"] != 10:
+    #
+    # Bad phone candidates must not survive post-validation.
+    #
+    bad_phone_values = {
+        "56412346",
+        "84545616654",
+    }
+
+    surviving_bad_phones = [
+        candidate.detected_value
+        for candidate in candidates
+        if (
+            candidate.entity_type == "PhoneNumber"
+            and candidate.detected_value in bad_phone_values
+        )
+    ]
+
+    if surviving_bad_phones:
         raise AssertionError(
-            "Expected exactly 10 merged candidates "
-            "with Azure disabled."
+            f"Invalid phone values survived: "
+            f"{surviving_bad_phones}"
+        )
+
+    #
+    # Valid SSN should survive.
+    #
+    valid_ssn_hits = [
+        candidate
+        for candidate in candidates
+        if (
+            candidate.entity_type
+            == "USSocialSecurityNumber"
+            and candidate.detected_value
+            == "464-12-1234"
+        )
+    ]
+
+    if not valid_ssn_hits:
+        raise AssertionError(
+            "Valid SSN was not retained."
+        )
+
+    #
+    # The unlabeled/invalid low-confidence-looking SSN
+    # should not become a structured SSN from our rules.
+    #
+    invalid_ssn_hits = [
+        candidate
+        for candidate in candidates
+        if (
+            candidate.entity_type
+            == "USSocialSecurityNumber"
+            and candidate.detected_value
+            == "654651654"
+        )
+    ]
+
+    if invalid_ssn_hits:
+        raise AssertionError(
+            "Invalid SSN survived post-validation."
         )
 
     print()
     print(
-        "PASS: unified engine returned all expected "
-        "structured entities."
+        "PASS: post-validation retained valid structured "
+        "entities and rejected invalid phone/SSN candidates."
     )
 
 

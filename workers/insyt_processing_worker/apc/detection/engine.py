@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-
 from .built_in_rules import get_built_in_rules
 from .merge import merge_detection_candidates
 from .models import DetectionCandidate
+from .post_validation import post_validate_candidates
 from .regex_detector import detect_regex_entities
 
 
@@ -36,6 +36,7 @@ def run_detection_engine(
             "candidates": [],
             "azure_candidate_count": 0,
             "structured_candidate_count": 0,
+            "validated_candidate_count": 0,
             "merged_candidate_count": 0,
             "detectors": [],
         }
@@ -81,8 +82,13 @@ def run_detection_engine(
             "insyt_structured"
         )
 
+    validated_candidates = post_validate_candidates(
+        all_candidates,
+        text=value,
+    )
+
     merged_candidates = merge_detection_candidates(
-        all_candidates
+        validated_candidates
     )
 
     return {
@@ -92,6 +98,9 @@ def run_detection_engine(
         ),
         "structured_candidate_count": len(
             structured_candidates
+        ),
+        "validated_candidate_count": len(
+            validated_candidates
         ),
         "merged_candidate_count": len(
             merged_candidates
