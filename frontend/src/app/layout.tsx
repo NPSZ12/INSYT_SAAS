@@ -1,10 +1,29 @@
 import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
 import "./globals.css";
 
-export const metadata = {
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+
+export const metadata: Metadata = {
   title: "INSYT360",
-  description: "Enterprise Review & Intelligence Platform",
+  description:
+    "Enterprise Review & Intelligence Platform",
 };
+
 
 export default function RootLayout({
   children,
@@ -14,7 +33,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className="h-full antialiased"
+      data-theme="dark"
+      className={[
+        "h-full",
+        "antialiased",
+        geistSans.variable,
+        geistMono.variable,
+      ].join(" ")}
     >
       <body className="min-h-full flex flex-col font-sans">
         {children}
@@ -22,12 +47,3 @@ export default function RootLayout({
     </html>
   );
 }
-
-
-
-
-
-
-
-
-
