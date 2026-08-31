@@ -228,6 +228,40 @@ function DataElementDetectionPageContent() {
     setSelectedDocIds(new Set());
   }
 
+  function selectAllForJob(
+    docs: DetectionReadyDoc[]
+  ) {
+    setSelectedDocIds((current) => {
+      const next = new Set(current);
+
+      for (const doc of docs) {
+        next.add(doc.doc_id);
+      }
+
+      return next;
+    });
+  }
+
+  function clearSelectionForJob(
+    docs: DetectionReadyDoc[]
+  ) {
+    const jobDocIds = new Set(
+      docs.map((doc) => doc.doc_id)
+    );
+
+    setSelectedDocIds((current) => {
+      const next = new Set<string>();
+
+      for (const docId of current) {
+        if (!jobDocIds.has(docId)) {
+          next.add(docId);
+        }
+      }
+
+      return next;
+    });
+  }
+
   async function startDetectionForJob(
     sourceJobId: string,
     detectAllReady: boolean
@@ -346,7 +380,7 @@ function DataElementDetectionPageContent() {
 
         window.setTimeout(
           pollDetectionStatus,
-          3000
+          2000
         );
       } catch (err: any) {
         if (!cancelled) {
@@ -599,12 +633,41 @@ function DataElementDetectionPageContent() {
                             Source APC Job
                           </div>
 
-                          <div className="mt-1 font-mono text-xs text-slate-300">
-                            {sourceJobId}
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs text-slate-300">
+                              {sourceJobId}
+                            </span>
+
+                            <span className="text-xs text-slate-500">
+                              • {docs.length.toLocaleString()}{" "}
+                              {docs.length === 1 ? "doc" : "docs"}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => selectAllForJob(docs)}
+                            disabled={docs.length === 0}
+                            className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                          >
+                            Select All
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => clearSelectionForJob(docs)}
+                            disabled={
+                              !docs.some((doc) =>
+                                selectedDocIds.has(doc.doc_id)
+                              )
+                            }
+                            className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                          >
+                            Clear Selection
+                          </button>
+                          
                           <button
                             type="button"
                             disabled={
@@ -628,7 +691,10 @@ function DataElementDetectionPageContent() {
                             type="button"
                             disabled={
                               startingDetection ||
-                              docs.length === 0
+                              docs.length === 0 ||
+                              !docs.some((doc) =>
+                                selectedDocIds.has(doc.doc_id)
+                              )
                             }
                             onClick={() =>
                               startDetectionForJob(
