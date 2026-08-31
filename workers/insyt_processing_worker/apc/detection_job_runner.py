@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+
 from pathlib import Path
 from typing import Any
 
@@ -311,6 +313,407 @@ def _seed_detection_document(
 
     return file_id
 
+_GENERIC_IDENTIFIER_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"[A-Za-z0-9]"
+    r"[A-Za-z0-9._/\-]{4,38}"
+    r"[A-Za-z0-9]"
+    r"(?![A-Za-z0-9])"
+)
+
+_GENERIC_IDENTIFIER_LABEL_RE = re.compile(
+    r"\b("
+    r"account|acct|claim|case|member|patient|customer|cust|"
+    r"reference|ref|record|policy|invoice|inv|order|ticket|"
+    r"authorization|auth|confirmation|confirm|tracking|"
+    r"identifier|identification|id|number|no"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _span_overlaps_known_hit(
+    start: int,
+    end: int,
+    known_spans: list[tuple[int, int]],
+) -> bool:
+    for known_start, known_end in known_spans:
+        if start < known_end and end > known_start:
+            return True
+
+    return False
+
+
+def _identifier_shape(value: str) -> str:
+    shape_parts: list[str] = []
+
+    for char in value:
+        if char.isalpha():
+            shape_parts.append("A")
+        elif char.isdigit():
+            shape_parts.append("N")
+        else:
+            shape_parts.append(char)
+
+    return "".join(shape_parts)
+
+
+def _compress_shape(shape: str) -> str:
+    if not shape:
+        return ""
+
+    result: list[str] = []
+    current = shape[0]
+    count = 1
+
+    def flush(token: str, token_count: int) -> None:
+        if token in {"A", "N"}:
+            result.append(
+                token if token_count == 1
+                else f"{token}{token_count}"
+            )
+        else:
+            result.extend(token for _ in range(token_count))
+
+    for char in shape[1:]:
+        if char == current:
+            count += 1
+            continue
+
+        flush(current, count)
+        current = char
+        count = 1
+
+    flush(current, count)
+
+    return "".join(result)
+
+
+def _generic_identifier_context(
+    text: str,
+    start: int,
+    end: int,
+    *,
+    before_chars: int = 48,
+    after_chars: int = 32,
+) -> tuple[str, str]:
+    before = text[
+        max(0, start - before_chars):start
+    ]
+
+    after = text[
+        end:min(len(text), end + after_chars)
+    ]
+
+    return (
+        " ".join(before.split()),
+        " ".join(after.split()),
+    )
+
+
+def _looks_like_generic_identifier(
+    value: str,
+    context_before: str,
+    context_after: str,
+) -> tuple[bool, float]:
+    stripped = value.strip()
+
+    if len(stripped) < 6 or len(stripped) > 40:
+        return False, 0.0
+
+    has_alpha = any(char.isalpha() for char in stripped)
+    has_digit = any(char.isdigit() for char in stripped)
+
+    if not has_digit:
+        return False, 0.0
+
+    label_context = (
+        f"{context_before} {context_after}"
+    )
+
+    has_identifier_label = bool(
+        _GENERIC_IDENTIFIER_LABEL_RE.search(
+            label_context
+        )
+    )
+
+    # Conservative V1:
+    # mixed alpha/numeric identifiers may qualify
+    # without a nearby label.
+    #
+    # Purely numeric candidates require contextual
+    # evidence so ordinary numbers are not flooded
+    # into the candidate population.
+    if not has_alpha and not has_identifier_label:
+        return False, 0.0
+
+    score = 0.50
+
+    if has_alpha and has_digit:
+        score += 0.20
+
+    if any(
+        separator in stripped
+        for separator in ("-", "/", "_", ".")
+    ):
+        score += 0.08
+
+    if has_identifier_label:
+        score += 0.17
+
+    transitions = 0
+    previous_class = ""
+
+    for char in stripped:
+        if char.isalpha():
+            current_class = "A"
+        elif char.isdigit():
+            current_class = "N"
+        else:
+            current_class = "S"
+
+        if (
+            previous_class
+            and current_class != previous_class
+        ):
+            transitions += 1
+
+        previous_class = current_class
+
+    if transitions >= 1:
+        score += 0.05
+
+    return True, min(score, 0.99)
+
+
+def _find_generic_identifier_candidates(
+    text: str,
+    known_hits: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    known_spans: list[tuple[int, int]] = []
+
+    for hit in known_hits:
+        try:
+            known_start = int(
+                hit.get("start_offset")
+            )
+            known_end = int(
+                hit.get("end_offset")
+            )
+        except (TypeError, ValueError):
+            continue
+
+        if known_end <= known_start:
+            continue
+
+        known_spans.append(
+            (known_start, known_end)
+        )
+
+    candidates: list[dict[str, Any]] = []
+
+    for match in _GENERIC_IDENTIFIER_TOKEN_RE.finditer(
+        text
+    ):
+        start = match.start()
+        end = match.end()
+        value = match.group(0)
+
+        if _span_overlaps_known_hit(
+            start,
+            end,
+            known_spans,
+        ):
+            continue
+
+        context_before, context_after = (
+            _generic_identifier_context(
+                text,
+                start,
+                end,
+            )
+        )
+
+        accepted, candidate_score = (
+            _looks_like_generic_identifier(
+                value,
+                context_before,
+                context_after,
+            )
+        )
+
+        if not accepted:
+            continue
+
+        shape = _identifier_shape(value)
+        normalized_shape = _compress_shape(
+            shape
+        )
+
+        candidates.append(
+            {
+                "detected_value": value,
+                "normalized_value": value.upper(),
+                "start_offset": start,
+                "end_offset": end,
+                "shape": shape,
+                "normalized_shape": (
+                    normalized_shape
+                ),
+                "context_before": context_before,
+                "context_after": context_after,
+                "candidate_score": round(
+                    candidate_score,
+                    4,
+                ),
+                "detector": (
+                    "insyt_fsm_generic_identifier"
+                ),
+                "detector_version": "v1",
+                "candidate_type": (
+                    "generic_identifier"
+                ),
+            }
+        )
+
+    return candidates
+
+
+def _build_generic_identifier_clusters(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    clusters: dict[
+        str,
+        dict[str, Any],
+    ] = {}
+
+    for candidate in candidates:
+        normalized_shape = str(
+            candidate.get("normalized_shape")
+            or ""
+        ).strip()
+
+        if not normalized_shape:
+            continue
+
+        cluster_key = normalized_shape
+
+        cluster = clusters.setdefault(
+            cluster_key,
+            {
+                "cluster_key": cluster_key,
+                "normalized_shape": (
+                    normalized_shape
+                ),
+                "occurrence_count": 0,
+                "document_ids": set(),
+                "examples": [],
+                "context_samples": [],
+            },
+        )
+
+        cluster["occurrence_count"] += 1
+
+        doc_id = str(
+            candidate.get("doc_id") or ""
+        ).strip()
+
+        if doc_id:
+            cluster["document_ids"].add(
+                doc_id
+            )
+
+        detected_value = str(
+            candidate.get("detected_value")
+            or ""
+        ).strip()
+
+        if (
+            detected_value
+            and detected_value
+            not in cluster["examples"]
+            and len(cluster["examples"]) < 10
+        ):
+            cluster["examples"].append(
+                detected_value
+            )
+
+        context_before = str(
+            candidate.get("context_before")
+            or ""
+        ).strip()
+
+        if (
+            context_before
+            and context_before
+            not in cluster["context_samples"]
+            and len(
+                cluster["context_samples"]
+            ) < 10
+        ):
+            cluster[
+                "context_samples"
+            ].append(context_before)
+
+    results: list[dict[str, Any]] = []
+
+    for cluster in clusters.values():
+        document_ids = sorted(
+            cluster["document_ids"]
+        )
+
+        results.append(
+            {
+                "cluster_key": (
+                    cluster["cluster_key"]
+                ),
+                "normalized_shape": (
+                    cluster["normalized_shape"]
+                ),
+                "occurrence_count": int(
+                    cluster[
+                        "occurrence_count"
+                    ]
+                ),
+                "document_count": len(
+                    document_ids
+                ),
+                "document_ids": document_ids,
+                "examples": (
+                    cluster["examples"]
+                ),
+                "context_samples": (
+                    cluster[
+                        "context_samples"
+                    ]
+                ),
+            }
+        )
+
+    results.sort(
+        key=lambda item: (
+            -int(
+                item.get(
+                    "document_count",
+                    0,
+                )
+            ),
+            -int(
+                item.get(
+                    "occurrence_count",
+                    0,
+                )
+            ),
+            str(
+                item.get(
+                    "normalized_shape",
+                    "",
+                )
+            ),
+        )
+    )
+
+    return results
 
 def run_data_element_detection_job(
     *,
@@ -596,6 +999,23 @@ def run_data_element_detection_job(
             entity_doc_id,
             [],
         ).append(entity)
+        
+    local_text_paths_by_doc_id: dict[
+        str,
+        str,
+    ] = {
+        str(doc.get("doc_id") or "").strip(): str(
+            doc.get("local_text_path") or ""
+        ).strip()
+        for doc in downloaded_docs
+        if str(
+            doc.get("doc_id") or ""
+        ).strip()
+    }
+
+    all_generic_identifier_candidates: list[
+        dict[str, Any]
+    ] = []
 
     for document_row in document_rows:
         doc_id = str(
@@ -747,6 +1167,44 @@ def run_data_element_detection_job(
                 int(hit.get("end_offset") or 0),
             )
         )
+        
+        local_text_path = (
+            local_text_paths_by_doc_id.get(
+                doc_id,
+                "",
+            )
+        )
+
+        generic_identifier_candidates: list[
+            dict[str, Any]
+        ] = []
+
+        if local_text_path:
+            try:
+                detection_text = Path(
+                    local_text_path
+                ).read_text(
+                    encoding="utf-8",
+                    errors="ignore",
+                )
+
+                generic_identifier_candidates = (
+                    _find_generic_identifier_candidates(
+                        detection_text,
+                        normalized_hits,
+                    )
+                )
+
+            except OSError:
+                generic_identifier_candidates = []
+
+        for candidate in generic_identifier_candidates:
+            all_generic_identifier_candidates.append(
+                {
+                    **candidate,
+                    "doc_id": doc_id,
+                }
+            )
 
         document_index_payload = {
             "schema_version": 1,
@@ -793,6 +1251,12 @@ def run_data_element_detection_job(
                 or summary_payload.get("completed_at")
             ),
             "hits": normalized_hits,
+            "generic_identifier_candidate_count": (
+                len(generic_identifier_candidates)
+            ),
+            "generic_identifier_candidates": (
+                generic_identifier_candidates
+            ),
         }
 
         document_index_uploads.append(
@@ -801,6 +1265,42 @@ def run_data_element_detection_job(
                 document_index_payload,
             )
         )
+        
+    generic_identifier_clusters = (
+        _build_generic_identifier_clusters(
+            all_generic_identifier_candidates
+        )
+    )
+
+    generic_identifier_clusters_upload = (
+        _write_processing_json(
+            (
+                f"{result_prefix}/"
+                "generic_identifier_clusters.json"
+            ),
+            {
+                "schema_version": 1,
+                "workspace": workspace,
+                "client": client_id,
+                "project": project,
+                "detection_job_id": (
+                    detection_job_id
+                ),
+                "detection_run_id": (
+                    detection_run_id
+                ),
+                "candidate_count": len(
+                    all_generic_identifier_candidates
+                ),
+                "cluster_count": len(
+                    generic_identifier_clusters
+                ),
+                "clusters": (
+                    generic_identifier_clusters
+                ),
+            },
+        )
+    )
 
     return {
         **summary_payload,
@@ -822,4 +1322,18 @@ def run_data_element_detection_job(
         "document_index_uploads": document_index_uploads,
         "documents": document_rows,
         "entity_type_counts": entity_counts,
+        "generic_identifier_candidate_count": len(
+            all_generic_identifier_candidates
+        ),
+        "generic_identifier_cluster_count": len(
+            generic_identifier_clusters
+        ),
+        "generic_identifier_clusters_blob_path": (
+            generic_identifier_clusters_upload[
+                "blob_path"
+            ]
+        ),
+        "generic_identifier_clusters": (
+            generic_identifier_clusters
+        ),
     }
