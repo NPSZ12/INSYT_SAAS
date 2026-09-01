@@ -81,7 +81,6 @@ CONDITION_CONTEXT_TERMS = (
 MEDICATION_CONTEXT_TERMS = (
     "medication",
     "medications",
-    "med",
     "meds",
     "current medication",
     "current medications",

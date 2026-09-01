@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from typing import Iterable
 
 from .models import DetectionCandidate
@@ -222,6 +223,203 @@ def _is_broad_nested_type(
         in _BROAD_NESTED_TYPES
     )
 
+def _is_insyt_structured_candidate(
+    candidate: DetectionCandidate,
+) -> bool:
+    return (
+        str(
+            candidate.detector_name
+            or ""
+        )
+        .strip()
+        .casefold()
+        .startswith("insyt")
+    )
+
+
+def _is_healthcare_provider(
+    candidate: DetectionCandidate,
+) -> bool:
+    return (
+        _normalized_entity_type(
+            candidate
+        )
+        == "healthcareprovider"
+    )
+
+
+def _is_person(
+    candidate: DetectionCandidate,
+) -> bool:
+    return (
+        _normalized_entity_type(
+            candidate
+        )
+        == "person"
+    )
+
+
+def _provider_containment_winner(
+    left: DetectionCandidate,
+    right: DetectionCandidate,
+) -> DetectionCandidate | None:
+    """
+    Prefer the full INSYT labeled HealthcareProvider span over
+    Azure fragments contained within it.
+
+    Example:
+
+        Dr. Robert Davis    <- INSYT structured provider
+        Dr.                <- Azure provider fragment
+            Robert Davis   <- Azure provider fragment
+
+    The final rendered hit should be the full labeled provider.
+    """
+
+    if not (
+        _is_healthcare_provider(left)
+        and _is_healthcare_provider(right)
+    ):
+        return None
+
+    if _contains_span(
+        left,
+        right,
+    ):
+        outer = left
+        inner = right
+    elif _contains_span(
+        right,
+        left,
+    ):
+        outer = right
+        inner = left
+    else:
+        return None
+
+    if (
+        _is_insyt_structured_candidate(
+            outer
+        )
+        and not _is_insyt_structured_candidate(
+            inner
+        )
+    ):
+        return outer
+
+    return None
+
+
+def _person_candidates_are_adjacent(
+    left: DetectionCandidate,
+    right: DetectionCandidate,
+    *,
+    text: str,
+) -> bool:
+    """
+    True when two Person candidates are separated only by whitespace
+    and are close enough to plausibly be fragments of one name.
+    """
+
+    if not (
+        _is_person(left)
+        and _is_person(right)
+    ):
+        return False
+
+    if left.end_offset <= right.start_offset:
+        first = left
+        second = right
+    elif right.end_offset <= left.start_offset:
+        first = right
+        second = left
+    else:
+        return False
+
+    gap = str(
+        text[
+            first.end_offset:
+            second.start_offset
+        ]
+    )
+
+    if len(gap) > 3:
+        return False
+
+    return bool(
+        gap
+        and gap.isspace()
+    )
+
+
+def _combine_adjacent_person_candidates(
+    left: DetectionCandidate,
+    right: DetectionCandidate,
+    *,
+    text: str,
+) -> DetectionCandidate:
+    if left.start_offset <= right.start_offset:
+        first = left
+        second = right
+    else:
+        first = right
+        second = left
+
+    combined_start = int(
+        first.start_offset
+    )
+
+    combined_end = int(
+        second.end_offset
+    )
+
+    combined_value = str(
+        text[
+            combined_start:
+            combined_end
+        ]
+    ).strip()
+
+    winner = (
+        left
+        if float(left.confidence or 0.0)
+        >= float(right.confidence or 0.0)
+        else right
+    )
+
+    loser = (
+        right
+        if winner is left
+        else left
+    )
+
+    merged = _merge_provenance(
+        winner,
+        loser,
+    )
+
+    metadata = {
+        **dict(
+            merged.metadata
+            or {}
+        ),
+        "adjacent_person_fragments_combined": True,
+        "combined_start_offset": combined_start,
+        "combined_end_offset": combined_end,
+    }
+
+    return replace(
+        merged,
+        detected_value=combined_value,
+        normalized_value=combined_value,
+        start_offset=combined_start,
+        end_offset=combined_end,
+        confidence=max(
+            float(left.confidence or 0.0),
+            float(right.confidence or 0.0),
+        ),
+        metadata=metadata,
+    )
 
 def _nested_entity_winner(
     left: DetectionCandidate,
@@ -517,6 +715,7 @@ def merge_detection_candidates(
         DetectionCandidate
     ],
     *,
+    text: str = "",
     overlap_threshold: float = 0.80,
 ) -> list[DetectionCandidate]:
     """
@@ -634,6 +833,61 @@ def merge_detection_candidates(
                 candidate,
                 existing,
             ):
+                #
+                # HealthcareProvider is special:
+                # the full labeled INSYT span should beat
+                # nested Azure fragments regardless of the
+                # normal overlap preference.
+                #
+                provider_winner = (
+                    _provider_containment_winner(
+                        existing,
+                        candidate,
+                    )
+                )
+
+                if provider_winner is not None:
+                    if provider_winner is existing:
+                        final[index] = (
+                            _merge_provenance(
+                                existing,
+                                candidate,
+                            )
+                        )
+                    else:
+                        final[index] = (
+                            _merge_provenance(
+                                candidate,
+                                existing,
+                            )
+                        )
+
+                    merged = True
+                    break
+
+                #
+                # Azure sometimes splits one patient name into
+                # adjacent Person fragments.
+                #
+                if (
+                    text
+                    and _person_candidates_are_adjacent(
+                        existing,
+                        candidate,
+                        text=text,
+                    )
+                ):
+                    final[index] = (
+                        _combine_adjacent_person_candidates(
+                            existing,
+                            candidate,
+                            text=text,
+                        )
+                    )
+
+                    merged = True
+                    break
+
                 ratio = _overlap_ratio(
                     candidate,
                     existing,
