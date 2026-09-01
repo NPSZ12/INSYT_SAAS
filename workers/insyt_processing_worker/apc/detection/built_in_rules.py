@@ -4,6 +4,7 @@ from .rules import DetectionRule
 
 
 BUILT_IN_RULES: tuple[DetectionRule, ...] = (
+
     DetectionRule(
         rule_id="US_SSN",
         entity_type="USSocialSecurityNumber",
@@ -277,6 +278,188 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
         framework=(
             "PII",
             "GDPR",
+        ),
+        methods=(
+            "regex",
+            "context",
+        ),
+        metadata={
+            "capture_group": 1,
+        },
+    ),
+
+    #
+    # Clinical PHI rules
+    #
+
+    DetectionRule(
+        rule_id="MEDICAL_CONDITION_LABELED",
+        entity_type="MedicalCondition",
+        entity_subtype="ClinicalCondition",
+        regex_pattern=(
+            r"(?:"
+            r"known[ \t]+conditions?"
+            r"|conditions?"
+            r"|diagnoses?"
+            r"|problem[ \t]+list"
+            r"|past[ \t]+medical[ \t]+history"
+            r"|pmh"
+            r")"
+            r"[ \t]*[:#\-][ \t]*"
+            r"([^\r\n]+)"
+        ),
+        context_terms=(
+            "known condition",
+            "known conditions",
+            "condition",
+            "conditions",
+            "diagnosis",
+            "diagnoses",
+            "problem list",
+            "past medical history",
+            "pmh",
+        ),
+        base_confidence=0.88,
+        framework=(
+            "PHI",
+            "HIPAA",
+        ),
+        methods=(
+            "regex",
+            "context",
+            "list_split",
+        ),
+        metadata={
+            "capture_group": 1,
+            "split_capture": True,
+            "split_separators": [
+                ",",
+                ";",
+                "|",
+            ],
+        },
+    ),
+
+    DetectionRule(
+        rule_id="MEDICATION_LABELED",
+        entity_type="Medication",
+        entity_subtype="MedicationEntry",
+        regex_pattern=(
+            r"(?:"
+            r"medications?"
+            r"|current[ \t]+medications?"
+            r"|meds"
+            r"|prescriptions?"
+            r")"
+            r"[ \t]*[:#\-][ \t]*"
+            r"([^\r\n]+)"
+        ),
+        context_terms=(
+            "medication",
+            "medications",
+            "current medication",
+            "current medications",
+            "meds",
+            "prescription",
+            "prescriptions",
+        ),
+        base_confidence=0.88,
+        framework=(
+            "PHI",
+            "HIPAA",
+        ),
+        methods=(
+            "regex",
+            "context",
+            "list_split",
+        ),
+        metadata={
+            "capture_group": 1,
+            "split_capture": True,
+            "split_separators": [
+                ",",
+                ";",
+                "|",
+            ],
+        },
+    ),
+
+    DetectionRule(
+        rule_id="HEALTHCARE_PROVIDER_LABELED",
+        entity_type="HealthcareProvider",
+        entity_subtype="ProviderName",
+        regex_pattern=(
+            r"(?:"
+            r"provider[ \t]+name"
+            r"|provider"
+            r"|attending[ \t]+physician"
+            r"|ordering[ \t]+provider"
+            r"|ordering[ \t]+physician"
+            r"|physician"
+            r"|doctor"
+            r"|attending"
+            r"|practitioner"
+            r")"
+            r"[ \t]*[:#\-][ \t]*"
+            r"([^\r\n]+)"
+        ),
+        context_terms=(
+            "provider",
+            "provider name",
+            "physician",
+            "doctor",
+            "attending",
+            "attending physician",
+            "ordering provider",
+            "ordering physician",
+            "practitioner",
+        ),
+        base_confidence=0.90,
+        framework=(
+            "PHI",
+            "HIPAA",
+        ),
+        methods=(
+            "regex",
+            "context",
+        ),
+        metadata={
+            "capture_group": 1,
+        },
+    ),
+
+    DetectionRule(
+        rule_id="HEALTHCARE_FACILITY_LABELED",
+        entity_type="HealthcareFacility",
+        entity_subtype="FacilityName",
+        regex_pattern=(
+            r"(?:"
+            r"facility[ \t]+name"
+            r"|facility"
+            r"|medical[ \t]+center"
+            r"|healthcare[ \t]+center"
+            r"|health[ \t]+center"
+            r"|health[ \t]+system"
+            r"|hospital"
+            r"|clinic"
+            r")"
+            r"[ \t]*[:#\-][ \t]*"
+            r"([^\r\n]+)"
+        ),
+        context_terms=(
+            "facility",
+            "facility name",
+            "hospital",
+            "clinic",
+            "medical center",
+            "health center",
+            "healthcare center",
+            "health system",
+        ),
+        base_confidence=0.90,
+        framework=(
+            "PHI",
+            "HIPAA",
         ),
         methods=(
             "regex",

@@ -101,6 +101,183 @@ def _same_semantic_type(
     )
 
 
+def _contains_span(
+    outer: DetectionCandidate,
+    inner: DetectionCandidate,
+) -> bool:
+    """
+    True when outer fully contains inner.
+
+    Exact same spans are not considered nested here because exact
+    duplicates are handled earlier in the merge pipeline.
+    """
+
+    if (
+        outer.start_offset
+        == inner.start_offset
+        and outer.end_offset
+        == inner.end_offset
+    ):
+        return False
+
+    return (
+        outer.start_offset
+        <= inner.start_offset
+        and outer.end_offset
+        >= inner.end_offset
+    )
+
+
+#
+# Entity types that represent highly structured values.
+#
+# A weaker semantic fragment found inside one of these should generally
+# not survive as a separate rendered hit.
+#
+_STRUCTURED_CONTAINER_TYPES = {
+    "address",
+    "bankaccountnumber",
+    "claimnumber",
+    "creditcardnumber",
+    "dateofbirth",
+    "driverslicensenumber",
+    "drugenforcementagencynumber",
+    "email",
+    "emailaddress",
+    "faxnumber",
+    "healthplanbeneficiarynumber",
+    "insuranceid",
+    "ipaddress",
+    "medicalrecordnumber",
+    "memberid",
+    "passportnumber",
+    "phonenumber",
+    "policynumber",
+    "socialsecuritynumber",
+    "ussocialsecuritynumber",
+    "vehicleidentificationnumber",
+    "vin",
+}
+
+
+#
+# Broad semantic entity types that Azure NER can sometimes emit for
+# fragments contained inside more precise structured entities.
+#
+# Example:
+#
+#     amber@example.com
+#
+# Azure may return:
+#
+#     Email  -> amber@example.com
+#     Person -> amber
+#
+# The Person fragment must not survive simply because it is a different
+# entity type.
+#
+_BROAD_NESTED_TYPES = {
+    "person",
+    "persontype",
+    "organization",
+    "location",
+    "datetime",
+}
+
+
+def _normalized_entity_type(
+    candidate: DetectionCandidate,
+) -> str:
+    return (
+        str(
+            candidate.entity_type
+            or ""
+        )
+        .strip()
+        .casefold()
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
+
+
+def _is_structured_container(
+    candidate: DetectionCandidate,
+) -> bool:
+    return (
+        _normalized_entity_type(
+            candidate
+        )
+        in _STRUCTURED_CONTAINER_TYPES
+    )
+
+
+def _is_broad_nested_type(
+    candidate: DetectionCandidate,
+) -> bool:
+    return (
+        _normalized_entity_type(
+            candidate
+        )
+        in _BROAD_NESTED_TYPES
+    )
+
+
+def _nested_entity_winner(
+    left: DetectionCandidate,
+    right: DetectionCandidate,
+) -> DetectionCandidate | None:
+    """
+    Resolve cross-type nested entities.
+
+    This is intentionally narrower than ordinary overlap merging.
+
+    We only suppress a cross-type entity when:
+
+      1. one candidate fully contains the other, and
+      2. the outer candidate is a recognized structured entity, and
+      3. the inner candidate is a broad semantic entity.
+
+    This prevents cases such as:
+
+        Email:  amber@example.com
+        Person: amber
+
+    from producing two user-visible hits.
+
+    It does NOT blindly suppress every differently typed overlapping
+    entity. Legitimately related PHI/PII entities can still coexist when
+    neither one is merely a nested fragment of the other.
+    """
+
+    if _contains_span(
+        left,
+        right,
+    ):
+        outer = left
+        inner = right
+    elif _contains_span(
+        right,
+        left,
+    ):
+        outer = right
+        inner = left
+    else:
+        return None
+
+    if not _is_structured_container(
+        outer
+    ):
+        return None
+
+    if not _is_broad_nested_type(
+        inner
+    ):
+        return None
+
+    return outer
+
+
 def _prefer_candidate(
     left: DetectionCandidate,
     right: DetectionCandidate,
@@ -207,6 +384,21 @@ def _merge_provenance(
         "validation_status": (
             winner.validation_status
         ),
+        "entity_type": (
+            winner.entity_type
+        ),
+        "entity_subtype": (
+            winner.entity_subtype
+        ),
+        "detected_value": (
+            winner.detected_value
+        ),
+        "start_offset": (
+            winner.start_offset
+        ),
+        "end_offset": (
+            winner.end_offset
+        ),
     }
 
     loser_source = {
@@ -225,6 +417,21 @@ def _merge_provenance(
         "validation_status": (
             loser.validation_status
         ),
+        "entity_type": (
+            loser.entity_type
+        ),
+        "entity_subtype": (
+            loser.entity_subtype
+        ),
+        "detected_value": (
+            loser.detected_value
+        ),
+        "start_offset": (
+            loser.start_offset
+        ),
+        "end_offset": (
+            loser.end_offset
+        ),
     }
 
     merged_sources = []
@@ -237,16 +444,46 @@ def _merge_provenance(
         ]
     ):
         key = (
-            source.get("detector_name"),
-            source.get("detection_rule"),
-            source.get("confidence"),
+            source.get(
+                "detector_name"
+            ),
+            source.get(
+                "detection_rule"
+            ),
+            source.get(
+                "confidence"
+            ),
+            source.get(
+                "entity_type"
+            ),
+            source.get(
+                "start_offset"
+            ),
+            source.get(
+                "end_offset"
+            ),
         )
 
         if any(
             (
-                item.get("detector_name"),
-                item.get("detection_rule"),
-                item.get("confidence"),
+                item.get(
+                    "detector_name"
+                ),
+                item.get(
+                    "detection_rule"
+                ),
+                item.get(
+                    "confidence"
+                ),
+                item.get(
+                    "entity_type"
+                ),
+                item.get(
+                    "start_offset"
+                ),
+                item.get(
+                    "end_offset"
+                ),
             )
             == key
             for item in merged_sources
@@ -288,8 +525,10 @@ def merge_detection_candidates(
     Behavior:
       - exact duplicates collapse
       - heavily overlapping hits of the same entity type collapse
-      - provenance from both detectors is retained
-      - unrelated overlapping entity types remain separate
+      - broad semantic fragments fully nested inside stronger structured
+        entities collapse into the structured entity
+      - provenance from all merged detectors is retained
+      - unrelated cross-type overlaps remain separate
     """
 
     incoming = [
@@ -312,7 +551,8 @@ def merge_detection_candidates(
     )
 
     #
-    # First pass: exact duplicates.
+    # First pass:
+    # exact duplicates.
     #
     exact_groups: dict[
         tuple,
@@ -332,20 +572,26 @@ def merge_detection_candidates(
         winner = group[0]
 
         for candidate in group[1:]:
-            preferred = _prefer_candidate(
-                winner,
-                candidate,
-            )
-
-            if preferred is winner:
-                winner = _merge_provenance(
+            preferred = (
+                _prefer_candidate(
                     winner,
                     candidate,
                 )
+            )
+
+            if preferred is winner:
+                winner = (
+                    _merge_provenance(
+                        winner,
+                        candidate,
+                    )
+                )
             else:
-                winner = _merge_provenance(
-                    candidate,
-                    winner,
+                winner = (
+                    _merge_provenance(
+                        candidate,
+                        winner,
+                    )
                 )
 
         exact_merged.append(
@@ -362,7 +608,13 @@ def merge_detection_candidates(
 
     #
     # Second pass:
-    # collapse strongly overlapping hits of the same entity type.
+    #
+    # 1. Collapse strongly overlapping hits of the
+    #    same semantic type.
+    #
+    # 2. Resolve cross-type nested fragments when a
+    #    broad Azure semantic entity is wholly inside
+    #    a stronger structured entity.
     #
     final: list[
         DetectionCandidate
@@ -374,26 +626,63 @@ def merge_detection_candidates(
         for index, existing in enumerate(
             final
         ):
-            if not _same_semantic_type(
+            #
+            # Same semantic type:
+            # retain original overlap behavior.
+            #
+            if _same_semantic_type(
                 candidate,
                 existing,
             ):
-                continue
+                ratio = _overlap_ratio(
+                    candidate,
+                    existing,
+                )
 
-            ratio = _overlap_ratio(
-                candidate,
-                existing,
+                if ratio < overlap_threshold:
+                    continue
+
+                preferred = (
+                    _prefer_candidate(
+                        existing,
+                        candidate,
+                    )
+                )
+
+                if preferred is existing:
+                    final[index] = (
+                        _merge_provenance(
+                            existing,
+                            candidate,
+                        )
+                    )
+                else:
+                    final[index] = (
+                        _merge_provenance(
+                            candidate,
+                            existing,
+                        )
+                    )
+
+                merged = True
+                break
+
+            #
+            # Different semantic types:
+            # only collapse a narrowly defined nested
+            # semantic fragment.
+            #
+            nested_winner = (
+                _nested_entity_winner(
+                    existing,
+                    candidate,
+                )
             )
 
-            if ratio < overlap_threshold:
+            if nested_winner is None:
                 continue
 
-            preferred = _prefer_candidate(
-                existing,
-                candidate,
-            )
-
-            if preferred is existing:
+            if nested_winner is existing:
                 final[index] = (
                     _merge_provenance(
                         existing,

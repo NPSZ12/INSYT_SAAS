@@ -34,12 +34,107 @@ STRUCTURED_ENTITY_TYPES = {
 }
 
 
+#
+# Canonical INSYT clinical entity types.
+#
+# These are semantic PHI categories rather than deterministic
+# identifiers, so they intentionally do not belong in
+# STRUCTURED_ENTITY_TYPES.
+#
+CLINICAL_ENTITY_TYPES = {
+    "medicalcondition",
+    "medication",
+    "healthcareprovider",
+    "healthcarefacility",
+}
+
+
+#
+# Broad Azure NER categories that may need clinical
+# contextual reclassification.
+#
+AZURE_BROAD_CLINICAL_TYPES = {
+    "person",
+    "persontype",
+    "organization",
+    "location",
+}
+
+
+CONDITION_CONTEXT_TERMS = (
+    "known condition",
+    "known conditions",
+    "condition",
+    "conditions",
+    "diagnosis",
+    "diagnoses",
+    "diagnostic impression",
+    "problem",
+    "problem list",
+    "medical history",
+    "past medical history",
+    "pmh",
+    "assessment",
+)
+
+
+MEDICATION_CONTEXT_TERMS = (
+    "medication",
+    "medications",
+    "med",
+    "meds",
+    "current medication",
+    "current medications",
+    "prescription",
+    "prescriptions",
+    "drug",
+    "drugs",
+    "rx",
+)
+
+
+PROVIDER_CONTEXT_TERMS = (
+    "provider",
+    "provider name",
+    "physician",
+    "doctor",
+    "clinician",
+    "attending",
+    "attending physician",
+    "ordering provider",
+    "ordering physician",
+    "prescriber",
+    "practitioner",
+)
+
+
+FACILITY_CONTEXT_TERMS = (
+    "facility",
+    "facility name",
+    "hospital",
+    "clinic",
+    "medical center",
+    "health center",
+    "healthcare center",
+    "practice",
+    "health system",
+)
+
+
 def _normalized_type(
     candidate: DetectionCandidate,
 ) -> str:
-    return str(
-        candidate.entity_type or ""
-    ).strip().casefold()
+    return (
+        str(
+            candidate.entity_type
+            or ""
+        )
+        .strip()
+        .casefold()
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
 
 
 def _digits_only(value: str) -> str:
@@ -54,6 +149,402 @@ def _has_line_break(value: str) -> bool:
     text = str(value or "")
     return "\n" in text or "\r" in text
 
+def _immediate_clinical_context(
+    text: str,
+    candidate: DetectionCandidate,
+) -> str:
+    """
+    Return only the local line context that can reasonably
+    describe this candidate.
+
+    We intentionally avoid using a large paragraph-wide window.
+    Clinical records contain many unrelated labels close together,
+    and a broad window could incorrectly make one heading control
+    several unrelated entities.
+    """
+
+    value = str(
+        text or ""
+    )
+
+    start_offset = max(
+        0,
+        int(
+            candidate.start_offset
+        ),
+    )
+
+    before = value[
+        max(
+            0,
+            start_offset - 180,
+        ):
+        start_offset
+    ]
+
+    lines = before.splitlines()
+
+    if not lines:
+        return ""
+
+    current_line_prefix = (
+        lines[-1].strip()
+        if lines
+        else ""
+    )
+
+    previous_line = (
+        lines[-2].strip()
+        if len(lines) >= 2
+        else ""
+    )
+
+    return " ".join(
+        part
+        for part in (
+            previous_line,
+            current_line_prefix,
+        )
+        if part
+    ).casefold()
+
+
+def _context_contains_any(
+    context: str,
+    terms: tuple[str, ...],
+) -> list[str]:
+    value = str(
+        context or ""
+    ).casefold()
+
+    matched: list[str] = []
+
+    for term in terms:
+        normalized_term = str(
+            term or ""
+        ).strip().casefold()
+
+        if (
+            normalized_term
+            and normalized_term
+            in value
+        ):
+            matched.append(
+                normalized_term
+            )
+
+    return matched
+
+
+def _clinical_reclassification(
+    candidate: DetectionCandidate,
+    *,
+    text: str,
+) -> DetectionCandidate:
+    """
+    Correct broad Azure semantic categories using strong,
+    immediate clinical labels.
+
+    Examples:
+
+        Known Conditions: Gout
+            Person -> MedicalCondition
+
+        Medications: Lisinopril
+            Person -> Medication
+
+        Provider: Jane Smith, MD
+            Person -> HealthcareProvider
+
+        Facility: Boston Regional Medical Center
+            Organization -> HealthcareFacility
+
+    This does not create new candidates. It only corrects a
+    candidate Azure has already emitted.
+    """
+
+    if not candidate.detector_name.startswith(
+        "azure"
+    ):
+        return candidate
+
+    entity_type = _normalized_type(
+        candidate
+    )
+
+    if entity_type not in (
+        AZURE_BROAD_CLINICAL_TYPES
+        | CLINICAL_ENTITY_TYPES
+    ):
+        return candidate
+
+    #
+    # Candidates already normalized upstream should remain
+    # canonical here.
+    #
+    if entity_type in CLINICAL_ENTITY_TYPES:
+        return _copy_candidate(
+            candidate,
+            validation_status="valid",
+            validation_method=(
+                candidate.validation_method
+                or "clinical_entity_normalization"
+            ),
+            metadata_updates={
+                "post_validation": (
+                    "accepted"
+                ),
+                "clinical_entity": True,
+            },
+        )
+
+    context = (
+        _immediate_clinical_context(
+            text,
+            candidate,
+        )
+    )
+
+    condition_terms = (
+        _context_contains_any(
+            context,
+            CONDITION_CONTEXT_TERMS,
+        )
+    )
+
+    medication_terms = (
+        _context_contains_any(
+            context,
+            MEDICATION_CONTEXT_TERMS,
+        )
+    )
+
+    provider_terms = (
+        _context_contains_any(
+            context,
+            PROVIDER_CONTEXT_TERMS,
+        )
+    )
+
+    facility_terms = (
+        _context_contains_any(
+            context,
+            FACILITY_CONTEXT_TERMS,
+        )
+    )
+
+    original_type = (
+        candidate.entity_type
+    )
+
+    original_subtype = (
+        candidate.entity_subtype
+    )
+
+    confidence = float(
+        candidate.confidence
+        or 0.0
+    )
+
+    #
+    # Conditions and medications can occasionally be emitted by
+    # Azure as Person or PersonType in PHI-domain processing.
+    #
+    if (
+        entity_type
+        in {
+            "person",
+            "persontype",
+        }
+        and condition_terms
+    ):
+        return _copy_candidate(
+            candidate,
+            entity_type=(
+                "MedicalCondition"
+            ),
+            entity_subtype=(
+                "ClinicalCondition"
+            ),
+            confidence=max(
+                confidence,
+                0.88,
+            ),
+            validation_status="valid",
+            validation_method=(
+                "clinical_condition_context"
+            ),
+            metadata_updates={
+                "post_validation": (
+                    "reclassified"
+                ),
+                "clinical_entity": True,
+                "clinical_reclassification_reason": (
+                    "condition_context"
+                ),
+                "clinical_context_terms": (
+                    condition_terms
+                ),
+                "reclassified_from_entity_type": (
+                    original_type
+                ),
+                "reclassified_from_entity_subtype": (
+                    original_subtype
+                ),
+                "reclassified_to_entity_type": (
+                    "MedicalCondition"
+                ),
+            },
+        )
+
+    if (
+        entity_type
+        in {
+            "person",
+            "persontype",
+        }
+        and medication_terms
+    ):
+        return _copy_candidate(
+            candidate,
+            entity_type="Medication",
+            entity_subtype=(
+                "MedicationName"
+            ),
+            confidence=max(
+                confidence,
+                0.88,
+            ),
+            validation_status="valid",
+            validation_method=(
+                "medication_context"
+            ),
+            metadata_updates={
+                "post_validation": (
+                    "reclassified"
+                ),
+                "clinical_entity": True,
+                "clinical_reclassification_reason": (
+                    "medication_context"
+                ),
+                "clinical_context_terms": (
+                    medication_terms
+                ),
+                "reclassified_from_entity_type": (
+                    original_type
+                ),
+                "reclassified_from_entity_subtype": (
+                    original_subtype
+                ),
+                "reclassified_to_entity_type": (
+                    "Medication"
+                ),
+            },
+        )
+
+    #
+    # Provider names remain clinically meaningful even though
+    # Azure's base category is generally Person.
+    #
+    if (
+        entity_type
+        in {
+            "person",
+            "persontype",
+        }
+        and provider_terms
+    ):
+        return _copy_candidate(
+            candidate,
+            entity_type=(
+                "HealthcareProvider"
+            ),
+            entity_subtype=(
+                "ProviderName"
+            ),
+            confidence=max(
+                confidence,
+                0.90,
+            ),
+            validation_status="valid",
+            validation_method=(
+                "healthcare_provider_context"
+            ),
+            metadata_updates={
+                "post_validation": (
+                    "reclassified"
+                ),
+                "clinical_entity": True,
+                "clinical_reclassification_reason": (
+                    "provider_context"
+                ),
+                "clinical_context_terms": (
+                    provider_terms
+                ),
+                "reclassified_from_entity_type": (
+                    original_type
+                ),
+                "reclassified_from_entity_subtype": (
+                    original_subtype
+                ),
+                "reclassified_to_entity_type": (
+                    "HealthcareProvider"
+                ),
+            },
+        )
+
+    #
+    # Clinical organizations and locations need to survive when
+    # the source clearly identifies them as the care facility.
+    #
+    if (
+        entity_type
+        in {
+            "organization",
+            "location",
+        }
+        and facility_terms
+    ):
+        return _copy_candidate(
+            candidate,
+            entity_type=(
+                "HealthcareFacility"
+            ),
+            entity_subtype=(
+                "FacilityName"
+            ),
+            confidence=max(
+                confidence,
+                0.90,
+            ),
+            validation_status="valid",
+            validation_method=(
+                "healthcare_facility_context"
+            ),
+            metadata_updates={
+                "post_validation": (
+                    "reclassified"
+                ),
+                "clinical_entity": True,
+                "clinical_reclassification_reason": (
+                    "facility_context"
+                ),
+                "clinical_context_terms": (
+                    facility_terms
+                ),
+                "reclassified_from_entity_type": (
+                    original_type
+                ),
+                "reclassified_from_entity_subtype": (
+                    original_subtype
+                ),
+                "reclassified_to_entity_type": (
+                    "HealthcareFacility"
+                ),
+            },
+        )
+
+    return candidate
 
 def _copy_candidate(
     candidate: DetectionCandidate,
@@ -62,11 +553,18 @@ def _copy_candidate(
     validation_status: str | None = None,
     validation_method: str | None = None,
     entity_type: str | None = None,
+    entity_subtype: str | None = None,
     metadata_updates: dict | None = None,
 ) -> DetectionCandidate:
     metadata = {
-        **dict(candidate.metadata or {}),
-        **dict(metadata_updates or {}),
+        **dict(
+            candidate.metadata
+            or {}
+        ),
+        **dict(
+            metadata_updates
+            or {}
+        ),
     }
 
     return replace(
@@ -96,6 +594,11 @@ def _copy_candidate(
             candidate.entity_type
             if entity_type is None
             else entity_type
+        ),
+        entity_subtype=(
+            candidate.entity_subtype
+            if entity_subtype is None
+            else entity_subtype
         ),
         metadata=metadata,
     )
@@ -543,17 +1046,39 @@ def post_validate_candidate(
     *,
     text: str,
 ) -> DetectionCandidate | None:
+    #
+    # First allow strong clinical source context to correct
+    # broad Azure semantic categories.
+    #
+    candidate = (
+        _clinical_reclassification(
+            candidate,
+            text=text,
+        )
+    )
+
     entity_type = _normalized_type(
         candidate
     )
-    
+
     #
-    # Azure contextual categories that are too broad
-    # to count as standalone reportable PII in Capture.
+    # Canonical clinical entities are meaningful PHI/clinical
+    # data elements and should survive post-validation.
+    #
+    if entity_type in CLINICAL_ENTITY_TYPES:
+        return candidate
+
+    #
+    # Azure categories that remain too broad after contextual
+    # clinical normalization should not become standalone
+    # reportable Capture elements.
     #
     if (
-        candidate.detector_name.startswith("azure")
-        and entity_type in {
+        candidate.detector_name.startswith(
+            "azure"
+        )
+        and entity_type
+        in {
             "persontype",
             "organization",
         }
@@ -561,12 +1086,13 @@ def post_validate_candidate(
         return None
 
     #
-    # Contextual NER entities are generally left alone.
+    # Other contextual NER entities remain available.
     #
-    
-    if entity_type not in STRUCTURED_ENTITY_TYPES:
+    if (
+        entity_type
+        not in STRUCTURED_ENTITY_TYPES
+    ):
         return candidate
-
 
     if entity_type == "phonenumber":
         return _validate_phone(
@@ -574,7 +1100,10 @@ def post_validate_candidate(
             text=text,
         )
 
-    if entity_type == "ussocialsecuritynumber":
+    if (
+        entity_type
+        == "ussocialsecuritynumber"
+    ):
         return _validate_ssn(
             candidate,
             text=text,
@@ -585,11 +1114,14 @@ def post_validate_candidate(
             candidate
         )
 
-    if entity_type == "drugenforcementagencynumber":
+    if (
+        entity_type
+        == "drugenforcementagencynumber"
+    ):
         return _validate_dea(
             candidate
         )
-        
+
     if entity_type in {
         "medicalrecordnumber",
         "claimnumber",
@@ -599,27 +1131,41 @@ def post_validate_candidate(
         "insuranceid",
         "accountnumber",
     }:
-        return _validate_labeled_identifier(
-            candidate,
-            text=text,
+        return (
+            _validate_labeled_identifier(
+                candidate,
+                text=text,
+            )
         )
 
-    if entity_type == "nationalprovideridentifier":
-        return _validate_generic_named_validator(
-            candidate,
-            "us_npi",
+    if (
+        entity_type
+        == "nationalprovideridentifier"
+    ):
+        return (
+            _validate_generic_named_validator(
+                candidate,
+                "us_npi",
+            )
         )
 
     if entity_type == "iban":
-        return _validate_generic_named_validator(
-            candidate,
-            "iban_mod97",
+        return (
+            _validate_generic_named_validator(
+                candidate,
+                "iban_mod97",
+            )
         )
 
-    if entity_type == "creditcardnumber":
-        return _validate_generic_named_validator(
-            candidate,
-            "luhn",
+    if (
+        entity_type
+        == "creditcardnumber"
+    ):
+        return (
+            _validate_generic_named_validator(
+                candidate,
+                "luhn",
+            )
         )
 
     #
