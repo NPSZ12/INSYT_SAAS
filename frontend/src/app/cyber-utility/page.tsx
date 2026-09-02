@@ -10,34 +10,40 @@ import ContentCard from "../../components/ContentCard";
 
 const tools = [
   {
-    name: "XL Processing",
-    path: "/cyber-utility/xl-processing",
-    description: "Convert Excel workbooks to CSV outputs, preview spreadsheets, extract headers, and build master outputs.",
+    name: "Intake & Preparation",
+    path: "/cyber-utility/intake",
+    description:
+      "Review spreadsheet and CSV files promoted from INSYT Detection, confirm source lineage, and prepare datasets for Cyber² processing.",
   },
   {
-    name: "Merge / Dedupe",
-    path: "",
-    description: "Merge datasets, normalize records, and remove duplicates.",
+    name: "Header & Schema Mapping",
+    path: "/cyber-utility/schema-mapping",
+    description:
+      "Inspect source headers, map fields to project protocol schemas, and create normalized working datasets.",
   },
   {
-    name: "Denist",
-    path: "",
-    description: "Remove known system/application files from processing populations.",
-  },
-  {
-    name: "Assign Doc IDs",
-    path: "",
-    description: "Apply sequential Doc IDs and create defensible load-ready indexes.",
+    name: "Merge & Dedupe",
+    path: "/cyber-utility/merge-dedupe",
+    description:
+      "Combine compatible datasets, preserve source lineage, and remove duplicate records using selected matching fields.",
   },
   {
     name: "Entity Normalization",
-    path: "",
-    description: "Normalize names, emails, addresses, and entity variants.",
+    path: "/cyber-utility/entity-normalization",
+    description:
+      "Normalize names, emails, addresses, phone numbers, identifiers, and related entity variants across structured datasets.",
   },
   {
-    name: "Breach Population Analyzer",
-    path: "",
-    description: "Analyze PII/PHI populations and reduce notification populations.",
+    name: "Population Analysis",
+    path: "/cyber-utility/population-analysis",
+    description:
+      "Analyze unique individuals, identifiers, relationships, record counts, and reportable populations across processed datasets.",
+  },
+  {
+    name: "Exports & Deliverables",
+    path: "/cyber-utility/exports",
+    description:
+      "Generate final CSV/XLSX outputs, population files, processing reports, audit manifests, and project deliverables.",
   },
 ];
 
@@ -46,6 +52,8 @@ function CyberUtilityLandingContent() {
   const searchParams = useSearchParams();
 
   const workspace = searchParams.get("workspace") || "";
+  const client = searchParams.get("client") || "";
+  const project = searchParams.get("project") || "";
 
   useEffect(() => {
     if (workspace !== "summaries") {
@@ -70,6 +78,26 @@ function CyberUtilityLandingContent() {
     );
   }
 
+  if (!client || !project) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="Cyber² Utility Suite"
+            subtitle="Cyber² must be opened from within an INSYT project."
+          />
+
+          <ContentCard title="Project Required">
+            <p className="text-slate-400">
+              Select a client project first, then open Cyber² from the
+              project sidebar.
+            </p>
+          </ContentCard>
+        </PageContainer>
+      </AppShell>
+    );
+  }
+
   function openTool(path: string) {
     if (!path) {
       return;
@@ -80,7 +108,9 @@ function CyberUtilityLandingContent() {
     const client = searchParams.get("client");
     const project = searchParams.get("project");
     const batch = searchParams.get("batch");
+    const workspace = searchParams.get("workspace");
 
+    if (workspace) params.set("workspace", workspace);
     if (client) params.set("client", client);
     if (project) params.set("project", project);
     if (batch) params.set("batch", batch);
@@ -95,8 +125,42 @@ function CyberUtilityLandingContent() {
       <PageContainer>
         <PageHeader
           title="Cyber² Utility Suite"
-          subtitle="Select a utility workflow to run against Azure-hosted project files without downloading documents locally."
+          subtitle={`Structured-data processing for ${client} / ${project}.`}
         />
+
+        <div className="mb-6 rounded-xl border border-slate-800 bg-slate-900 px-5 py-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                Workspace
+              </div>
+
+              <div className="mt-1 text-sm font-semibold text-slate-200">
+                {workspace || "capture"}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                Client
+              </div>
+
+              <div className="mt-1 text-sm font-semibold text-slate-200">
+                {client}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                Project
+              </div>
+
+              <div className="mt-1 text-sm font-semibold text-sky-400">
+                {project.replaceAll("_", " ")}
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {tools.map((tool) => (
@@ -110,7 +174,7 @@ function CyberUtilityLandingContent() {
                 onClick={() => openTool(tool.path)}
                 className="bg-lime-50 hover:bg-lime-100 text-slate-700 rounded-xl px-4 py-3 font-semibold"
               >
-                Open Tool
+                Open Workflow
               </button>
             </ContentCard>
           ))}

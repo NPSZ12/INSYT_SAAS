@@ -9,6 +9,7 @@ import PdfOutlinePane, {
 } from "./summaries/PdfOutlinePane";
 
 import { apiGet } from "../lib/api";
+import Image from "next/image";
 
 import {
   LayoutDashboard,
@@ -465,7 +466,9 @@ export default function ProjectSidebar() {
       "Processing Center - Spreadsheets",
       "Processing Center - Promotion",
       "Processing Center - Deduplication",
+      "Cyber²",
       "Overlays / Final Deliverables",
+      "Cyber²",
       "Search Folders",
       "Files",
       "QC Review",
@@ -522,20 +525,6 @@ export default function ProjectSidebar() {
           : `/capture/processing-center/promotion${projectQuery}`,
       icon: UploadCloud,
     },
-    ...(isCapture
-      ? [
-          {
-            label: "Processing Center - Spreadsheets",
-            href: `/capture/spreadsheets/processing-center-spreadsheets${projectQuery}`,
-            icon: Database,
-          },
-          {
-            label: "Processing Center - Deduplication",
-            href: `/capture/spreadsheets/processing-center-deduplication${projectQuery}`,
-            icon: Database,
-          },
-        ]
-      : []),
     {
       label: "Overlays / Final Deliverables",
       href: `/project-management/upload-overlay${overlaysQuery}`,
@@ -565,6 +554,15 @@ export default function ProjectSidebar() {
           : `/capture/review${reviewQuery}`,
       icon: FileSearch,
     },
+    ...(isCapture
+      ? [
+          {
+            label: "Cyber²",
+            href: `/cyber-utility${projectQuery}`,
+            icon: Database,
+          },
+        ]
+      : []),
     {
       label: "QC Review",
       href: `${workspaceBase}/qc-review${projectQuery}`,
@@ -718,9 +716,23 @@ export default function ProjectSidebar() {
                   }}
                   className={`${linkClass} relative`}
                 >
+                  {item.label === "Cyber²" ? (
+                  <Image
+                    src="/Cyber2_Logo_White.svg"
+                    alt="Cyber²"
+                    width={collapsed ? 22 : 20}
+                    height={collapsed ? 22 : 20}
+                    priority
+                    style={{
+                      width: collapsed ? "22px" : "20px",
+                      height: "auto",
+                    }}
+                  />
+                ) : (
                   <Icon size={18} />
+                )}
 
-                  {!collapsed && (
+                {!collapsed && (
                     <span className="insyt-workspace text-sm">
                       {item.label}
                     </span>
