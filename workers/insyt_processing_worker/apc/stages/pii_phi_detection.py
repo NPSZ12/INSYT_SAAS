@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,20 @@ from ..util import json_dumps, new_id, utc_now
 
 DETECTOR_NAME = "insyt_detection_engine"
 DETECTOR_VERSION = "v1"
+
+WORKSHEET_TRIAGE_CHUNK_CHARS = 32_000
+WORKSHEET_TRIAGE_CHUNK_ROWS = 500
+
+FULL_DETECTION_MODE = "full"
+WORKSHEET_TRIAGE_MODE = "worksheet_triage"
+IAR_FULL_DETECTION_MODE = "iar_full"
+
+NON_REPORTABLE_REPORTABILITY = {
+    "NOT_REPORTABLE",
+    "NON_REPORTABLE",
+    "NFR",
+    "EXCLUDED",
+}
 
 
 def _row_get(row: Any, *names: str):
@@ -229,6 +244,390 @@ def _insert_detection_candidate(
         ),
     )
 
+def _candidate_is_reportable(
+    candidate: DetectionCandidate,
+) -> bool:
+    """
+    Triage treats any validated merged candidate as reportable
+    unless it is explicitly marked non-reportable.
+
+    Existing detectors commonly emit UNCLASSIFIED, which must
+    continue to count as a detection hit just as it does in the
+    current full-detection workflow.
+    """
+
+    reportability = str(
+        candidate.reportability
+        or "UNCLASSIFIED"
+    ).strip().upper()
+
+    return (
+        reportability
+        not in NON_REPORTABLE_REPORTABILITY
+    )
+
+
+def _normalized_detection_mode(
+    value: Any,
+) -> str:
+    mode = str(
+        value
+        or FULL_DETECTION_MODE
+    ).strip().lower()
+
+    if mode in {
+        FULL_DETECTION_MODE,
+        WORKSHEET_TRIAGE_MODE,
+        IAR_FULL_DETECTION_MODE,
+    }:
+        return mode
+
+    return FULL_DETECTION_MODE
+
+
+def _run_full_detection_engine(
+    *,
+    path: Path,
+    include_phi: bool,
+    protocol_name: str | None,
+    protocol_version: str | None,
+) -> dict[str, Any]:
+    text = path.read_text(
+        encoding="utf-8",
+        errors="replace",
+    )
+
+    if not text.strip():
+        raise RuntimeError(
+            "Detection text file is empty."
+        )
+
+    result = run_detection_engine(
+        text,
+        include_phi=include_phi,
+        protocol_name=protocol_name,
+        protocol_version=protocol_version,
+        enable_azure=True,
+        enable_structured_rules=True,
+    )
+
+    return {
+        **result,
+        "detection_mode": FULL_DETECTION_MODE,
+        "scan_complete": True,
+        "entity_counts_complete": True,
+        "triage_stopped_early": False,
+        "rows_scanned": None,
+        "characters_scanned": len(text),
+        "first_hit_row": None,
+    }
+
+
+def _run_worksheet_triage_engine(
+    *,
+    path: Path,
+    include_phi: bool,
+    protocol_name: str | None,
+    protocol_version: str | None,
+) -> dict[str, Any]:
+    """
+    Stream a worksheet-derived text/CSV representation and stop
+    immediately after the first reportable merged candidate.
+
+    NO_HIT requires EOF.
+
+    Candidate offsets are converted from chunk-relative offsets
+    into document-relative offsets before being returned.
+    """
+
+    rows_scanned = 0
+    characters_scanned = 0
+
+    chunk_parts: list[str] = []
+    chunk_char_count = 0
+    chunk_row_count = 0
+
+    chunk_start_offset = 0
+    chunk_start_row = 1
+
+    azure_candidate_count = 0
+    structured_candidate_count = 0
+    merged_candidate_count = 0
+
+    first_candidate: DetectionCandidate | None = None
+    first_hit_row: int | None = None
+
+    def scan_chunk() -> bool:
+        nonlocal azure_candidate_count
+        nonlocal structured_candidate_count
+        nonlocal merged_candidate_count
+        nonlocal first_candidate
+        nonlocal first_hit_row
+
+        if not chunk_parts:
+            return False
+
+        chunk_text = "".join(
+            chunk_parts
+        )
+
+        if not chunk_text.strip():
+            return False
+
+        engine_result = run_detection_engine(
+            chunk_text,
+            include_phi=include_phi,
+            protocol_name=protocol_name,
+            protocol_version=protocol_version,
+            enable_azure=True,
+            enable_structured_rules=True,
+        )
+
+        azure_candidate_count += int(
+            engine_result.get(
+                "azure_candidate_count",
+                0,
+            )
+            or 0
+        )
+
+        structured_candidate_count += int(
+            engine_result.get(
+                "structured_candidate_count",
+                0,
+            )
+            or 0
+        )
+
+        candidates = (
+            engine_result.get(
+                "candidates"
+            )
+            or []
+        )
+
+        merged_candidate_count += int(
+            engine_result.get(
+                "merged_candidate_count",
+                len(candidates),
+            )
+            or 0
+        )
+
+        for candidate in candidates:
+            if not _candidate_is_reportable(
+                candidate
+            ):
+                continue
+
+            local_start = int(
+                candidate.start_offset
+            )
+
+            local_end = int(
+                candidate.end_offset
+            )
+
+            before_candidate = (
+                chunk_text[
+                    :local_start
+                ]
+            )
+
+            row_offset = (
+                before_candidate.count(
+                    "\n"
+                )
+            )
+
+            first_hit_row = (
+                chunk_start_row
+                + row_offset
+            )
+
+            first_candidate = replace(
+                candidate,
+                start_offset=(
+                    chunk_start_offset
+                    + local_start
+                ),
+                end_offset=(
+                    chunk_start_offset
+                    + local_end
+                ),
+                metadata={
+                    **dict(
+                        candidate.metadata
+                        or {}
+                    ),
+                    "worksheet_triage": True,
+                    "triage_chunk_start_offset": (
+                        chunk_start_offset
+                    ),
+                    "triage_chunk_start_row": (
+                        chunk_start_row
+                    ),
+                    "triage_first_hit_row": (
+                        first_hit_row
+                    ),
+                },
+            )
+
+            return True
+
+        return False
+
+    with path.open(
+        "r",
+        encoding="utf-8-sig",
+        errors="replace",
+        newline="",
+    ) as handle:
+        for line in handle:
+            if not chunk_parts:
+                chunk_start_offset = (
+                    characters_scanned
+                )
+
+                chunk_start_row = (
+                    rows_scanned
+                    + 1
+                )
+
+            chunk_parts.append(
+                line
+            )
+
+            line_length = len(
+                line
+            )
+
+            chunk_char_count += (
+                line_length
+            )
+
+            characters_scanned += (
+                line_length
+            )
+
+            rows_scanned += 1
+            chunk_row_count += 1
+
+            if (
+                chunk_char_count
+                >= WORKSHEET_TRIAGE_CHUNK_CHARS
+                or chunk_row_count
+                >= WORKSHEET_TRIAGE_CHUNK_ROWS
+            ):
+                if scan_chunk():
+                    return {
+                        "candidates": [
+                            first_candidate
+                        ]
+                        if first_candidate
+                        else [],
+                        "azure_candidate_count": (
+                            azure_candidate_count
+                        ),
+                        "structured_candidate_count": (
+                            structured_candidate_count
+                        ),
+                        "merged_candidate_count": (
+                            merged_candidate_count
+                        ),
+                        "detectors": [
+                            "azure_language",
+                            "insyt_structured_rules",
+                        ],
+                        "detection_mode": (
+                            WORKSHEET_TRIAGE_MODE
+                        ),
+                        "scan_complete": False,
+                        "entity_counts_complete": False,
+                        "triage_stopped_early": True,
+                        "rows_scanned": (
+                            rows_scanned
+                        ),
+                        "characters_scanned": (
+                            characters_scanned
+                        ),
+                        "first_hit_row": (
+                            first_hit_row
+                        ),
+                    }
+
+                chunk_parts = []
+                chunk_char_count = 0
+                chunk_row_count = 0
+
+        #
+        # Scan the final partial chunk at EOF.
+        #
+        if chunk_parts:
+            if scan_chunk():
+                return {
+                    "candidates": [
+                        first_candidate
+                    ]
+                    if first_candidate
+                    else [],
+                    "azure_candidate_count": (
+                        azure_candidate_count
+                    ),
+                    "structured_candidate_count": (
+                        structured_candidate_count
+                    ),
+                    "merged_candidate_count": (
+                        merged_candidate_count
+                    ),
+                    "detectors": [
+                        "azure_language",
+                        "insyt_structured_rules",
+                    ],
+                    "detection_mode": (
+                        WORKSHEET_TRIAGE_MODE
+                    ),
+                    "scan_complete": False,
+                    "entity_counts_complete": False,
+                    "triage_stopped_early": True,
+                    "rows_scanned": (
+                        rows_scanned
+                    ),
+                    "characters_scanned": (
+                        characters_scanned
+                    ),
+                    "first_hit_row": (
+                        first_hit_row
+                    ),
+                }
+
+    return {
+        "candidates": [],
+        "azure_candidate_count": (
+            azure_candidate_count
+        ),
+        "structured_candidate_count": (
+            structured_candidate_count
+        ),
+        "merged_candidate_count": (
+            merged_candidate_count
+        ),
+        "detectors": [
+            "azure_language",
+            "insyt_structured_rules",
+        ],
+        "detection_mode": (
+            WORKSHEET_TRIAGE_MODE
+        ),
+        "scan_complete": True,
+        "entity_counts_complete": False,
+        "triage_stopped_early": False,
+        "rows_scanned": rows_scanned,
+        "characters_scanned": (
+            characters_scanned
+        ),
+        "first_hit_row": None,
+    }
 
 def run_pii_phi_detection(
     db,
@@ -240,6 +639,8 @@ def run_pii_phi_detection(
     protocol_name: str | None = None,
     protocol_version: str | None = None,
     include_phi: bool = True,
+    selected_doc_ids: set[str] | None = None,
+    document_options: dict[str, dict[str, Any]] | None = None,
 ) -> dict:
     """
     Scan ingestion-complete documents with the unified INSYT
@@ -254,6 +655,20 @@ def run_pii_phi_detection(
     by the Data Element Detection workflow after Doc ID assignment, native
     text extraction, and any required OCR have completed.
     """
+    
+    selected_doc_ids = {
+        str(doc_id).strip()
+        for doc_id in (
+            selected_doc_ids
+            or set()
+        )
+        if str(doc_id).strip()
+    }
+
+    document_options = (
+        document_options
+        or {}
+    )
 
     detection_run_id = new_id("DETRUN")
     now = utc_now()
@@ -315,6 +730,20 @@ def run_pii_phi_detection(
         """,
         (source_job_id,),
     )
+    
+    if selected_doc_ids:
+        rows = [
+            row
+            for row in rows
+            if str(
+                _row_get(
+                    row,
+                    "doc_id",
+                )
+                or ""
+            ).strip()
+            in selected_doc_ids
+        ]
 
     documents_total = len(rows)
     documents_scanned = 0
@@ -330,6 +759,29 @@ def run_pii_phi_detection(
     for row in rows:
         file_id = str(_row_get(row, "file_id") or "")
         doc_id = str(_row_get(row, "doc_id") or "")
+        
+        doc_options = (
+            document_options.get(
+                doc_id
+            )
+            or {}
+        )
+
+        detection_mode = (
+            _normalized_detection_mode(
+                doc_options.get(
+                    "detection_mode"
+                )
+            )
+        )
+
+        is_workbook_sheet = bool(
+            doc_options.get(
+                "is_workbook_sheet"
+            )
+            or detection_mode
+            == WORKSHEET_TRIAGE_MODE
+        )
 
         detection_document_id = new_id("DETDOC")
 
@@ -383,7 +835,46 @@ def run_pii_phi_detection(
                 protocol_name,
                 protocol_version,
                 "[]",
-                "{}",
+                json_dumps(
+                    {
+                        "detection_mode": (
+                            detection_mode
+                        ),
+                        "is_workbook_sheet": (
+                            is_workbook_sheet
+                        ),
+                        "source_type": (
+                            doc_options.get(
+                                "source_type"
+                            )
+                        ),
+                        "original_workbook_file_id": (
+                            doc_options.get(
+                                "original_workbook_file_id"
+                            )
+                        ),
+                        "original_workbook_name": (
+                            doc_options.get(
+                                "original_workbook_name"
+                            )
+                        ),
+                        "sheet_name": (
+                            doc_options.get(
+                                "sheet_name"
+                            )
+                        ),
+                        "sheet_index": (
+                            doc_options.get(
+                                "sheet_index"
+                            )
+                        ),
+                        "sheet_visibility": (
+                            doc_options.get(
+                                "sheet_visibility"
+                            )
+                        ),
+                    }
+                ),
                 utc_now(),
                 utc_now(),
             ),
@@ -402,24 +893,50 @@ def run_pii_phi_detection(
                     f"Detection text file does not exist: {text_path}"
                 )
 
-            text = path.read_text(
-                encoding="utf-8",
-                errors="replace",
-            )
-
-            if not text.strip():
-                raise RuntimeError(
-                    "Detection text file is empty."
+            if (
+                detection_mode
+                == WORKSHEET_TRIAGE_MODE
+            ):
+                engine_result = (
+                    _run_worksheet_triage_engine(
+                        path=path,
+                        include_phi=include_phi,
+                        protocol_name=(
+                            protocol_name
+                        ),
+                        protocol_version=(
+                            protocol_version
+                        ),
+                    )
                 )
 
-            engine_result = run_detection_engine(
-                text,
-                include_phi=include_phi,
-                protocol_name=protocol_name,
-                protocol_version=protocol_version,
-                enable_azure=True,
-                enable_structured_rules=True,
-            )
+            else:
+                #
+                # Both normal full detection and IAR full
+                # currently use the exhaustive engine path.
+                #
+                engine_result = (
+                    _run_full_detection_engine(
+                        path=path,
+                        include_phi=include_phi,
+                        protocol_name=(
+                            protocol_name
+                        ),
+                        protocol_version=(
+                            protocol_version
+                        ),
+                    )
+                )
+
+                if (
+                    detection_mode
+                    == IAR_FULL_DETECTION_MODE
+                ):
+                    engine_result[
+                        "detection_mode"
+                    ] = (
+                        IAR_FULL_DETECTION_MODE
+                    )
 
             candidates = (
                 engine_result.get("candidates")
@@ -515,6 +1032,74 @@ def run_pii_phi_detection(
                         {
                             "general_pii_enabled": True,
                             "phi_enabled": include_phi,
+                            "detection_mode": (
+                                engine_result.get(
+                                    "detection_mode",
+                                    detection_mode,
+                                )
+                            ),
+                            "is_workbook_sheet": (
+                                is_workbook_sheet
+                            ),
+                            "scan_complete": (
+                                engine_result.get(
+                                    "scan_complete",
+                                    True,
+                                )
+                            ),
+                            "entity_counts_complete": (
+                                engine_result.get(
+                                    "entity_counts_complete",
+                                    detection_mode
+                                    != WORKSHEET_TRIAGE_MODE,
+                                )
+                            ),
+                            "triage_stopped_early": (
+                                engine_result.get(
+                                    "triage_stopped_early",
+                                    False,
+                                )
+                            ),
+                            "rows_scanned": (
+                                engine_result.get(
+                                    "rows_scanned"
+                                )
+                            ),
+                            "characters_scanned": (
+                                engine_result.get(
+                                    "characters_scanned"
+                                )
+                            ),
+                            "first_hit_row": (
+                                engine_result.get(
+                                    "first_hit_row"
+                                )
+                            ),
+                            "original_workbook_file_id": (
+                                doc_options.get(
+                                    "original_workbook_file_id"
+                                )
+                            ),
+                            "original_workbook_name": (
+                                doc_options.get(
+                                    "original_workbook_name"
+                                )
+                            ),
+                            "sheet_name": (
+                                doc_options.get(
+                                    "sheet_name"
+                                )
+                            ),
+                            "sheet_index": (
+                                doc_options.get(
+                                    "sheet_index"
+                                )
+                            ),
+                            "sheet_visibility": (
+                                doc_options.get(
+                                    "sheet_visibility"
+                                )
+                            ),
                             "azure_ner_enabled": True,
                             "structured_rules_enabled": True,
                             "merge_enabled": True,

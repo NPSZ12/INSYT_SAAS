@@ -128,23 +128,49 @@ def _download_detection_text(
     blob_path: str,
     destination: Path,
 ) -> None:
+    """
+    Stream staged detection text from Azure Blob Storage
+    directly to local disk.
+
+    This deliberately avoids download_blob().readall() so
+    very large worksheet-derived CSV/text files are never
+    materialized in worker memory during staging.
+    """
+
     container = (
         _review_blob_service()
         .get_container_client(
-            _review_container(workspace)
+            _review_container(
+                workspace
+            )
         )
     )
 
-    blob_client = container.get_blob_client(blob_path)
-
-    data = blob_client.download_blob().readall()
+    blob_client = (
+        container.get_blob_client(
+            blob_path
+        )
+    )
 
     destination.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    destination.write_bytes(data)
+    downloader = (
+        blob_client.download_blob()
+    )
+
+    with destination.open(
+        "wb"
+    ) as handle:
+        for chunk in downloader.chunks():
+            if not chunk:
+                continue
+
+            handle.write(
+                chunk
+            )
 
 
 def _seed_source_job(
@@ -1236,6 +1262,115 @@ def run_data_element_detection_job(
             "No staged detection text files could "
             "be prepared."
         )
+        
+    selected_doc_ids: set[str] = {
+        str(
+            doc.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+        for doc in downloaded_docs
+        if str(
+            doc.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+    }
+
+    document_options: dict[
+        str,
+        dict[str, Any],
+    ] = {}
+
+    for doc in downloaded_docs:
+        doc_id = str(
+            doc.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+
+        if not doc_id:
+            continue
+
+        document_options[
+            doc_id
+        ] = {
+            "detection_mode": (
+                doc.get(
+                    "detection_mode"
+                )
+                or "full"
+            ),
+            "source_type": (
+                doc.get(
+                    "source_type"
+                )
+                or "document"
+            ),
+            "is_workbook_sheet": bool(
+                doc.get(
+                    "is_workbook_sheet"
+                )
+            ),
+            "parent_file_id": (
+                doc.get(
+                    "parent_file_id"
+                )
+            ),
+            "source_container_file_id": (
+                doc.get(
+                    "source_container_file_id"
+                )
+            ),
+            "original_workbook_file_id": (
+                doc.get(
+                    "original_workbook_file_id"
+                )
+            ),
+            "original_workbook_name": (
+                doc.get(
+                    "original_workbook_name"
+                )
+            ),
+            "original_workbook_path": (
+                doc.get(
+                    "original_workbook_path"
+                )
+            ),
+            "sheet_name": (
+                doc.get(
+                    "sheet_name"
+                )
+            ),
+            "sheet_index": (
+                doc.get(
+                    "sheet_index"
+                )
+            ),
+            "sheet_visibility": (
+                doc.get(
+                    "sheet_visibility"
+                )
+            ),
+            "sheet_nonblank_row_count": (
+                doc.get(
+                    "sheet_nonblank_row_count"
+                )
+            ),
+            "sheet_column_count": (
+                doc.get(
+                    "sheet_column_count"
+                )
+            ),
+            "triage_detection_mode": (
+                doc.get(
+                    "triage_detection_mode"
+                )
+            ),
+        }
 
     result = run_pii_phi_detection(
         db,
@@ -1250,7 +1385,16 @@ def run_data_element_detection_job(
             "protocol_version"
         ),
         include_phi=bool(
-            payload.get("include_phi", True)
+            payload.get(
+                "include_phi",
+                True,
+            )
+        ),
+        selected_doc_ids=(
+            selected_doc_ids
+        ),
+        document_options=(
+            document_options
         ),
     )
 
@@ -1397,6 +1541,10 @@ def run_data_element_detection_job(
     all_generic_identifier_candidates: list[
         dict[str, Any]
     ] = []
+    
+    document_options_by_doc_id = (
+        document_options
+    )
 
     for document_row in document_rows:
         doc_id = str(
@@ -1405,6 +1553,25 @@ def run_data_element_detection_job(
 
         if not doc_id:
             continue
+        
+        doc_options = (
+            document_options_by_doc_id.get(
+                doc_id
+            )
+            or {}
+        )
+
+        document_detection_mode = str(
+            doc_options.get(
+                "detection_mode"
+            )
+            or "full"
+        ).strip().lower()
+
+        is_worksheet_triage = (
+            document_detection_mode
+            == "worksheet_triage"
+        )
 
         document_entities = entities_by_doc_id.get(
             doc_id,
@@ -1560,7 +1727,10 @@ def run_data_element_detection_job(
             dict[str, Any]
         ] = []
 
-        if local_text_path:
+        if (
+            local_text_path
+            and not is_worksheet_triage
+        ):
             try:
                 detection_text = Path(
                     local_text_path
@@ -1586,6 +1756,38 @@ def run_data_element_detection_job(
                     "doc_id": doc_id,
                 }
             )
+            
+        detection_metadata: dict[
+            str,
+            Any,
+        ] = {}
+
+        try:
+            raw_detection_metadata = (
+                document_row.get(
+                    "metadata_json"
+                )
+            )
+
+            if raw_detection_metadata:
+                parsed_detection_metadata = (
+                    json.loads(
+                        str(
+                            raw_detection_metadata
+                        )
+                    )
+                )
+
+                if isinstance(
+                    parsed_detection_metadata,
+                    dict,
+                ):
+                    detection_metadata = (
+                        parsed_detection_metadata
+                    )
+
+        except Exception:
+            detection_metadata = {}
 
         document_index_payload = {
             "schema_version": 1,
@@ -1593,6 +1795,78 @@ def run_data_element_detection_job(
             "client": client_id,
             "project": project,
             "doc_id": doc_id,
+            "detection_mode": (
+                detection_metadata.get(
+                    "detection_mode",
+                    document_detection_mode,
+                )
+            ),
+            "source_type": (
+                doc_options.get(
+                    "source_type"
+                )
+                or "document"
+            ),
+            "is_workbook_sheet": bool(
+                doc_options.get(
+                    "is_workbook_sheet"
+                )
+            ),
+            "original_workbook_file_id": (
+                doc_options.get(
+                    "original_workbook_file_id"
+                )
+            ),
+            "original_workbook_name": (
+                doc_options.get(
+                    "original_workbook_name"
+                )
+            ),
+            "sheet_name": (
+                doc_options.get(
+                    "sheet_name"
+                )
+            ),
+            "sheet_index": (
+                doc_options.get(
+                    "sheet_index"
+                )
+            ),
+            "sheet_visibility": (
+                doc_options.get(
+                    "sheet_visibility"
+                )
+            ),
+            "scan_complete": (
+                detection_metadata.get(
+                    "scan_complete"
+                )
+            ),
+            "entity_counts_complete": (
+                detection_metadata.get(
+                    "entity_counts_complete"
+                )
+            ),
+            "triage_stopped_early": (
+                detection_metadata.get(
+                    "triage_stopped_early"
+                )
+            ),
+            "rows_scanned": (
+                detection_metadata.get(
+                    "rows_scanned"
+                )
+            ),
+            "characters_scanned": (
+                detection_metadata.get(
+                    "characters_scanned"
+                )
+            ),
+            "first_hit_row": (
+                detection_metadata.get(
+                    "first_hit_row"
+                )
+            ),
             "classification": (
                 document_row.get("classification")
                 or "PENDING"

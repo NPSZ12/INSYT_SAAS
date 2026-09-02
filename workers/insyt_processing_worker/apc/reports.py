@@ -80,7 +80,7 @@ def job_report_data(db: LedgerDB, job_id: str) -> dict[str, Any]:
 
     files = db.query(
         """
-        SELECT doc_id, original_path, normalized_path, extension, source_bytes, expanded_bytes,
+            SELECT file_id, doc_id, original_path, normalized_path, extension, source_bytes, expanded_bytes,
                page_count, text_bytes, has_native_text, requires_ocr, is_duplicate, duplicate_of_file_id,
                is_denisted, is_container, is_extracted, source_container_file_id, container_depth,
                container_path, family_id, parent_file_id, promoted_to_review, native_output_path, text_output_path, review_export_status, stage_status_json, md5, sha1, sha256
@@ -92,15 +92,175 @@ def job_report_data(db: LedgerDB, job_id: str) -> dict[str, Any]:
     )
 
     file_dicts = _rows_to_dicts(files)
+
     ocr_reason_counts: dict[str, int] = {}
+
     for f in file_dicts:
         try:
-            status = json.loads(f.get("stage_status_json") or "{}")
-            reason = status.get("ocr_preflight", {}).get("reason")
-            if reason:
-                ocr_reason_counts[reason] = ocr_reason_counts.get(reason, 0) + 1
+            status = json.loads(
+                f.get("stage_status_json")
+                or "{}"
+            )
+
+            if not isinstance(
+                status,
+                dict,
+            ):
+                status = {}
+
         except Exception:
-            pass
+            status = {}
+
+        #
+        # Existing OCR reporting.
+        #
+        reason = (
+            status.get(
+                "ocr_preflight",
+                {},
+            ).get(
+                "reason"
+            )
+            if isinstance(
+                status.get(
+                    "ocr_preflight"
+                ),
+                dict,
+            )
+            else None
+        )
+
+        if reason:
+            ocr_reason_counts[
+                reason
+            ] = (
+                ocr_reason_counts.get(
+                    reason,
+                    0,
+                )
+                + 1
+            )
+
+        #
+        # Workbook / worksheet lineage.
+        #
+        workbook_sheet = (
+            status.get(
+                "workbook_sheet"
+            )
+            or {}
+        )
+
+        if not isinstance(
+            workbook_sheet,
+            dict,
+        ):
+            workbook_sheet = {}
+
+        f["workbook_sheet"] = (
+            workbook_sheet
+        )
+
+        is_workbook_sheet = bool(
+            workbook_sheet.get(
+                "source_type"
+            )
+            == "workbook_sheet"
+            or workbook_sheet.get(
+                "derived_from"
+            )
+            == "workbook_sheet"
+        )
+
+        f["is_workbook_sheet"] = (
+            is_workbook_sheet
+        )
+
+        f["source_type"] = (
+            "workbook_sheet"
+            if is_workbook_sheet
+            else "document"
+        )
+
+        f["original_workbook_file_id"] = (
+            workbook_sheet.get(
+                "original_workbook_file_id"
+            )
+        )
+
+        f["original_workbook_name"] = (
+            workbook_sheet.get(
+                "original_workbook_name"
+            )
+        )
+
+        f["original_workbook_path"] = (
+            workbook_sheet.get(
+                "original_workbook_path"
+            )
+        )
+
+        f["workbook_format"] = (
+            workbook_sheet.get(
+                "workbook_format"
+            )
+        )
+
+        f["sheet_name"] = (
+            workbook_sheet.get(
+                "sheet_name"
+            )
+        )
+
+        f["sheet_index"] = (
+            workbook_sheet.get(
+                "sheet_index"
+            )
+        )
+
+        f["sheet_visibility"] = (
+            workbook_sheet.get(
+                "sheet_visibility"
+            )
+        )
+
+        f["sheet_nonblank_row_count"] = (
+            workbook_sheet.get(
+                "sheet_nonblank_row_count"
+            )
+        )
+
+        f["sheet_column_count"] = (
+            workbook_sheet.get(
+                "sheet_column_count"
+            )
+        )
+
+        f["sheet_nonblank_cell_count"] = (
+            workbook_sheet.get(
+                "sheet_nonblank_cell_count"
+            )
+        )
+
+        f["triage_status"] = (
+            workbook_sheet.get(
+                "triage_status"
+            )
+        )
+
+        f["triage_detection_mode"] = (
+            workbook_sheet.get(
+                "triage_detection_mode"
+            )
+        )
+
+        f["entity_counts_complete"] = (
+            workbook_sheet.get(
+                "counts_complete"
+            )
+            if is_workbook_sheet
+            else None
+        )
 
     promoted_docs = len([r for r in promotion_rows if r["status"] == "promoted"])
     promotion_failures = len([r for r in promotion_rows if r["status"] != "promoted"])

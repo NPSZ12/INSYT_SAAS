@@ -115,6 +115,27 @@ class StartDataElementDetectionRequest(BaseModel):
     protocol_version: str | None = None
     include_phi: bool = True
 
+    #
+    # auto:
+    #   normal docs -> full
+    #   workbook-sheet CSVs -> worksheet_triage
+    #
+    # full:
+    #   force existing exhaustive document detection
+    #
+    # worksheet_triage:
+    #   first validated reportable hit -> stop worksheet
+    #
+    # iar_full:
+    #   exhaustive worksheet scan for client-facing counts
+    #
+    detection_mode: Literal[
+        "auto",
+        "full",
+        "worksheet_triage",
+        "iar_full",
+    ] = "auto"
+
 def _bool_env(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {
         "1",
@@ -2089,6 +2110,36 @@ def _build_staged_results_payload(
 
         text_blob = text_by_doc_id.get(doc_id)
         report_file = file_by_doc_id.get(doc_id) or {}
+        
+        workbook_sheet = (
+            report_file.get("workbook_sheet")
+            or {}
+        )
+
+        if not isinstance(
+            workbook_sheet,
+            dict,
+        ):
+            workbook_sheet = {}
+
+        source_type = str(
+            workbook_sheet.get(
+                "source_type"
+            )
+            or report_file.get(
+                "source_type"
+            )
+            or ""
+        ).strip()
+
+        is_workbook_sheet = bool(
+            source_type
+            == "workbook_sheet"
+            or workbook_sheet.get(
+                "derived_from"
+            )
+            == "workbook_sheet"
+        )
 
         final_native_blob_path = (
             f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
@@ -2144,6 +2195,111 @@ def _build_staged_results_payload(
                 "is_duplicate": bool(report_file.get("is_duplicate") or False),
                 "is_denisted": bool(report_file.get("is_denisted") or False),
                 "family_id": report_file.get("family_id"),
+                "file_id": (
+                    report_file.get(
+                        "file_id"
+                    )
+                ),
+                "parent_file_id": (
+                    report_file.get(
+                        "parent_file_id"
+                    )
+                ),
+                "source_container_file_id": (
+                    report_file.get(
+                        "source_container_file_id"
+                    )
+                ),
+
+                "source_type": (
+                    "workbook_sheet"
+                    if is_workbook_sheet
+                    else "document"
+                ),
+
+                "is_workbook_sheet": (
+                    is_workbook_sheet
+                ),
+
+                "workbook_sheet": (
+                    workbook_sheet
+                ),
+
+                "original_workbook_file_id": (
+                    workbook_sheet.get(
+                        "original_workbook_file_id"
+                    )
+                ),
+
+                "original_workbook_name": (
+                    workbook_sheet.get(
+                        "original_workbook_name"
+                    )
+                ),
+
+                "original_workbook_path": (
+                    workbook_sheet.get(
+                        "original_workbook_path"
+                    )
+                ),
+
+                "sheet_name": (
+                    workbook_sheet.get(
+                        "sheet_name"
+                    )
+                ),
+
+                "sheet_index": (
+                    workbook_sheet.get(
+                        "sheet_index"
+                    )
+                ),
+
+                "sheet_visibility": (
+                    workbook_sheet.get(
+                        "sheet_visibility"
+                    )
+                ),
+
+                "sheet_nonblank_row_count": (
+                    workbook_sheet.get(
+                        "sheet_nonblank_row_count"
+                    )
+                ),
+
+                "sheet_column_count": (
+                    workbook_sheet.get(
+                        "sheet_column_count"
+                    )
+                ),
+
+                "triage_status": (
+                    workbook_sheet.get(
+                        "triage_status"
+                    )
+                    or (
+                        "pending"
+                        if is_workbook_sheet
+                        else None
+                    )
+                ),
+
+                "triage_detection_mode": (
+                    workbook_sheet.get(
+                        "triage_detection_mode"
+                    )
+                    or (
+                        "first_reportable_hit"
+                        if is_workbook_sheet
+                        else None
+                    )
+                ),
+
+                "entity_counts_complete": (
+                    False
+                    if is_workbook_sheet
+                    else None
+                ),
                 "native_staged_blob_path": native_path,
                 "text_staged_blob_path": text_blob.get("name") if text_blob else None,
                 "native_staged_bytes": native_blob.get("size") or 0,
@@ -2369,6 +2525,44 @@ def list_data_element_detection_ready(
                     "extension": doc.get("extension"),
                     "source_bytes": doc.get("source_bytes") or 0,
                     "page_count": doc.get("page_count") or 0,
+                    "source_type": (
+                        doc.get(
+                            "source_type"
+                        )
+                        or "document"
+                    ),
+                    "is_workbook_sheet": bool(
+                        doc.get(
+                            "is_workbook_sheet"
+                        )
+                    ),
+                    "original_workbook_name": (
+                        doc.get(
+                            "original_workbook_name"
+                        )
+                    ),
+                    "sheet_name": (
+                        doc.get(
+                            "sheet_name"
+                        )
+                    ),
+                    "sheet_index": (
+                        doc.get(
+                            "sheet_index"
+                        )
+                    ),
+                    "sheet_visibility": (
+                        doc.get(
+                            "sheet_visibility"
+                        )
+                    ),
+                    "recommended_detection_mode": (
+                        "worksheet_triage"
+                        if doc.get(
+                            "is_workbook_sheet"
+                        )
+                        else "full"
+                    ),
                     "native_staged_blob_path": doc.get(
                         "native_staged_blob_path"
                     ),
@@ -2513,6 +2707,26 @@ def start_data_element_detection(
             or getattr(admin, "email", None)
             or "INSYT Admin"
         )
+        
+        def resolve_detection_mode(
+            doc: dict[str, Any],
+        ) -> str:
+            requested_mode = str(
+                request.detection_mode
+                or "auto"
+            ).strip().lower()
+
+            if requested_mode != "auto":
+                return requested_mode
+
+            if bool(
+                doc.get(
+                    "is_workbook_sheet"
+                )
+            ):
+                return "worksheet_triage"
+
+            return "full"
 
         request_payload = {
             "job_type": "data_element_detection",
@@ -2525,16 +2739,134 @@ def start_data_element_detection(
                 str(doc.get("doc_id"))
                 for doc in selected_docs
             ],
+            "detection_mode": (
+                request.detection_mode
+            ),
             "documents": [
                 {
-                    "doc_id": str(doc.get("doc_id") or ""),
-                    "text_staged_blob_path": doc.get(
-                        "text_staged_blob_path"
+                    "doc_id": str(
+                        doc.get(
+                            "doc_id"
+                        )
+                        or ""
                     ),
-                    "native_staged_blob_path": doc.get(
-                        "native_staged_blob_path"
+
+                    "file_id": (
+                        doc.get(
+                            "file_id"
+                        )
                     ),
-                    "page_count": doc.get("page_count") or 0,
+
+                    "text_staged_blob_path": (
+                        doc.get(
+                            "text_staged_blob_path"
+                        )
+                    ),
+
+                    "native_staged_blob_path": (
+                        doc.get(
+                            "native_staged_blob_path"
+                        )
+                    ),
+
+                    "page_count": (
+                        doc.get(
+                            "page_count"
+                        )
+                        or 0
+                    ),
+
+                    "source_bytes": (
+                        doc.get(
+                            "source_bytes"
+                        )
+                        or 0
+                    ),
+
+                    "source_type": (
+                        doc.get(
+                            "source_type"
+                        )
+                        or "document"
+                    ),
+
+                    "detection_mode": (
+                        resolve_detection_mode(
+                            doc
+                        )
+                    ),
+
+                    "is_workbook_sheet": bool(
+                        doc.get(
+                            "is_workbook_sheet"
+                        )
+                    ),
+
+                    "parent_file_id": (
+                        doc.get(
+                            "parent_file_id"
+                        )
+                    ),
+
+                    "source_container_file_id": (
+                        doc.get(
+                            "source_container_file_id"
+                        )
+                    ),
+
+                    "original_workbook_file_id": (
+                        doc.get(
+                            "original_workbook_file_id"
+                        )
+                    ),
+
+                    "original_workbook_name": (
+                        doc.get(
+                            "original_workbook_name"
+                        )
+                    ),
+
+                    "original_workbook_path": (
+                        doc.get(
+                            "original_workbook_path"
+                        )
+                    ),
+
+                    "sheet_name": (
+                        doc.get(
+                            "sheet_name"
+                        )
+                    ),
+
+                    "sheet_index": (
+                        doc.get(
+                            "sheet_index"
+                        )
+                    ),
+
+                    "sheet_visibility": (
+                        doc.get(
+                            "sheet_visibility"
+                        )
+                    ),
+
+                    "sheet_nonblank_row_count": (
+                        doc.get(
+                            "sheet_nonblank_row_count"
+                        )
+                    ),
+
+                    "sheet_column_count": (
+                        doc.get(
+                            "sheet_column_count"
+                        )
+                    ),
+
+                    "triage_detection_mode": (
+                        doc.get(
+                            "triage_detection_mode"
+                        )
+                    ),
                 }
                 for doc in selected_docs
             ],

@@ -10,3 +10,7 @@ cffi==1.16.0
 pypdf
 pymupdf
 Pillow
+
+openpyxl
+xlrd
+pyxlsb
