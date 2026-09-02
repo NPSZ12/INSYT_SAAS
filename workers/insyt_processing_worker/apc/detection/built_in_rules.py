@@ -100,7 +100,7 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
         regex_pattern=(
             r"(?i)"
             r"(?:(?:mrn)|(?:medical[ \t_-]+record(?:[ \t_-]+number)?))"
-            r"[ \t]*[:#\-]?[ \t]*"
+            r"[ \t]*[:,#\-]?[ \t]*"
             r"([A-Z0-9][A-Z0-9\-]{3,24})"
         ),
         context_terms=(
@@ -128,7 +128,7 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
         regex_pattern=(
             r"(?i)"
             r"(?:claim(?:[ \t_-]+number)?|claim[\s_-]*#)"
-            r"[ \t]*[:#\-]?[ \t]*"
+            r"[ \t]*[:,#\-]?[ \t]*"
             r"([A-Z0-9][A-Z0-9\-]{3,30})"
         ),
         context_terms=(
@@ -156,7 +156,7 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
         regex_pattern=(
             r"(?i)"
             r"(?:member[ \t_-]+id|member[ \t_-]+number)"
-            r"[ \t]*[:#\-]?[ \t]*"
+            r"[ \t]*[:,#\-]?[ \t]*"
             r"([A-Z0-9][A-Z0-9\-]{3,30})"
         ),
         context_terms=(
@@ -184,7 +184,7 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
         regex_pattern=(
             r"(?i)"
             r"(?:policy[ \t_-]+number|policy[\s_-]*#)"
-            r"[ \t]*[:#\-]?[ \t]*"
+            r"[ \t]*[:,#\-]?[ \t]*"
             r"([A-Z0-9][A-Z0-9\-]{3,30})"
         ),
         context_terms=(
@@ -211,7 +211,7 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
         regex_pattern=(
             r"(?i)"
             r"(?:patient[ \t_-]+id|patient[ \t_-]+number)"
-            r"[ \t]*[:#\-]?[ \t]*"
+            r"[ \t]*[:,#\-]?[ \t]*"
             r"([A-Z0-9][A-Z0-9\-]{3,30})"
         ),
         context_terms=(
@@ -238,7 +238,7 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
         regex_pattern=(
             r"(?i)"
             r"(?:insurance[ \t_-]+id|insurance[ \t_-]+number)"
-            r"[ \t]*[:#\-]?[ \t]*"
+            r"[ \t]*[:,#\-]?[ \t]*"
             r"([A-Z0-9][A-Z0-9\-]{3,30})"
         ),
         context_terms=(
@@ -266,7 +266,7 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
         regex_pattern=(
             r"(?i)"
             r"(?:account[ \t_-]+number|account[\s_-]*#|acct[\s_-]*#?)"
-            r"[ \t]*[:#\-]?[ \t]*"
+            r"[ \t]*[:,#\-]?[ \t]*"
             r"([A-Z0-9][A-Z0-9\-]{3,30})"
         ),
         context_terms=(
@@ -291,6 +291,51 @@ BUILT_IN_RULES: tuple[DetectionRule, ...] = (
     #
     # Clinical PHI rules
     #
+    
+    DetectionRule(
+        rule_id="MEDICAL_CONDITION_KNOWN_TERM",
+        entity_type="MedicalCondition",
+        entity_subtype="ClinicalCondition",
+        regex_pattern=(
+            r"(?i)\b(?:"
+            r"arthritis"
+            r"|asthma"
+            r"|cancer"
+            r"|copd"
+            r"|diabetes"
+            r"|diarrhea"
+            r"|epilepsy"
+            r"|fibromyalgia"
+            r"|gout"
+            r"|hypertension"
+            r"|hypothyroidism"
+            r"|migraine"
+            r"|migraines"
+            r"|obesity"
+            r"|pneumonia"
+            r"|prediabetes"
+            r"|sepsis"
+            r")\b"
+        ),
+        context_terms=(
+            "medical",
+            "condition",
+            "diagnosis",
+            "disease",
+            "clinical",
+            "patient",
+            "history",
+        ),
+        base_confidence=0.90,
+        framework=(
+            "PHI",
+            "HIPAA",
+        ),
+        methods=(
+            "regex",
+            "clinical_lexicon",
+        ),
+    ),
 
     DetectionRule(
         rule_id="MEDICAL_CONDITION_LABELED",

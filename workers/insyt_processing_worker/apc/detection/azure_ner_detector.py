@@ -47,6 +47,8 @@ _CLINICAL_CONDITION_TERMS = {
     "cancer",
     "copd",
     "diabetes",
+    "diarrhea",
+    "prediabetes",
     "epilepsy",
     "fibromyalgia",
     "gout",
