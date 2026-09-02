@@ -463,6 +463,7 @@ export default function ProjectSidebar() {
       "Processing Center",
       "Processing Center - Data Element Detection",
       "Processing Center - Spreadsheets",
+      "Processing Center - Promotion",
       "Processing Center - Deduplication",
       "Overlays / Final Deliverables",
       "Search Folders",
@@ -511,6 +512,15 @@ export default function ProjectSidebar() {
           ? `/discovery/data-element-detection${projectQuery}`
           : `/capture/data-element-detection${projectQuery}`,
       icon: ScanSearch,
+    },
+    {
+      label: "Processing Center - Promotion",
+      href: isSummaries
+        ? `/summaries/processing-center/promotion${projectQuery}`
+        : isDiscovery
+          ? `/discovery/processing-center/promotion${projectQuery}`
+          : `/capture/processing-center/promotion${projectQuery}`,
+      icon: UploadCloud,
     },
     ...(isCapture
       ? [

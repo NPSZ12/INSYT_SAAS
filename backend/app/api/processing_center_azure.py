@@ -3842,6 +3842,807 @@ def get_data_element_detection_document_hits(
             detail=f"Unable to load document detection hits: {exc}",
         ) from exc
 
+def _parse_json_object(
+    value: Any,
+) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+
+    if not value:
+        return {}
+
+    try:
+        parsed = json.loads(
+            str(value)
+        )
+
+        return (
+            parsed
+            if isinstance(parsed, dict)
+            else {}
+        )
+
+    except Exception:
+        return {}
+
+
+def _latest_detection_result_bundle(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+) -> dict[str, Any] | None:
+    """
+    Load the most recent completed Data Element Detection result
+    for this project.
+
+    Promotion is based on the latest detection population rather
+    than the raw Initial Ingestion staging population.
+    """
+
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    detection_prefix = (
+        f"{base_path}/processing_center/"
+        f"detection/jobs/"
+    )
+
+    container_client = (
+        _processing_container_client()
+    )
+
+    document_result_blobs = [
+        blob
+        for blob in container_client.list_blobs(
+            name_starts_with=detection_prefix
+        )
+        if str(
+            blob.name
+        ).endswith(
+            "/results/documents.json"
+        )
+    ]
+
+    if not document_result_blobs:
+        return None
+
+    document_result_blobs.sort(
+        key=lambda blob: (
+            getattr(
+                blob,
+                "last_modified",
+                None,
+            )
+            or datetime.min.replace(
+                tzinfo=timezone.utc
+            )
+        ),
+        reverse=True,
+    )
+
+    documents_blob = (
+        document_result_blobs[0]
+    )
+
+    documents_blob_path = str(
+        documents_blob.name
+    )
+
+    relative_path = (
+        documents_blob_path[
+            len(detection_prefix):
+        ]
+    )
+
+    detection_job_id = (
+        relative_path.split(
+            "/",
+            1,
+        )[0]
+    )
+
+    result_prefix = (
+        f"{detection_prefix}"
+        f"{detection_job_id}/results"
+    )
+
+    summary_blob_path = (
+        f"{result_prefix}/summary.json"
+    )
+
+    entities_blob_path = (
+        f"{result_prefix}/entities.json"
+    )
+
+    status_blob_path = (
+        f"{detection_prefix}"
+        f"{detection_job_id}/status.json"
+    )
+
+    summary = (
+        _read_processing_json_blob(
+            summary_blob_path
+        )
+    )
+
+    documents = (
+        _read_processing_json_blob(
+            documents_blob_path
+        )
+    )
+
+    entities = (
+        _read_processing_json_blob(
+            entities_blob_path
+        )
+    )
+
+    try:
+        status = (
+            _read_processing_json_blob(
+                status_blob_path
+            )
+        )
+    except Exception:
+        status = {}
+
+    if not isinstance(
+        summary,
+        dict,
+    ):
+        summary = {}
+
+    if not isinstance(
+        documents,
+        list,
+    ):
+        documents = []
+
+    if not isinstance(
+        entities,
+        list,
+    ):
+        entities = []
+
+    return {
+        "detection_job_id": (
+            detection_job_id
+        ),
+        "summary": summary,
+        "status": status,
+        "documents": documents,
+        "entities": entities,
+        "summary_blob_path": (
+            summary_blob_path
+        ),
+        "documents_blob_path": (
+            documents_blob_path
+        ),
+        "entities_blob_path": (
+            entities_blob_path
+        ),
+    }
+
+
+@router.get(
+    "/{workspace}/processing-center/promotion"
+)
+def get_processing_center_promotion_population(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    """
+    Build the post-detection Promotion Center population.
+
+    Routing rules:
+
+      workbook-sheet / CSV HIT
+          -> Cyber²
+
+      ordinary document HIT
+          -> Review
+
+      NO_HIT
+          -> No Hits
+
+    No files are moved by this endpoint.
+    """
+
+    try:
+        detection = (
+            _latest_detection_result_bundle(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+        )
+
+        if detection is None:
+            return {
+                "workspace": workspace,
+                "client": client,
+                "project": project,
+                "detection_job_id": None,
+                "source_job_id": None,
+                "spreadsheet_hits": [],
+                "review_hits": [],
+                "no_hits": [],
+                "nfr": [],
+                "exceptions": [],
+                "counts": {
+                    "spreadsheet_hits": 0,
+                    "review_hits": 0,
+                    "no_hits": 0,
+                    "nfr": 0,
+                    "exceptions": 0,
+                    "total": 0,
+                },
+            }
+
+        summary = (
+            detection.get(
+                "summary"
+            )
+            or {}
+        )
+
+        documents = (
+            detection.get(
+                "documents"
+            )
+            or []
+        )
+
+        entities = (
+            detection.get(
+                "entities"
+            )
+            or []
+        )
+
+        source_job_id = str(
+            summary.get(
+                "source_job_id"
+            )
+            or ""
+        ).strip()
+
+        #
+        # Recover the authoritative staged ingestion
+        # metadata for each Doc ID.
+        #
+        staged_by_doc_id: dict[
+            str,
+            dict[str, Any],
+        ] = {}
+
+        if source_job_id:
+            try:
+                staged = (
+                    _build_staged_results_payload(
+                        workspace=workspace,
+                        client=client,
+                        project=project,
+                        job_id=source_job_id,
+                    )
+                )
+
+                staged_by_doc_id = {
+                    str(
+                        row.get(
+                            "doc_id"
+                        )
+                        or ""
+                    ).strip(): row
+                    for row in (
+                        staged.get(
+                            "docs"
+                        )
+                        or []
+                    )
+                    if isinstance(
+                        row,
+                        dict,
+                    )
+                    and str(
+                        row.get(
+                            "doc_id"
+                        )
+                        or ""
+                    ).strip()
+                }
+
+            except Exception:
+                staged_by_doc_id = {}
+
+        #
+        # Build entity-type profile per Doc ID.
+        #
+        entity_types_by_doc_id: dict[
+            str,
+            set[str],
+        ] = {}
+
+        entities_by_doc_id: dict[
+            str,
+            list[dict[str, Any]],
+        ] = {}
+
+        for entity in entities:
+            if not isinstance(
+                entity,
+                dict,
+            ):
+                continue
+
+            doc_id = str(
+                entity.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+
+            if not doc_id:
+                continue
+
+            entity_type = str(
+                entity.get(
+                    "entity_type"
+                )
+                or "Unknown"
+            ).strip()
+
+            entity_subtype = str(
+                entity.get(
+                    "entity_subtype"
+                )
+                or ""
+            ).strip()
+
+            display_type = (
+                f"{entity_type}:"
+                f"{entity_subtype}"
+                if entity_subtype
+                else entity_type
+            )
+
+            entity_types_by_doc_id.setdefault(
+                doc_id,
+                set(),
+            ).add(
+                display_type
+            )
+
+            entities_by_doc_id.setdefault(
+                doc_id,
+                [],
+            ).append(
+                entity
+            )
+
+        spreadsheet_hits: list[
+            dict[str, Any]
+        ] = []
+
+        review_hits: list[
+            dict[str, Any]
+        ] = []
+
+        no_hits: list[
+            dict[str, Any]
+        ] = []
+
+        nfr: list[
+            dict[str, Any]
+        ] = []
+
+        exceptions: list[
+            dict[str, Any]
+        ] = []
+
+        for document in documents:
+            if not isinstance(
+                document,
+                dict,
+            ):
+                continue
+
+            doc_id = str(
+                document.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+
+            if not doc_id:
+                continue
+
+            staged_doc = (
+                staged_by_doc_id.get(
+                    doc_id
+                )
+                or {}
+            )
+
+            detection_metadata = (
+                _parse_json_object(
+                    document.get(
+                        "metadata_json"
+                    )
+                )
+            )
+
+            classification = str(
+                document.get(
+                    "classification"
+                )
+                or ""
+            ).strip().upper()
+
+            source_type = str(
+                staged_doc.get(
+                    "source_type"
+                )
+                or detection_metadata.get(
+                    "source_type"
+                )
+                or "document"
+            ).strip()
+
+            is_workbook_sheet = bool(
+                staged_doc.get(
+                    "is_workbook_sheet"
+                )
+                or detection_metadata.get(
+                    "is_workbook_sheet"
+                )
+                or source_type
+                == "workbook_sheet"
+            )
+
+            extension = str(
+                staged_doc.get(
+                    "extension"
+                )
+                or ""
+            ).strip().lower()
+
+            #
+            # A worksheet child is routed as spreadsheet
+            # data even though its normalized native is CSV.
+            #
+            is_spreadsheet_data = bool(
+                is_workbook_sheet
+                or extension == "csv"
+            )
+
+            if (
+                classification == "HIT"
+                and is_spreadsheet_data
+            ):
+                destination = "cyber2"
+
+            elif classification == "HIT":
+                destination = "review"
+
+            elif classification == "NO_HIT":
+                destination = "no_hits"
+
+            elif classification == "NFR":
+                destination = "nfr"
+
+            else:
+                destination = "exception"
+
+            row = {
+                "doc_id": doc_id,
+                "file_id": (
+                    document.get(
+                        "file_id"
+                    )
+                    or staged_doc.get(
+                        "file_id"
+                    )
+                ),
+                "source_job_id": (
+                    source_job_id
+                ),
+                "detection_job_id": (
+                    detection.get(
+                        "detection_job_id"
+                    )
+                ),
+                "classification": (
+                    classification
+                ),
+                "destination": (
+                    destination
+                ),
+                "promotion_status": (
+                    staged_doc.get(
+                        "promotion_status"
+                    )
+                    or ""
+                ),
+                "original_filename": (
+                    staged_doc.get(
+                        "original_filename"
+                    )
+                ),
+                "extension": extension,
+                "source_type": (
+                    source_type
+                ),
+                "is_workbook_sheet": (
+                    is_workbook_sheet
+                ),
+                "original_workbook_file_id": (
+                    staged_doc.get(
+                        "original_workbook_file_id"
+                    )
+                    or detection_metadata.get(
+                        "original_workbook_file_id"
+                    )
+                ),
+                "original_workbook_name": (
+                    staged_doc.get(
+                        "original_workbook_name"
+                    )
+                    or detection_metadata.get(
+                        "original_workbook_name"
+                    )
+                ),
+                "sheet_name": (
+                    staged_doc.get(
+                        "sheet_name"
+                    )
+                    or detection_metadata.get(
+                        "sheet_name"
+                    )
+                ),
+                "sheet_index": (
+                    staged_doc.get(
+                        "sheet_index"
+                    )
+                    or detection_metadata.get(
+                        "sheet_index"
+                    )
+                ),
+                "sheet_visibility": (
+                    staged_doc.get(
+                        "sheet_visibility"
+                    )
+                    or detection_metadata.get(
+                        "sheet_visibility"
+                    )
+                ),
+                "native_staged_blob_path": (
+                    staged_doc.get(
+                        "native_staged_blob_path"
+                    )
+                ),
+                "text_staged_blob_path": (
+                    staged_doc.get(
+                        "text_staged_blob_path"
+                    )
+                ),
+                "final_native_blob_path": (
+                    staged_doc.get(
+                        "final_native_blob_path"
+                    )
+                ),
+                "final_text_blob_path": (
+                    staged_doc.get(
+                        "final_text_blob_path"
+                    )
+                ),
+                "entity_types": sorted(
+                    entity_types_by_doc_id.get(
+                        doc_id,
+                        set(),
+                    )
+                ),
+                "profiled_entity_count": len(
+                    entities_by_doc_id.get(
+                        doc_id,
+                        [],
+                    )
+                ),
+                "detection_mode": (
+                    detection_metadata.get(
+                        "detection_mode"
+                    )
+                ),
+                "type_profile_complete": (
+                    detection_metadata.get(
+                        "type_profile_complete"
+                    )
+                ),
+                "entity_counts_complete": (
+                    detection_metadata.get(
+                        "entity_counts_complete"
+                    )
+                ),
+                "ready_for_promotion": (
+                    classification
+                    in {
+                        "HIT",
+                        "NO_HIT",
+                    }
+                ),
+            }
+
+            if destination == "cyber2":
+                spreadsheet_hits.append(
+                    row
+                )
+
+            elif destination == "review":
+                review_hits.append(
+                    row
+                )
+
+            elif destination == "no_hits":
+                no_hits.append(
+                    row
+                )
+
+            elif destination == "nfr":
+                nfr.append(
+                    row
+                )
+
+            else:
+                exceptions.append(
+                    row
+                )
+
+        def sort_rows(
+            rows: list[
+                dict[str, Any]
+            ],
+        ) -> None:
+            rows.sort(
+                key=lambda item: (
+                    str(
+                        item.get(
+                            "original_workbook_name"
+                        )
+                        or ""
+                    ),
+                    int(
+                        item.get(
+                            "sheet_index"
+                        )
+                        or 0
+                    ),
+                    str(
+                        item.get(
+                            "doc_id"
+                        )
+                        or ""
+                    ),
+                )
+            )
+
+        sort_rows(
+            spreadsheet_hits
+        )
+
+        sort_rows(
+            review_hits
+        )
+
+        sort_rows(
+            no_hits
+        )
+
+        sort_rows(
+            nfr
+        )
+
+        sort_rows(
+            exceptions
+        )
+
+        return {
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "detection_job_id": (
+                detection.get(
+                    "detection_job_id"
+                )
+            ),
+            "source_job_id": (
+                source_job_id
+            ),
+            "spreadsheet_hits": (
+                spreadsheet_hits
+            ),
+            "review_hits": (
+                review_hits
+            ),
+            "no_hits": (
+                no_hits
+            ),
+            "nfr": nfr,
+            "exceptions": exceptions,
+            "counts": {
+                "spreadsheet_hits": len(
+                    spreadsheet_hits
+                ),
+                "review_hits": len(
+                    review_hits
+                ),
+                "no_hits": len(
+                    no_hits
+                ),
+                "nfr": len(
+                    nfr
+                ),
+                "exceptions": len(
+                    exceptions
+                ),
+                "total": (
+                    len(
+                        spreadsheet_hits
+                    )
+                    + len(
+                        review_hits
+                    )
+                    + len(
+                        no_hits
+                    )
+                    + len(
+                        nfr
+                    )
+                    + len(
+                        exceptions
+                    )
+                ),
+            },
+            "detection_result_paths": {
+                "summary": (
+                    detection.get(
+                        "summary_blob_path"
+                    )
+                ),
+                "documents": (
+                    detection.get(
+                        "documents_blob_path"
+                    )
+                ),
+                "entities": (
+                    detection.get(
+                        "entities_blob_path"
+                    )
+                ),
+            },
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Unable to build Promotion "
+                f"population: {exc}"
+            ),
+        ) from exc
+        
+
 @router.post("/{workspace}/processing-center/promote")
 def promote_processing_center_staged_results(
     workspace: Literal["capture", "discovery", "summaries"],
