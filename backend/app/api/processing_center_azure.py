@@ -123,8 +123,11 @@ class StartDataElementDetectionRequest(BaseModel):
     # full:
     #   force existing exhaustive document detection
     #
+    #
     # worksheet_triage:
-    #   first validated reportable hit -> stop worksheet
+    #   scan worksheet to EOF and retain the first
+    #   validated occurrence of each entity type/subtype
+    #
     #
     # iar_full:
     #   exhaustive worksheet scan for client-facing counts
@@ -3866,18 +3869,24 @@ def _parse_json_object(
         return {}
 
 
-def _latest_detection_result_bundle(
+def _load_current_detection_document_indexes(
     *,
     workspace: str,
     client: str,
     project: str,
-) -> dict[str, Any] | None:
+) -> list[dict[str, Any]]:
     """
-    Load the most recent completed Data Element Detection result
-    for this project.
+    Load the current Detection state for every document in the project.
 
-    Promotion is based on the latest detection population rather
-    than the raw Initial Ingestion staging population.
+    Detection workers maintain one canonical document index per Doc ID:
+
+        processing_center/detection/documents/{DOC_ID}.json
+
+    Each index is overwritten by the document's latest Detection run, so
+    this directory represents the project's current per-document Detection
+    state across multiple Initial Ingestion and Detection jobs.
+
+    This is the authoritative population source for Promotion.
     """
 
     base_path = _project_base_path(
@@ -3886,146 +3895,85 @@ def _latest_detection_result_bundle(
         project=project,
     )
 
-    detection_prefix = (
+    document_index_prefix = (
         f"{base_path}/processing_center/"
-        f"detection/jobs/"
+        f"detection/documents/"
     )
 
     container_client = (
         _processing_container_client()
     )
 
-    document_result_blobs = [
-        blob
-        for blob in container_client.list_blobs(
-            name_starts_with=detection_prefix
-        )
-        if str(
-            blob.name
-        ).endswith(
-            "/results/documents.json"
-        )
-    ]
+    rows: list[dict[str, Any]] = []
 
-    if not document_result_blobs:
-        return None
-
-    document_result_blobs.sort(
-        key=lambda blob: (
-            getattr(
-                blob,
-                "last_modified",
-                None,
-            )
-            or datetime.min.replace(
-                tzinfo=timezone.utc
-            )
-        ),
-        reverse=True,
-    )
-
-    documents_blob = (
-        document_result_blobs[0]
-    )
-
-    documents_blob_path = str(
-        documents_blob.name
-    )
-
-    relative_path = (
-        documents_blob_path[
-            len(detection_prefix):
-        ]
-    )
-
-    detection_job_id = (
-        relative_path.split(
-            "/",
-            1,
-        )[0]
-    )
-
-    result_prefix = (
-        f"{detection_prefix}"
-        f"{detection_job_id}/results"
-    )
-
-    summary_blob_path = (
-        f"{result_prefix}/summary.json"
-    )
-
-    entities_blob_path = (
-        f"{result_prefix}/entities.json"
-    )
-
-    status_blob_path = (
-        f"{detection_prefix}"
-        f"{detection_job_id}/status.json"
-    )
-
-    summary = (
-        _read_processing_json_blob(
-            summary_blob_path
-        )
-    )
-
-    documents = (
-        _read_processing_json_blob(
-            documents_blob_path
-        )
-    )
-
-    entities = (
-        _read_processing_json_blob(
-            entities_blob_path
-        )
-    )
-
-    try:
-        status = (
-            _read_processing_json_blob(
-                status_blob_path
-            )
-        )
-    except Exception:
-        status = {}
-
-    if not isinstance(
-        summary,
-        dict,
+    for blob in container_client.list_blobs(
+        name_starts_with=document_index_prefix
     ):
-        summary = {}
+        blob_path = str(
+            blob.name or ""
+        )
 
-    if not isinstance(
-        documents,
-        list,
-    ):
-        documents = []
+        if (
+            not blob_path.endswith(".json")
+            or blob_path.endswith("/")
+        ):
+            continue
 
-    if not isinstance(
-        entities,
-        list,
-    ):
-        entities = []
+        try:
+            payload = (
+                _read_processing_json_blob(
+                    blob_path
+                )
+            )
+        except Exception:
+            continue
 
-    return {
-        "detection_job_id": (
-            detection_job_id
-        ),
-        "summary": summary,
-        "status": status,
-        "documents": documents,
-        "entities": entities,
-        "summary_blob_path": (
-            summary_blob_path
-        ),
-        "documents_blob_path": (
-            documents_blob_path
-        ),
-        "entities_blob_path": (
-            entities_blob_path
-        ),
-    }
+        if not isinstance(
+            payload,
+            dict,
+        ):
+            continue
+
+        doc_id = str(
+            payload.get("doc_id")
+            or ""
+        ).strip()
+
+        if not doc_id:
+            continue
+
+        rows.append(
+            {
+                **payload,
+                "document_index_blob_path": (
+                    blob_path
+                ),
+                "document_index_last_modified": (
+                    blob.last_modified.isoformat()
+                    if getattr(
+                        blob,
+                        "last_modified",
+                        None,
+                    )
+                    else None
+                ),
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            str(
+                row.get("source_job_id")
+                or ""
+            ),
+            str(
+                row.get("doc_id")
+                or ""
+            ),
+        )
+    )
+
+    return rows
 
 
 @router.get(
@@ -4041,9 +3989,12 @@ def get_processing_center_promotion_population(
     project: str = Query(...),
 ) -> dict[str, Any]:
     """
-    Build the post-detection Promotion Center population.
+    Build the current project-wide Promotion population.
 
-    Routing rules:
+    Promotion is based on the latest Detection state PER DOCUMENT,
+    not merely the most recent Detection job.
+
+    Routing:
 
       workbook-sheet / CSV HIT
           -> Cyber²
@@ -4052,27 +4003,33 @@ def get_processing_center_promotion_population(
           -> Review
 
       NO_HIT
-          -> No Hits
+          -> retained / No Hits
 
-    No files are moved by this endpoint.
+      NFR
+          -> NFR
+
+      EXCEPTION / unknown
+          -> Exceptions
     """
 
     try:
-        detection = (
-            _latest_detection_result_bundle(
+        document_indexes = (
+            _load_current_detection_document_indexes(
                 workspace=workspace,
                 client=client,
                 project=project,
             )
         )
 
-        if detection is None:
+        if not document_indexes:
             return {
                 "workspace": workspace,
                 "client": client,
                 "project": project,
                 "detection_job_id": None,
+                "detection_job_ids": [],
                 "source_job_id": None,
+                "source_job_ids": [],
                 "spreadsheet_hits": [],
                 "review_hits": [],
                 "no_hits": [],
@@ -4088,44 +4045,30 @@ def get_processing_center_promotion_population(
                 },
             }
 
-        summary = (
-            detection.get(
-                "summary"
-            )
-            or {}
+        source_job_ids = sorted(
+            {
+                str(
+                    row.get(
+                        "source_job_id"
+                    )
+                    or ""
+                ).strip()
+                for row in document_indexes
+                if str(
+                    row.get(
+                        "source_job_id"
+                    )
+                    or ""
+                ).strip()
+            }
         )
 
-        documents = (
-            detection.get(
-                "documents"
-            )
-            or []
-        )
-
-        entities = (
-            detection.get(
-                "entities"
-            )
-            or []
-        )
-
-        source_job_id = str(
-            summary.get(
-                "source_job_id"
-            )
-            or ""
-        ).strip()
-
-        #
-        # Recover the authoritative staged ingestion
-        # metadata for each Doc ID.
-        #
         staged_by_doc_id: dict[
             str,
             dict[str, Any],
         ] = {}
 
-        if source_job_id:
+        for source_job_id in source_job_ids:
             try:
                 staged = (
                     _build_staged_results_payload(
@@ -4135,99 +4078,32 @@ def get_processing_center_promotion_population(
                         job_id=source_job_id,
                     )
                 )
-
-                staged_by_doc_id = {
-                    str(
-                        row.get(
-                            "doc_id"
-                        )
-                        or ""
-                    ).strip(): row
-                    for row in (
-                        staged.get(
-                            "docs"
-                        )
-                        or []
-                    )
-                    if isinstance(
-                        row,
-                        dict,
-                    )
-                    and str(
-                        row.get(
-                            "doc_id"
-                        )
-                        or ""
-                    ).strip()
-                }
-
             except Exception:
-                staged_by_doc_id = {}
+                continue
 
-        #
-        # Build entity-type profile per Doc ID.
-        #
-        entity_types_by_doc_id: dict[
-            str,
-            set[str],
-        ] = {}
-
-        entities_by_doc_id: dict[
-            str,
-            list[dict[str, Any]],
-        ] = {}
-
-        for entity in entities:
-            if not isinstance(
-                entity,
-                dict,
+            for staged_doc in (
+                staged.get("docs")
+                or []
             ):
-                continue
+                if not isinstance(
+                    staged_doc,
+                    dict,
+                ):
+                    continue
 
-            doc_id = str(
-                entity.get(
-                    "doc_id"
-                )
-                or ""
-            ).strip()
+                doc_id = str(
+                    staged_doc.get(
+                        "doc_id"
+                    )
+                    or ""
+                ).strip()
 
-            if not doc_id:
-                continue
+                if not doc_id:
+                    continue
 
-            entity_type = str(
-                entity.get(
-                    "entity_type"
-                )
-                or "Unknown"
-            ).strip()
-
-            entity_subtype = str(
-                entity.get(
-                    "entity_subtype"
-                )
-                or ""
-            ).strip()
-
-            display_type = (
-                f"{entity_type}:"
-                f"{entity_subtype}"
-                if entity_subtype
-                else entity_type
-            )
-
-            entity_types_by_doc_id.setdefault(
-                doc_id,
-                set(),
-            ).add(
-                display_type
-            )
-
-            entities_by_doc_id.setdefault(
-                doc_id,
-                [],
-            ).append(
-                entity
-            )
+                staged_by_doc_id[
+                    doc_id
+                ] = staged_doc
 
         spreadsheet_hits: list[
             dict[str, Any]
@@ -4249,13 +4125,9 @@ def get_processing_center_promotion_population(
             dict[str, Any]
         ] = []
 
-        for document in documents:
-            if not isinstance(
-                document,
-                dict,
-            ):
-                continue
+        detection_job_ids: set[str] = set()
 
+        for document in document_indexes:
             doc_id = str(
                 document.get(
                     "doc_id"
@@ -4273,13 +4145,24 @@ def get_processing_center_promotion_population(
                 or {}
             )
 
-            detection_metadata = (
-                _parse_json_object(
-                    document.get(
-                        "metadata_json"
-                    )
+            source_job_id = str(
+                document.get(
+                    "source_job_id"
                 )
-            )
+                or ""
+            ).strip()
+
+            detection_job_id = str(
+                document.get(
+                    "latest_detection_job_id"
+                )
+                or ""
+            ).strip()
+
+            if detection_job_id:
+                detection_job_ids.add(
+                    detection_job_id
+                )
 
             classification = str(
                 document.get(
@@ -4289,20 +4172,20 @@ def get_processing_center_promotion_population(
             ).strip().upper()
 
             source_type = str(
-                staged_doc.get(
+                document.get(
                     "source_type"
                 )
-                or detection_metadata.get(
+                or staged_doc.get(
                     "source_type"
                 )
                 or "document"
             ).strip()
 
             is_workbook_sheet = bool(
-                staged_doc.get(
+                document.get(
                     "is_workbook_sheet"
                 )
-                or detection_metadata.get(
+                or staged_doc.get(
                     "is_workbook_sheet"
                 )
                 or source_type
@@ -4316,10 +4199,51 @@ def get_processing_center_promotion_population(
                 or ""
             ).strip().lower()
 
-            #
-            # A worksheet child is routed as spreadsheet
-            # data even though its normalized native is CSV.
-            #
+            hits = (
+                document.get("hits")
+                or []
+            )
+
+            if not isinstance(
+                hits,
+                list,
+            ):
+                hits = []
+
+            entity_types: set[str] = set()
+
+            for hit in hits:
+                if not isinstance(
+                    hit,
+                    dict,
+                ):
+                    continue
+
+                entity_type = str(
+                    hit.get(
+                        "entity_type"
+                    )
+                    or "Unknown"
+                ).strip()
+
+                entity_subtype = str(
+                    hit.get(
+                        "entity_subtype"
+                    )
+                    or ""
+                ).strip()
+
+                display_type = (
+                    f"{entity_type}:"
+                    f"{entity_subtype}"
+                    if entity_subtype
+                    else entity_type
+                )
+
+                entity_types.add(
+                    display_type
+                )
+
             is_spreadsheet_data = bool(
                 is_workbook_sheet
                 or extension == "csv"
@@ -4345,6 +4269,7 @@ def get_processing_center_promotion_population(
 
             row = {
                 "doc_id": doc_id,
+
                 "file_id": (
                     document.get(
                         "file_id"
@@ -4353,131 +4278,175 @@ def get_processing_center_promotion_population(
                         "file_id"
                     )
                 ),
+
                 "source_job_id": (
                     source_job_id
                 ),
+
                 "detection_job_id": (
-                    detection.get(
-                        "detection_job_id"
+                    detection_job_id
+                ),
+
+                "detection_run_id": (
+                    document.get(
+                        "detection_run_id"
                     )
                 ),
+
                 "classification": (
                     classification
                 ),
+
                 "destination": (
                     destination
                 ),
+
                 "promotion_status": (
                     staged_doc.get(
                         "promotion_status"
                     )
                     or ""
                 ),
+
                 "original_filename": (
                     staged_doc.get(
                         "original_filename"
                     )
                 ),
+
                 "extension": extension,
+
                 "source_type": (
                     source_type
                 ),
+
                 "is_workbook_sheet": (
                     is_workbook_sheet
                 ),
+
                 "original_workbook_file_id": (
-                    staged_doc.get(
+                    document.get(
                         "original_workbook_file_id"
                     )
-                    or detection_metadata.get(
+                    or staged_doc.get(
                         "original_workbook_file_id"
                     )
                 ),
+
                 "original_workbook_name": (
-                    staged_doc.get(
+                    document.get(
                         "original_workbook_name"
                     )
-                    or detection_metadata.get(
+                    or staged_doc.get(
                         "original_workbook_name"
                     )
                 ),
+
                 "sheet_name": (
-                    staged_doc.get(
+                    document.get(
                         "sheet_name"
                     )
-                    or detection_metadata.get(
+                    or staged_doc.get(
                         "sheet_name"
                     )
                 ),
+
                 "sheet_index": (
-                    staged_doc.get(
+                    document.get(
                         "sheet_index"
                     )
-                    or detection_metadata.get(
+                    or staged_doc.get(
                         "sheet_index"
                     )
                 ),
+
                 "sheet_visibility": (
-                    staged_doc.get(
+                    document.get(
                         "sheet_visibility"
                     )
-                    or detection_metadata.get(
+                    or staged_doc.get(
                         "sheet_visibility"
                     )
                 ),
+
                 "native_staged_blob_path": (
                     staged_doc.get(
                         "native_staged_blob_path"
                     )
                 ),
+
                 "text_staged_blob_path": (
                     staged_doc.get(
                         "text_staged_blob_path"
                     )
                 ),
+
                 "final_native_blob_path": (
                     staged_doc.get(
                         "final_native_blob_path"
                     )
                 ),
+
                 "final_text_blob_path": (
                     staged_doc.get(
                         "final_text_blob_path"
                     )
                 ),
+
                 "entity_types": sorted(
-                    entity_types_by_doc_id.get(
-                        doc_id,
-                        set(),
-                    )
+                    entity_types
                 ),
-                "profiled_entity_count": len(
-                    entities_by_doc_id.get(
-                        doc_id,
-                        [],
+
+                "profiled_entity_count": (
+                    document.get(
+                        "profiled_entity_type_count"
                     )
+                    if document.get(
+                        "profiled_entity_type_count"
+                    )
+                    is not None
+                    else len(hits)
                 ),
+
                 "detection_mode": (
-                    detection_metadata.get(
+                    document.get(
                         "detection_mode"
                     )
                 ),
+
                 "type_profile_complete": (
-                    detection_metadata.get(
+                    document.get(
                         "type_profile_complete"
                     )
                 ),
+
                 "entity_counts_complete": (
-                    detection_metadata.get(
+                    document.get(
                         "entity_counts_complete"
                     )
                 ),
+
                 "ready_for_promotion": (
                     classification
                     in {
                         "HIT",
                         "NO_HIT",
                     }
+                ),
+
+                "document_index_blob_path": (
+                    document.get(
+                        "document_index_blob_path"
+                    )
+                ),
+
+                "latest_detection_at": (
+                    document.get(
+                        "detected_at"
+                    )
+                    or document.get(
+                        "document_index_last_modified"
+                    )
                 ),
             }
 
@@ -4554,45 +4523,74 @@ def get_processing_center_promotion_population(
             exceptions
         )
 
+        detection_job_id_list = sorted(
+            detection_job_ids
+        )
+
         return {
             "workspace": workspace,
             "client": client,
             "project": project,
+
             "detection_job_id": (
-                detection.get(
-                    "detection_job_id"
-                )
+                detection_job_id_list[-1]
+                if detection_job_id_list
+                else None
             ),
+
             "source_job_id": (
-                source_job_id
+                source_job_ids[-1]
+                if source_job_ids
+                else None
             ),
+
+            "detection_job_ids": (
+                detection_job_id_list
+            ),
+
+            "source_job_ids": (
+                source_job_ids
+            ),
+
             "spreadsheet_hits": (
                 spreadsheet_hits
             ),
+
             "review_hits": (
                 review_hits
             ),
+
             "no_hits": (
                 no_hits
             ),
+
             "nfr": nfr,
-            "exceptions": exceptions,
+
+            "exceptions": (
+                exceptions
+            ),
+
             "counts": {
                 "spreadsheet_hits": len(
                     spreadsheet_hits
                 ),
+
                 "review_hits": len(
                     review_hits
                 ),
+
                 "no_hits": len(
                     no_hits
                 ),
+
                 "nfr": len(
                     nfr
                 ),
+
                 "exceptions": len(
                     exceptions
                 ),
+
                 "total": (
                     len(
                         spreadsheet_hits
@@ -4611,23 +4609,16 @@ def get_processing_center_promotion_population(
                     )
                 ),
             },
-            "detection_result_paths": {
-                "summary": (
-                    detection.get(
-                        "summary_blob_path"
-                    )
-                ),
-                "documents": (
-                    detection.get(
-                        "documents_blob_path"
-                    )
-                ),
-                "entities": (
-                    detection.get(
-                        "entities_blob_path"
-                    )
-                ),
-            },
+
+            "population_basis": (
+                "latest_detection_state_per_doc_id"
+            ),
+
+            "document_index_count": (
+                len(
+                    document_indexes
+                )
+            ),
         }
 
     except HTTPException:
@@ -4637,8 +4628,9 @@ def get_processing_center_promotion_population(
         raise HTTPException(
             status_code=502,
             detail=(
-                "Unable to build Promotion "
-                f"population: {exc}"
+                "Unable to build current "
+                "Promotion population: "
+                f"{exc}"
             ),
         ) from exc
         
