@@ -118,7 +118,20 @@ class PromoteReviewPopulationRequest(BaseModel):
     project: str
     doc_ids: list[str] = []
     overwrite: bool = False
-    
+
+class SendCyber2PopulationRequest(BaseModel):
+    """
+    Project-wide Promotion Center request for responsive
+    spreadsheet / CSV documents routed to Cyber².
+
+    Cyber² Intake references the existing staged CSV.
+    It does not copy the source CSV.
+    """
+
+    client: str
+    project: str
+    doc_ids: list[str] = []
+
 class StartDataElementDetectionRequest(BaseModel):
     client: str
     project: str
@@ -218,6 +231,21 @@ def _project_base_path(
         client=_clean_path_segment(client),
         workspace=_clean_path_segment(workspace).lower() or "capture",
         project=_storage_project_key(project),
+    )
+
+def _cyber2_intake_document_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    doc_id: str,
+) -> str:
+    return (
+        f"{_project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )}/cyber2/intake/documents/{doc_id}.json"
     )
 
 def _job_base_path(
@@ -4280,6 +4308,35 @@ def get_processing_center_promotion_population(
 
             else:
                 destination = "exception"
+                
+            cyber2_intake_path = None
+            cyber2_intake_record = None
+
+            if destination == "cyber2":
+                cyber2_intake_path = (
+                    _cyber2_intake_document_path(
+                        workspace=workspace,
+                        client=client,
+                        project=project,
+                        doc_id=doc_id,
+                    )
+                )
+
+                try:
+                    cyber2_intake_record = (
+                        _read_processing_json_blob(
+                            cyber2_intake_path
+                        )
+                    )
+                except Exception:
+                    cyber2_intake_record = None
+
+            cyber2_sent = bool(
+                isinstance(
+                    cyber2_intake_record,
+                    dict,
+                )
+            )
 
             row = {
                 "doc_id": doc_id,
@@ -4316,10 +4373,27 @@ def get_processing_center_promotion_population(
                 ),
 
                 "promotion_status": (
-                    staged_doc.get(
-                        "promotion_status"
+                    "Sent to Cyber²"
+                    if (
+                        destination == "cyber2"
+                        and cyber2_sent
                     )
-                    or ""
+                    else (
+                        staged_doc.get(
+                            "promotion_status"
+                        )
+                        or ""
+                    )
+                ),
+
+                "cyber2_sent": (
+                    cyber2_sent
+                ),
+
+                "cyber2_intake_index_path": (
+                    cyber2_intake_path
+                    if destination == "cyber2"
+                    else None
                 ),
 
                 "original_filename": (
@@ -4446,6 +4520,10 @@ def get_processing_center_promotion_population(
                         "HIT",
                         "NO_HIT",
                     }
+                    and not (
+                        destination == "cyber2"
+                        and cyber2_sent
+                    )
                 ),
 
                 "document_index_blob_path": (
@@ -5385,6 +5463,481 @@ def promote_processing_center_review_population(
         "message": (
             f"{len(promoted_doc_ids)} "
             "document(s) promoted to Review."
+        ),
+    }
+
+@router.post(
+    "/{workspace}/processing-center/"
+    "promotion/send-cyber2"
+)
+def send_processing_center_cyber2_population(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    request: SendCyber2PopulationRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+
+    requested_doc_ids = {
+        str(doc_id or "").strip()
+        for doc_id in (
+            request.doc_ids
+            or []
+        )
+        if str(doc_id or "").strip()
+    }
+
+    if not requested_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Select at least one "
+                "Spreadsheet / CSV HIT."
+            ),
+        )
+
+    current_population = (
+        get_processing_center_promotion_population(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+    )
+
+    spreadsheet_hits = (
+        current_population.get(
+            "spreadsheet_hits"
+        )
+        or []
+    )
+
+    spreadsheet_by_doc_id = {
+        str(row.get("doc_id") or "").strip(): row
+        for row in spreadsheet_hits
+        if isinstance(row, dict)
+        and str(
+            row.get("doc_id")
+            or ""
+        ).strip()
+    }
+
+    eligible_doc_ids = {
+        doc_id
+        for doc_id in requested_doc_ids
+        if doc_id in spreadsheet_by_doc_id
+    }
+
+    rejected_doc_ids = sorted(
+        requested_doc_ids
+        - eligible_doc_ids
+    )
+
+    if not eligible_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "None of the selected documents "
+                    "are currently eligible for Cyber²."
+                ),
+                "requested_doc_ids": sorted(
+                    requested_doc_ids
+                ),
+                "rejected_doc_ids": (
+                    rejected_doc_ids
+                ),
+            },
+        )
+
+    requested_by = (
+        getattr(
+            admin,
+            "username",
+            None,
+        )
+        or getattr(
+            admin,
+            "email",
+            None,
+        )
+        or "INSYT Admin"
+    )
+
+    sent_at = _utc_now()
+
+    sent: list[
+        dict[str, Any]
+    ] = []
+
+    skipped: list[
+        dict[str, Any]
+    ] = []
+
+    for doc_id in sorted(
+        eligible_doc_ids
+    ):
+        row = (
+            spreadsheet_by_doc_id[
+                doc_id
+            ]
+        )
+
+        if bool(
+            row.get(
+                "cyber2_sent"
+            )
+        ):
+            skipped.append(
+                {
+                    "doc_id": doc_id,
+                    "status": (
+                        "already_sent_to_cyber2"
+                    ),
+                    "intake_index_path": (
+                        row.get(
+                            "cyber2_intake_index_path"
+                        )
+                    ),
+                }
+            )
+            continue
+
+        source_csv_path = str(
+            row.get(
+                "native_staged_blob_path"
+            )
+            or ""
+        ).strip()
+
+        if not source_csv_path:
+            skipped.append(
+                {
+                    "doc_id": doc_id,
+                    "status": (
+                        "missing_source_csv_path"
+                    ),
+                }
+            )
+            continue
+
+        intake_index_path = (
+            _cyber2_intake_document_path(
+                workspace=workspace,
+                client=request.client,
+                project=request.project,
+                doc_id=doc_id,
+            )
+        )
+
+        payload = {
+            "schema_version": 1,
+
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+
+            "doc_id": doc_id,
+            "file_id": row.get(
+                "file_id"
+            ),
+
+            "status": "ready",
+            "destination": "cyber2",
+
+            "source_job_id": row.get(
+                "source_job_id"
+            ),
+
+            "detection_job_id": row.get(
+                "detection_job_id"
+            ),
+
+            "detection_run_id": row.get(
+                "detection_run_id"
+            ),
+
+            "classification": row.get(
+                "classification"
+            ),
+
+            "source_type": row.get(
+                "source_type"
+            ),
+
+            "source_csv_path": (
+                source_csv_path
+            ),
+
+            "original_filename": row.get(
+                "original_filename"
+            ),
+
+            "original_workbook_file_id": (
+                row.get(
+                    "original_workbook_file_id"
+                )
+            ),
+
+            "original_workbook_name": (
+                row.get(
+                    "original_workbook_name"
+                )
+            ),
+
+            "sheet_name": row.get(
+                "sheet_name"
+            ),
+
+            "sheet_index": row.get(
+                "sheet_index"
+            ),
+
+            "sheet_visibility": row.get(
+                "sheet_visibility"
+            ),
+
+            "entity_types": (
+                row.get(
+                    "entity_types"
+                )
+                or []
+            ),
+
+            "profiled_entity_count": (
+                row.get(
+                    "profiled_entity_count"
+                )
+            ),
+
+            "detection_mode": row.get(
+                "detection_mode"
+            ),
+
+            "type_profile_complete": (
+                row.get(
+                    "type_profile_complete"
+                )
+            ),
+
+            "entity_counts_complete": (
+                row.get(
+                    "entity_counts_complete"
+                )
+            ),
+
+            "intake_index_path": (
+                intake_index_path
+            ),
+
+            "sent_to_cyber2_at": (
+                sent_at
+            ),
+
+            "sent_to_cyber2_by": (
+                requested_by
+            ),
+        }
+
+        try:
+            _write_processing_json_blob(
+                blob_path=(
+                    intake_index_path
+                ),
+                payload=payload,
+                overwrite=True,
+            )
+
+            sent.append(
+                {
+                    "doc_id": doc_id,
+                    "status": (
+                        "sent_to_cyber2"
+                    ),
+                    "source_csv_path": (
+                        source_csv_path
+                    ),
+                    "intake_index_path": (
+                        intake_index_path
+                    ),
+                }
+            )
+
+        except Exception as exc:
+            skipped.append(
+                {
+                    "doc_id": doc_id,
+                    "status": (
+                        "cyber2_intake_"
+                        "registration_failed"
+                    ),
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "workspace": workspace,
+        "client": request.client,
+        "project": request.project,
+
+        "destination": "cyber2",
+
+        "requested_doc_ids": sorted(
+            requested_doc_ids
+        ),
+
+        "eligible_doc_ids": sorted(
+            eligible_doc_ids
+        ),
+
+        "rejected_doc_ids": (
+            rejected_doc_ids
+        ),
+
+        "sent_count": len(
+            sent
+        ),
+
+        "sent": sent,
+
+        "skipped_count": len(
+            skipped
+        ),
+
+        "skipped": skipped,
+
+        "requested_by": (
+            requested_by
+        ),
+
+        "requested_at": (
+            sent_at
+        ),
+
+        "status": "completed",
+    }
+
+@router.get(
+    "/{workspace}/cyber2/intake"
+)
+def get_cyber2_intake(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+
+    base_path = (
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    )
+
+    prefix = (
+        f"{base_path}/cyber2/"
+        f"intake/documents/"
+    )
+
+    container_client = (
+        _processing_container_client()
+    )
+
+    documents: list[
+        dict[str, Any]
+    ] = []
+
+    for blob in (
+        container_client.list_blobs(
+            name_starts_with=prefix
+        )
+    ):
+        blob_path = str(
+            blob.name
+            or ""
+        )
+
+        if not blob_path.endswith(
+            ".json"
+        ):
+            continue
+
+        try:
+            payload = (
+                _read_processing_json_blob(
+                    blob_path
+                )
+            )
+        except Exception:
+            continue
+
+        if not isinstance(
+            payload,
+            dict,
+        ):
+            continue
+
+        documents.append(
+            {
+                **payload,
+                "last_modified": (
+                    blob.last_modified.isoformat()
+                    if getattr(
+                        blob,
+                        "last_modified",
+                        None,
+                    )
+                    else None
+                ),
+            }
+        )
+
+    documents.sort(
+        key=lambda row: (
+            str(
+                row.get(
+                    "original_workbook_name"
+                )
+                or ""
+            ),
+            int(
+                row.get(
+                    "sheet_index"
+                )
+                or 0
+            ),
+            str(
+                row.get(
+                    "doc_id"
+                )
+                or ""
+            ),
+        )
+    )
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "intake_count": len(
+            documents
+        ),
+        "documents": documents,
+        "source_storage_account": (
+            _review_account()
+        ),
+        "source_container": (
+            _review_container(
+                workspace
+            )
+        ),
+        "source_mode": (
+            "reference_existing_staged_csv"
         ),
     }
 

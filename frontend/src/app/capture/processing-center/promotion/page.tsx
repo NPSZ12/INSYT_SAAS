@@ -70,6 +70,9 @@ type PromotionDoc = {
   detection_mode?: string;
   type_profile_complete?: boolean | null;
   entity_counts_complete?: boolean | null;
+
+  cyber2_sent?: boolean;
+  cyber2_intake_index_path?: string;
 };
 
 
@@ -182,6 +185,9 @@ function ProcessingCenterPromotionPageContent() {
     useState("");
 
   const [promotingReview, setPromotingReview] =
+    useState(false);
+
+  const [sendingCyber2, setSendingCyber2] =
     useState(false);
 
   const [searchText, setSearchText] =
@@ -539,9 +545,14 @@ function ProcessingCenterPromotionPageContent() {
   function selectAllSpreadsheetHits() {
     setSelectedSpreadsheetIds(
       new Set(
-        filteredSpreadsheetHits.map(
-          (doc) => doc.doc_id
-        )
+        filteredSpreadsheetHits
+          .filter(
+            (doc) =>
+              !doc.cyber2_sent
+          )
+          .map(
+            (doc) => doc.doc_id
+          )
       )
     );
   }
@@ -572,22 +583,92 @@ function ProcessingCenterPromotionPageContent() {
   }
 
 
-  function placeholderCyber2Action() {
-    if (
-      selectedSpreadsheetIds.size ===
-      0
-    ) {
-      setError(
-        "Select at least one Spreadsheet / CSV Hit."
+async function sendSelectedToCyber2() {
+  if (
+    selectedSpreadsheetIds.size ===
+    0
+  ) {
+    setError(
+      "Select at least one Spreadsheet / CSV Hit."
+    );
+
+    return;
+  }
+
+  if (!clientId || !projectId) {
+    setError(
+      "Client and project are required for Cyber² Intake."
+    );
+
+    return;
+  }
+
+  const docIds =
+    Array.from(
+      selectedSpreadsheetIds
+    );
+
+  setSendingCyber2(true);
+  setError("");
+
+  try {
+    const response =
+      await apiPost(
+        `/api/${encodeURIComponent(
+          workspace
+        )}/processing-center/promotion/send-cyber2`,
+        {
+          client: clientId,
+          project: projectId,
+          doc_ids: docIds,
+        }
       );
 
-      return;
+    const sentCount =
+      Number(
+        response?.sent_count || 0
+      );
+
+    const skippedCount =
+      Number(
+        response?.skipped_count || 0
+      );
+
+    if (skippedCount > 0) {
+      console.warn(
+        "Cyber² Intake registration completed with skipped documents:",
+        response
+      );
     }
 
-    setError(
-      "Cyber² promotion action is not wired yet. Population selection is working and ready for the write endpoint."
+    setSelectedSpreadsheetIds(
+      new Set()
     );
+
+    await loadPromotionPopulation();
+
+    if (sentCount === 0) {
+      setError(
+        response?.message ||
+          "No documents were sent to Cyber²."
+      );
+    }
+
+  } catch (err: any) {
+    console.error(
+      "Failed to send selected documents to Cyber²:",
+      err
+    );
+
+    setError(
+      err?.message ||
+        "Unable to send selected documents to Cyber²."
+    );
+
+  } finally {
+    setSendingCyber2(false);
   }
+}
 
 
 async function promoteSelectedToReview() {
@@ -1059,17 +1140,20 @@ async function promoteSelectedToReview() {
                   <button
                     type="button"
                     onClick={
-                      placeholderCyber2Action
+                      sendSelectedToCyber2
                     }
                     disabled={
+                      sendingCyber2 ||
                       selectedSpreadsheetIds.size ===
-                      0
+                        0
                     }
                     className="inline-flex items-center gap-2 rounded-lg border border-violet-500 bg-violet-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Send className="h-3.5 w-3.5" />
 
-                    Send Selected to Cyber²
+                    {sendingCyber2
+                      ? "Sending..."
+                      : "Send Selected to Cyber²"}
                   </button>
 
                 </div>
@@ -1687,12 +1771,23 @@ function PromotionTable({
                             doc.doc_id
                           )
                         }
+                        disabled={
+                          Boolean(
+                            doc.cyber2_sent
+                          ) ||
+                          String(
+                            doc.promotion_status || ""
+                          )
+                            .trim()
+                            .toLowerCase() ===
+                            "promoted"
+                        }
                         onChange={() =>
                           onToggleSelect?.(
                             doc.doc_id
                           )
                         }
-                        className="h-4 w-4 rounded border-slate-600 bg-slate-900"
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
                       />
 
                     </td>
@@ -1995,6 +2090,16 @@ function DocumentDetails({
               }
             />
 
+            {doc.destination === "cyber2" ? (
+              <PathValue
+                label="Cyber² Intake Index"
+                value={
+                  doc.cyber2_intake_index_path ||
+                  "Not yet sent"
+                }
+              />
+            ) : null}
+
             <PathValue
               label="Final Native Destination"
               value={
@@ -2258,6 +2363,21 @@ function PromotionStatusBadge({
     String(
       status || ""
     ).trim().toLowerCase();
+  
+  if (
+    normalized ===
+      "sent to cyber²" ||
+    normalized ===
+      "sent to cyber2"
+  ) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-violet-300">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+
+        Sent to Cyber²
+      </span>
+    );
+  }
 
   if (
     normalized === "promoted"
