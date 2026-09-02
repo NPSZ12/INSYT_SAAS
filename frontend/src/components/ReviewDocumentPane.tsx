@@ -258,10 +258,188 @@ function renderHighlightedText(
     return text;
   }
 
+  const normalizeComparable = (
+    value: string
+  ) =>
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+
+  const resolveHitOffsets = (
+    hit: DetectionHit
+  ) => {
+    let start = Number(
+      hit.start_offset
+    );
+
+    let end = Number(
+      hit.end_offset
+    );
+
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      start < 0 ||
+      end <= start
+    ) {
+      return null;
+    }
+
+    start = Math.max(
+      0,
+      Math.min(
+        text.length,
+        start
+      )
+    );
+
+    end = Math.max(
+      start,
+      Math.min(
+        text.length,
+        end
+      )
+    );
+
+    const detectedValue =
+      String(
+        hit.detected_value ||
+          ""
+      );
+
+    if (!detectedValue) {
+      return {
+        ...hit,
+        start_offset: start,
+        end_offset: end,
+      };
+    }
+
+    const expectedSlice =
+      text.slice(
+        start,
+        end
+      );
+
+    /*
+     * Fast path:
+     * stored offsets already point to the exact detected value.
+     */
+    if (
+      normalizeComparable(
+        expectedSlice
+      ) ===
+      normalizeComparable(
+        detectedValue
+      )
+    ) {
+      return {
+        ...hit,
+        start_offset: start,
+        end_offset: end,
+      };
+    }
+
+    /*
+     * The viewer text can differ slightly from the Detection text
+     * because of OCR/newline/text normalization.
+     *
+     * Search only near the expected location so that a repeated
+     * value elsewhere in the document is not accidentally used.
+     */
+    const SEARCH_RADIUS = 120;
+
+    const windowStart =
+      Math.max(
+        0,
+        start - SEARCH_RADIUS
+      );
+
+    const windowEnd =
+      Math.min(
+        text.length,
+        Math.max(
+          end,
+          start +
+            detectedValue.length
+        ) +
+          SEARCH_RADIUS
+      );
+
+    const searchWindow =
+      text.slice(
+        windowStart,
+        windowEnd
+      );
+
+    /*
+     * First try an exact case-sensitive match.
+     */
+    let localIndex =
+      searchWindow.indexOf(
+        detectedValue
+      );
+
+    /*
+     * OCR output can occasionally differ in case only.
+     */
+    if (localIndex < 0) {
+      localIndex =
+        searchWindow
+          .toLocaleLowerCase()
+          .indexOf(
+            detectedValue
+              .toLocaleLowerCase()
+          );
+    }
+
+    if (localIndex >= 0) {
+      const correctedStart =
+        windowStart +
+        localIndex;
+
+      const correctedEnd =
+        correctedStart +
+        detectedValue.length;
+
+      return {
+        ...hit,
+        start_offset:
+          correctedStart,
+        end_offset:
+          correctedEnd,
+      };
+    }
+
+    /*
+     * If the value cannot safely be relocated, retain the original
+     * offsets rather than guessing.
+     */
+    return {
+      ...hit,
+      start_offset: start,
+      end_offset: end,
+    };
+  };
+
   const validHits = hits
+    .map(resolveHitOffsets)
+    .filter(
+      (
+        hit
+      ): hit is DetectionHit =>
+        Boolean(hit)
+    )
     .filter((hit) => {
-      const start = Number(hit.start_offset);
-      const end = Number(hit.end_offset);
+      const start =
+        Number(
+          hit.start_offset
+        );
+
+      const end =
+        Number(
+          hit.end_offset
+        );
 
       return (
         Number.isFinite(start) &&
@@ -273,70 +451,120 @@ function renderHighlightedText(
     })
     .map((hit) => ({
       ...hit,
-      start_offset: Math.max(0, Number(hit.start_offset)),
-      end_offset: Math.min(text.length, Number(hit.end_offset)),
+      start_offset:
+        Math.max(
+          0,
+          Number(
+            hit.start_offset
+          )
+        ),
+      end_offset:
+        Math.min(
+          text.length,
+          Number(
+            hit.end_offset
+          )
+        ),
     }))
     .sort((a, b) => {
-      if (a.start_offset !== b.start_offset) {
-        return a.start_offset - b.start_offset;
+      if (
+        a.start_offset !==
+        b.start_offset
+      ) {
+        return (
+          a.start_offset -
+          b.start_offset
+        );
       }
 
-      return b.end_offset - a.end_offset;
+      return (
+        b.end_offset -
+        a.end_offset
+      );
     });
 
   if (!validHits.length) {
     return text;
   }
 
-  const parts: React.ReactNode[] = [];
+  const parts:
+    React.ReactNode[] = [];
+
   let cursor = 0;
 
-  validHits.forEach((hit, index) => {
-    if (hit.start_offset < cursor) {
-      return;
-    }
+  validHits.forEach(
+    (hit, index) => {
+      /*
+       * Skip a hit that is fully inside an already-rendered hit.
+       */
+      if (
+        hit.start_offset <
+        cursor
+      ) {
+        return;
+      }
 
-    if (hit.start_offset > cursor) {
+      if (
+        hit.start_offset >
+        cursor
+      ) {
+        parts.push(
+          <span
+            key={`plain-${index}`}
+          >
+            {text.slice(
+              cursor,
+              hit.start_offset
+            )}
+          </span>
+        );
+      }
+
+      const highlightedText =
+        text.slice(
+          hit.start_offset,
+          hit.end_offset
+        );
+
+      const confidence =
+        typeof hit.confidence ===
+        "number"
+          ? `${Math.round(
+              hit.confidence *
+                100
+            )}%`
+          : "";
+
+      const tooltip = [
+        hit.entity_type,
+        hit.entity_subtype,
+        confidence
+          ? `Confidence ${confidence}`
+          : "",
+        hit.protocol,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
       parts.push(
-        <span key={`plain-${index}`}>
-          {text.slice(cursor, hit.start_offset)}
-        </span>
+        <mark
+          key={`hit-${index}`}
+          title={tooltip}
+          className="rounded-sm bg-amber-300 px-0.5 text-slate-950 ring-1 ring-amber-400/70"
+        >
+          {highlightedText}
+        </mark>
       );
+
+      cursor =
+        hit.end_offset;
     }
+  );
 
-    const highlightedText = text.slice(
-      hit.start_offset,
-      hit.end_offset
-    );
-
-    const confidence =
-      typeof hit.confidence === "number"
-        ? `${Math.round(hit.confidence * 100)}%`
-        : "";
-
-    const tooltip = [
-      hit.entity_type,
-      hit.entity_subtype,
-      confidence ? `Confidence ${confidence}` : "",
-      hit.protocol,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-
-    parts.push(
-      <mark
-        key={`hit-${index}`}
-        title={tooltip}
-        className="rounded-sm bg-amber-300 px-0.5 text-slate-950 ring-1 ring-amber-400/70"
-      >
-        {highlightedText}
-      </mark>
-    );
-
-    cursor = hit.end_offset;
-  });
-
-  if (cursor < text.length) {
+  if (
+    cursor <
+    text.length
+  ) {
     parts.push(
       <span key="plain-final">
         {text.slice(cursor)}
