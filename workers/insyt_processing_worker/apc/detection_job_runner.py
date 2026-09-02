@@ -1876,7 +1876,18 @@ def run_data_element_detection_job(
                 or document_row.get("detection_status")
                 or ""
             ),
-            "hit_count": len(normalized_hits),
+            "hit_count": int(
+                document_row.get(
+                    "hit_count"
+                )
+                or 0
+            ),
+
+            "profiled_entity_type_count": (
+                len(
+                    normalized_hits
+                )
+            ),
             "entity_type_counts": entity_type_counts,
             "source_job_id": source_job_id,
             "latest_detection_job_id": detection_job_id,
@@ -1911,6 +1922,45 @@ def run_data_element_detection_job(
             ),
             "generic_identifier_candidates": (
                 generic_identifier_candidates
+            ),
+            "type_profile_complete": (
+                detection_metadata.get(
+                    "type_profile_complete"
+                )
+            ),
+
+            "profile_strategy": (
+                detection_metadata.get(
+                    "profile_strategy"
+                )
+            ),
+
+            "profiled_entity_types": (
+                detection_metadata.get(
+                    "profiled_entity_types",
+                    [],
+                )
+            ),
+
+            "responsive_entity_types": (
+                detection_metadata.get(
+                    "responsive_entity_types",
+                    [],
+                )
+            ),
+
+            "responsive_entity_type_count": (
+                detection_metadata.get(
+                    "responsive_entity_type_count",
+                    0,
+                )
+            ),
+
+            "first_rows_by_entity_type": (
+                detection_metadata.get(
+                    "first_rows_by_entity_type",
+                    {},
+                )
             ),
         }
 

@@ -244,16 +244,31 @@ def _insert_detection_candidate(
         ),
     )
 
-def _candidate_is_reportable(
+def _normalized_entity_type(
+    candidate: DetectionCandidate,
+) -> str:
+    return (
+        str(
+            candidate.entity_type
+            or ""
+        )
+        .strip()
+        .lower()
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
+
+
+def _candidate_is_responsive(
     candidate: DetectionCandidate,
 ) -> bool:
     """
-    Triage treats any validated merged candidate as reportable
-    unless it is explicitly marked non-reportable.
+    Determine whether an entity type is sufficient to make a
+    worksheet responsive.
 
-    Existing detectors commonly emit UNCLASSIFIED, which must
-    continue to count as a detection hit just as it does in the
-    current full-detection workflow.
+    Person/PersonType are retained in the worksheet profile,
+    but a name by itself does not make the worksheet responsive.
     """
 
     reportability = str(
@@ -261,10 +276,25 @@ def _candidate_is_reportable(
         or "UNCLASSIFIED"
     ).strip().upper()
 
-    return (
+    if (
         reportability
-        not in NON_REPORTABLE_REPORTABILITY
+        in NON_REPORTABLE_REPORTABILITY
+    ):
+        return False
+
+    entity_type = (
+        _normalized_entity_type(
+            candidate
+        )
     )
+
+    if entity_type in {
+        "person",
+        "persontype",
+    }:
+        return False
+
+    return True
 
 
 def _normalized_detection_mode(
@@ -331,13 +361,28 @@ def _run_worksheet_triage_engine(
     protocol_version: str | None,
 ) -> dict[str, Any]:
     """
-    Stream a worksheet-derived text/CSV representation and stop
-    immediately after the first reportable merged candidate.
+    Profile a worksheet-derived CSV/text representation.
 
-    NO_HIT requires EOF.
+    The worksheet is scanned to EOF.
 
-    Candidate offsets are converted from chunk-relative offsets
-    into document-relative offsets before being returned.
+    Only the FIRST validated occurrence of each entity type is
+    retained. Repeated occurrences of an already-discovered type
+    are ignored for this pass.
+
+    This provides data-type coverage without performing an
+    exhaustive occurrence-counting IAR.
+
+    Example:
+
+        Person       -> retain first
+        Person       -> ignore repeat
+        SSN          -> retain first
+        SSN          -> ignore repeat
+        DOB          -> retain first
+        Email        -> retain first
+
+    Person/PersonType are profiled but do not independently make
+    a worksheet responsive.
     """
 
     rows_scanned = 0
@@ -354,25 +399,35 @@ def _run_worksheet_triage_engine(
     structured_candidate_count = 0
     merged_candidate_count = 0
 
-    first_candidate: DetectionCandidate | None = None
-    first_hit_row: int | None = None
+    first_candidates_by_type: dict[
+        str,
+        DetectionCandidate,
+    ] = {}
 
-    def scan_chunk() -> bool:
+    first_rows_by_type: dict[
+        str,
+        int,
+    ] = {}
+
+    responsive_entity_types: set[str] = set()
+
+    first_responsive_hit_row: int | None = None
+
+    def scan_chunk() -> None:
         nonlocal azure_candidate_count
         nonlocal structured_candidate_count
         nonlocal merged_candidate_count
-        nonlocal first_candidate
-        nonlocal first_hit_row
+        nonlocal first_responsive_hit_row
 
         if not chunk_parts:
-            return False
+            return
 
         chunk_text = "".join(
             chunk_parts
         )
 
         if not chunk_text.strip():
-            return False
+            return
 
         engine_result = run_detection_engine(
             chunk_text,
@@ -415,8 +470,58 @@ def _run_worksheet_triage_engine(
         )
 
         for candidate in candidates:
-            if not _candidate_is_reportable(
-                candidate
+            entity_type = (
+                _normalized_entity_type(
+                    candidate
+                )
+            )
+
+            if not entity_type:
+                continue
+
+            entity_subtype = (
+                str(
+                    candidate.entity_subtype
+                    or ""
+                )
+                .strip()
+                .lower()
+                .replace("_", "")
+                .replace("-", "")
+                .replace(" ", "")
+            )
+
+            #
+            # Profile by entity type + subtype when a subtype exists.
+            #
+            # Examples:
+            #
+            #   Person
+            #       -> person
+            #
+            #   IdentificationNumber / SSN
+            #       -> identificationnumber:ssn
+            #
+            #   IdentificationNumber / Passport
+            #       -> identificationnumber:passport
+            #
+            # This prevents distinct subtypes under the same parent
+            # entity type from being collapsed into a single profile hit.
+            #
+            profile_key = (
+                f"{entity_type}:{entity_subtype}"
+                if entity_subtype
+                else entity_type
+            )
+
+            #
+            # Coverage pass:
+            # once we have one validated example of this type/subtype,
+            # additional occurrences are unnecessary.
+            #
+            if (
+                profile_key
+                in first_candidates_by_type
             ):
                 continue
 
@@ -440,12 +545,12 @@ def _run_worksheet_triage_engine(
                 )
             )
 
-            first_hit_row = (
+            candidate_row = (
                 chunk_start_row
                 + row_offset
             )
 
-            first_candidate = replace(
+            adjusted_candidate = replace(
                 candidate,
                 start_offset=(
                     chunk_start_offset
@@ -461,21 +566,44 @@ def _run_worksheet_triage_engine(
                         or {}
                     ),
                     "worksheet_triage": True,
-                    "triage_chunk_start_offset": (
+                    "worksheet_profile": True,
+                    "profile_strategy": (
+                        "first_per_entity_type_subtype"
+                    ),
+                    "profile_chunk_start_offset": (
                         chunk_start_offset
                     ),
-                    "triage_chunk_start_row": (
+                    "profile_chunk_start_row": (
                         chunk_start_row
                     ),
-                    "triage_first_hit_row": (
-                        first_hit_row
+                    "profile_first_hit_row": (
+                        candidate_row
                     ),
                 },
             )
 
-            return True
+            first_candidates_by_type[
+                profile_key
+            ] = adjusted_candidate
 
-        return False
+            first_rows_by_type[
+                profile_key
+            ] = candidate_row
+
+            if _candidate_is_responsive(
+                adjusted_candidate
+            ):
+                responsive_entity_types.add(
+                    profile_key
+                )
+
+                if (
+                    first_responsive_hit_row
+                    is None
+                ):
+                    first_responsive_hit_row = (
+                        candidate_row
+                    )
 
     with path.open(
         "r",
@@ -519,90 +647,47 @@ def _run_worksheet_triage_engine(
                 or chunk_row_count
                 >= WORKSHEET_TRIAGE_CHUNK_ROWS
             ):
-                if scan_chunk():
-                    return {
-                        "candidates": [
-                            first_candidate
-                        ]
-                        if first_candidate
-                        else [],
-                        "azure_candidate_count": (
-                            azure_candidate_count
-                        ),
-                        "structured_candidate_count": (
-                            structured_candidate_count
-                        ),
-                        "merged_candidate_count": (
-                            merged_candidate_count
-                        ),
-                        "detectors": [
-                            "azure_language",
-                            "insyt_structured_rules",
-                        ],
-                        "detection_mode": (
-                            WORKSHEET_TRIAGE_MODE
-                        ),
-                        "scan_complete": False,
-                        "entity_counts_complete": False,
-                        "triage_stopped_early": True,
-                        "rows_scanned": (
-                            rows_scanned
-                        ),
-                        "characters_scanned": (
-                            characters_scanned
-                        ),
-                        "first_hit_row": (
-                            first_hit_row
-                        ),
-                    }
+                scan_chunk()
 
                 chunk_parts = []
                 chunk_char_count = 0
                 chunk_row_count = 0
 
         #
-        # Scan the final partial chunk at EOF.
+        # Final partial chunk.
         #
         if chunk_parts:
-            if scan_chunk():
-                return {
-                    "candidates": [
-                        first_candidate
-                    ]
-                    if first_candidate
-                    else [],
-                    "azure_candidate_count": (
-                        azure_candidate_count
-                    ),
-                    "structured_candidate_count": (
-                        structured_candidate_count
-                    ),
-                    "merged_candidate_count": (
-                        merged_candidate_count
-                    ),
-                    "detectors": [
-                        "azure_language",
-                        "insyt_structured_rules",
-                    ],
-                    "detection_mode": (
-                        WORKSHEET_TRIAGE_MODE
-                    ),
-                    "scan_complete": False,
-                    "entity_counts_complete": False,
-                    "triage_stopped_early": True,
-                    "rows_scanned": (
-                        rows_scanned
-                    ),
-                    "characters_scanned": (
-                        characters_scanned
-                    ),
-                    "first_hit_row": (
-                        first_hit_row
-                    ),
-                }
+            scan_chunk()
+
+    profiled_candidates = sorted(
+        first_candidates_by_type.values(),
+        key=lambda candidate: (
+            int(
+                candidate.start_offset
+            ),
+            int(
+                candidate.end_offset
+            ),
+        ),
+    )
+
+    profiled_entity_types = [
+        (
+            f"{candidate.entity_type}:{candidate.entity_subtype}"
+            if candidate.entity_subtype
+            else str(
+                candidate.entity_type
+                or "Unknown"
+            )
+        )
+        for candidate
+        in profiled_candidates
+    ]
 
     return {
-        "candidates": [],
+        "candidates": (
+            profiled_candidates
+        ),
         "azure_candidate_count": (
             azure_candidate_count
         ),
@@ -616,17 +701,92 @@ def _run_worksheet_triage_engine(
             "azure_language",
             "insyt_structured_rules",
         ],
+
+        #
+        # Keep the existing mode identifier so the API/worker
+        # contract remains backward compatible.
+        #
         "detection_mode": (
             WORKSHEET_TRIAGE_MODE
         ),
+
+        "profile_strategy": (
+            "first_per_entity_type_subtype"
+        ),
+
+        #
+        # EOF was reached, so we know which entity TYPES are
+        # present even though occurrence counts are incomplete.
+        #
         "scan_complete": True,
         "entity_counts_complete": False,
+        "type_profile_complete": True,
+
+        #
+        # This mode no longer stops on first hit.
+        #
         "triage_stopped_early": False,
-        "rows_scanned": rows_scanned,
+
+        "rows_scanned": (
+            rows_scanned
+        ),
         "characters_scanned": (
             characters_scanned
         ),
-        "first_hit_row": None,
+
+        "first_hit_row": (
+            first_responsive_hit_row
+        ),
+
+        "profiled_entity_type_count": (
+            len(
+                profiled_candidates
+            )
+        ),
+
+        "profiled_entity_types": (
+            profiled_entity_types
+        ),
+
+        "responsive_entity_type_count": (
+            len(
+                responsive_entity_types
+            )
+        ),
+
+        "responsive_entity_types": (
+            sorted(
+                responsive_entity_types
+            )
+        ),
+
+        "responsive_hit_count": (
+            len(
+                responsive_entity_types
+            )
+        ),
+
+        "first_rows_by_entity_type": {
+            (
+                (
+                    f"{first_candidates_by_type[profile_key].entity_type}:"
+                    f"{first_candidates_by_type[profile_key].entity_subtype}"
+                )
+                if first_candidates_by_type[
+                    profile_key
+                ].entity_subtype
+                else str(
+                    first_candidates_by_type[
+                        profile_key
+                    ].entity_type
+                    or profile_key
+                )
+            ): first_rows_by_type[
+                profile_key
+            ]
+            for profile_key
+            in first_candidates_by_type
+        },
     }
 
 def run_pii_phi_detection(
@@ -990,7 +1150,36 @@ def run_pii_phi_detection(
                     source_text_type=text_source,
                 )
 
-            hit_count = len(candidates)
+            profiled_entity_type_count = (
+                len(
+                    candidates
+                )
+            )
+
+            responsive_hit_count = int(
+                engine_result.get(
+                    "responsive_hit_count",
+                    profiled_entity_type_count,
+                )
+                or 0
+            )
+
+            #
+            # For worksheet profiling, Person-only sheets remain
+            # NO_HIT even though Person is retained in the profile.
+            #
+            if (
+                detection_mode
+                == WORKSHEET_TRIAGE_MODE
+            ):
+                hit_count = (
+                    responsive_hit_count
+                )
+
+            else:
+                hit_count = (
+                    profiled_entity_type_count
+                )
 
             highest_confidence = (
                 max(confidences)
@@ -999,7 +1188,8 @@ def run_pii_phi_detection(
             )
 
             average_confidence = (
-                sum(confidences) / len(confidences)
+                sum(confidences)
+                / len(confidences)
                 if confidences
                 else None
             )
@@ -1052,6 +1242,54 @@ def run_pii_phi_detection(
                                     "entity_counts_complete",
                                     detection_mode
                                     != WORKSHEET_TRIAGE_MODE,
+                                )
+                            ),
+                            "type_profile_complete": (
+                                engine_result.get(
+                                    "type_profile_complete"
+                                )
+                            ),
+
+                            "profile_strategy": (
+                                engine_result.get(
+                                    "profile_strategy"
+                                )
+                            ),
+
+                            "profiled_entity_type_count": (
+                                engine_result.get(
+                                    "profiled_entity_type_count",
+                                    len(
+                                        candidates
+                                    ),
+                                )
+                            ),
+
+                            "profiled_entity_types": (
+                                engine_result.get(
+                                    "profiled_entity_types",
+                                    [],
+                                )
+                            ),
+
+                            "responsive_entity_type_count": (
+                                engine_result.get(
+                                    "responsive_entity_type_count",
+                                    hit_count,
+                                )
+                            ),
+
+                            "responsive_entity_types": (
+                                engine_result.get(
+                                    "responsive_entity_types",
+                                    [],
+                                )
+                            ),
+
+                            "first_rows_by_entity_type": (
+                                engine_result.get(
+                                    "first_rows_by_entity_type",
+                                    {},
                                 )
                             ),
                             "triage_stopped_early": (
