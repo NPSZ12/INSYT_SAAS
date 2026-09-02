@@ -104,6 +104,20 @@ class PromoteStagedResultsRequest(BaseModel):
     doc_ids: list[str] = []
     promote_all: bool = False
     overwrite: bool = False
+
+class PromoteReviewPopulationRequest(BaseModel):
+    """
+    Project-wide Promotion Center request for ordinary
+    responsive documents destined for INSYT Review.
+
+    The frontend supplies only Doc IDs. The backend resolves
+    each document back to its originating APC source job.
+    """
+
+    client: str
+    project: str
+    doc_ids: list[str] = []
+    overwrite: bool = False
     
 class StartDataElementDetectionRequest(BaseModel):
     client: str
@@ -4871,7 +4885,508 @@ def promote_processing_center_staged_results(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+@router.post(
+    "/{workspace}/processing-center/"
+    "promotion/promote-review"
+)
+def promote_processing_center_review_population(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    request: PromoteReviewPopulationRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """
+    Promote selected project-wide Review HIT documents.
 
+    The Promotion Center is cumulative across multiple APC
+    Initial Ingestion / Detection jobs, while the underlying
+    staged promotion engine operates one source APC job at a time.
+
+    This endpoint bridges those two models:
+
+      selected Doc IDs
+          -> validate current project-wide Promotion state
+          -> resolve source APC job per Doc ID
+          -> group by source APC job
+          -> promote each group
+          -> return one consolidated response
+
+    Spreadsheet / worksheet-derived HITs are explicitly refused
+    here because their destination is Cyber², not Review.
+    """
+
+    requested_doc_ids = {
+        str(doc_id or "").strip()
+        for doc_id in (
+            request.doc_ids
+            or []
+        )
+        if str(doc_id or "").strip()
+    }
+
+    if not requested_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Select at least one Review HIT "
+                "document for promotion."
+            ),
+        )
+
+    #
+    # Rebuild the authoritative current Promotion population.
+    #
+    current_population = (
+        get_processing_center_promotion_population(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+    )
+
+    review_hits = (
+        current_population.get(
+            "review_hits"
+        )
+        or []
+    )
+
+    if not isinstance(
+        review_hits,
+        list,
+    ):
+        review_hits = []
+
+    review_by_doc_id: dict[
+        str,
+        dict[str, Any],
+    ] = {}
+
+    for row in review_hits:
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        doc_id = str(
+            row.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+
+        if not doc_id:
+            continue
+
+        review_by_doc_id[
+            doc_id
+        ] = row
+
+    #
+    # Only documents currently classified HIT and routed to
+    # Review are eligible for this endpoint.
+    #
+    eligible_doc_ids = {
+        doc_id
+        for doc_id in requested_doc_ids
+        if doc_id in review_by_doc_id
+    }
+
+    rejected_doc_ids = sorted(
+        requested_doc_ids
+        - eligible_doc_ids
+    )
+
+    if not eligible_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "None of the selected documents are "
+                    "currently eligible for Review promotion."
+                ),
+                "requested_doc_ids": sorted(
+                    requested_doc_ids
+                ),
+                "rejected_doc_ids": (
+                    rejected_doc_ids
+                ),
+            },
+        )
+
+    #
+    # Group eligible docs by their originating APC source job.
+    #
+    doc_ids_by_source_job: dict[
+        str,
+        list[str],
+    ] = {}
+
+    missing_source_job_ids: list[
+        str
+    ] = []
+
+    for doc_id in sorted(
+        eligible_doc_ids
+    ):
+        row = (
+            review_by_doc_id.get(
+                doc_id
+            )
+            or {}
+        )
+
+        source_job_id = str(
+            row.get(
+                "source_job_id"
+            )
+            or ""
+        ).strip()
+
+        if not source_job_id:
+            missing_source_job_ids.append(
+                doc_id
+            )
+            continue
+
+        doc_ids_by_source_job.setdefault(
+            source_job_id,
+            [],
+        ).append(
+            doc_id
+        )
+
+    if (
+        not doc_ids_by_source_job
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "Selected Review documents could not "
+                    "be resolved to their source APC jobs."
+                ),
+                "missing_source_job_doc_ids": (
+                    missing_source_job_ids
+                ),
+            },
+        )
+
+    promoted: list[
+        dict[str, Any]
+    ] = []
+
+    skipped: list[
+        dict[str, Any]
+    ] = []
+
+    source_job_results: list[
+        dict[str, Any]
+    ] = []
+
+    source_job_errors: list[
+        dict[str, Any]
+    ] = []
+
+    #
+    # Reuse the existing per-source-job promotion engine.
+    #
+    for (
+        source_job_id,
+        source_doc_ids,
+    ) in sorted(
+        doc_ids_by_source_job.items()
+    ):
+        try:
+            job_result = (
+                promote_processing_center_staged_results(
+                    workspace=workspace,
+                    request=(
+                        PromoteStagedResultsRequest(
+                            client=request.client,
+                            project=request.project,
+                            job_id=source_job_id,
+                            doc_ids=(
+                                source_doc_ids
+                            ),
+                            promote_all=False,
+                            overwrite=(
+                                request.overwrite
+                            ),
+                        )
+                    ),
+                )
+            )
+
+            source_job_results.append(
+                {
+                    "source_job_id": (
+                        source_job_id
+                    ),
+                    "requested_doc_ids": (
+                        source_doc_ids
+                    ),
+                    "promoted_count": (
+                        job_result.get(
+                            "promoted_count",
+                            0,
+                        )
+                    ),
+                    "skipped_count": (
+                        job_result.get(
+                            "skipped_count",
+                            0,
+                        )
+                    ),
+                    "promotion_status": (
+                        job_result.get(
+                            "promotion_status",
+                            "",
+                        )
+                    ),
+                }
+            )
+
+            for item in (
+                job_result.get(
+                    "promoted"
+                )
+                or []
+            ):
+                if not isinstance(
+                    item,
+                    dict,
+                ):
+                    continue
+
+                promoted.append(
+                    {
+                        **item,
+                        "source_job_id": (
+                            source_job_id
+                        ),
+                    }
+                )
+
+            for item in (
+                job_result.get(
+                    "skipped"
+                )
+                or []
+            ):
+                if not isinstance(
+                    item,
+                    dict,
+                ):
+                    continue
+
+                skipped.append(
+                    {
+                        **item,
+                        "source_job_id": (
+                            source_job_id
+                        ),
+                    }
+                )
+
+        except HTTPException as exc:
+            source_job_errors.append(
+                {
+                    "source_job_id": (
+                        source_job_id
+                    ),
+                    "doc_ids": (
+                        source_doc_ids
+                    ),
+                    "status_code": (
+                        exc.status_code
+                    ),
+                    "detail": (
+                        exc.detail
+                    ),
+                }
+            )
+
+        except Exception as exc:
+            source_job_errors.append(
+                {
+                    "source_job_id": (
+                        source_job_id
+                    ),
+                    "doc_ids": (
+                        source_doc_ids
+                    ),
+                    "error_type": (
+                        type(exc).__name__
+                    ),
+                    "error": str(
+                        exc
+                    ),
+                }
+            )
+
+    #
+    # Refresh project-wide Promotion state after all writes.
+    #
+    refreshed_population = (
+        get_processing_center_promotion_population(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+    )
+
+    requested_by = (
+        getattr(
+            admin,
+            "username",
+            None,
+        )
+        or getattr(
+            admin,
+            "email",
+            None,
+        )
+        or "INSYT Admin"
+    )
+
+    promoted_doc_ids = sorted(
+        {
+            str(
+                item.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+            for item in promoted
+            if str(
+                item.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+        }
+    )
+
+    skipped_doc_ids = sorted(
+        {
+            str(
+                item.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+            for item in skipped
+            if str(
+                item.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+        }
+    )
+
+    return {
+        "workspace": workspace,
+        "client": request.client,
+        "project": request.project,
+
+        "destination": "review",
+
+        "requested_by": (
+            requested_by
+        ),
+
+        "requested_at": (
+            _utc_now()
+        ),
+
+        "overwrite": (
+            request.overwrite
+        ),
+
+        "requested_doc_ids": sorted(
+            requested_doc_ids
+        ),
+
+        "eligible_doc_ids": sorted(
+            eligible_doc_ids
+        ),
+
+        "rejected_doc_ids": (
+            rejected_doc_ids
+        ),
+
+        "missing_source_job_doc_ids": (
+            missing_source_job_ids
+        ),
+
+        "source_job_count": len(
+            doc_ids_by_source_job
+        ),
+
+        "source_job_ids": sorted(
+            doc_ids_by_source_job.keys()
+        ),
+
+        "promoted_count": len(
+            promoted_doc_ids
+        ),
+
+        "promoted_doc_ids": (
+            promoted_doc_ids
+        ),
+
+        "promoted": (
+            promoted
+        ),
+
+        "skipped_count": len(
+            skipped_doc_ids
+        ),
+
+        "skipped_doc_ids": (
+            skipped_doc_ids
+        ),
+
+        "skipped": (
+            skipped
+        ),
+
+        "source_job_error_count": len(
+            source_job_errors
+        ),
+
+        "source_job_errors": (
+            source_job_errors
+        ),
+
+        "source_job_results": (
+            source_job_results
+        ),
+
+        "promotion_population_counts": (
+            refreshed_population.get(
+                "counts"
+            )
+            or {}
+        ),
+
+        "status": (
+            "completed"
+            if not source_job_errors
+            else "completed_with_errors"
+        ),
+
+        "message": (
+            f"{len(promoted_doc_ids)} "
+            "document(s) promoted to Review."
+        ),
+    }
 
 @router.get("/{workspace}/processing-center/jobs/{job_id}/report")
 def get_processing_job_report(

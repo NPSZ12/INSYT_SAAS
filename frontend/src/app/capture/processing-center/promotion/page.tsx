@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 
 import AppShell from "../../../../components/AppShell";
-import { apiGet } from "../../../../lib/api";
+import { apiGet, apiPost } from "../../../../lib/api";
 
 
 type PromotionDoc = {
@@ -180,6 +180,9 @@ function ProcessingCenterPromotionPageContent() {
 
   const [error, setError] =
     useState("");
+
+  const [promotingReview, setPromotingReview] =
+    useState(false);
 
   const [searchText, setSearchText] =
     useState("");
@@ -587,21 +590,100 @@ function ProcessingCenterPromotionPageContent() {
   }
 
 
-  function placeholderReviewPromotionAction() {
-    if (
-      selectedReviewIds.size === 0
-    ) {
-      setError(
-        "Select at least one Document Review Hit."
+async function promoteSelectedToReview() {
+  if (
+    selectedReviewIds.size === 0
+  ) {
+    setError(
+      "Select at least one Document Review Hit."
+    );
+
+    return;
+  }
+
+  if (!clientId || !projectId) {
+    setError(
+      "Client and project are required for Review promotion."
+    );
+
+    return;
+  }
+
+  const docIds = Array.from(
+    selectedReviewIds
+  );
+
+  setPromotingReview(true);
+  setError("");
+
+  try {
+    const response = await apiPost(
+      `/api/${encodeURIComponent(
+        workspace
+      )}/processing-center/promotion/promote-review`,
+      {
+        client: clientId,
+        project: projectId,
+        doc_ids: docIds,
+        overwrite: false,
+      }
+    );
+
+    const promotedCount =
+      Number(
+        response?.promoted_count || 0
       );
 
-      return;
+    const skippedCount =
+      Number(
+        response?.skipped_count || 0
+      );
+
+    const errorCount =
+      Number(
+        response?.source_job_error_count || 0
+      );
+
+    if (
+      skippedCount > 0 ||
+      errorCount > 0
+    ) {
+      console.warn(
+        "Review promotion completed with skipped/errors:",
+        response
+      );
     }
 
-    setError(
-      "Review promotion action is not wired yet. Population selection is working and ready for the write endpoint."
+    setSelectedReviewIds(
+      new Set()
     );
+
+    await loadPromotionPopulation();
+
+    if (
+      promotedCount === 0
+    ) {
+      setError(
+        response?.message ||
+          "No documents were promoted to Review."
+      );
+    }
+
+  } catch (err: any) {
+    console.error(
+      "Failed to promote selected documents to Review:",
+      err
+    );
+
+    setError(
+      err?.message ||
+        "Unable to promote selected documents to Review."
+    );
+
+  } finally {
+    setPromotingReview(false);
   }
+}
 
 
   const totalProcessed =
@@ -1072,17 +1154,20 @@ function ProcessingCenterPromotionPageContent() {
                   <button
                     type="button"
                     onClick={
-                      placeholderReviewPromotionAction
+                      promoteSelectedToReview
                     }
                     disabled={
+                      promotingReview ||
                       selectedReviewIds.size ===
-                      0
+                        0
                     }
                     className="inline-flex items-center gap-2 rounded-lg border border-sky-500 bg-sky-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <FileCheck2 className="h-3.5 w-3.5" />
 
-                    Promote Selected to Review
+                    {promotingReview
+                      ? "Promoting..."
+                      : "Promote Selected to Review"}
                   </button>
 
                 </div>
