@@ -178,8 +178,15 @@ function ProcessingCenterPromotionPageContent() {
   const [promotionData, setPromotionData] =
     useState<PromotionResponse | null>(null);
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    initialLoading,
+    setInitialLoading,
+  ] = useState(true);
+
+  const [
+    refreshing,
+    setRefreshing,
+  ] = useState(false);
 
   const [error, setError] =
     useState("");
@@ -248,12 +255,20 @@ function ProcessingCenterPromotionPageContent() {
     promotionData?.counts || {};
 
 
-  async function loadPromotionPopulation() {
+  async function loadPromotionPopulation(
+    isRefresh = false
+  ) {
     if (!clientId || !projectId) {
+      setInitialLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setInitialLoading(true);
+    }
+
     setError("");
 
     try {
@@ -277,10 +292,15 @@ function ProcessingCenterPromotionPageContent() {
           (
             response?.spreadsheet_hits ||
             []
-          ).map(
-            (doc: PromotionDoc) =>
-              doc.doc_id
           )
+            .filter(
+              (doc: PromotionDoc) =>
+                !doc.cyber2_sent
+            )
+            .map(
+              (doc: PromotionDoc) =>
+                doc.doc_id
+            )
         );
 
       const validReviewIds =
@@ -344,7 +364,8 @@ function ProcessingCenterPromotionPageContent() {
       );
 
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -645,7 +666,7 @@ async function sendSelectedToCyber2() {
       new Set()
     );
 
-    await loadPromotionPopulation();
+    await loadPromotionPopulation(true);
 
     if (sentCount === 0) {
       setError(
@@ -739,7 +760,7 @@ async function promoteSelectedToReview() {
       new Set()
     );
 
-    await loadPromotionPopulation();
+    await loadPromotionPopulation(true);
 
     if (
       promotedCount === 0
@@ -864,15 +885,15 @@ async function promoteSelectedToReview() {
 
           <button
             type="button"
-            onClick={
-              loadPromotionPopulation
+            onClick={() =>
+              loadPromotionPopulation(true)
             }
-            disabled={loading}
+            disabled={refreshing}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw
               className={`h-4 w-4 ${
-                loading
+                refreshing
                   ? "animate-spin"
                   : ""
               }`}
@@ -1051,7 +1072,7 @@ async function promoteSelectedToReview() {
 
         {/* Loading */}
 
-        {loading ? (
+        {initialLoading ? (
 
           <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-5 py-16 text-center">
 

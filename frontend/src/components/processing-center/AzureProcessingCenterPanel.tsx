@@ -860,13 +860,13 @@ export default function AzureProcessingCenterPanel({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={refreshAll}
-            disabled={false}
-            className="inline-flex h-10 min-w-[110px] items-center justify-center whitespace-nowrap rounded-full border border-blue-400/60 bg-blue-500/10 px-5 text-sm font-semibold text-blue-200 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={refreshUploads}
+            disabled={loadingUploads}
+            className="inline-flex h-10 min-w-[150px] items-center justify-center whitespace-nowrap rounded-full border border-blue-400/60 bg-blue-500/10 px-5 text-sm font-semibold text-blue-200 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loadingSettings || loadingUploads || loadingJobHistory
-              ? "Refreshing..."
-              : "Refresh"}
+            {loadingUploads
+              ? "Refreshing Uploads..."
+              : "Refresh Uploads"}
           </button>
 
           <label className="inline-flex h-10 items-center gap-3 rounded-full border border-slate-600 bg-slate-900/70 px-4 text-sm font-semibold text-slate-200">
@@ -1170,6 +1170,17 @@ export default function AzureProcessingCenterPanel({
               {uploads.length} file(s)
             </div>
 
+            <button
+              type="button"
+              onClick={refreshUploads}
+              disabled={loadingUploads}
+              className="inline-flex h-9 items-center justify-center rounded-full border border-blue-400/60 bg-blue-500/10 px-4 text-xs font-semibold text-blue-200 transition hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loadingUploads
+                ? "Refreshing..."
+                : "Refresh"}
+            </button>
+
             {isInsytAdmin() && uploads.length > 0 ? (
               <>
                 <button
@@ -1293,7 +1304,22 @@ export default function AzureProcessingCenterPanel({
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-        <div className="mb-3 font-medium">Storage routing</div>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="font-medium">
+            Storage routing
+          </div>
+
+          <button
+            type="button"
+            onClick={refreshSettings}
+            disabled={loadingSettings}
+            className="inline-flex h-8 items-center justify-center rounded-full border border-blue-400/60 bg-blue-500/10 px-3 text-xs font-semibold text-blue-200 transition hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loadingSettings
+              ? "Refreshing..."
+              : "Refresh"}
+          </button>
+        </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-lg bg-slate-950 px-3 py-2">

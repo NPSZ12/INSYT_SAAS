@@ -112,7 +112,7 @@ function AppShellContent({ children }: AppShellProps) {
       <div className="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar />
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main className="insyt-content-surface min-h-0 flex-1 overflow-y-auto bg-slate-950 text-white">
           {children}
         </main>
       </div>

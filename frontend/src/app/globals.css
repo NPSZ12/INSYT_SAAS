@@ -143,12 +143,17 @@
 
 
 /* =========================================================
-   FUTURE LIGHT MODE
-   This gives the eventual top-bar theme toggle a real
-   token system rather than requiring page rewrites.
+   CONTENT THEME
+   Only the main application workspace changes theme.
+
+   The permanent INSYT frame remains dark:
+   - Topbar
+   - Sidebar
+   - ProjectSidebar
    ========================================================= */
 
-html[data-theme="light"] {
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface {
   --background: #f8fafc;
   --foreground: #0f172a;
 
@@ -170,12 +175,224 @@ html[data-theme="light"] {
   --insyt-text-muted: #64748b;
   --insyt-text-subtle: #94a3b8;
   --insyt-text-disabled: #cbd5e1;
+
+  background: var(--insyt-bg);
+  color: var(--insyt-text-primary);
+}
+
+
+html[data-insyt-content-theme="dark"]
+  .insyt-content-surface {
+  --background: #070b12;
+  --foreground: #f8fafc;
+
+  --insyt-bg: #070b12;
+
+  --insyt-surface-1: #0f172a;
+  --insyt-surface-2: #111827;
+  --insyt-surface-3: #1e293b;
+
+  --insyt-surface-hover: #263449;
+  --insyt-surface-selected: #0c4a6e;
+
+  --insyt-border: #1e293b;
+  --insyt-border-strong: #334155;
+  --insyt-border-hover: #475569;
+
+  --insyt-text-primary: #f8fafc;
+  --insyt-text-secondary: #cbd5e1;
+  --insyt-text-muted: #94a3b8;
+  --insyt-text-subtle: #64748b;
+  --insyt-text-disabled: #475569;
+
+  background: var(--insyt-bg);
+  color: var(--insyt-text-primary);
 }
 
 
 /* =========================================================
    BASE DOCUMENT TYPOGRAPHY
    ========================================================= */
+
+/* =========================================================
+   LIGHT CONTENT SURFACE
+   Compatibility bridge for existing Tailwind slate classes.
+
+   These overrides are intentionally scoped to
+   .insyt-content-surface so the Topbar, Sidebar, and
+   ProjectSidebar always remain in INSYT dark mode.
+   ========================================================= */
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+
+/* ---------------------------------------------------------
+   BACKGROUNDS
+   --------------------------------------------------------- */
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-950\/70,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-950\/60,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-950\/50,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-950\/40,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-950\/30,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-950\/20 {
+  background-color: rgba(248, 250, 252, 0.94) !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-900\/70,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-900\/60,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-900\/50,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-900\/40 {
+  background-color: rgba(255, 255, 255, 0.94) !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .bg-slate-800\/70 {
+  background-color: rgba(241, 245, 249, 0.92) !important;
+}
+
+
+/* ---------------------------------------------------------
+   PRIMARY TEXT
+   --------------------------------------------------------- */
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .text-white,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .text-slate-100 {
+  color: #0f172a !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .text-slate-200 {
+  color: #1e293b !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .text-slate-300 {
+  color: #334155 !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .text-slate-400 {
+  color: #475569 !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .text-slate-500 {
+  color: #64748b !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .text-slate-600 {
+  color: #64748b !important;
+}
+
+
+/* ---------------------------------------------------------
+   BORDERS
+   --------------------------------------------------------- */
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .border-slate-900 {
+  border-color: #e2e8f0 !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .border-slate-800 {
+  border-color: #e2e8f0 !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .border-slate-600 {
+  border-color: #94a3b8 !important;
+}
+
+
+/* ---------------------------------------------------------
+   FORM CONTROLS
+   --------------------------------------------------------- */
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface input,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface textarea,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface select {
+  color: #0f172a;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface input::placeholder,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface textarea::placeholder {
+  color: #94a3b8;
+}
+
+
+/* ---------------------------------------------------------
+   TABLES / ROW HOVERS
+   --------------------------------------------------------- */
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .hover\:bg-slate-900\/70:hover,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .hover\:bg-slate-900\/50:hover {
+  background-color: #f1f5f9 !important;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .hover\:bg-slate-800:hover {
+  background-color: #e2e8f0 !important;
+}
+
+
+/* ---------------------------------------------------------
+   SHADOWS
+   --------------------------------------------------------- */
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .shadow-xl,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .shadow-lg,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .shadow-md {
+  --tw-shadow-color: rgba(15, 23, 42, 0.10);
+}
 
 html {
   background: var(--insyt-bg);

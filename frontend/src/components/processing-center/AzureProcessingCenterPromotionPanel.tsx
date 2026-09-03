@@ -231,6 +231,7 @@ export default function AzureProcessingCenterPromotionPanel({
     useState<SummaryExtractionUploadResult | null>(null);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [refreshingDetail, setRefreshingDetail] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [error, setError] = useState("");
 
@@ -311,24 +312,66 @@ export default function AzureProcessingCenterPromotionPanel({
     }
   }
 
-  async function loadStagedJob(jobId: string) {
+  async function loadStagedJob(
+    jobId: string,
+    isRefresh = false
+  ) {
     if (!jobId) return;
 
-    setLoadingDetail(true);
+    if (isRefresh) {
+      setRefreshingDetail(true);
+    } else {
+      setLoadingDetail(true);
+    }
+
     setError("");
-    setPromotionResult(null);
-    setSummaryExtractionResult(null);
+
+    if (!isRefresh) {
+      setPromotionResult(null);
+      setSummaryExtractionResult(null);
+    }
 
     try {
-      const data = (await apiGet(stagedJobDetailUrl(jobId))) as StagedJobDetail;
+      const data =
+        (await apiGet(
+          stagedJobDetailUrl(jobId)
+        )) as StagedJobDetail;
 
       setSelectedJobId(jobId);
       setSelectedJob(data);
-      setSelectedDocIds([]);
+
+      if (!isRefresh) {
+        setSelectedDocIds([]);
+      } else {
+        const availableDocIds =
+          new Set(
+            (data.docs || []).map(
+              (doc) => doc.doc_id
+            )
+          );
+
+        setSelectedDocIds(
+          (current) =>
+            current.filter(
+              (docId) =>
+                availableDocIds.has(
+                  docId
+                )
+            )
+        );
+      }
+
     } catch (err: any) {
-      setError(cleanError(err?.message || "Unable to load staged job."));
+      setError(
+        cleanError(
+          err?.message ||
+            "Unable to load staged job."
+        )
+      );
+
     } finally {
       setLoadingDetail(false);
+      setRefreshingDetail(false);
     }
   }
 
@@ -368,7 +411,11 @@ export default function AzureProcessingCenterPromotionPanel({
       setPromotionResult(result);
       setSelectedDocIds([]);
 
-      await loadStagedJob(selectedJobId);
+      await loadStagedJob(
+        selectedJobId,
+        true
+      );
+
       await refreshStagedJobs();
 
       if (onPromoted) {
@@ -428,7 +475,11 @@ export default function AzureProcessingCenterPromotionPanel({
       setSummaryExtractionResult(result);
       setSelectedDocIds([]);
 
-      await loadStagedJob(selectedJobId);
+      await loadStagedJob(
+        selectedJobId,
+        true
+      );
+
       await refreshStagedJobs();
 
       if (onPromoted) {
@@ -632,9 +683,18 @@ export default function AzureProcessingCenterPromotionPanel({
               <>
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="font-semibold text-slate-100">
-                      {selectedJob.job_id}
+                    <div className="flex items-center gap-2">
+                      <div className="font-semibold text-slate-100">
+                        {selectedJob.job_id}
+                      </div>
+
+                      {refreshingDetail ? (
+                        <span className="text-xs text-sky-300">
+                          Refreshing...
+                        </span>
+                      ) : null}
                     </div>
+
                     <div className="mt-1 break-all text-xs text-slate-500">
                       {selectedJob.staged_prefix}
                     </div>

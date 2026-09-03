@@ -7,6 +7,11 @@ import {
   useSearchParams,
 } from "next/navigation";
 
+import {
+  Moon,
+  Sun,
+} from "lucide-react";
+
 import Button from "./Button";
 
 type StoredUser = {
@@ -54,6 +59,9 @@ export default function Topbar() {
   const [user, setUser] =
     useState<StoredUser | null>(null);
 
+  const [contentTheme, setContentTheme] =
+    useState<"dark" | "light">("dark");
+
   /**
    * IMPORTANT:
    * Only use actual URL project selection.
@@ -75,7 +83,47 @@ export default function Topbar() {
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
+
+    const storedTheme =
+      localStorage.getItem(
+        "insyt_content_theme"
+      );
+
+    const nextTheme =
+      storedTheme === "light"
+        ? "light"
+        : "dark";
+
+    setContentTheme(
+      nextTheme
+    );
+
+    document.documentElement.setAttribute(
+      "data-insyt-content-theme",
+      nextTheme
+    );
   }, []);
+
+  function toggleContentTheme() {
+    const nextTheme =
+      contentTheme === "dark"
+        ? "light"
+        : "dark";
+
+    setContentTheme(
+      nextTheme
+    );
+
+    localStorage.setItem(
+      "insyt_content_theme",
+      nextTheme
+    );
+
+    document.documentElement.setAttribute(
+      "data-insyt-content-theme",
+      nextTheme
+    );
+  }
 
   function handleLogout() {
     localStorage.removeItem("insyt_access_token");
@@ -143,6 +191,30 @@ export default function Topbar() {
       {/* RIGHT */}
       <div className="flex items-center gap-4">
 
+        <button
+          type="button"
+          onClick={
+            toggleContentTheme
+          }
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-700 bg-slate-900 text-slate-300 transition-colors hover:border-slate-600 hover:bg-slate-800 hover:text-white"
+          title={
+            contentTheme === "dark"
+              ? "Switch workspace to light mode"
+              : "Switch workspace to dark mode"
+          }
+          aria-label={
+            contentTheme === "dark"
+              ? "Switch workspace to light mode"
+              : "Switch workspace to dark mode"
+          }
+        >
+          {contentTheme === "dark" ? (
+            <Sun className="h-5 w-5" />
+          ) : (
+            <Moon className="h-5 w-5" />
+          )}
+        </button>
+
         <span className="text-sm text-slate-400">
           Environment: Local Dev
         </span>
@@ -177,11 +249,3 @@ export default function Topbar() {
     </header>
   );
 }
-
-
-
-
-
-
-
-

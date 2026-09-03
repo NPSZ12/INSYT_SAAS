@@ -111,7 +111,15 @@ function DataElementDetectionPageContent() {
   const [selectedDocIds, setSelectedDocIds] =
     useState<Set<string>>(new Set());
 
-  const [loadingReady, setLoadingReady] = useState(false);
+  const [
+    initialLoadingReady,
+    setInitialLoadingReady,
+  ] = useState(true);
+
+  const [
+    refreshingReady,
+    setRefreshingReady,
+  ] = useState(false);
   const [startingDetection, setStartingDetection] = useState(false);
 
   const [detectionJobId, setDetectionJobId] = useState("");
@@ -146,43 +154,67 @@ function DataElementDetectionPageContent() {
     );
   }, [readyDocs]);
 
-  async function loadDetectionReady() {
+  async function loadDetectionReady(
+    isRefresh = false
+  ) {
     if (!clientId || !projectId) {
+      setInitialLoadingReady(false);
       return;
     }
 
-    setLoadingReady(true);
+    if (isRefresh) {
+      setRefreshingReady(true);
+    } else {
+      setInitialLoadingReady(true);
+    }
+
     setError("");
 
     try {
-      const params = new URLSearchParams({
-        client: clientId,
-        project: projectId,
-      });
+      const params =
+        new URLSearchParams({
+          client: clientId,
+          project: projectId,
+        });
 
-      const response = await apiGet(
-        `/api/capture/processing-center/data-element-detection/ready?${params.toString()}`
-      );
+      const response =
+        await apiGet(
+          `/api/capture/processing-center/data-element-detection/ready?${params.toString()}`
+        );
 
       setReadyData(response);
 
-      const availableDocIds = new Set(
-        (response?.docs || []).map(
-          (doc: DetectionReadyDoc) => doc.doc_id
-        )
+      const availableDocIds =
+        new Set(
+          (
+            response?.docs ||
+            []
+          ).map(
+            (
+              doc: DetectionReadyDoc
+            ) => doc.doc_id
+          )
+        );
+
+      setSelectedDocIds(
+        (current) => {
+          const next =
+            new Set<string>();
+
+          for (const docId of current) {
+            if (
+              availableDocIds.has(
+                docId
+              )
+            ) {
+              next.add(docId);
+            }
+          }
+
+          return next;
+        }
       );
 
-      setSelectedDocIds((current) => {
-        const next = new Set<string>();
-
-        for (const docId of current) {
-          if (availableDocIds.has(docId)) {
-            next.add(docId);
-          }
-        }
-
-        return next;
-      });
     } catch (err: any) {
       console.error(
         "Failed to load detection-ready documents:",
@@ -193,8 +225,10 @@ function DataElementDetectionPageContent() {
         err?.message ||
           "Unable to load Detection Ready documents."
       );
+
     } finally {
-      setLoadingReady(false);
+      setInitialLoadingReady(false);
+      setRefreshingReady(false);
     }
   }
 
@@ -364,7 +398,7 @@ function DataElementDetectionPageContent() {
         if (status === "completed") {
           await loadDetectionSummary();
 
-          await loadDetectionReady();
+          await loadDetectionReady(true);
 
           return;
         }
@@ -521,13 +555,17 @@ function DataElementDetectionPageContent() {
 
           <button
             type="button"
-            onClick={loadDetectionReady}
-            disabled={loadingReady}
+            onClick={() =>
+              loadDetectionReady(true)
+            }
+            disabled={refreshingReady}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
           >
             <RefreshCw
               className={`h-4 w-4 ${
-                loadingReady ? "animate-spin" : ""
+                refreshingReady
+                  ? "animate-spin"
+                  : ""
               }`}
             />
 
@@ -611,7 +649,7 @@ function DataElementDetectionPageContent() {
           </div>
 
           <div className="max-h-[520px] overflow-y-auto p-5">
-            {loadingReady ? (
+            {initialLoadingReady ? (
               <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
                 Loading Detection Ready documents...
               </div>
