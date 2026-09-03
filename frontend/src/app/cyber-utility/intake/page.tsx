@@ -12,7 +12,10 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import { useSearchParams } from "next/navigation";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 
 import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
@@ -76,6 +79,9 @@ type Cyber2IntakeResponse = {
 function Cyber2IntakeContent() {
   const searchParams =
     useSearchParams();
+
+  const router =
+    useRouter();
 
   const workspace =
     searchParams.get("workspace") ||
@@ -162,6 +168,75 @@ function Cyber2IntakeContent() {
   const documents =
     intakeData?.documents ||
     [];
+
+  function openDocument(
+    doc: Cyber2IntakeDocument
+  ) {
+    const docId =
+      String(
+        doc.doc_id ||
+        ""
+      ).trim();
+
+    const nativeBlob =
+      String(
+        doc.source_csv_path ||
+        ""
+      ).trim();
+
+    if (!docId) {
+      console.error(
+        "Unable to open Cyber² Intake file because doc_id is missing.",
+        doc
+      );
+
+      return;
+    }
+
+    if (!nativeBlob) {
+      console.error(
+        "Unable to open Cyber² Intake file because source_csv_path is missing.",
+        doc
+      );
+
+      setError(
+        "Unable to open this file because its staged CSV path is missing."
+      );
+
+      return;
+    }
+
+    const params =
+      new URLSearchParams();
+
+    if (client) {
+      params.set(
+        "client",
+        client
+      );
+    }
+
+    if (project) {
+      params.set(
+        "project",
+        project
+      );
+    }
+
+    params.set(
+      "doc",
+      docId
+    );
+
+    params.set(
+      "native_blob",
+      nativeBlob
+    );
+
+    router.push(
+      `/capture/review/doc?${params.toString()}`
+    );
+  }
 
   return (
     <AppShell>
@@ -341,8 +416,19 @@ function Cyber2IntakeContent() {
                         className="bg-slate-950/20 hover:bg-slate-900/70"
                       >
 
-                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-sky-300">
-                          {doc.doc_id}
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openDocument(
+                                doc
+                              )
+                            }
+                            className="text-sky-400 underline transition-colors hover:text-sky-300"
+                            title="Open in Review"
+                          >
+                            {doc.doc_id}
+                          </button>
                         </td>
 
 
