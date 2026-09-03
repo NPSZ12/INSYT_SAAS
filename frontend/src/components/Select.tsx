@@ -2,28 +2,25 @@ type SelectProps = {
   children: React.ReactNode;
   value?: string;
   onChange?: (value: string) => void;
+  disabled?: boolean;
+  className?: string;
 };
 
 export default function Select({
   children,
   value,
   onChange,
+  disabled = false,
+  className = "",
 }: SelectProps) {
   return (
     <select
       value={value}
       onChange={(event) => onChange?.(event.target.value)}
-      className="w-full p-3 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-sky-500"
+      disabled={disabled}
+      className={`insyt-control insyt-select ${className}`}
     >
       {children}
     </select>
   );
 }
-
-
-
-
-
-
-
-

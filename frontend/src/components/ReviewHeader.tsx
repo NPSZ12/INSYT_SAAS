@@ -43,14 +43,14 @@ export default function ReviewHeader({
     );
 
   return (
-    <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between gap-4">
+    <header className="flex h-16 items-center justify-between gap-4 border-b border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] px-6">
       <div className="min-w-0">
-        <p className="text-xs text-slate-400 truncate">
+        <p className="truncate text-xs text-[var(--insyt-text-muted)]">
           {project} / {batch} / {docId}
         </p>
       </div>
 
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex shrink-0 items-center gap-3">
         {!hideDocNavigation && (
           <>
             <Button variant="secondary" onClick={onFirstDoc}>
@@ -63,7 +63,7 @@ export default function ReviewHeader({
           </>
         )}
 
-        <span className="min-w-28 text-center text-sm text-slate-300 whitespace-nowrap">
+        <span className="min-w-28 whitespace-nowrap text-center text-sm font-medium text-[var(--insyt-text-secondary)]">
           {positionLabel}
         </span>
 

@@ -202,7 +202,7 @@ export default function FinalEntitySourceViewer({
           />
 
           <ContentCard title="Missing Source Documents">
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-[var(--insyt-text-muted)]">
               Return to the Final tab and select a grouped Doc ID value again.
             </p>
           </ContentCard>
@@ -223,42 +223,42 @@ export default function FinalEntitySourceViewer({
         />
 
         <ContentCard title="Source Document Set">
-          <div className="mb-4 grid grid-cols-1 gap-3 text-sm text-slate-400 md:grid-cols-4">
+          <div className="mb-4 grid grid-cols-1 gap-3 text-sm text-[var(--insyt-text-muted)] md:grid-cols-4">
             <p>
               Captured Entity:{" "}
-              <span className="font-semibold text-slate-100">
+              <span className="font-semibold text-[var(--insyt-text-primary)]">
                 {capturedEntity || "Unknown Entity"}
               </span>
             </p>
 
             <p>
               INSYT UID:{" "}
-              <span className="font-semibold text-slate-100">
+              <span className="font-semibold text-[var(--insyt-text-primary)]">
                 {entityUid || "Not available"}
               </span>
             </p>
 
             <p>
               Project:{" "}
-              <span className="font-semibold text-slate-100">
+              <span className="font-semibold text-[var(--insyt-text-primary)]">
                 {projectId}
               </span>
             </p>
 
             <p>
               Source Docs:{" "}
-              <span className="font-semibold text-slate-100">
+              <span className="font-semibold text-[var(--insyt-text-primary)]">
                 {docIds.length}
               </span>
             </p>
           </div>
 
-          <div className="mb-4 rounded-xl border border-slate-800 bg-slate-950 p-3">
-            <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">
+          <div className="mb-4 rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3">
+            <p className="mb-2 text-xs uppercase tracking-wide text-[var(--insyt-text-muted)]">
               Grouped Final Doc IDs
             </p>
 
-            <p className="whitespace-pre-wrap text-sm text-slate-300">
+            <p className="whitespace-pre-wrap text-sm text-[var(--insyt-text-secondary)]">
               {docIds.join("; ")}
             </p>
           </div>
@@ -267,7 +267,7 @@ export default function FinalEntitySourceViewer({
             <button
               type="button"
               onClick={selectAll}
-              className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+              className="rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
             >
               Select All
             </button>
@@ -275,7 +275,7 @@ export default function FinalEntitySourceViewer({
             <button
               type="button"
               onClick={clearSelection}
-              className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+              className="rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
             >
               Clear Selection
             </button>
@@ -291,7 +291,7 @@ export default function FinalEntitySourceViewer({
             <button
               type="button"
               onClick={openAllDocs}
-              className="inline-flex h-10 min-w-[170px] items-center justify-center whitespace-nowrap rounded-full border border-emerald-400/60 bg-emerald-500/15 px-5 text-sm font-semibold text-emerald-200 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-emerald-600 bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-emerald-500 hover:bg-emerald-500"
             >
               Open Review for All
             </button>
@@ -300,33 +300,33 @@ export default function FinalEntitySourceViewer({
               type="button"
               onClick={exportSelectedDocs}
               disabled={isExporting || selectedDocIds.length === 0}
-              className="inline-flex h-10 min-w-[150px] items-center justify-center whitespace-nowrap rounded-full border border-blue-500/70 bg-blue-950/70 px-5 text-sm font-semibold text-blue-100 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-blue-600 bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-blue-500 hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isExporting ? "Exporting..." : "Export Selected"}
             </button>
           </div>
 
-          <p className="mb-4 text-xs text-slate-500">
+          <p className="mb-4 text-xs text-[var(--insyt-text-muted)]">
             Selected for review/export:{" "}
             {selectedDocIds.length === 0
               ? "None"
               : selectedDocIds.join("; ")}
           </p>
 
-          <div className="overflow-auto rounded-xl border border-slate-800">
+          <div className="overflow-auto rounded-xl border border-[var(--insyt-border)]">
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-900 text-slate-400">
+              <thead className="bg-[var(--insyt-surface-2)] text-[var(--insyt-text-muted)]">
                 <tr>
-                  <th className="w-12 border-b border-slate-800 p-3 text-left">
+                  <th className="w-12 border-b border-[var(--insyt-border)] p-3 text-left">
                     Select
                   </th>
-                  <th className="border-b border-slate-800 p-3 text-left">
+                  <th className="border-b border-[var(--insyt-border)] p-3 text-left">
                     Doc ID
                   </th>
-                  <th className="border-b border-slate-800 p-3 text-left">
+                  <th className="border-b border-[var(--insyt-border)] p-3 text-left">
                     Action
                   </th>
-                  <th className="border-b border-slate-800 p-3 text-left">
+                  <th className="border-b border-[var(--insyt-border)] p-3 text-left">
                     Export
                   </th>
                 </tr>
@@ -336,7 +336,7 @@ export default function FinalEntitySourceViewer({
                 {docIds.map((docId, index) => (
                   <tr
                     key={`${docId}-${index}`}
-                    className="border-t border-slate-800"
+                    className="border-t border-[var(--insyt-border)]"
                   >
                     <td className="p-3">
                       <input
@@ -347,7 +347,7 @@ export default function FinalEntitySourceViewer({
                       />
                     </td>
 
-                    <td className="p-3 font-mono text-slate-200">
+                    <td className="p-3 font-mono text-[var(--insyt-text-secondary)]">
                       {docId}
                     </td>
 
@@ -361,7 +361,7 @@ export default function FinalEntitySourceViewer({
                       </button>
                     </td>
 
-                    <td className="p-3 text-slate-500">
+                    <td className="p-3 text-[var(--insyt-text-muted)]">
                       {isSelected(docId)
                         ? "Selected"
                         : "Not selected"}

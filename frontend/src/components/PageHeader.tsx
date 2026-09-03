@@ -1,26 +1,23 @@
 type PageHeaderProps = {
   title: string;
   subtitle: string;
+  className?: string;
 };
 
-export default function PageHeader({ title, subtitle }: PageHeaderProps) {
+export default function PageHeader({
+  title,
+  subtitle,
+  className = "",
+}: PageHeaderProps) {
   return (
-    <div className="mb-10">
-      <h1 className="insyt-workspace text-4xl font-bold text-white">
+    <div className={`insyt-page-header ${className}`}>
+      <h1 className="insyt-page-title">
         {title}
       </h1>
 
-      <p className="text-slate-400 mt-2">
+      <p className="insyt-page-subtitle">
         {subtitle}
       </p>
     </div>
   );
 }
-
-
-
-
-
-
-
-

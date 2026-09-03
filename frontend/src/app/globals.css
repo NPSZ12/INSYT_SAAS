@@ -454,6 +454,17 @@ body {
   font-weight: 600;
 }
 
+.insyt-form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+
+  color: var(--insyt-text-muted);
+
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
 .insyt-mono {
   font-family:
     var(--font-geist-mono),
@@ -522,6 +533,535 @@ body {
   border-color: var(--insyt-border-hover);
 }
 
+.insyt-project-card {
+  background: var(--insyt-surface-2);
+  border: 1px solid var(--insyt-border);
+  border-radius: var(--insyt-radius-xl);
+  padding: 1.5rem;
+
+  transition:
+    background-color var(--insyt-transition-fast) ease,
+    border-color var(--insyt-transition-fast) ease;
+}
+
+.insyt-project-card:hover {
+  background: var(--insyt-surface-hover);
+  border-color: var(--insyt-brand);
+}
+
+.insyt-project-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.insyt-project-card-title {
+  color: var(--insyt-text-primary);
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+}
+
+.insyt-project-card-client {
+  margin-top: 0.25rem;
+  color: var(--insyt-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.insyt-project-card-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.insyt-project-card-stat {
+  background: var(--insyt-surface-1);
+  border: 1px solid var(--insyt-border);
+  border-radius: var(--insyt-radius-lg);
+  padding: 1rem;
+}
+
+.insyt-project-card-stat-label {
+  color: var(--insyt-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.insyt-project-card-stat-value {
+  margin-top: 0.25rem;
+  color: var(--insyt-text-primary);
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 700;
+}
+
+.insyt-project-card-action {
+  margin-top: 1.5rem;
+}
+
+.insyt-empty-state {
+  background: var(--insyt-surface-1);
+  border: 1px solid var(--insyt-border);
+  border-radius: var(--insyt-radius-xl);
+  padding: 2.5rem;
+  text-align: center;
+}
+
+.insyt-empty-state-title {
+  margin-bottom: 0.5rem;
+  color: var(--insyt-text-primary);
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+}
+
+.insyt-empty-state-message {
+  color: var(--insyt-text-muted);
+}
+
+/* =========================================================
+   SHARED CONTENT LAYOUT
+   Universal pane, subpanel, metric, and text roles.
+   ========================================================= */
+
+.insyt-pane {
+  background: var(--insyt-surface-1);
+  border: 1px solid var(--insyt-border);
+  border-radius: var(--insyt-radius-lg);
+  padding: 1rem;
+}
+
+.insyt-page-container {
+  min-height: 100%;
+  padding: 2.5rem;
+  color: var(--insyt-text-primary);
+}
+
+.insyt-section-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.insyt-section-grid-2 {
+  grid-template-columns: 1fr;
+}
+
+.insyt-section-grid-3 {
+  grid-template-columns: 1fr;
+}
+
+.insyt-section-grid-4 {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+  .insyt-section-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .insyt-section-grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .insyt-section-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .insyt-section-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .insyt-section-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.insyt-page-header {
+  margin-bottom: 2.5rem;
+}
+
+.insyt-page-title {
+  color: var(--insyt-text-primary);
+  font-size: 2.25rem;
+  line-height: 2.5rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.insyt-page-subtitle {
+  margin-top: 0.5rem;
+  color: var(--insyt-text-muted);
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.insyt-subpanel {
+  background: var(--insyt-surface-2);
+  border: 1px solid var(--insyt-border);
+  border-radius: var(--insyt-radius-lg);
+}
+
+.insyt-metric {
+  background: var(--insyt-surface-2);
+  border: 1px solid var(--insyt-border);
+  border-radius: var(--insyt-radius-md);
+  padding: 0.75rem;
+}
+
+.insyt-text-primary {
+  color: var(--insyt-text-primary);
+}
+
+.insyt-text-secondary {
+  color: var(--insyt-text-secondary);
+}
+
+.insyt-text-muted {
+  color: var(--insyt-text-muted);
+}
+
+.insyt-text-subtle {
+  color: var(--insyt-text-subtle);
+}
+
+
+/* =========================================================
+   BUTTON SYSTEM
+   Button geometry, typography, colors, focus, hover,
+   active, and disabled states are defined here globally.
+   ========================================================= */
+
+.insyt-btn {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+
+  padding: 0.625rem 1.25rem;
+
+  border: 1px solid transparent;
+  border-radius: var(--insyt-radius-lg);
+
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+
+  cursor: pointer;
+
+  transition:
+    background-color var(--insyt-transition-fast) ease,
+    border-color var(--insyt-transition-fast) ease,
+    color var(--insyt-transition-fast) ease,
+    box-shadow var(--insyt-transition-fast) ease,
+    transform var(--insyt-transition-fast) ease;
+}
+
+.insyt-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.insyt-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.insyt-btn:focus,
+.insyt-btn:focus-visible {
+  outline: none;
+
+  box-shadow:
+    0 0 0 2px var(--insyt-focus);
+}
+
+.insyt-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+.insyt-btn-sm {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.insyt-btn-lg {
+  min-height: 2.75rem;
+  padding: 0.75rem 1.5rem;
+}
+
+.insyt-btn-full {
+  width: 100%;
+}
+
+
+/* ---------------------------------------------------------
+   BUTTON VARIANTS
+   --------------------------------------------------------- */
+
+.insyt-btn-primary {
+  background: var(--insyt-brand);
+  border-color: var(--insyt-brand);
+  color: #ffffff;
+}
+
+.insyt-btn-primary:hover:not(:disabled) {
+  background: var(--insyt-brand-hover);
+  border-color: var(--insyt-brand-hover);
+}
+
+.insyt-btn-primary:active:not(:disabled) {
+  background: var(--insyt-brand-active);
+  border-color: var(--insyt-brand-active);
+}
+
+
+.insyt-btn-secondary {
+  background: var(--insyt-surface-2);
+  border-color: var(--insyt-border-strong);
+  color: var(--insyt-text-secondary);
+}
+
+.insyt-btn-secondary:hover:not(:disabled) {
+  background: var(--insyt-surface-hover);
+  border-color: var(--insyt-border-hover);
+  color: var(--insyt-text-primary);
+}
+
+
+.insyt-btn-success {
+  background: var(--insyt-success);
+  border-color: var(--insyt-success);
+  color: #ffffff;
+}
+
+.insyt-btn-success:hover:not(:disabled) {
+  background: var(--insyt-success-hover);
+  border-color: var(--insyt-success-hover);
+}
+
+.insyt-btn-success:active:not(:disabled) {
+  background: var(--insyt-success-active);
+  border-color: var(--insyt-success-active);
+}
+
+
+.insyt-btn-warning {
+  background: var(--insyt-warning);
+  border-color: var(--insyt-warning);
+  color: #ffffff;
+}
+
+.insyt-btn-warning:hover:not(:disabled) {
+  background: var(--insyt-warning-hover);
+  border-color: var(--insyt-warning-hover);
+}
+
+.insyt-btn-warning:active:not(:disabled) {
+  background: var(--insyt-warning-active);
+  border-color: var(--insyt-warning-active);
+}
+
+
+.insyt-btn-danger {
+  background: var(--insyt-danger);
+  border-color: var(--insyt-danger);
+  color: #ffffff;
+}
+
+.insyt-btn-danger:hover:not(:disabled) {
+  background: var(--insyt-danger-hover);
+  border-color: var(--insyt-danger-hover);
+}
+
+.insyt-btn-danger:active:not(:disabled) {
+  background: var(--insyt-danger-active);
+  border-color: var(--insyt-danger-active);
+}
+
+
+.insyt-btn-info {
+  background: var(--insyt-info);
+  border-color: var(--insyt-info);
+  color: #ffffff;
+}
+
+.insyt-btn-info:hover:not(:disabled) {
+  background: var(--insyt-info-hover);
+  border-color: var(--insyt-info-hover);
+}
+
+
+.insyt-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--insyt-text-secondary);
+}
+
+.insyt-btn-ghost:hover:not(:disabled) {
+  background: var(--insyt-surface-hover);
+  border-color: var(--insyt-border);
+  color: var(--insyt-text-primary);
+}
+
+
+/* =========================================================
+   STATUS / MESSAGE SYSTEM
+   ========================================================= */
+
+.insyt-message {
+  border-radius: var(--insyt-radius-lg);
+  border: 1px solid;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+}
+
+.insyt-message-info {
+  background: rgba(14, 165, 233, 0.10);
+  border-color: rgba(14, 165, 233, 0.40);
+  color: var(--insyt-info);
+}
+
+.insyt-message-success {
+  background: rgba(13, 148, 136, 0.10);
+  border-color: rgba(13, 148, 136, 0.40);
+  color: var(--insyt-success);
+}
+
+.insyt-message-warning {
+  background: rgba(217, 119, 6, 0.10);
+  border-color: rgba(217, 119, 6, 0.40);
+  color: var(--insyt-warning);
+}
+
+.insyt-message-danger {
+  background: rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.40);
+  color: var(--insyt-danger);
+}
+
+/* =========================================================
+   STATUS BADGES
+   ========================================================= */
+
+.insyt-status {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 0.25rem 0.75rem;
+
+  border: 1px solid;
+  border-radius: 9999px;
+
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem;
+}
+
+.insyt-status-neutral {
+  background: var(--insyt-surface-2);
+  border-color: var(--insyt-border-strong);
+  color: var(--insyt-text-secondary);
+}
+
+.insyt-status-info {
+  background: rgba(14, 165, 233, 0.10);
+  border-color: rgba(14, 165, 233, 0.40);
+  color: var(--insyt-info);
+}
+
+.insyt-status-success {
+  background: rgba(13, 148, 136, 0.10);
+  border-color: rgba(13, 148, 136, 0.40);
+  color: var(--insyt-success);
+}
+
+.insyt-status-warning {
+  background: rgba(217, 119, 6, 0.10);
+  border-color: rgba(217, 119, 6, 0.40);
+  color: var(--insyt-warning);
+}
+
+.insyt-status-danger {
+  background: rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.40);
+  color: var(--insyt-danger);
+}
+
+/* =========================================================
+   TABLE SYSTEM
+   ========================================================= */
+
+.insyt-table-shell {
+  overflow: auto;
+  background: var(--insyt-surface-1);
+  border: 1px solid var(--insyt-border);
+  border-radius: var(--insyt-radius-lg);
+}
+
+.insyt-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.insyt-table-header {
+  background: var(--insyt-surface-2);
+  color: var(--insyt-text-muted);
+}
+
+.insyt-table-header-cell {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--insyt-border);
+  color: var(--insyt-text-secondary);
+  font-weight: 600;
+  text-align: left;
+}
+
+.insyt-table-row {
+  border-top: 1px solid var(--insyt-border);
+}
+
+.insyt-table-row:hover {
+  background: var(--insyt-surface-hover);
+}
+
+.insyt-table-cell {
+  padding: 0.75rem;
+  color: var(--insyt-text-secondary);
+}
+
+.insyt-table-sticky {
+  background: var(--insyt-surface-1);
+}
+
+
+/* =========================================================
+   CHECKBOX / RADIO BASE
+   ========================================================= */
+
+.insyt-check {
+  width: 1rem;
+  height: 1rem;
+
+  background: var(--insyt-surface-1);
+  border: 1px solid var(--insyt-border-strong);
+  border-radius: var(--insyt-radius-sm);
+
+  accent-color: var(--insyt-brand);
+}
+
+.insyt-radio {
+  width: 1rem;
+  height: 1rem;
+
+  accent-color: var(--insyt-brand);
+}
 
 /* =========================================================
    FORM CONTROL BASE
@@ -553,6 +1093,79 @@ body {
     0 0 0 2px rgba(56, 189, 248, 0.22);
 }
 
+/* =========================================================
+   INPUT / SELECT / TEXTAREA SIZING
+   ========================================================= */
+
+.insyt-input,
+.insyt-select,
+.insyt-textarea {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.insyt-input::placeholder,
+.insyt-textarea::placeholder {
+  color: var(--insyt-text-subtle);
+}
+
+.insyt-input:disabled,
+.insyt-select:disabled,
+.insyt-textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.insyt-textarea {
+  resize: none;
+}
+
+/* =========================================================
+   FILE INPUT
+   ========================================================= */
+
+.insyt-file-input {
+  display: block;
+  width: 100%;
+
+  padding: 0.5rem 0.75rem;
+
+  color: var(--insyt-text-secondary);
+
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+
+  cursor: pointer;
+}
+
+.insyt-file-input::file-selector-button {
+  margin-right: 1rem;
+
+  padding: 0.5rem 1rem;
+
+  background: var(--insyt-brand);
+  color: #ffffff;
+
+  border: 1px solid var(--insyt-brand);
+  border-radius: var(--insyt-radius-lg);
+
+  font-size: 0.875rem;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition:
+    background-color var(--insyt-transition-fast) ease,
+    border-color var(--insyt-transition-fast) ease;
+}
+
+.insyt-file-input:hover::file-selector-button {
+  background: var(--insyt-brand-hover);
+  border-color: var(--insyt-brand-hover);
+}
 
 /* =========================================================
    ACCESSIBILITY / SELECTION

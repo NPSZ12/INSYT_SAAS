@@ -1,29 +1,23 @@
 type EmptyStateProps = {
   title: string;
   message: string;
+  className?: string;
 };
 
 export default function EmptyState({
   title,
   message,
+  className = "",
 }: EmptyStateProps) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center">
-      <h3 className="text-2xl font-semibold text-white mb-2">
+    <div className={`insyt-empty-state ${className}`}>
+      <h3 className="insyt-empty-state-title">
         {title}
       </h3>
 
-      <p className="text-slate-400">
+      <p className="insyt-empty-state-message">
         {message}
       </p>
     </div>
   );
 }
-
-
-
-
-
-
-
-

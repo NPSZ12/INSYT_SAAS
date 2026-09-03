@@ -502,15 +502,15 @@ export default function AzureProcessingCenterPromotionPanel({
   }, [stagedJobsUrl]);
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <div className="insyt-pane">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="font-medium">
+          <div className="font-medium insyt-text-primary">
             {isSummaries
               ? "Processed Results / Summary Extraction Landing"
               : "Processed Results / Promotion Landing"}
           </div>
-          <div className="mt-1 text-sm text-slate-400">
+          <div className="mt-1 text-sm insyt-text-muted">
             {isSummaries
               ? "Review staged APC Native/Text outputs before uploading them into the Summaries extraction workflow."
               : "Review staged APC Native/Text outputs before promoting them into live project source folders."}
@@ -521,27 +521,27 @@ export default function AzureProcessingCenterPromotionPanel({
           type="button"
           onClick={refreshStagedJobs}
           disabled={loadingJobs}
-          className="inline-flex h-9 min-w-[150px] items-center justify-center whitespace-nowrap rounded-full border border-blue-400/60 bg-blue-500/10 px-4 text-xs font-semibold text-blue-200 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="insyt-btn insyt-btn-secondary insyt-btn-sm"
         >
           {loadingJobs ? "Refreshing..." : "Refresh Processed Results"}
         </button>
       </div>
 
       {error ? (
-        <div className="mb-3 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-sm text-red-200">
+        <div className="insyt-message insyt-message-danger mb-3">
           {error}
         </div>
       ) : null}
 
       {promotionResult ? (
-        <div className="mb-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+        <div className="insyt-message insyt-message-success mb-3">
           Promotion completed. Promoted {promotionResult.promoted_count ?? 0} doc(s).{" "}
           {promotionResult.skipped_count ?? 0} already promoted / skipped.
         </div>
       ) : null}
 
       {summaryExtractionResult ? (
-        <div className="mb-3 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
+        <div className="insyt-message insyt-message-info mb-3">
           Summary Extraction upload completed. Uploaded{" "}
           {summaryExtractionResult.uploaded_count ?? 0} doc(s).{" "}
           {summaryExtractionResult.skipped_count ?? 0} skipped.
@@ -549,19 +549,19 @@ export default function AzureProcessingCenterPromotionPanel({
       ) : null}
 
       {jobs.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-4 text-sm text-slate-500">
+        <div className="insyt-subpanel px-4 py-4 text-sm insyt-text-muted">
           No staged review-ready documents are waiting for promotion.
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
           <div className="space-y-4">
             <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
                 {isSummaries ? "Ready for Summary Extraction" : "Ready for Promotion"}
               </div>
 
               {readyJobs.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-500">
+                <div className="insyt-subpanel px-4 py-3 text-sm insyt-text-muted">
                   No jobs are currently ready for promotion.
                 </div>
               ) : (
@@ -576,33 +576,33 @@ export default function AzureProcessingCenterPromotionPanel({
                         onClick={() => loadStagedJob(job.job_id)}
                         className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
                           selected
-                            ? "border-violet-400/70 bg-violet-500/15"
-                            : "border-slate-800 bg-slate-950 hover:border-slate-600"
+                            ? "border-[var(--insyt-brand)] bg-[var(--insyt-brand-soft)]"
+                            : "border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] hover:border-[var(--insyt-border-hover)] hover:bg-[var(--insyt-surface-hover)]"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="font-semibold text-slate-100">
+                          <div className="font-semibold insyt-text-primary">
                             {job.job_id}
                           </div>
-                          <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">
+                          <div className="insyt-status insyt-status-success">
                             {getJobStatusLabel(job)}
                           </div>
                         </div>
 
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs insyt-text-muted">
                           Completed: {formatDateTime(job.completed_at)}
                         </div>
 
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                          <div className="rounded-lg bg-slate-900 px-2 py-1">
-                            <div className="text-slate-500">Docs</div>
-                            <div className="font-semibold text-slate-100">
+                          <div className="insyt-metric px-2 py-1">
+                            <div className="insyt-text-muted">Docs</div>
+                            <div className="font-semibold insyt-text-primary">
                               {job.doc_count ?? 0}
                             </div>
                           </div>
-                          <div className="rounded-lg bg-slate-900 px-2 py-1">
-                            <div className="text-slate-500">Ready</div>
-                            <div className="font-semibold text-emerald-100">
+                          <div className="insyt-metric px-2 py-1">
+                            <div className="insyt-text-muted">Ready</div>
+                            <div className="font-semibold text-[var(--insyt-success)]">
                               {job.ready_to_promote_count ?? 0}
                             </div>
                           </div>
@@ -615,12 +615,12 @@ export default function AzureProcessingCenterPromotionPanel({
             </div>
 
             <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
                 {isSummaries ? "Uploaded / Promoted" : "Promoted"}
               </div>
 
               {promotedJobs.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-500">
+                <div className="insyt-subpanel px-4 py-3 text-sm insyt-text-muted">
                   No promoted APC jobs yet.
                 </div>
               ) : (
@@ -635,33 +635,33 @@ export default function AzureProcessingCenterPromotionPanel({
                         onClick={() => loadStagedJob(job.job_id)}
                         className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
                           selected
-                            ? "border-emerald-400/70 bg-emerald-500/15"
-                            : "border-slate-800 bg-slate-950 hover:border-slate-600"
+                            ? "border-[var(--insyt-success)] bg-[rgba(13,148,136,0.10)]"
+                            : "border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] hover:border-[var(--insyt-border-hover)] hover:bg-[var(--insyt-surface-hover)]"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="font-semibold text-slate-100">
+                          <div className="font-semibold insyt-text-primary">
                             {job.job_id}
                           </div>
-                          <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">
+                          <div className="insyt-status insyt-status-success">
                             Promoted
                           </div>
                         </div>
 
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs insyt-text-muted">
                           Promoted: {formatDateTime(job.promoted_at || job.completed_at)}
                         </div>
 
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                          <div className="rounded-lg bg-slate-900 px-2 py-1">
-                            <div className="text-slate-500">Docs</div>
-                            <div className="font-semibold text-slate-100">
+                          <div className="insyt-metric px-2 py-1">
+                            <div className="insyt-text-muted">Docs</div>
+                            <div className="font-semibold insyt-text-primary">
                               {job.doc_count ?? 0}
                             </div>
                           </div>
-                          <div className="rounded-lg bg-slate-900 px-2 py-1">
-                            <div className="text-slate-500">Promoted</div>
-                            <div className="font-semibold text-emerald-100">
+                          <div className="insyt-metric px-2 py-1">
+                            <div className="insyt-text-muted">Promoted</div>
+                            <div className="font-semibold text-[var(--insyt-success)]">
                               {job.promoted_count ?? job.doc_count ?? 0}
                             </div>
                           </div>
@@ -674,9 +674,9 @@ export default function AzureProcessingCenterPromotionPanel({
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+          <div className="insyt-subpanel p-4">
             {!selectedJob ? (
-              <div className="text-sm text-slate-500">
+              <div className="text-sm insyt-text-muted">
                 Select a staged job to review documents.
               </div>
             ) : (
@@ -684,18 +684,18 @@ export default function AzureProcessingCenterPromotionPanel({
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <div className="font-semibold text-slate-100">
+                      <div className="font-semibold insyt-text-primary">
                         {selectedJob.job_id}
                       </div>
 
                       {refreshingDetail ? (
-                        <span className="text-xs text-sky-300">
+                        <span className="text-xs text-[var(--insyt-info)]">
                           Refreshing...
                         </span>
                       ) : null}
                     </div>
 
-                    <div className="mt-1 break-all text-xs text-slate-500">
+                    <div className="mt-1 break-all text-xs insyt-text-muted">
                       {selectedJob.staged_prefix}
                     </div>
                   </div>
@@ -705,7 +705,7 @@ export default function AzureProcessingCenterPromotionPanel({
                       type="button"
                       onClick={selectAllReadyDocs}
                       disabled={readyDocs.length === 0 || promoting}
-                      className="inline-flex h-9 items-center justify-center rounded-full border border-slate-500/60 bg-slate-800/70 px-4 text-xs font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="insyt-btn insyt-btn-secondary insyt-btn-sm"
                     >
                       Select All Ready
                     </button>
@@ -714,7 +714,7 @@ export default function AzureProcessingCenterPromotionPanel({
                       type="button"
                       onClick={clearSelection}
                       disabled={selectedDocIds.length === 0 || promoting}
-                      className="inline-flex h-9 items-center justify-center rounded-full border border-slate-500/60 bg-slate-800/70 px-4 text-xs font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="insyt-btn insyt-btn-secondary insyt-btn-sm"
                     >
                       Clear
                     </button>
@@ -731,7 +731,7 @@ export default function AzureProcessingCenterPromotionPanel({
                         selectedDocIds.length === 0 ||
                         !isInsytAdmin()
                       }
-                      className="inline-flex h-9 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/15 px-4 text-xs font-semibold text-emerald-100 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      className="insyt-btn insyt-btn-success insyt-btn-sm"
                     >
                       {promoting
                         ? isSummaries
@@ -754,7 +754,7 @@ export default function AzureProcessingCenterPromotionPanel({
                         readyDocs.length === 0 ||
                         !isInsytAdmin()
                       }
-                      className="inline-flex h-9 items-center justify-center rounded-full border border-violet-400/60 bg-violet-500/20 px-4 text-xs font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      className="insyt-btn insyt-btn-info insyt-btn-sm"
                     >
                       {promoting
                         ? isSummaries
@@ -767,7 +767,7 @@ export default function AzureProcessingCenterPromotionPanel({
                   </div>
 
                   {isSummaries ? (
-                    <div className="w-full rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-100">
+                    <div className="insyt-message insyt-message-warning w-full text-xs leading-5">
                       Summaries staged files are not promoted directly into live source folders.
                       Upload them to Summary Extraction first so INSYT can perform the proper
                       extraction, chunking, merging, and review-ready preparation.
@@ -776,33 +776,33 @@ export default function AzureProcessingCenterPromotionPanel({
                 </div>
 
                 <div className="mb-3 grid gap-2 md:grid-cols-7">
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Docs</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Docs</div>
+                    <div className="font-semibold insyt-text-primary">
                       {selectedJob.doc_count ?? 0}
                     </div>
                   </div>
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Ready</div>
-                    <div className="font-semibold text-emerald-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Ready</div>
+                    <div className="font-semibold text-[var(--insyt-success)]">
                       {readyDocs.length}
                     </div>
                   </div>
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Promoted</div>
-                    <div className="font-semibold text-emerald-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Promoted</div>
+                    <div className="font-semibold text-[var(--insyt-success)]">
                       {promotedDocs.length}
                     </div>
                   </div>
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">OCR pages</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">OCR pages</div>
+                    <div className="font-semibold insyt-text-primary">
                       {selectedJob.summary?.ocr_page_count ?? "—"}
                     </div>
                   </div>
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">OCR quote</div>
-                    <div className="font-semibold text-violet-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">OCR quote</div>
+                    <div className="font-semibold text-[var(--insyt-info)]">
                       {typeof selectedJob.summary?.ocr_estimated_cost_usd ===
                       "number"
                         ? `$${selectedJob.summary.ocr_estimated_cost_usd.toFixed(
@@ -811,9 +811,9 @@ export default function AzureProcessingCenterPromotionPanel({
                         : "—"}
                     </div>
                   </div>
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Azure quote</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Azure quote</div>
+                    <div className="font-semibold insyt-text-primary">
                       {typeof selectedJob.summary?.estimated_azure_cost_usd ===
                       "number"
                         ? `$${selectedJob.summary.estimated_azure_cost_usd.toFixed(
@@ -822,26 +822,26 @@ export default function AzureProcessingCenterPromotionPanel({
                         : "—"}
                     </div>
                   </div>
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Selected</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Selected</div>
+                    <div className="font-semibold insyt-text-primary">
                       {selectedDocIds.length}
                     </div>
                   </div>
                 </div>
 
                 {loadingDetail ? (
-                  <div className="text-sm text-slate-500">
+                  <div className="text-sm insyt-text-muted">
                     Loading staged documents...
                   </div>
                 ) : docs.length === 0 ? (
-                  <div className="text-sm text-slate-500">
+                  <div className="text-sm insyt-text-muted">
                     No staged documents found for this job.
                   </div>
                 ) : (
-                  <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-800">
-                    <table className="min-w-full text-left text-xs">
-                      <thead className="sticky top-0 bg-slate-900 text-slate-400">
+                  <div className="insyt-table-shell max-h-[420px]">
+                    <table className="insyt-table min-w-full text-left text-xs">
+                      <thead className="insyt-table-header sticky top-0">
                         <tr>
                           <th className="px-3 py-2">Select</th>
                           <th className="px-3 py-2">Doc ID</th>
@@ -857,7 +857,7 @@ export default function AzureProcessingCenterPromotionPanel({
                         {docs.map((doc) => (
                           <tr
                             key={doc.doc_id}
-                            className="border-t border-slate-800 bg-slate-950"
+                            className="insyt-table-row"
                           >
                             <td className="px-3 py-2">
                               <input
@@ -865,32 +865,32 @@ export default function AzureProcessingCenterPromotionPanel({
                                 checked={selectedDocIds.includes(doc.doc_id)}
                                 disabled={!doc.ready_to_promote || promoting}
                                 onChange={() => toggleDoc(doc.doc_id)}
-                                className="h-4 w-4 rounded border-slate-500 bg-slate-950"
+                                className="insyt-check"
                               />
                             </td>
-                            <td className="whitespace-nowrap px-3 py-2 font-semibold text-slate-100">
+                            <td className="whitespace-nowrap px-3 py-2 font-semibold insyt-text-primary">
                               {doc.doc_id}
                             </td>
-                            <td className="max-w-[280px] truncate px-3 py-2 text-slate-300">
+                            <td className="max-w-[280px] truncate px-3 py-2 insyt-text-secondary">
                               {doc.original_filename || "—"}
                             </td>
-                            <td className="px-3 py-2 text-slate-400">
+                            <td className="px-3 py-2 insyt-text-muted">
                               {doc.extension || "—"}
                             </td>
-                            <td className="px-3 py-2 text-slate-400">
+                            <td className="px-3 py-2 insyt-text-muted">
                               {doc.page_count ?? "—"}
                             </td>
-                            <td className="px-3 py-2 text-slate-400">
+                            <td className="px-3 py-2 insyt-text-muted">
                               {doc.requires_ocr ? "Yes" : "No"}
                             </td>
                             <td className="px-3 py-2">
                               <span
-                                className={`rounded-full border px-2 py-0.5 font-semibold ${
+                                className={`insyt-status ${
                                   isPromotedDoc(doc)
-                                    ? "border-blue-400/40 bg-blue-500/10 text-blue-200"
+                                    ? "insyt-status-info"
                                     : doc.ready_to_promote
-                                      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
-                                      : "border-amber-400/40 bg-amber-500/10 text-amber-200"
+                                      ? "insyt-status-success"
+                                      : "insyt-status-warning"
                                 }`}
                               >
                                 {isPromotedDoc(doc)
@@ -900,7 +900,7 @@ export default function AzureProcessingCenterPromotionPanel({
                                     : "Missing Pair"}
                               </span>
                             </td>
-                            <td className="whitespace-nowrap px-3 py-2 text-slate-400">
+                            <td className="whitespace-nowrap px-3 py-2 insyt-text-muted">
                               {formatBytes(doc.source_bytes)}
                             </td>
                           </tr>
@@ -911,7 +911,7 @@ export default function AzureProcessingCenterPromotionPanel({
                 )}
 
                 {promotionResult?.skipped?.length ? (
-                  <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+                  <div className="insyt-message insyt-message-warning mt-3 text-xs">
                     <div className="mb-2 font-semibold">Promotion notices</div>
                     <div className="space-y-1">
                       {promotionResult.skipped.map((item, index) => (

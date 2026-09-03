@@ -153,14 +153,14 @@ function NativeTablePreview({
   const sheets = preview.sheets || [];
 
   return (
-    <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950 flex flex-col">
-      <div className="shrink-0 border-b border-slate-800 bg-slate-900 px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
+      <div className="flex shrink-0 flex-col gap-3 border-b border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] px-4 py-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm font-semibold text-slate-100">
+          <p className="text-sm font-semibold text-[var(--insyt-text-primary)]">
             {preview.file_name}
           </p>
 
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="mt-1 text-xs text-[var(--insyt-text-muted)]">
             Previewing {preview.row_count_previewed || rows.length} rows
             {preview.total_columns
               ? ` across ${preview.total_columns} columns`
@@ -174,7 +174,7 @@ function NativeTablePreview({
             onChange={(event) =>
               onSheetChange(event.target.value)
             }
-            className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200"
+            className="insyt-control rounded-lg px-3 py-2 text-sm"
           >
             {sheets.map((sheet) => (
               <option key={sheet} value={sheet}>
@@ -187,12 +187,12 @@ function NativeTablePreview({
 
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="min-w-full border-collapse text-sm">
-          <thead className="sticky top-0 z-10 bg-slate-900">
+          <thead className="sticky top-0 z-10 bg-[var(--insyt-surface-2)]">
             <tr>
               {columns.map((column) => (
                 <th
                   key={column}
-                  className="border-b border-r border-slate-800 px-3 py-2 text-left text-xs font-semibold text-slate-300 whitespace-nowrap"
+                  className="whitespace-nowrap border-b border-r border-[var(--insyt-border)] px-3 py-2 text-left text-xs font-semibold text-[var(--insyt-text-secondary)]"
                 >
                   {column}
                 </th>
@@ -206,14 +206,14 @@ function NativeTablePreview({
                 key={rowIndex}
                 className={
                   rowIndex % 2 === 0
-                    ? "bg-slate-950"
-                    : "bg-slate-900/60"
+                    ? "bg-[var(--insyt-surface-1)]"
+                    : "bg-[var(--insyt-surface-2)]"
                 }
               >
                 {columns.map((column) => (
                   <td
                     key={`${rowIndex}-${column}`}
-                    className="border-b border-r border-slate-900 px-3 py-2 text-slate-300 align-top whitespace-nowrap max-w-[360px] overflow-hidden text-ellipsis"
+                    className="max-w-[360px] whitespace-nowrap border-b border-r border-[var(--insyt-border)] px-3 py-2 align-top text-[var(--insyt-text-secondary)] overflow-hidden text-ellipsis"
                     title={row[column] || ""}
                   >
                     {row[column] || ""}
@@ -225,7 +225,7 @@ function NativeTablePreview({
         </table>
 
         {rows.length === 0 && (
-          <div className="p-6 text-sm text-slate-500">
+          <div className="p-6 text-sm text-[var(--insyt-text-muted)]">
             No preview rows found.
           </div>
         )}
@@ -240,9 +240,9 @@ function NativeTextPreview({
   preview: NativePreviewResponse;
 }) {
   return (
-    <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+    <div className="h-full w-full overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
       <div className="h-full w-full overflow-auto p-5">
-        <pre className="m-0 whitespace-pre-wrap break-words text-sm leading-7 text-slate-300 font-sans">
+        <pre className="m-0 whitespace-pre-wrap break-words font-sans text-sm leading-7 text-[var(--insyt-text-secondary)]">
           {preview.text || preview.message || "No preview text available."}
         </pre>
       </div>
@@ -735,14 +735,14 @@ export default function ReviewDocumentPane({
   ]);
 
   return (
-    <div className="col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 h-[calc(100vh-24px)] min-h-[980px] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden">
+    <div className="insyt-panel col-span-2 flex h-[calc(100vh-24px)] min-h-[980px] max-h-[calc(100vh-24px)] flex-col overflow-hidden p-6">
       <div className="shrink-0 flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-lg font-semibold">
+          <h2 className="insyt-section-title text-lg text-[var(--insyt-text-primary)]">
             Document Viewer
           </h2>
 
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="mt-1 text-xs text-[var(--insyt-text-muted)]">
             {viewMode === "text"
               ? "Extracted Text"
               : nativeBlob || "Native Document"}
@@ -759,7 +759,7 @@ export default function ReviewDocumentPane({
               className={
                 showDetectionHighlights
                   ? "rounded-lg border border-amber-400/60 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-200"
-                  : "rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-300"
+                  : "rounded-lg border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-3 py-2 text-xs font-semibold text-[var(--insyt-text-secondary)]"
               }
             >
               Highlights {showDetectionHighlights ? "On" : "Off"}
@@ -791,9 +791,9 @@ export default function ReviewDocumentPane({
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {viewMode === "text" && (
-          <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+          <div className="h-full w-full overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
             <div className="h-full w-full overflow-auto p-5">
-              <pre className="m-0 whitespace-pre-wrap break-words text-sm leading-7 text-slate-300 font-sans">
+              <pre className="m-0 whitespace-pre-wrap break-words font-sans text-sm leading-7 text-[var(--insyt-text-secondary)]">
                 {text
                   ? showDetectionHighlights
                     ? renderHighlightedText(text, detectionHits)
@@ -807,18 +807,18 @@ export default function ReviewDocumentPane({
         {viewMode === "native" && (
           <>
             {reviewPreviewLoading && (
-              <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex items-center justify-center text-slate-400">
+              <div className="h-full w-full rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] flex items-center justify-center text-[var(--insyt-text-muted)]">
                 Loading document viewer...
               </div>
             )}
 
             {!reviewPreviewLoading && reviewPreviewError && (
-              <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
+              <div className="h-full w-full rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] flex flex-col items-center justify-center p-8 text-center">
                 <p className="text-rose-300 font-semibold mb-2">
                   Viewer metadata failed
                 </p>
 
-                <p className="text-slate-500">
+                <p className="text-[var(--insyt-text-muted)]">
                   {reviewPreviewError}
                 </p>
               </div>
@@ -827,7 +827,7 @@ export default function ReviewDocumentPane({
             {!reviewPreviewLoading &&
               !reviewPreviewError &&
               effectiveViewerType === "pdf" && (
-                <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                <div className="h-full w-full overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
                   <PdfDocumentViewer
                     fileUrl={effectiveViewerUrl}
                     heightClassName="h-full"
@@ -839,7 +839,7 @@ export default function ReviewDocumentPane({
             {!reviewPreviewLoading &&
               !reviewPreviewError &&
               effectiveViewerType === "image" && (
-                <div className="h-full w-full overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4">
+                <div className="h-full w-full overflow-auto rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-4">
                   <img
                     src={effectiveViewerUrl}
                     alt={reviewPreview?.file_name || "Native image"}
@@ -851,7 +851,7 @@ export default function ReviewDocumentPane({
             {!reviewPreviewLoading &&
               !reviewPreviewError &&
               effectiveViewerType === "html" && (
-                <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                <div className="h-full w-full overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
                   <iframe
                     src={effectiveViewerUrl}
                     className="h-full w-full bg-white"
@@ -865,15 +865,15 @@ export default function ReviewDocumentPane({
               effectiveViewerType === "text" && (
                 <>
                   {text ? (
-                    <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                    <div className="h-full w-full overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
                       <div className="h-full w-full overflow-auto p-5">
-                        <pre className="m-0 whitespace-pre-wrap break-words text-sm leading-7 text-slate-300 font-sans">
+                        <pre className="m-0 whitespace-pre-wrap break-words font-sans text-sm leading-7 text-[var(--insyt-text-secondary)]">
                           {text}
                         </pre>
                       </div>
                     </div>
                   ) : effectiveViewerUrl ? (
-                    <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                    <div className="h-full w-full overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
                       <iframe
                         src={effectiveViewerUrl}
                         className="h-full w-full bg-white"
@@ -907,7 +907,7 @@ export default function ReviewDocumentPane({
                       }}
                     />
                   ) : effectiveViewerUrl ? (
-                    <div className="h-full w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                    <div className="h-full w-full overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
                       <iframe
                         src={effectiveViewerUrl}
                         className="h-full w-full bg-white"
@@ -915,12 +915,12 @@ export default function ReviewDocumentPane({
                       />
                     </div>
                   ) : (
-                    <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
-                      <h3 className="text-xl font-semibold text-white mb-3">
+                    <div className="h-full w-full rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] flex flex-col items-center justify-center p-8 text-center">
+                      <h3 className="mb-3 text-xl font-semibold text-[var(--insyt-text-primary)]">
                         Email Preview Not Yet Converted
                       </h3>
 
-                      <p className="text-slate-400 mb-6">
+                      <p className="text-[var(--insyt-text-muted)] mb-6">
                         This email file has not yet been converted into a browser preview.
                       </p>
 
@@ -929,7 +929,7 @@ export default function ReviewDocumentPane({
                           href={effectiveNativeUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center justify-center rounded-xl bg-sky-600 hover:bg-sky-500 text-white px-5 py-3 transition"
+                          className="inline-flex min-h-10 items-center justify-center rounded-xl border border-sky-500 bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-sky-400 hover:bg-sky-400"
                         >
                           Open / Download Native File
                         </a>
@@ -945,18 +945,18 @@ export default function ReviewDocumentPane({
               canUseBackendPreview && (
                 <>
                   {previewLoading && (
-                    <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex items-center justify-center text-slate-400">
+                    <div className="h-full w-full rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] flex items-center justify-center text-[var(--insyt-text-muted)]">
                       Loading native preview...
                     </div>
                   )}
 
                   {!previewLoading && previewError && (
-                    <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
+                    <div className="h-full w-full rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] flex flex-col items-center justify-center p-8 text-center">
                       <p className="text-rose-300 font-semibold mb-2">
                         Preview failed
                       </p>
 
-                      <p className="text-slate-500">
+                      <p className="text-[var(--insyt-text-muted)]">
                         {previewError}
                       </p>
                     </div>
@@ -985,13 +985,13 @@ export default function ReviewDocumentPane({
                   {!previewLoading &&
                     !previewError &&
                     preview?.preview_type === "unsupported" && (
-                      <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
+                      <div className="h-full w-full rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] flex flex-col items-center justify-center p-8 text-center">
                         <div className="max-w-lg">
-                          <h3 className="text-xl font-semibold text-white mb-3">
+                          <h3 className="mb-3 text-xl font-semibold text-[var(--insyt-text-primary)]">
                             Native File Preview Not Yet Supported
                           </h3>
 
-                          <p className="text-slate-400 mb-6">
+                          <p className="text-[var(--insyt-text-muted)] mb-6">
                             {preview.message ||
                               "This file type cannot yet be rendered directly in-browser."}
                           </p>
@@ -1001,7 +1001,7 @@ export default function ReviewDocumentPane({
                               href={effectiveNativeUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center justify-center rounded-xl bg-sky-600 hover:bg-sky-500 text-white px-5 py-3 transition"
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-sky-500 bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-sky-400 hover:bg-sky-400"
                             >
                               Open / Download Native File
                             </a>
@@ -1016,17 +1016,17 @@ export default function ReviewDocumentPane({
               !reviewPreviewError &&
               effectiveViewerType === "needs_preview_conversion" &&
               !canUseBackendPreview && (
-                <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
+                <div className="h-full w-full rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] flex flex-col items-center justify-center p-8 text-center">
                   <div className="max-w-lg">
-                    <h3 className="text-xl font-semibold text-white mb-3">
+                    <h3 className="mb-3 text-xl font-semibold text-[var(--insyt-text-primary)]">
                       Preview Conversion Needed
                     </h3>
 
-                    <p className="text-slate-400 mb-6">
+                    <p className="text-[var(--insyt-text-muted)] mb-6">
                       This file type needs a generated PDF or HTML preview before it can be rendered directly in-browser.
                     </p>
 
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-300 mb-6">
+                    <div className="mb-6 rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] px-4 py-3 text-sm text-[var(--insyt-text-secondary)]">
                       Extension:{" "}
                       <span className="text-sky-400 font-semibold">
                         {effectiveExtension || "Unknown"}
@@ -1038,7 +1038,7 @@ export default function ReviewDocumentPane({
                         href={effectiveNativeUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center justify-center rounded-xl bg-sky-600 hover:bg-sky-500 text-white px-5 py-3 transition"
+                        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-sky-500 bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-sky-400 hover:bg-sky-400"
                       >
                         Open / Download Native File
                       </a>
@@ -1050,17 +1050,17 @@ export default function ReviewDocumentPane({
             {!reviewPreviewLoading &&
               !reviewPreviewError &&
               effectiveViewerType === "unsupported" && (
-                <div className="h-full w-full rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
+                <div className="h-full w-full rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] flex flex-col items-center justify-center p-8 text-center">
                   <div className="max-w-lg">
-                    <h3 className="text-xl font-semibold text-white mb-3">
+                    <h3 className="mb-3 text-xl font-semibold text-[var(--insyt-text-primary)]">
                       Native File Preview Not Yet Supported
                     </h3>
 
-                    <p className="text-slate-400 mb-6">
+                    <p className="text-[var(--insyt-text-muted)] mb-6">
                       This file type cannot yet be rendered directly in-browser.
                     </p>
 
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-300 mb-6">
+                    <div className="mb-6 rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] px-4 py-3 text-sm text-[var(--insyt-text-secondary)]">
                       Extension:{" "}
                       <span className="text-sky-400 font-semibold">
                         {effectiveExtension || "Unknown"}
@@ -1072,12 +1072,12 @@ export default function ReviewDocumentPane({
                         href={effectiveNativeUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center justify-center rounded-xl bg-sky-600 hover:bg-sky-500 text-white px-5 py-3 transition"
+                        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-sky-500 bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-sky-400 hover:bg-sky-400"
                       >
                         Open / Download Native File
                       </a>
                     ) : (
-                      <p className="text-slate-500">
+                      <p className="text-[var(--insyt-text-muted)]">
                         Native file unavailable.
                       </p>
                     )}

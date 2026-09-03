@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import Button from "./Button";
 import ContentCard from "./ContentCard";
 import FormLabel from "./FormLabel";
 import Select from "./Select";
@@ -59,7 +60,9 @@ export default function ProjectFileUploadCard({
 
   const [selectedWorkspace, setSelectedWorkspace] =
     useState("");
+
   const [clients, setClients] = useState<string[]>([]);
+
   const [selectedClient, setSelectedClient] =
     useState("");
 
@@ -71,6 +74,7 @@ export default function ProjectFileUploadCard({
 
   const [selectedFiles, setSelectedFiles] =
     useState<File[]>([]);
+
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -97,7 +101,9 @@ export default function ProjectFileUploadCard({
 
   useEffect(() => {
     if (isClientUser) {
-      setSelectedFolder("source/processing_center/uploads");
+      setSelectedFolder(
+        "source/processing_center/uploads"
+      );
     }
   }, [isClientUser]);
 
@@ -110,7 +116,9 @@ export default function ProjectFileUploadCard({
       return;
     }
 
-    apiGet(`/api/${selectedWorkspace}/clients`)
+    apiGet(
+      `/api/${selectedWorkspace}/clients`
+    )
       .then((response) => {
         setClients(response.clients || []);
       })
@@ -119,10 +127,17 @@ export default function ProjectFileUploadCard({
         setClients([]);
         setMessage("Failed to load clients.");
       });
-  }, [selectedWorkspace, setSelectedProject, setMessage]);
+  }, [
+    selectedWorkspace,
+    setSelectedProject,
+    setMessage,
+  ]);
 
   useEffect(() => {
-    if (!selectedWorkspace || !selectedClient) {
+    if (
+      !selectedWorkspace ||
+      !selectedClient
+    ) {
       setWorkspaceProjects([]);
       setSelectedProject("");
       return;
@@ -134,12 +149,16 @@ export default function ProjectFileUploadCard({
       )}/projects`
     )
       .then((response) => {
-        setWorkspaceProjects(response.projects || []);
+        setWorkspaceProjects(
+          response.projects || []
+        );
       })
       .catch((error) => {
         console.error(error);
         setWorkspaceProjects([]);
-        setMessage("Failed to load projects.");
+        setMessage(
+          "Failed to load projects."
+        );
       });
   }, [
     selectedWorkspace,
@@ -153,27 +172,37 @@ export default function ProjectFileUploadCard({
       if (uploading) return;
 
       if (!selectedWorkspace) {
-        setMessage("Select a workspace before uploading files.");
+        setMessage(
+          "Select a workspace before uploading files."
+        );
         return;
       }
 
       if (!selectedClient) {
-        setMessage("Select a client before uploading files.");
+        setMessage(
+          "Select a client before uploading files."
+        );
         return;
       }
 
       if (!selectedProject) {
-        setMessage("Select a project before uploading files.");
+        setMessage(
+          "Select a project before uploading files."
+        );
         return;
       }
 
       if (!selectedFolder) {
-        setMessage("Select a folder before uploading files.");
+        setMessage(
+          "Select a folder before uploading files."
+        );
         return;
       }
 
       if (selectedFiles.length === 0) {
-        setMessage("Select at least one file.");
+        setMessage(
+          "Select at least one file."
+        );
         return;
       }
 
@@ -182,10 +211,25 @@ export default function ProjectFileUploadCard({
 
       const formData = new FormData();
 
-      formData.append("workspace", selectedWorkspace);
-      formData.append("client", selectedClient);
-      formData.append("project_id", selectedProject);
-      formData.append("folder", selectedFolder);
+      formData.append(
+        "workspace",
+        selectedWorkspace
+      );
+
+      formData.append(
+        "client",
+        selectedClient
+      );
+
+      formData.append(
+        "project_id",
+        selectedProject
+      );
+
+      formData.append(
+        "folder",
+        selectedFolder
+      );
 
       selectedFiles.forEach((file) => {
         formData.append("files", file);
@@ -195,7 +239,8 @@ export default function ProjectFileUploadCard({
         process.env.NEXT_PUBLIC_API_BASE_URL ||
         "https://api.insyt360.com";
 
-      const token = localStorage.getItem("insyt_token");
+      const token =
+        localStorage.getItem("insyt_token");
 
       const response = await fetch(
         `${apiBaseUrl}/api/${selectedWorkspace}/files/upload`,
@@ -211,27 +256,39 @@ export default function ProjectFileUploadCard({
       );
 
       if (!response.ok) {
-        const errorText = await response.text();
+        const errorText =
+          await response.text();
+
         throw new Error(errorText);
       }
 
-      const result = await response.json();
+      const result =
+        await response.json();
 
       setMessage(
         `${
-          result.count || selectedFiles.length
+          result.count ||
+          selectedFiles.length
         } file(s) uploaded successfully to ${selectedClient}/${selectedProject}/${selectedFolder}. ${
-          selectedFolder === "source/processing_center/uploads"
+          selectedFolder ===
+          "source/processing_center/uploads"
             ? "INSYT Admin will start processing when ready."
             : ""
         }`
       );
+
       setSelectedFiles([]);
     } catch (error: any) {
-      console.error("Upload failed:", error);
+      console.error(
+        "Upload failed:",
+        error
+      );
 
       setMessage(
-        `Upload failed: ${error?.message || "Unknown error"}`
+        `Upload failed: ${
+          error?.message ||
+          "Unknown error"
+        }`
       );
     } finally {
       setUploading(false);
@@ -241,9 +298,11 @@ export default function ProjectFileUploadCard({
   return (
     <div className="mt-8">
       <ContentCard title="Upload Files to Project">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-4">
           <div>
-            <FormLabel>Select Workspace</FormLabel>
+            <FormLabel>
+              Select Workspace
+            </FormLabel>
 
             <Select
               value={selectedWorkspace}
@@ -251,24 +310,32 @@ export default function ProjectFileUploadCard({
                 setSelectedWorkspace(value);
                 setSelectedClient("");
                 setSelectedProject("");
-                setSelectedFolder("source/processing_center/uploads");
+                setSelectedFolder(
+                  "source/processing_center/uploads"
+                );
               }}
             >
-              <option value="">Select workspace...</option>
+              <option value="">
+                Select workspace...
+              </option>
 
-              {workspaceOptions.map((workspace) => (
-                <option
-                  key={workspace.value}
-                  value={workspace.value}
-                >
-                  {workspace.label}
-                </option>
-              ))}
+              {workspaceOptions.map(
+                (workspace) => (
+                  <option
+                    key={workspace.value}
+                    value={workspace.value}
+                  >
+                    {workspace.label}
+                  </option>
+                )
+              )}
             </Select>
           </div>
 
           <div>
-            <FormLabel>Select Client</FormLabel>
+            <FormLabel>
+              Select Client
+            </FormLabel>
 
             <Select
               value={selectedClient}
@@ -277,77 +344,98 @@ export default function ProjectFileUploadCard({
                 setSelectedProject("");
               }}
             >
-              <option value="">Select client...</option>
+              <option value="">
+                Select client...
+              </option>
 
               {clients.map((client) => (
-                <option key={client} value={client}>
-                  {client.replaceAll("_", " ")}
+                <option
+                  key={client}
+                  value={client}
+                >
+                  {client.replaceAll(
+                    "_",
+                    " "
+                  )}
                 </option>
               ))}
             </Select>
           </div>
 
           <div>
-            <FormLabel>Select Project</FormLabel>
+            <FormLabel>
+              Select Project
+            </FormLabel>
 
             <Select
               value={selectedProject}
               onChange={setSelectedProject}
             >
-              <option value="">Select project...</option>
+              <option value="">
+                Select project...
+              </option>
 
-              {workspaceProjects.map((project) => (
-                <option key={project} value={project}>
-                  {project.replaceAll("_", " ")}
-                </option>
-              ))}
+              {workspaceProjects.map(
+                (project) => (
+                  <option
+                    key={project}
+                    value={project}
+                  >
+                    {project.replaceAll(
+                      "_",
+                      " "
+                    )}
+                  </option>
+                )
+              )}
             </Select>
           </div>
 
           <div>
-            <FormLabel>Select Folder</FormLabel>
+            <FormLabel>
+              Select Folder
+            </FormLabel>
 
             <Select
               value={selectedFolder}
+              disabled={isClientUser}
               onChange={(value) => {
                 if (isClientUser) return;
+
                 setSelectedFolder(value);
               }}
             >
-              {folderOptions.map((folder) => (
-                <option
-                  key={folder.value}
-                  value={folder.value}
-                >
-                  {folder.label}
-                </option>
-              ))}
+              {folderOptions.map(
+                (folder) => (
+                  <option
+                    key={folder.value}
+                    value={folder.value}
+                  >
+                    {folder.label}
+                  </option>
+                )
+              )}
             </Select>
 
             {isClientUser ? (
-              <div className="mt-2 text-xs text-slate-500">
-                Client uploads are routed to the Processing Center. INSYT Admin will review and start processing when ready.
+              <div className="mt-2 text-xs insyt-text-muted">
+                Client uploads are routed
+                to the Processing Center.
+                INSYT Admin will review and
+                start processing when ready.
               </div>
             ) : null}
           </div>
 
           <div className="md:col-span-4">
-            <FormLabel>Select Files</FormLabel>
+            <FormLabel>
+              Select Files
+            </FormLabel>
 
             <input
               type="file"
               multiple
-              className="
-                block w-full rounded-xl border border-slate-700
-                bg-slate-950 px-3 py-2 text-sm text-slate-300
-                file:mr-4 file:rounded-xl file:border
-                file:border-sky-400 file:bg-sky-500
-                file:px-4 file:py-2 file:font-semibold
-                file:text-white file:transition-all file:duration-200
-                hover:file:bg-teal-500 hover:file:border-teal-400
-                hover:file:shadow-lg hover:file:shadow-teal-500/20
-                cursor-pointer
-              "
+              className="insyt-control insyt-file-input"
               onChange={(event) => {
                 const files = Array.from(
                   event.target.files || []
@@ -356,7 +444,9 @@ export default function ProjectFileUploadCard({
                 setSelectedFiles(files);
 
                 if (files.length === 0) {
-                  setMessage("No files selected.");
+                  setMessage(
+                    "No files selected."
+                  );
                   return;
                 }
 
@@ -367,30 +457,24 @@ export default function ProjectFileUploadCard({
             />
 
             {selectedFiles.length > 0 && (
-              <p className="mt-2 text-xs text-slate-400">
-                Ready to upload: {selectedFiles.length} file(s)
+              <p className="mt-2 text-xs insyt-text-muted">
+                Ready to upload:{" "}
+                {selectedFiles.length}{" "}
+                file(s)
               </p>
             )}
           </div>
 
           <div className="md:col-span-4">
-            <button
+            <Button
               type="button"
               onClick={handleUpload}
               disabled={uploading}
-              className={`
-                relative z-50 inline-flex h-11 min-w-[220px] items-center justify-center
-                whitespace-nowrap rounded-full border px-6 text-sm font-semibold
-                shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50
-                ${
-                  uploading
-                    ? "border-slate-600 bg-slate-700/60 text-slate-300"
-                    : "border-sky-400/60 bg-sky-500/15 text-sky-200 shadow-sky-500/20 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white hover:shadow-lg hover:shadow-sky-500/20"
-                }
-              `}
             >
-              {uploading ? "Uploading..." : "Upload Files to Project"}
-            </button>
+              {uploading
+                ? "Uploading..."
+                : "Upload Files to Project"}
+            </Button>
           </div>
         </div>
       </ContentCard>

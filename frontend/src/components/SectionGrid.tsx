@@ -1,30 +1,24 @@
 type SectionGridProps = {
   children: React.ReactNode;
   cols?: 2 | 3 | 4;
+  className?: string;
 };
 
 export default function SectionGrid({
   children,
   cols = 2,
+  className = "",
 }: SectionGridProps) {
   const gridClass =
     cols === 4
-      ? "grid grid-cols-4 gap-6"
+      ? "insyt-section-grid insyt-section-grid-4"
       : cols === 3
-      ? "grid grid-cols-3 gap-6"
-      : "grid grid-cols-2 gap-6";
+        ? "insyt-section-grid insyt-section-grid-3"
+        : "insyt-section-grid insyt-section-grid-2";
 
   return (
-    <div className={gridClass}>
+    <div className={`${gridClass} ${className}`}>
       {children}
     </div>
   );
 }
-
-
-
-
-
-
-
-

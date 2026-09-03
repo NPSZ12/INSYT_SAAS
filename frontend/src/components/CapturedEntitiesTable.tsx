@@ -902,18 +902,18 @@ function openFinalSourceDocs(row: Record<string, any>) {
         />
 
         {message && (
-          <p className="text-sm text-amber-300 mb-6">
+          <p className="mb-6 text-sm text-amber-600">
             {message}
           </p>
         )}
 
         <ContentCard title="Captured Entity Table">
           <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-[var(--insyt-text-muted)]">
               Headers are loaded from the saved project protocol before captured rows are available.
             </p>
 
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[var(--insyt-text-muted)]">
               Rows: {visibleRows.length} of {entityData.rows.length} | Selected: {getSelectedExportRows().length} | Headers: {headers.length}
             </p>
           </div>
@@ -924,8 +924,8 @@ function openFinalSourceDocs(row: Record<string, any>) {
               onClick={() => setEntityView("raw")}
               className={
                 entityView === "raw"
-                  ? "rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white"
-                  : "rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700"
+                  ? "rounded-xl border border-sky-500 bg-sky-500 px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
               }
             >
               Raw
@@ -936,8 +936,8 @@ function openFinalSourceDocs(row: Record<string, any>) {
               onClick={() => setEntityView("final")}
               className={
                 entityView === "final"
-                  ? "rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white"
-                  : "rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700"
+                  ? "rounded-xl border border-sky-500 bg-sky-500 px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
               }
             >
               Final
@@ -946,7 +946,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
             <button
               type="button"
               onClick={clearAllColumnValueFilters}
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700"
+              className="rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
             >
               Clear Filters
             </button>
@@ -954,7 +954,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
             <button
               type="button"
               onClick={selectAllVisibleExportRows}
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700"
+              className="rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
             >
               Select Visible
             </button>
@@ -962,7 +962,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
             <button
               type="button"
               onClick={clearSelectedExportRows}
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700"
+              className="rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
             >
               Clear Selected
             </button>
@@ -971,7 +971,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
               type="button"
               onClick={() => exportSourceDocsZip("selected")}
               disabled={isExporting || getSelectedExportRows().length === 0}
-              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Export Selected
             </button>
@@ -980,16 +980,16 @@ function openFinalSourceDocs(row: Record<string, any>) {
               type="button"
               onClick={() => exportSourceDocsZip("all_filtered")}
               disabled={isExporting || visibleRows.length === 0}
-              className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-sky-500 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Export All Filtered
             </button>
 
           </div>
 
-          <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-auto max-h-[70vh]">
+          <div className="max-h-[70vh] overflow-auto rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
             <table className="min-w-max w-full text-xs">
-              <thead className="bg-slate-900 text-slate-400">
+              <thead className="bg-[var(--insyt-surface-2)] text-[var(--insyt-text-muted)]">
                 <tr>
                   <th className="sticky left-0 top-0 z-[70] w-[72px] min-w-[72px] bg-slate-900 p-3 text-left whitespace-nowrap border-b border-r border-slate-800 text-sky-300">
                     Export
@@ -1035,7 +1035,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                             title={`Sort by ${header}`}
                           >
                             <span>{header}</span>
-                            <span className="text-[10px] text-slate-500">
+                            <span className="text-[10px] text-[var(--insyt-text-muted)]">
                               {isSorted
                                 ? sortState?.direction === "asc"
                                   ? "▲"
@@ -1046,7 +1046,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
 
                           {shouldRenderColumnValueFilter(entityData.rows, header) && (
                             <details className="relative">
-                              <summary className="cursor-pointer list-none rounded-md border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:bg-slate-800">
+                              <summary className="cursor-pointer list-none rounded-md border border-[var(--insyt-border-strong)] px-2 py-1 text-[10px] text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]">
                                 Filter
                                 {columnValueFilters[header]?.length ? (
                                   <span className="ml-1 text-sky-300">
@@ -1055,14 +1055,14 @@ function openFinalSourceDocs(row: Record<string, any>) {
                                 ) : null}
                               </summary>
 
-                              <div className="absolute right-0 z-[90] mt-2 max-h-72 w-72 overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 shadow-2xl">
+                              <div className="absolute right-0 z-[90] mt-2 max-h-72 w-72 overflow-auto rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-1)] p-3 shadow-2xl">
                                 <div className="mb-3 space-y-2">
                                   <div className="flex items-center justify-between gap-2">
-                                    <span className="text-xs font-semibold text-white">
+                                    <span className="text-xs font-semibold text-[var(--insyt-text-primary)]">
                                       {header}
                                     </span>
 
-                                    <span className="text-[10px] text-slate-500">
+                                    <span className="text-[10px] text-[var(--insyt-text-muted)]">
                                       {getPendingColumnValues(header).length} selected
                                     </span>
                                   </div>
@@ -1079,7 +1079,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                                     <button
                                       type="button"
                                       onClick={() => clearColumnValueFilter(header)}
-                                      className="rounded-md border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                                      className="rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-3 py-1 text-xs text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
                                     >
                                       Clear
                                     </button>
@@ -1087,7 +1087,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                                     <button
                                       type="button"
                                       onClick={() => resetPendingColumnValueFilter(header)}
-                                      className="rounded-md border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                                      className="rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-3 py-1 text-xs text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
                                     >
                                       Reset
                                     </button>
@@ -1099,7 +1099,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                                     (value) => (
                                       <label
                                         key={`${header}-${value}`}
-                                        className="flex items-center gap-2 text-xs text-slate-300"
+                                        className="flex items-center gap-2 text-xs text-[var(--insyt-text-secondary)]"
                                       >
                                         <input
                                           type="checkbox"
@@ -1163,7 +1163,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                   <tr>
                     <td
                       colSpan={Math.max(headers.length + 1, 1)}
-                      className="p-6 text-slate-500"
+                      className="p-6 text-[var(--insyt-text-muted)]"
                     >
                       {isLoading
                         ? "Loading captured entities..."
@@ -1176,9 +1176,9 @@ function openFinalSourceDocs(row: Record<string, any>) {
                   visibleRows.map((row, rowIndex) => (
                     <tr
                       key={rowIndex}
-                      className="border-t border-slate-800"
+                      className="border-t border-[var(--insyt-border)]"
                     >
-                      <td className="sticky left-0 z-30 w-[72px] min-w-[72px] bg-slate-950 p-3 whitespace-nowrap border-r border-slate-800">
+                      <td className="sticky left-0 z-30 w-[72px] min-w-[72px] whitespace-nowrap border-r border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3">
                         <input
                           type="checkbox"
                           checked={Boolean(
@@ -1207,7 +1207,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                           return (
                             <td
                               key={header}
-                              className="sticky left-[72px] z-20 w-[220px] min-w-[220px] bg-slate-950 p-3 whitespace-nowrap border-r border-slate-800"
+                              className="sticky left-[72px] z-20 w-[220px] min-w-[220px] whitespace-nowrap border-r border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3"
                             >
                               <button
                                 className="text-sky-400 hover:text-sky-300 underline"
@@ -1231,7 +1231,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                         return (
                           <td
                             key={header}
-                            className="p-3 text-slate-300 border-l border-slate-800 whitespace-nowrap"
+                            className="whitespace-nowrap border-l border-[var(--insyt-border)] p-3 text-[var(--insyt-text-secondary)]"
                           >
                             {value}
                           </td>

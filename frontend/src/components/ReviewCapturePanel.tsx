@@ -382,8 +382,8 @@ export default function ReviewCapturePanel({
     );
 
   return (
-    <aside className="bg-slate-900 border border-slate-800 rounded-2xl h-full flex flex-col overflow-hidden">
-      <div className="shrink-0 p-6 border-b border-slate-800 space-y-3">
+    <aside className="insyt-panel h-full flex flex-col overflow-hidden">
+      <div className="shrink-0 space-y-3 border-b border-[var(--insyt-border)] p-6">
         <Button
           fullWidth
           onClick={isBatchReview ? handleSaveNext : handleSaveUpdate}
@@ -396,14 +396,14 @@ export default function ReviewCapturePanel({
         </Button>
 
         {message && (
-          <p className="text-sm font-medium text-emerald-400">
+          <p className="text-sm font-medium text-emerald-500">
             {message}
           </p>
         )}
 
         {isQcBatch && (
-          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-            <h3 className="text-sm font-semibold text-white mb-3">
+          <div className="insyt-card p-4">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--insyt-text-primary)]">
               QC Coding
             </h3>
 
@@ -415,7 +415,7 @@ export default function ReviewCapturePanel({
               ].map((option) => (
                 <label
                   key={option}
-                  className="flex items-center gap-3 text-sm text-slate-300"
+                  className="flex items-center gap-3 text-sm text-[var(--insyt-text-secondary)]"
                 >
                   <input
                     type="radio"
@@ -443,14 +443,14 @@ export default function ReviewCapturePanel({
           </div>
         )}
 
-        <h2 className="text-lg font-semibold text-white">
+        <h2 className="insyt-section-title text-lg text-[var(--insyt-text-primary)]">
           Capture Panel
         </h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-6">
-          <h3 className="text-md font-semibold text-white mb-4">
+        <div className="insyt-card mb-6 p-4">
+          <h3 className="mb-4 text-base font-semibold text-[var(--insyt-text-primary)]">
             Document Coding Panel
           </h3>
 
@@ -465,7 +465,7 @@ export default function ReviewCapturePanel({
             ].map((option) => (
               <label
                 key={option}
-                className="flex items-center gap-3 text-slate-300"
+                className="flex items-center gap-3 text-[var(--insyt-text-secondary)]"
               >
                 <input
                   type="radio"
@@ -507,7 +507,7 @@ export default function ReviewCapturePanel({
         <div className="space-y-4">
           {Object.entries(groupedFields).length ===
           0 ? (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-[var(--insyt-text-muted)]">
               No protocol capture fields loaded.
             </p>
           ) : (
@@ -519,16 +519,16 @@ export default function ReviewCapturePanel({
                 return (
                   <div
                     key={section}
-                    className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden"
+                    className="overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]"
                   >
                     <button
                       type="button"
                       onClick={() =>
                         toggleSection(section)
                       }
-                      className="w-full flex items-center justify-between px-4 py-3 text-left bg-slate-800 hover:bg-slate-700 border-b border-slate-800 transition sticky top-0 z-10"
+                      className="sticky top-0 z-10 flex w-full items-center justify-between border-b border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] px-4 py-3 text-left transition-colors hover:bg-[var(--insyt-surface-hover)]"
                     >
-                      <span className="font-semibold text-white">
+                      <span className="font-semibold text-[var(--insyt-text-primary)]">
                         {section}
                       </span>
 
@@ -538,7 +538,7 @@ export default function ReviewCapturePanel({
                     </button>
 
                     {isOpen && (
-                      <div className="max-h-72 overflow-y-auto p-4 border-t border-slate-800 space-y-4">
+                      <div className="max-h-72 space-y-4 overflow-y-auto border-t border-[var(--insyt-border)] p-4">
                         {sectionFields.map((field) => {
                           const fieldType =
                             normalizeFieldType(field);
@@ -563,7 +563,7 @@ export default function ReviewCapturePanel({
                                   />
 
                                   {field.notes && (
-                                    <p className="text-xs text-slate-500 mt-1 ml-7">
+                                    <p className="mt-1 ml-7 text-xs text-[var(--insyt-text-muted)]">
                                       {field.notes}
                                     </p>
                                   )}
@@ -593,7 +593,7 @@ export default function ReviewCapturePanel({
                                   />
 
                                   {field.notes && (
-                                    <p className="text-xs text-slate-500 mt-1">
+                                    <p className="mt-1 text-xs text-[var(--insyt-text-muted)]">
                                       {field.notes}
                                     </p>
                                   )}
@@ -640,7 +640,7 @@ export default function ReviewCapturePanel({
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-slate-800 p-6 space-y-3">
+      <div className="shrink-0 space-y-3 border-t border-[var(--insyt-border)] p-6">
         <Button
           fullWidth
           onClick={editingEntity ? handleUpdateLinkedEntity : handleLinkEntity}

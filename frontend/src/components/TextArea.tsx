@@ -3,6 +3,8 @@ type TextAreaProps = {
   rows?: number;
   value?: string;
   onChange?: (value: string) => void;
+  disabled?: boolean;
+  className?: string;
 };
 
 export default function TextArea({
@@ -10,6 +12,8 @@ export default function TextArea({
   rows = 4,
   value,
   onChange,
+  disabled = false,
+  className = "",
 }: TextAreaProps) {
   return (
     <textarea
@@ -17,15 +21,8 @@ export default function TextArea({
       value={value}
       onChange={(event) => onChange?.(event.target.value)}
       placeholder={placeholder}
-      className="w-full p-3 rounded-lg bg-slate-950 border border-slate-700 text-white placeholder:text-slate-500 focus:outline-none focus:border-sky-500 resize-none overflow-y-auto"
+      disabled={disabled}
+      className={`insyt-control insyt-textarea ${className}`}
     />
   );
 }
-
-
-
-
-
-
-
-

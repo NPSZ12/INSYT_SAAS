@@ -20,6 +20,7 @@ function getWorkspaceLabel(workspace: string) {
   if (workspace === "capture") return "Capture";
   if (workspace === "discovery") return "Discovery";
   if (workspace === "summaries") return "Summaries";
+
   return "Workspace";
 }
 
@@ -55,7 +56,7 @@ function ProcessingCenterPageContent({
 
         {!clientId || !projectId ? (
           <ContentCard>
-            <div className="text-sm text-red-300">
+            <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-500">
               Missing client or project in the URL.
             </div>
           </ContentCard>
@@ -80,13 +81,15 @@ function ProcessingCenterPageContent({
   );
 }
 
-export default function ProcessingCenterPage(props: ProcessingCenterPageProps) {
+export default function ProcessingCenterPage(
+  props: ProcessingCenterPageProps
+) {
   return (
     <Suspense
       fallback={
         <AppShell>
           <PageContainer>
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 text-slate-300">
+            <div className="insyt-panel p-6 text-sm text-[var(--insyt-text-secondary)]">
               Loading Processing Center...
             </div>
           </PageContainer>

@@ -850,11 +850,16 @@ export default function AzureProcessingCenterPanel({
   }, [settingsUrl, uploadsUrl, jobHistoryUrl]);
 
   return (
-    <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-5 text-slate-100 shadow-xl space-y-5">
+    <div className="insyt-panel space-y-5 p-5 shadow-xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-slate-400">{subtitle}</p>
+          <h2 className="insyt-section-title text-lg text-[var(--insyt-text-primary)]">
+            {title}
+          </h2>
+
+          <p className="text-sm text-[var(--insyt-text-muted)]">
+            {subtitle}
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -862,20 +867,20 @@ export default function AzureProcessingCenterPanel({
             type="button"
             onClick={refreshUploads}
             disabled={loadingUploads}
-            className="inline-flex h-10 min-w-[150px] items-center justify-center whitespace-nowrap rounded-full border border-blue-400/60 bg-blue-500/10 px-5 text-sm font-semibold text-blue-200 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-10 min-w-[150px] items-center justify-center rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-5 text-sm font-semibold text-[var(--insyt-text-secondary)] transition-colors hover:bg-[var(--insyt-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loadingUploads
               ? "Refreshing Uploads..."
               : "Refresh Uploads"}
           </button>
 
-          <label className="inline-flex h-10 items-center gap-3 rounded-full border border-slate-600 bg-slate-900/70 px-4 text-sm font-semibold text-slate-200">
+          <label className="inline-flex min-h-10 items-center gap-3 rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 text-sm font-semibold text-[var(--insyt-text-secondary)]">
             <input
               type="checkbox"
               checked={enableLiveOcr}
               onChange={(event) => setEnableLiveOcr(event.target.checked)}
               disabled={starting || pollingJob || !isInsytAdmin()}
-              className="h-4 w-4 rounded border-slate-500 bg-slate-950"
+              className="h-4 w-4 rounded border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-1)] accent-sky-500"
             />
             <span>Enable OCR</span>
           </label>
@@ -887,12 +892,12 @@ export default function AzureProcessingCenterPanel({
               setShowStartConfirm(true);
             }}
             disabled={starting || pollingJob || uploads.length === 0 || !isInsytAdmin()}
-            className="inline-flex h-10 min-w-[190px] items-center justify-center whitespace-nowrap rounded-full border border-violet-400/60 bg-violet-500/20 px-5 text-sm font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-10 min-w-[190px] items-center justify-center rounded-xl border border-violet-600 bg-violet-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-violet-500 hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {starting || pollingJob ? "Processing..." : "Start Azure Processing"}
           </button>
           {!isInsytAdmin() ? (
-            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
               Files may be uploaded to the Processing Center, but Azure Processing can
               only be started by an INSYT Admin.
             </div>
@@ -901,29 +906,29 @@ export default function AzureProcessingCenterPanel({
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-sm text-red-200">
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-600">
           {error}
         </div>
       ) : null}
 
       {starting || pollingJob || activeJobStatus ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="insyt-pane">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-slate-100">
+              <div className="text-sm font-semibold insyt-text-primary">
                 Azure Processing Status
               </div>
-              <div className="mt-1 text-xs text-slate-400">
+              <div className="mt-1 text-xs insyt-text-muted">
                 {processingStatusLabel}
               </div>
             </div>
 
-            <div className="text-xs font-semibold text-slate-300">
+            <div className="text-xs font-semibold insyt-text-secondary">
               {processingProgressPct}%
             </div>
           </div>
 
-          <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+          <div className="h-3 overflow-hidden rounded-full bg-[var(--insyt-surface-3)]">
             <div
               className="h-full rounded-full bg-violet-500 transition-all duration-500"
               style={{ width: `${processingProgressPct}%` }}
@@ -931,56 +936,69 @@ export default function AzureProcessingCenterPanel({
           </div>
 
           {activeJobStatus ? (
-            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+            <div className="insyt-subpanel mt-4 p-4">
               <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-slate-100">
+                  <div className="text-sm font-semibold insyt-text-primary">
                     APC Run Details
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">
+
+                  <div className="mt-1 text-xs insyt-text-muted">
                     Live status from the tracked processing job.
                   </div>
                 </div>
 
-                <div className="rounded-full border border-slate-600 px-3 py-1 text-xs font-semibold text-slate-300">
+                <div className="insyt-status insyt-status-neutral">
                   {processingStage}
                 </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Current step</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">
+                    Current step
+                  </div>
+
+                  <div className="mt-1 text-sm font-semibold insyt-text-primary">
                     {processingStep}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Current file</div>
-                  <div className="mt-1 break-all text-sm font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">
+                    Current file
+                  </div>
+
+                  <div className="mt-1 break-all text-sm font-semibold insyt-text-primary">
                     {processingCurrentFile}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Status</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">
+                    Status
+                  </div>
+
+                  <div className="mt-1 text-sm font-semibold insyt-text-primary">
                     {activeJobStatus?.status || "—"}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Updated</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">
+                    Updated
+                  </div>
+
+                  <div className="mt-1 text-sm font-semibold insyt-text-primary">
                     {formatDateTime(processingUpdatedAt)}
                   </div>
                 </div>
-              </div>
+                </div>
 
               <div className="mt-3 grid gap-3 md:grid-cols-8">
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Source</div>
-                  <div className="font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Source</div>
+                  <div className="font-semibold insyt-text-primary">
                     {getStatusNumber(
                       activeJobStatus?.source_file_count,
                       activeJobStatus?.source_files,
@@ -989,9 +1007,9 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Expanded</div>
-                  <div className="font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Expanded</div>
+                  <div className="font-semibold insyt-text-primary">
                     {getStatusNumber(
                       activeJobStatus?.expanded_file_count,
                       activeJobStatus?.expanded_files
@@ -999,8 +1017,8 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Unique</div>
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Unique</div>
                   <div className="font-semibold text-emerald-100">
                     {getStatusNumber(
                       activeJobStatus?.unique_doc_count,
@@ -1009,8 +1027,8 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Duplicates</div>
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Duplicates</div>
                   <div className="font-semibold text-amber-100">
                     {getStatusNumber(
                       activeJobStatus?.duplicate_doc_count,
@@ -1019,9 +1037,9 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">OCR pages</div>
-                  <div className="font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">OCR pages</div>
+                  <div className="font-semibold insyt-text-primary">
                     {getStatusNumber(
                       activeJobStatus?.ocr_page_count,
                       activeJobStatus?.ocr_estimated_pages
@@ -1029,9 +1047,9 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Uploaded</div>
-                  <div className="font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Uploaded</div>
+                  <div className="font-semibold insyt-text-primary">
                     {getStatusNumber(
                       activeJobStatus?.native_text_upload_count,
                       activeJobStatus?.review_upload?.uploads?.length
@@ -1039,9 +1057,9 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Reports</div>
-                  <div className="font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Reports</div>
+                  <div className="font-semibold insyt-text-primary">
                     {getStatusNumber(
                       activeJobStatus?.report_upload_count,
                       activeJobStatus?.report_upload?.uploaded_reports?.length
@@ -1049,9 +1067,9 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-900 px-3 py-2">
-                  <div className="text-xs text-slate-500">Warnings</div>
-                  <div className="font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Warnings</div>
+                  <div className="font-semibold insyt-text-primary">
                     {getStatusNumber(
                       activeJobStatus?.warning_count,
                       activeJobStatus?.warnings?.length
@@ -1061,14 +1079,14 @@ export default function AzureProcessingCenterPanel({
               </div>
 
               {activeJobStatus?.status_blob_path ? (
-                <div className="mt-3 break-all rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-500">
+                <div className="insyt-metric mt-3 break-all text-xs insyt-text-muted">
                   Status blob: {activeJobStatus.status_blob_path}
                 </div>
               ) : null}
 
               {Array.isArray(processingEvents) && processingEvents.length > 0 ? (
                 <div className="mt-4">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
                     Recent events
                   </div>
 
@@ -1076,16 +1094,16 @@ export default function AzureProcessingCenterPanel({
                     {processingEvents.slice(-8).map((event: any, index: number) => (
                       <div
                         key={`${event?.at || event?.timestamp || index}-${index}`}
-                        className="rounded-lg bg-slate-900 px-3 py-2 text-xs"
+                        className="insyt-metric text-xs"
                       >
-                        <div className="font-semibold text-slate-200">
+                        <div className="font-semibold insyt-text-primary">
                           {event?.stage || event?.step || event?.status || "Event"}
                         </div>
-                        <div className="mt-1 text-slate-500">
+                        <div className="mt-1 insyt-text-muted">
                           {event?.message || event?.detail || ""}
                         </div>
                         {(event?.at || event?.timestamp) ? (
-                          <div className="mt-1 text-slate-600">
+                          <div className="mt-1 insyt-text-subtle">
                             {formatDateTime(event?.at || event?.timestamp)}
                           </div>
                         ) : null}
@@ -1098,7 +1116,7 @@ export default function AzureProcessingCenterPanel({
           ) : null}
 
           {starting ? (
-            <div className="mt-2 text-xs text-slate-500">
+            <div className="mt-2 text-xs insyt-text-muted">
               Processing may include ZIP expansion, hashing, duplicate checks, OCR
               dry-run pricing, Doc ID assignment, review promotion, report generation,
               and upload archiving.
@@ -1107,10 +1125,10 @@ export default function AzureProcessingCenterPanel({
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <div className="rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-4">
         <div className="mb-3">
           <div className="font-medium">Upload to Azure Processing Center</div>
-          <div className="mt-1 text-sm text-slate-400">
+          <div className="mt-1 text-sm text-[var(--insyt-text-muted)]">
             Files are uploaded to source/processing_center/uploads. Processing can only be started by INSYT Admin.
           </div>
         </div>
@@ -1127,7 +1145,7 @@ export default function AzureProcessingCenterPanel({
 
           <label
             htmlFor="azure-processing-center-file-input"
-            className="inline-flex h-10 min-w-[210px] cursor-pointer items-center justify-center whitespace-nowrap rounded-full border border-emerald-400/60 bg-emerald-500/15 px-5 text-sm font-semibold text-emerald-200 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-500/25 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+            className="inline-flex min-h-10 min-w-[210px] cursor-pointer items-center justify-center rounded-xl border border-emerald-600 bg-emerald-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-emerald-500 hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-[var(--insyt-bg)]"
           >
             Choose File
           </label>
@@ -1139,34 +1157,34 @@ export default function AzureProcessingCenterPanel({
               uploadToAzureProcessingCenter();
             }}
             disabled={!selectedFile || uploading}
-            className="inline-flex h-10 min-w-[230px] items-center justify-center whitespace-nowrap rounded-full border border-sky-400/60 bg-sky-500/15 px-5 text-sm font-semibold text-sky-200 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-500/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-10 min-w-[230px] items-center justify-center rounded-xl border border-sky-500 bg-sky-500 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-sky-400 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {uploading ? "Uploading..." : "Upload to Processing Center"}
           </button>
         </div>
 
-        <div className="mt-2 min-h-5 truncate text-xs leading-5 text-slate-500">
+        <div className="mt-2 min-h-5 truncate text-xs leading-5 text-[var(--insyt-text-muted)]">
           {selectedFile ? selectedFile.name : "No file selected"}
         </div>
 
         {uploadMessage ? (
-          <div className="mt-2 rounded-lg border border-sky-500/30 bg-sky-950/30 px-3 py-2 text-xs text-sky-200">
+          <div className="mt-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-600">
             {uploadMessage}
           </div>
         ) : null}
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <div className="rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="font-medium">Processing uploads</div>
-            <div className="mt-1 text-sm text-slate-400">
+            <div className="mt-1 text-sm text-[var(--insyt-text-muted)]">
               Pending files that have not yet been processed.
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm text-slate-400">
+            <div className="text-sm text-[var(--insyt-text-muted)]">
               {uploads.length} file(s)
             </div>
 
@@ -1174,7 +1192,7 @@ export default function AzureProcessingCenterPanel({
               type="button"
               onClick={refreshUploads}
               disabled={loadingUploads}
-              className="inline-flex h-9 items-center justify-center rounded-full border border-blue-400/60 bg-blue-500/10 px-4 text-xs font-semibold text-blue-200 transition hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-9 items-center justify-center rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 text-xs font-semibold text-[var(--insyt-text-secondary)] transition-colors hover:bg-[var(--insyt-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loadingUploads
                 ? "Refreshing..."
@@ -1187,7 +1205,7 @@ export default function AzureProcessingCenterPanel({
                   type="button"
                   onClick={() => removeProcessingUploads(false)}
                   disabled={removingUploads || selectedUploadNames.length === 0}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-amber-400/60 bg-amber-500/10 px-4 text-xs font-semibold text-amber-100 shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center rounded-xl border border-amber-500 bg-amber-500 px-4 text-xs font-semibold text-slate-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {removingUploads ? "Removing..." : "Remove Selected"}
                 </button>
@@ -1196,7 +1214,7 @@ export default function AzureProcessingCenterPanel({
                   type="button"
                   onClick={() => removeProcessingUploads(true)}
                   disabled={removingUploads}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-red-400/60 bg-red-500/10 px-4 text-xs font-semibold text-red-100 shadow-sm transition hover:-translate-y-0.5 hover:border-red-300 hover:bg-red-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center justify-center rounded-xl border border-red-600 bg-red-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Clear All Uploads
                 </button>
@@ -1206,13 +1224,13 @@ export default function AzureProcessingCenterPanel({
         </div>
 
         {removeMessage ? (
-          <div className="mb-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          <div className="mb-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600">
             {removeMessage}
           </div>
         ) : null}
 
         {uploads.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-[var(--insyt-text-muted)]">
             No files found in source/processing_center/uploads.
           </p>
         ) : (
@@ -1223,7 +1241,7 @@ export default function AzureProcessingCenterPanel({
               return (
                 <div
                   key={`${displayName}-${index}`}
-                  className="rounded-lg bg-slate-950 px-3 py-2 text-sm"
+                  className="rounded-lg border border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] px-3 py-2 text-sm"
                 >
                   <div className="flex items-start gap-3">
                     {isInsytAdmin() ? (
@@ -1231,13 +1249,15 @@ export default function AzureProcessingCenterPanel({
                         type="checkbox"
                         checked={selectedUploadNames.includes(displayName)}
                         onChange={() => toggleSelectedUpload(displayName)}
-                        className="mt-1 h-4 w-4 rounded border-slate-500 bg-slate-950"
+                        className="mt-1 h-4 w-4 rounded border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-1)] accent-sky-500"
                       />
                     ) : null}
 
-                    <div className="break-all text-slate-200">{displayName}</div>
+                    <div className="break-all text-[var(--insyt-text-primary)]">
+                      {displayName}
+                    </div>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-[var(--insyt-text-muted)]">
                     <span>{formatBytes(item.size)}</span>
                     {item.content_type ? <span>{item.content_type}</span> : null}
                     {item.last_modified ? (
@@ -1268,44 +1288,50 @@ export default function AzureProcessingCenterPanel({
       />
       
       <div className="grid gap-3 md:grid-cols-4">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
+        <div className="insyt-metric">
+          <div className="text-xs uppercase tracking-wide insyt-text-muted">
             Azure Writes
           </div>
-          <div className="mt-1 text-lg font-semibold">
+
+          <div className="mt-1 text-lg font-semibold insyt-text-primary">
             {settings?.allow_azure_write ? "Enabled" : "Disabled"}
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
+        <div className="insyt-metric">
+          <div className="text-xs uppercase tracking-wide insyt-text-muted">
             Live OCR
           </div>
-          <div className="mt-1 text-lg font-semibold">
+
+          <div className="mt-1 text-lg font-semibold insyt-text-primary">
             {settings?.allow_live_ocr ? "Enabled" : "Disabled"}
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
+        <div className="insyt-metric">
+          <div className="text-xs uppercase tracking-wide insyt-text-muted">
             Uploads
           </div>
-          <div className="mt-1 text-lg font-semibold">{uploadCount}</div>
+
+          <div className="mt-1 text-lg font-semibold insyt-text-primary">
+            {uploadCount}
+          </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
+        <div className="insyt-metric">
+          <div className="text-xs uppercase tracking-wide insyt-text-muted">
             Upload Size
           </div>
-          <div className="mt-1 text-lg font-semibold">
+
+          <div className="mt-1 text-lg font-semibold insyt-text-primary">
             {formatBytes(totalUploadBytes)}
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <div className="insyt-pane">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="font-medium">
+          <div className="font-medium insyt-text-primary">
             Storage routing
           </div>
 
@@ -1313,7 +1339,7 @@ export default function AzureProcessingCenterPanel({
             type="button"
             onClick={refreshSettings}
             disabled={loadingSettings}
-            className="inline-flex h-8 items-center justify-center rounded-full border border-blue-400/60 bg-blue-500/10 px-3 text-xs font-semibold text-blue-200 transition hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="insyt-btn insyt-btn-secondary insyt-btn-sm"
           >
             {loadingSettings
               ? "Refreshing..."
@@ -1322,145 +1348,155 @@ export default function AzureProcessingCenterPanel({
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Processing account</div>
-            <div className="break-all text-sm text-slate-200">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">
+              Processing account
+            </div>
+
+            <div className="break-all text-sm insyt-text-secondary">
               {settings?.processing_account || "Loading..."}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Review output account</div>
-            <div className="break-all text-sm text-slate-200">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">
+              Review output account
+            </div>
+
+            <div className="break-all text-sm insyt-text-secondary">
               {settings?.review_account || "Loading..."}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <div className="insyt-pane">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-medium">Project Processing Totals</div>
-            <div className="mt-1 text-sm text-slate-400">
+            <div className="font-medium insyt-text-primary">
+              Project Processing Totals
+            </div>
+            <div className="mt-1 text-sm insyt-text-muted">
               Running totals from completed Azure Processing Center jobs for this project.
             </div>
           </div>
 
-          <div className="rounded-full border border-slate-600 px-3 py-1 text-xs font-semibold text-slate-300">
+          <div className="insyt-status insyt-status-neutral">
             {projectHistoryTotals.jobs} job(s)
           </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-8">
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Source uploads</div>
-            <div className="text-base font-semibold text-slate-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">Source uploads</div>
+            <div className="text-base font-semibold insyt-text-primary">
               {projectHistoryTotals.sourceFiles}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Expanded files</div>
-            <div className="text-base font-semibold text-slate-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">Expanded files</div>
+            <div className="text-base font-semibold insyt-text-primary">
               {projectHistoryTotals.expandedFiles}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">New unique docs</div>
-            <div className="text-base font-semibold text-emerald-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">New unique docs</div>
+            <div className="text-base font-semibold text-[var(--insyt-success)]">
               {projectHistoryTotals.uniqueDocs}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Duplicate docs</div>
-            <div className="text-base font-semibold text-amber-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">Duplicate docs</div>
+            <div className="text-base font-semibold text-[var(--insyt-warning)]">
               {projectHistoryTotals.duplicateDocs}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">OCR pages</div>
-            <div className="text-base font-semibold text-slate-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">OCR pages</div>
+            <div className="text-base font-semibold insyt-text-primary">
               {projectHistoryTotals.ocrPages}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">OCR quote</div>
-            <div className="text-base font-semibold text-violet-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">OCR quote</div>
+            <div className="text-base font-semibold text-[var(--insyt-info)]">
               ${projectHistoryTotals.ocrEstimate.toFixed(6)}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Failed jobs</div>
-            <div className="text-base font-semibold text-red-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">Failed jobs</div>
+            <div className="text-base font-semibold text-[var(--insyt-danger)]">
               {projectHistoryTotals.failedJobs}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Azure quote</div>
-            <div className="text-base font-semibold text-slate-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">Azure quote</div>
+            <div className="text-base font-semibold insyt-text-primary">
               ${projectHistoryTotals.azureEstimate.toFixed(6)}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <div className="insyt-pane">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-medium">OCR Quote Snapshot</div>
-            <div className="mt-1 text-sm text-slate-400">
+            <div className="font-medium insyt-text-primary">
+              OCR Quote Snapshot
+            </div>
+            <div className="mt-1 text-sm insyt-text-muted">
               OCR dry-run quotes from completed jobs using Azure retail pricing where available. Live OCR remains disabled.
             </div>
           </div>
 
-          <div className="rounded-full border border-slate-600 px-3 py-1 text-xs font-semibold text-slate-300">
+          <div className="insyt-status insyt-status-info">
             Dry-run quote
           </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-5">
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">OCR candidates</div>
-            <div className="text-base font-semibold text-slate-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">OCR candidates</div>
+            <div className="text-base font-semibold insyt-text-primary">
               {projectHistoryTotals.ocrCandidates}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">OCR pages</div>
-            <div className="text-base font-semibold text-slate-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">OCR pages</div>
+            <div className="text-base font-semibold insyt-text-primary">
               {projectHistoryTotals.ocrEstimatedPages}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">OCR quote</div>
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">OCR quote</div>
             <div className="text-base font-semibold text-violet-100">
               ${projectHistoryTotals.ocrEstimate.toFixed(6)}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Non-OCR quote</div>
-            <div className="text-base font-semibold text-slate-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">Non-OCR quote</div>
+            <div className="text-base font-semibold insyt-text-primary">
               ${projectHistoryTotals.nonOcrEstimate.toFixed(6)}
             </div>
           </div>
 
-          <div className="rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Total Azure quote</div>
-            <div className="text-base font-semibold text-slate-100">
+          <div className="insyt-metric">
+            <div className="text-xs insyt-text-muted">Total Azure quote</div>
+            <div className="text-base font-semibold insyt-text-primary">
               ${projectHistoryTotals.azureEstimate.toFixed(6)}
             </div>
           </div>
-          <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-xs leading-5 text-slate-400">
+          <div className="insyt-subpanel mt-3 px-4 py-3 text-xs leading-5 insyt-text-muted">
             Quote values are pre-billing estimates based on APC telemetry and Azure
             retail pricing where available. Actual billed Azure cost will be shown after
             Azure Cost Management ingestion is added.
@@ -1468,11 +1504,13 @@ export default function AzureProcessingCenterPanel({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <div className="insyt-pane">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-medium">Processing Status / History</div>
-            <div className="mt-1 text-sm text-slate-400">
+            <div className="font-medium insyt-text-primary">
+              Processing Status / History
+            </div>
+            <div className="mt-1 text-sm insyt-text-muted">
               Previously completed Azure Processing Center jobs for this project.
             </div>
           </div>
@@ -1481,14 +1519,14 @@ export default function AzureProcessingCenterPanel({
             type="button"
             onClick={refreshJobHistory}
             disabled={loadingJobHistory}
-            className="inline-flex h-9 min-w-[100px] items-center justify-center whitespace-nowrap rounded-full border border-blue-400/60 bg-blue-500/10 px-4 text-xs font-semibold text-blue-200 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="insyt-btn insyt-btn-secondary insyt-btn-sm"
           >
             {loadingJobHistory ? "Loading..." : "Refresh"}
           </button>
         </div>
 
         {jobHistory.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm insyt-text-muted">
             No completed processing jobs found for this project yet.
           </p>
         ) : (
@@ -1496,14 +1534,14 @@ export default function AzureProcessingCenterPanel({
             {jobHistory.map((historyJob) => (
               <div
                 key={historyJob.job_id || historyJob.status_blob_path}
-                className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm"
+                className="insyt-subpanel px-4 py-3 text-sm"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="font-semibold text-slate-100">
+                    <div className="font-semibold insyt-text-primary">
                       {historyJob.job_id || "Unknown Job"}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-1 text-xs insyt-text-muted">
                       Completed:{" "}
                       {formatDateTime(
                         historyJob.completed_at ||
@@ -1513,66 +1551,66 @@ export default function AzureProcessingCenterPanel({
                     </div>
                   </div>
 
-                  <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                  <div className="insyt-status insyt-status-success">
                     {historyJob.status || "unknown"}
                   </div>
                 </div>
 
                 <div className="mt-3 grid gap-2 md:grid-cols-8">
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Source files</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Source files</div>
+                    <div className="font-semibold insyt-text-primary">
                       {historyJob.source_file_count ?? "—"}
                     </div>
                   </div>
 
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Expanded</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Expanded</div>
+                    <div className="font-semibold insyt-text-primary">
                       {historyJob.expanded_file_count ?? "—"}
                     </div>
                   </div>
 
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Unique docs</div>
-                    <div className="font-semibold text-emerald-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Unique docs</div>
+                    <div className="font-semibold text-[var(--insyt-success)]">
                       {historyJob.unique_doc_count ?? "—"}
                     </div>
                   </div>
 
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Duplicates</div>
-                    <div className="font-semibold text-amber-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Duplicates</div>
+                    <div className="font-semibold text-[var(--insyt-warning)]">
                       {historyJob.duplicate_doc_count ?? "—"}
                     </div>
                   </div>
 
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">OCR pages</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">OCR pages</div>
+                    <div className="font-semibold insyt-text-primary">
                       {historyJob.ocr_page_count ?? "—"}
                     </div>
                   </div>
 
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">OCR quote</div>
-                    <div className="font-semibold text-violet-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">OCR quote</div>
+                    <div className="font-semibold text-[var(--insyt-info)]">
                       {typeof historyJob.ocr_estimated_cost_usd === "number"
                         ? `$${historyJob.ocr_estimated_cost_usd.toFixed(6)}`
                         : "—"}
                     </div>
                   </div>
 
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Warnings</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Warnings</div>
+                    <div className="font-semibold insyt-text-primary">
                       {historyJob.warning_count ?? "—"}
                     </div>
                   </div>
 
-                  <div className="rounded-lg bg-slate-900 px-3 py-2">
-                    <div className="text-xs text-slate-500">Azure quote</div>
-                    <div className="font-semibold text-slate-100">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">Azure quote</div>
+                    <div className="font-semibold insyt-text-primary">
                       {typeof historyJob.estimated_azure_cost_usd === "number"
                         ? `$${historyJob.estimated_azure_cost_usd.toFixed(6)}`
                         : "—"}
@@ -1580,7 +1618,7 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="mt-2 break-all text-xs text-slate-600">
+                <div className="mt-2 break-all text-xs insyt-text-subtle">
                   {historyJob.status_blob_path}
                 </div>
               </div>
@@ -1590,17 +1628,19 @@ export default function AzureProcessingCenterPanel({
       </div>
 
       {job ? (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-sm">
+        <div className="insyt-pane text-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="font-semibold text-emerald-200">
+              <div className="font-semibold text-[var(--insyt-success)]">
                 Job {job.job_id}
               </div>
-              <div className="mt-1 text-slate-300">Status: {job.status}</div>
+              <div className="mt-1 insyt-text-secondary">
+                Status: {job.status}
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <div className="rounded-full border border-emerald-400/40 px-3 py-1 text-xs font-semibold text-emerald-200">
+              <div className="insyt-status insyt-status-success">
                 {job.message || "Azure processing job completed."}
               </div>
 
@@ -1608,7 +1648,7 @@ export default function AzureProcessingCenterPanel({
                 type="button"
                 onClick={loadJobReport}
                 disabled={loadingReport || !job?.job_id}
-                className="inline-flex h-8 min-w-[110px] items-center justify-center whitespace-nowrap rounded-full border border-blue-400/60 bg-blue-500/10 px-4 text-xs font-semibold text-blue-200 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="insyt-btn insyt-btn-secondary insyt-btn-sm"
               >
                 {loadingReport ? "Loading..." : "View Report"}
               </button>
@@ -1617,7 +1657,7 @@ export default function AzureProcessingCenterPanel({
                   type="button"
                   onClick={archiveProcessedUploads}
                   disabled={archivingUploads || uploads.length === 0}
-                  className="inline-flex h-10 items-center justify-center rounded-full border border-amber-400/60 bg-amber-500/10 px-5 text-sm font-semibold text-amber-100 shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="insyt-btn insyt-btn-warning"
                 >
                   {archivingUploads ? "Archiving..." : "Archive Processed Uploads"}
                 </button>
@@ -1626,44 +1666,47 @@ export default function AzureProcessingCenterPanel({
           </div>
 
           {archiveMessage ? (
-            <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="insyt-message insyt-message-success mt-4">
               {archiveMessage}
             </div>
           ) : null}
 
           <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-lg bg-slate-950 px-3 py-2">
-              <div className="text-xs text-slate-500">Downloaded</div>
-              <div className="text-base font-semibold text-slate-100">
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">Downloaded</div>
+              <div className="text-base font-semibold insyt-text-primary">
                 {downloadedCount}
               </div>
             </div>
 
-            <div className="rounded-lg bg-slate-950 px-3 py-2">
-              <div className="text-xs text-slate-500">Native/Text uploads</div>
-              <div className="text-base font-semibold text-slate-100">
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">Native/Text uploads</div>
+              <div className="text-base font-semibold insyt-text-primary">
                 {nativeTextUploadCount}
               </div>
             </div>
 
-            <div className="rounded-lg bg-slate-950 px-3 py-2">
-              <div className="text-xs text-slate-500">Reports uploaded</div>
-              <div className="text-base font-semibold text-slate-100">
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">Reports uploaded</div>
+              <div className="text-base font-semibold insyt-text-primary">
                 {reportUploadCount}
               </div>
             </div>
 
-            <div className="rounded-lg bg-slate-950 px-3 py-2">
-              <div className="text-xs text-slate-500">Warnings</div>
-              <div className="text-base font-semibold text-slate-100">
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">Warnings</div>
+              <div className="text-base font-semibold insyt-text-primary">
                 {warningCount}
               </div>
             </div>
           </div>
 
-          <div className="mt-4 rounded-lg bg-slate-950 px-3 py-2">
-            <div className="text-xs text-slate-500">Review output</div>
-            <div className="break-all text-sm text-slate-300">
+          <div className="insyt-metric mt-4">
+            <div className="text-xs insyt-text-muted">
+              Review output
+            </div>
+
+            <div className="break-all text-sm insyt-text-secondary">
               {job.routing?.review_outputs?.storage_account || "review storage"} /{" "}
               {job.routing?.review_outputs?.container || "container"}
             </div>
@@ -1671,19 +1714,19 @@ export default function AzureProcessingCenterPanel({
 
           {job.review_upload?.uploads?.length ? (
             <div className="mt-4">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
                 Uploaded Native/Text
               </div>
               <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
                 {job.review_upload.uploads.map((upload: any, index: number) => (
                   <div
                     key={`${upload.blob_path}-${index}`}
-                    className="rounded-lg bg-slate-950 px-3 py-2 text-xs"
+                    className="insyt-metric text-xs"
                   >
-                    <div className="font-medium text-slate-200">
+                    <div className="font-medium insyt-text-primary">
                       {upload.doc_id} · {upload.kind} · {upload.status}
                     </div>
-                    <div className="mt-1 break-all text-slate-500">
+                    <div className="mt-1 break-all insyt-text-muted">
                       {upload.blob_path}
                     </div>
                   </div>
@@ -1693,63 +1736,63 @@ export default function AzureProcessingCenterPanel({
           ) : null}
 
           {jobReport ? (
-            <div className="mt-4 rounded-xl border border-blue-500/30 bg-blue-950/20 p-4">
+            <div className="insyt-subpanel mt-4 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="font-semibold text-blue-200">
+                  <div className="font-semibold text-[var(--insyt-info)]">
                     Processing Report
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="mt-1 text-xs insyt-text-muted">
                     Cost telemetry and document-output summary for {job.job_id}
                   </div>
                 </div>
 
-                <div className="rounded-full border border-blue-400/40 px-3 py-1 text-xs font-semibold text-blue-200">
+                <div className="insyt-status insyt-status-info">
                   Report Loaded
                 </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-8">
-                <div className="rounded-lg bg-slate-950 px-3 py-2">
-                  <div className="text-xs text-slate-500">Source files</div>
-                  <div className="text-base font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Source files</div>
+                  <div className="text-base font-semibold insyt-text-primary">
                     {sourceFiles ?? "—"}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-950 px-3 py-2">
-                  <div className="text-xs text-slate-500">Unique docs</div>
-                  <div className="text-base font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Unique docs</div>
+                  <div className="text-base font-semibold insyt-text-primary">
                     {uniqueDocs ?? "—"}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-950 px-3 py-2">
-                  <div className="text-xs text-slate-500">Promoted docs</div>
-                  <div className="text-base font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Promoted docs</div>
+                  <div className="text-base font-semibold insyt-text-primary">
                     {promotedDocs ?? "—"}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-950 px-3 py-2">
-                  <div className="text-xs text-slate-500">OCR pages</div>
-                  <div className="text-base font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">OCR pages</div>
+                  <div className="text-base font-semibold insyt-text-primary">
                     {ocrPages ?? "—"}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-950 px-3 py-2">
-                  <div className="text-xs text-slate-500">OCR quote</div>
-                  <div className="text-base font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">OCR quote</div>
+                  <div className="text-base font-semibold text-[var(--insyt-info)]">
                     {typeof ocrCost === "number"
                       ? `$${ocrCost.toFixed(6)}`
                       : "—"}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-slate-950 px-3 py-2">
-                  <div className="text-xs text-slate-500">Azure quote</div>
-                  <div className="text-base font-semibold text-slate-100">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">Azure quote</div>
+                  <div className="text-base font-semibold insyt-text-primary">
                     {typeof totalAzureCost === "number"
                       ? `$${totalAzureCost.toFixed(6)}`
                       : "—"}
@@ -1759,7 +1802,7 @@ export default function AzureProcessingCenterPanel({
 
               {job.report_upload?.uploaded_reports?.length ? (
                 <div className="mt-4">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
                     Uploaded Reports
                   </div>
 
@@ -1768,13 +1811,13 @@ export default function AzureProcessingCenterPanel({
                       (report: any, index: number) => (
                         <div
                           key={`${report.blob_path}-${index}`}
-                          className="rounded-lg bg-slate-950 px-3 py-2 text-xs"
+                          className="insyt-metric text-xs"
                         >
-                          <div className="font-medium text-slate-200">
+                          <div className="font-medium insyt-text-primary">
                             {report.status || "uploaded"} ·{" "}
                             {formatBytes(report.bytes)}
                           </div>
-                          <div className="mt-1 break-all text-slate-500">
+                          <div className="mt-1 break-all insyt-text-muted">
                             {report.blob_path}
                           </div>
                         </div>
@@ -1789,15 +1832,15 @@ export default function AzureProcessingCenterPanel({
       ) : null}
       {showStartConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-950 p-6 shadow-2xl">
-            <div className="text-lg font-semibold text-slate-100">
+          <div className="insyt-panel w-full max-w-lg p-6 shadow-2xl">
+            <div className="text-lg font-semibold insyt-text-primary">
               Start Azure Processing?
             </div>
 
-            <div className="mt-3 space-y-3 text-sm leading-6 text-slate-300">
+            <div className="mt-3 space-y-3 text-sm leading-6 insyt-text-secondary">
               <p>
                 This will process all files currently in{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold insyt-text-primary">
                   source/processing_center/uploads
                 </span>{" "}
                 for this project.
@@ -1809,11 +1852,11 @@ export default function AzureProcessingCenterPanel({
               </p>
 
               <p
-                className={`rounded-xl border px-3 py-2 ${
+                className={
                   enableLiveOcr
-                    ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
-                    : "border-amber-400/30 bg-amber-500/10 text-amber-100"
-                }`}
+                    ? "insyt-message insyt-message-success"
+                    : "insyt-message insyt-message-warning"
+                }
               >
                 {enableLiveOcr
                   ? "Live OCR is enabled. INSYT will run OCR/text extraction during this processing job."
@@ -1821,7 +1864,7 @@ export default function AzureProcessingCenterPanel({
               </p>
 
               {exceedsCostThreshold ? (
-                <div className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-3 text-red-100">
+                <div className="insyt-message insyt-message-danger">
                   <div className="font-semibold">Cost threshold warning</div>
 
                   <div className="mt-1 text-sm leading-6">
@@ -1831,14 +1874,14 @@ export default function AzureProcessingCenterPanel({
                     demo threshold of ${costThresholdUsd.toFixed(6)}.
                   </div>
 
-                  <label className="mt-3 flex items-start gap-2 text-sm text-red-50">
+                  <label className="mt-3 flex items-start gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={costThresholdAcknowledged}
                       onChange={(event) =>
                         setCostThresholdAcknowledged(event.target.checked)
                       }
-                      className="mt-1 h-4 w-4 rounded border-red-300 bg-slate-950"
+                      className="insyt-check mt-1"
                     />
                     <span>
                       I understand this processing run may generate Azure processing and
@@ -1853,7 +1896,7 @@ export default function AzureProcessingCenterPanel({
               <button
                 type="button"
                 onClick={() => setShowStartConfirm(false)}
-                className="inline-flex h-10 items-center justify-center rounded-full border border-slate-600 px-5 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+                className="insyt-btn insyt-btn-secondary"
               >
                 Cancel
               </button>
@@ -1870,7 +1913,7 @@ export default function AzureProcessingCenterPanel({
                   pollingJob ||
                   (exceedsCostThreshold && !costThresholdAcknowledged)
                 }
-                className="inline-flex h-10 items-center justify-center rounded-full border border-violet-400/60 bg-violet-500/20 px-5 text-sm font-semibold text-violet-100 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="insyt-btn insyt-btn-info"
               >
                 {starting ? "Starting..." : "Start Processing"}
               </button>

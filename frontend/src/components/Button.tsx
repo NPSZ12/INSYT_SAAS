@@ -1,6 +1,13 @@
 type ButtonProps = {
   children: React.ReactNode;
-  variant?: "primary" | "secondary" | "danger";
+  variant?:
+    | "primary"
+    | "secondary"
+    | "success"
+    | "warning"
+    | "danger"
+    | "info"
+    | "ghost";
   fullWidth?: boolean;
   onClick?: () => void;
   type?: "button" | "submit" | "reset";
@@ -19,19 +26,16 @@ export default function Button({
   className = "",
   unstyled = false,
 }: ButtonProps) {
-  const baseStyles =
-    "px-5 py-3 rounded-xl font-semibold transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-slate-950";
-
-  const variantStyles =
-    variant === "primary"
-      ? "bg-sky-500 hover:bg-sky-400 active:bg-sky-700 text-white shadow-md shadow-sky-950/30"
-      : variant === "danger"
-        ? "bg-red-600 hover:bg-red-500 active:bg-red-700 text-white shadow-md shadow-red-950/30"
-        : "border border-slate-700 bg-slate-900 hover:bg-slate-700 hover:border-sky-500 active:bg-sky-900 text-slate-200 hover:text-white";
-
   const styles = unstyled
     ? className
-    : `${fullWidth ? "w-full" : ""} ${baseStyles} ${variantStyles} ${className}`;
+    : [
+        "insyt-btn",
+        `insyt-btn-${variant}`,
+        fullWidth ? "insyt-btn-full" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ");
 
   return (
     <button

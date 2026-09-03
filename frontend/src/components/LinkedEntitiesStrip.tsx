@@ -33,40 +33,40 @@ export default function LinkedEntitiesStrip({
   onDelete,
 }: LinkedEntitiesStripProps) {
   return (
-    <section className="h-64 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden flex flex-col">
-      <div className="shrink-0 px-5 py-3 border-b border-slate-800 bg-slate-950">
-        <h3 className="text-lg font-semibold text-white">
+    <section className="flex h-64 flex-col overflow-hidden rounded-2xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
+      <div className="shrink-0 border-b border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] px-5 py-3">
+        <h3 className="insyt-section-title text-lg text-[var(--insyt-text-primary)]">
           Linked Entities
         </h3>
       </div>
 
       <div className="flex-1 overflow-auto">
         {linkedEntities.length === 0 ? (
-          <p className="p-5 text-sm text-slate-500">
+          <p className="p-5 text-sm text-[var(--insyt-text-muted)]">
             No entities linked for this document yet.
           </p>
         ) : (
           <table className="min-w-max w-full text-xs">
-            <thead className="bg-slate-900 text-slate-400 sticky top-0 z-20">
+            <thead className="sticky top-0 z-20 bg-[var(--insyt-surface-2)] text-[var(--insyt-text-muted)]">
               <tr>
-                <th className="p-3 text-left sticky left-0 bg-slate-900 z-30">
+                <th className="sticky left-0 z-30 bg-[var(--insyt-surface-2)] p-3 text-left">
                   Actions
                 </th>
 
-                <th className="p-3 text-left sticky left-[150px] bg-slate-900 z-30 border-l border-slate-800">
+                <th className="sticky left-[150px] z-30 border-l border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] p-3 text-left">
                   #
                 </th>
 
                 {fields.map((field) => (
                   <th
                     key={field.label}
-                    className="p-3 text-left whitespace-nowrap border-l border-slate-800"
+                    className="whitespace-nowrap border-l border-[var(--insyt-border)] p-3 text-left"
                   >
                     {field.label}
                   </th>
                 ))}
 
-                <th className="p-3 text-left whitespace-nowrap border-l border-slate-800">
+                <th className="whitespace-nowrap border-l border-[var(--insyt-border)] p-3 text-left">
                   UCID
                 </th>
               </tr>
@@ -76,14 +76,14 @@ export default function LinkedEntitiesStrip({
               {linkedEntities.map((entity, index) => (
                 <tr
                   key={entity.id}
-                  className="border-t border-slate-800"
+                  className="border-t border-[var(--insyt-border)]"
                 >
-                  <td className="p-2 sticky left-0 bg-slate-950 z-20">
+                  <td className="sticky left-0 z-20 bg-[var(--insyt-surface-1)] p-2">
                     <div className="flex gap-1">
                       <button
                         type="button"
                         onClick={() => onEdit(entity)}
-                        className="rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 transition"
+                        className="rounded-xl border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-500 transition hover:bg-sky-500/20"
                       >
                         Edit
                       </button>
@@ -91,7 +91,7 @@ export default function LinkedEntitiesStrip({
                       <button
                         type="button"
                         onClick={() => onUnlink(entity.id)}
-                        className="rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 hover:text-orange-200 transition"
+                        className="rounded-xl border border-orange-500/50 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-600 transition hover:bg-orange-500/20"
                       >
                         Unlink
                       </button>
@@ -99,14 +99,14 @@ export default function LinkedEntitiesStrip({
                       <button
                         type="button"
                         onClick={() => onDelete(entity.id)}
-                        className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 hover:text-red-200 transition"
+                        className="rounded-xl border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-500 transition hover:bg-red-500/20"
                       >
                         Delete
                       </button>
                     </div>
                   </td>
 
-                  <td className="p-3 text-slate-400 sticky left-[150px] bg-slate-950 z-20 border-l border-slate-800">
+                  <td className="sticky left-[150px] z-20 border-l border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3 text-[var(--insyt-text-muted)]">
                     {index + 1}
 
                     {!entity.linked && (
@@ -122,7 +122,7 @@ export default function LinkedEntitiesStrip({
                     return (
                       <td
                         key={field.label}
-                        className="p-3 text-slate-300 border-l border-slate-800 whitespace-nowrap"
+                        className="whitespace-nowrap border-l border-[var(--insyt-border)] p-3 text-[var(--insyt-text-secondary)]"
                       >
                         {typeof value === "boolean"
                           ? value
@@ -133,10 +133,12 @@ export default function LinkedEntitiesStrip({
                     );
                   })}
 
-                  <td className="p-3 text-slate-400 border-l border-slate-800 whitespace-nowrap">
-                    {entity.ucid || entity.UCID || entity.values.UCID || ""}
+                  <td className="whitespace-nowrap border-l border-[var(--insyt-border)] p-3 text-[var(--insyt-text-muted)]">
+                    {entity.ucid ||
+                      entity.UCID ||
+                      entity.values.UCID ||
+                      ""}
                   </td>
-
                 </tr>
               ))}
             </tbody>

@@ -1,19 +1,15 @@
 type FormLabelProps = {
   children: React.ReactNode;
+  className?: string;
 };
 
-export default function FormLabel({ children }: FormLabelProps) {
+export default function FormLabel({
+  children,
+  className = "",
+}: FormLabelProps) {
   return (
-    <label className="block text-sm text-slate-400 mb-2">
+    <label className={`insyt-form-label ${className}`}>
       {children}
     </label>
   );
 }
-
-
-
-
-
-
-
-

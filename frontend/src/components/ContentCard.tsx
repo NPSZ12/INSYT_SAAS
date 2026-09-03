@@ -1,16 +1,18 @@
 type ContentCardProps = {
   title?: string;
   children: React.ReactNode;
+  className?: string;
 };
 
 export default function ContentCard({
   title,
   children,
+  className = "",
 }: ContentCardProps) {
   return (
-    <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6">
+    <div className={`insyt-panel p-6 ${className}`}>
       {title && (
-        <h3 className="insyt-workspace text-2xl font-semibold mb-6 text-white">
+        <h3 className="insyt-section-title mb-6 text-xl insyt-text-primary">
           {title}
         </h3>
       )}
@@ -19,11 +21,3 @@ export default function ContentCard({
     </div>
   );
 }
-
-
-
-
-
-
-
-
