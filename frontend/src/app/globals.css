@@ -166,15 +166,15 @@ html[data-insyt-content-theme="light"]
   --insyt-surface-hover: #e2e8f0;
   --insyt-surface-selected: #e0f2fe;
 
-  --insyt-border: #e2e8f0;
-  --insyt-border-strong: #cbd5e1;
-  --insyt-border-hover: #94a3b8;
+  --insyt-border: #cbd5e1;
+  --insyt-border-strong: #94a3b8;
+  --insyt-border-hover: #64748b;
 
-  --insyt-text-primary: #0f172a;
-  --insyt-text-secondary: #334155;
-  --insyt-text-muted: #64748b;
-  --insyt-text-subtle: #94a3b8;
-  --insyt-text-disabled: #cbd5e1;
+  --insyt-text-primary: #020617;
+  --insyt-text-secondary: #1e293b;
+  --insyt-text-muted: #475569;
+  --insyt-text-subtle: #64748b;
+  --insyt-text-disabled: #94a3b8;
 
   background: var(--insyt-bg);
   color: var(--insyt-text-primary);
@@ -304,17 +304,17 @@ html[data-insyt-content-theme="light"]
 
 html[data-insyt-content-theme="light"]
   .insyt-content-surface .text-slate-400 {
-  color: #475569 !important;
+  color: #334155 !important;
 }
 
 html[data-insyt-content-theme="light"]
   .insyt-content-surface .text-slate-500 {
-  color: #64748b !important;
+  color: #475569 !important;
 }
 
 html[data-insyt-content-theme="light"]
   .insyt-content-surface .text-slate-600 {
-  color: #64748b !important;
+  color: #475569 !important;
 }
 
 
@@ -834,6 +834,36 @@ body {
   color: var(--insyt-text-primary);
 }
 
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-btn-secondary {
+  background: #ffffff;
+  border-color: #94a3b8;
+  color: #1e293b;
+
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-btn-secondary:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #64748b;
+  color: #020617;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-btn-primary,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-btn-success,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-btn-warning,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-btn-danger,
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-btn-info {
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.16);
+}
 
 .insyt-btn-success {
   background: var(--insyt-success);
@@ -992,6 +1022,19 @@ body {
   background: rgba(220, 38, 38, 0.10);
   border-color: rgba(220, 38, 38, 0.40);
   color: var(--insyt-danger);
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-status {
+  border-width: 1px;
+  font-weight: 650;
+}
+
+html[data-insyt-content-theme="light"]
+  .insyt-content-surface .insyt-status-neutral {
+  background: #ffffff;
+  border-color: #94a3b8;
+  color: #334155;
 }
 
 /* =========================================================
