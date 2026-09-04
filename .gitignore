@@ -36,3 +36,9 @@ _legacy_deploy_frontend_backup/
 *.PublishSettings
 
 *.PublishSettings
+
+# Local INSYT diagnostic / deployment artifacts
+apc-worker-logs/
+apc-path-audit-*/
+JOB-*.status.json
+*.diff

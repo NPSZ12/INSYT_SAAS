@@ -1,3 +1,0 @@
-2026-06-14T17:04:14  Startup Request, url: /logstream, method: GET, type: request, pid: 830,1,33, SCM_DO_BUILD_DURING_DEPLOYMENT: 1, ScmType: None
-2026-06-14T17:07:23    Error occurred, type: error, text: LogStreamManager: ProcessRequest end
-2026-06-14T17:07:27  Error occurred, type: error, text: LogStreamManager: Inside Reset
