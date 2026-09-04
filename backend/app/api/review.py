@@ -18,6 +18,7 @@ from app.services.storage_paths import build_project_base_path, build_project_pa
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+from azure.identity import DefaultAzureCredential
 from azure.storage.blob import (
     BlobServiceClient,
     generate_blob_sas,
@@ -80,6 +81,69 @@ def get_source_container_client(workspace: str):
         get_source_container_name(workspace_clean)
     )
 
+def get_review_storage_account() -> str:
+    return os.getenv(
+        "INSYT_REVIEW_STORAGE_ACCOUNT",
+        "insytreviewstorage",
+    )
+
+
+def get_review_container_name(
+    workspace: str,
+) -> str:
+    workspace_clean = (
+        str(workspace or "")
+        .lower()
+        .strip()
+    )
+
+    if workspace_clean not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid workspace.",
+        )
+
+    return (
+        os.getenv(
+            f"INSYT_REVIEW_CONTAINER_{workspace_clean.upper()}"
+        )
+        or os.getenv(
+            "INSYT_REVIEW_CONTAINER"
+        )
+        or f"insyt-{workspace_clean}"
+    )
+
+
+def get_review_container_client(
+    workspace: str,
+):
+    connection_string = os.getenv(
+        "INSYT_REVIEW_STORAGE_CONNECTION_STRING"
+    )
+
+    if connection_string:
+        service = (
+            BlobServiceClient
+            .from_connection_string(
+                connection_string
+            )
+        )
+    else:
+        service = BlobServiceClient(
+            account_url=(
+                f"https://"
+                f"{get_review_storage_account()}"
+                ".blob.core.windows.net"
+            ),
+            credential=DefaultAzureCredential(),
+        )
+
+    return service.get_container_client(
+        get_review_container_name(
+            workspace
+        )
+    )
+
 
 def get_source_blob_url(
     workspace: str,
@@ -110,6 +174,64 @@ def get_source_blob_url(
     )
 
     return f"{blob_client.url}?{sas_token}"
+
+def get_review_blob_url(
+    workspace: str,
+    blob_path: str,
+):
+    if not blob_path:
+        return ""
+
+    container = (
+        get_review_container_client(
+            workspace
+        )
+    )
+
+    blob_client = (
+        container.get_blob_client(
+            blob_path
+        )
+    )
+
+    account_name = (
+        container.account_name
+    )
+
+    account_key = (
+        container.credential.account_key
+        if hasattr(
+            container.credential,
+            "account_key",
+        )
+        else None
+    )
+
+    if account_key:
+        sas_token = generate_blob_sas(
+            account_name=account_name,
+            container_name=(
+                container.container_name
+            ),
+            blob_name=blob_path,
+            account_key=account_key,
+            permission=BlobSasPermissions(
+                read=True
+            ),
+            expiry=(
+                datetime.now(
+                    timezone.utc
+                )
+                + timedelta(hours=4)
+            ),
+        )
+
+        return (
+            f"{blob_client.url}"
+            f"?{sas_token}"
+        )
+
+    return blob_client.url
 
 def list_workspace_project_files(
     workspace: str,
@@ -667,43 +789,97 @@ def load_review_document_by_doc_id(
         .strip("/")
     )
 
-    # Support accidental full Azure URLs by trimming to the project-relative path
-    # when the native blob is passed as a URL instead of a blob name.
-    if "/source/native/" in clean_native_blob and "://" in clean_native_blob:
-        marker = "/source/native/"
-        before, after = clean_native_blob.split(marker, 1)
+    native_storage_source = "live_source"
 
-        path_parts = before.split("/")
-        if len(path_parts) >= 3:
-            client_part = path_parts[-3]
-            workspace_part = path_parts[-2]
-            project_part = path_parts[-1]
-
-            clean_native_blob = (
-                f"{client_part}/"
-                f"{workspace_part}/"
-                f"{project_part}"
-                f"{marker}"
-                f"{after}"
-            )
+    # Explicit native_blob paths may point either to:
+    #
+    # 1. the promoted live source/native hierarchy, or
+    # 2. an existing Review Storage staged CSV registered
+    #    with Cyber² Intake.
+    #
+    # Cyber² deliberately references the staged CSV rather
+    # than creating a duplicate under source/native.
 
     if clean_native_blob:
-        allowed_native_path = any(
-            clean_native_blob.startswith(prefix)
+        supported_native_type = (
+            clean_native_blob
+            .lower()
+            .endswith(
+                SUPPORTED_REVIEW_EXTENSIONS
+            )
+        )
+
+        if not supported_native_type:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Unsupported review file type: "
+                    f"{clean_native_blob}"
+                ),
+            )
+
+        # -------------------------------------------------
+        # First try the canonical live-source locations.
+        # -------------------------------------------------
+
+        allowed_live_source_path = any(
+            clean_native_blob.startswith(
+                prefix
+            )
             for prefix in native_prefixes
         )
 
-        supported_native_type = clean_native_blob.lower().endswith(
-            SUPPORTED_REVIEW_EXTENSIONS
-        )
-
-        if allowed_native_path and supported_native_type:
-            native_blob_client = source_container.get_blob_client(
-                clean_native_blob
+        if allowed_live_source_path:
+            live_blob_client = (
+                source_container
+                .get_blob_client(
+                    clean_native_blob
+                )
             )
 
-            if native_blob_client.exists():
-                matched_native = clean_native_blob
+            if live_blob_client.exists():
+                matched_native = (
+                    clean_native_blob
+                )
+                native_storage_source = (
+                    "live_source"
+                )
+
+        # -------------------------------------------------
+        # Cyber² Intake:
+        # Accept an existing staged file from Review Storage,
+        # but only when it belongs to the active project.
+        # -------------------------------------------------
+
+        if not matched_native:
+            review_container = (
+                get_review_container_client(
+                    workspace
+                )
+            )
+
+            allowed_review_path = any(
+                clean_native_blob.startswith(
+                    f"{base_path}/"
+                )
+                for base_path in base_paths
+            )
+
+            if allowed_review_path:
+                review_blob_client = (
+                    review_container
+                    .get_blob_client(
+                        clean_native_blob
+                    )
+                )
+
+                if review_blob_client.exists():
+                    matched_native = (
+                        clean_native_blob
+                    )
+                    native_storage_source = (
+                        "review_storage"
+                    )
 
     if not matched_native:
         for native_prefix in native_prefixes:
@@ -731,31 +907,66 @@ def load_review_document_by_doc_id(
     if not matched_native:
         raise HTTPException(
             status_code=404,
-            detail=f"Document not found in source/native: {doc_id}",
+            detail=(
+                "Document not found in "
+                f"available review storage: "
+                f"{doc_id}"
+            ),
         )
+
+    native_container = (
+        get_review_container_client(
+            workspace
+        )
+        if native_storage_source
+        == "review_storage"
+        else source_container
+    )
 
     matched_text = ""
 
-    native_file_name = matched_native.split("/")[-1]
+    native_file_name = (
+        matched_native
+        .split("/")[-1]
+    )
     native_stem = native_file_name.rsplit(".", 1)[0]
 
     candidate_text_paths = []
 
-    try:
-        candidate_text_paths.append(
-            resolve_text_blob_path(matched_native)
-        )
-    except Exception:
-        pass
+    if (
+        native_storage_source
+        == "live_source"
+    ):
+        try:
+            candidate_text_paths.append(
+                resolve_text_blob_path(
+                    matched_native
+                )
+            )
+        except Exception:
+            pass
 
-    for text_prefix in text_prefixes:
-        candidate_text_paths.extend(
-            [
-                f"{text_prefix}{matched_doc_id}.txt",
-                f"{text_prefix}{native_stem}.txt",
-                f"{text_prefix}{doc_id}.txt",
-            ]
-        )
+    if (
+        native_storage_source
+        == "live_source"
+    ):
+        for text_prefix in text_prefixes:
+            candidate_text_paths.extend(
+                [
+                    (
+                        f"{text_prefix}"
+                        f"{matched_doc_id}.txt"
+                    ),
+                    (
+                        f"{text_prefix}"
+                        f"{native_stem}.txt"
+                    ),
+                    (
+                        f"{text_prefix}"
+                        f"{doc_id}.txt"
+                    ),
+                ]
+            )
 
     seen_candidates = set()
 
@@ -773,7 +984,11 @@ def load_review_document_by_doc_id(
             matched_text = clean_candidate
             break
 
-    if not matched_text:
+    if (
+            not matched_text
+            and native_storage_source
+            == "live_source"
+        ):
         accepted_text_names = {
             requested,
             normalize_doc_lookup(matched_doc_id),
@@ -813,9 +1028,17 @@ def load_review_document_by_doc_id(
         except Exception:
             outline_items = []
 
-    native_url = get_source_blob_url(
-        workspace,
-        matched_native,
+    native_url = (
+        get_review_blob_url(
+            workspace,
+            matched_native,
+        )
+        if native_storage_source
+        == "review_storage"
+        else get_source_blob_url(
+            workspace,
+            matched_native,
+        )
     )
 
     review_state = load_document_review_state(
@@ -843,6 +1066,9 @@ def load_review_document_by_doc_id(
         "text_exists": bool(matched_text),
         "native_url": native_url,
         "native_blob": matched_native,
+        "native_storage_source": (
+            native_storage_source
+        ),
     }
 
 def load_current_review_document(
@@ -1085,9 +1311,27 @@ def get_workspace_review_preview(
         native_blob=native_blob or blob_path,
     )
 
-    native_blob = document.get("native_blob", "")
-    text_blob = document.get("blob_name", "")
-    doc_id = document.get("doc_id", doc)
+    native_blob = document.get(
+        "native_blob",
+        "",
+    )
+
+    native_storage_source = (
+        document.get(
+            "native_storage_source",
+            "live_source",
+        )
+    )
+
+    text_blob = document.get(
+        "blob_name",
+        "",
+    )
+
+    doc_id = document.get(
+        "doc_id",
+        doc,
+    )
 
     file_name = native_blob.split("/")[-1] if native_blob else doc_id
     extension = get_extension(file_name)

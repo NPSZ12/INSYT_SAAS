@@ -434,6 +434,30 @@ function ReviewPageContent() {
     return (
       <AppShell>
         <PageContainer>
+          {returnTo && (
+            <div className="mb-4 flex items-center">
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(returnTo)
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-sky-700 hover:bg-slate-800 hover:text-white"
+              >
+                <span
+                  aria-hidden="true"
+                  className="text-base"
+                >
+                  ←
+                </span>
+
+                Return to{" "}
+                {returnLabel ||
+                  "Cyber²"}{" "}
+                Landing
+              </button>
+            </div>
+          )}
+
           <ContentCard title="Review Workspace Error">
             <p className="text-red-400 text-sm whitespace-pre-wrap">
               {error}

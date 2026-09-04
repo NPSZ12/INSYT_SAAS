@@ -6,6 +6,7 @@ from io import BytesIO
 
 import pandas as pd
 
+from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
 from app.services.storage_paths import build_project_prefix
@@ -74,6 +75,66 @@ def get_workspace_container(workspace: str):
     service = BlobServiceClient.from_connection_string(conn)
     return service.get_container_client(get_container_name(workspace))
 
+def get_review_storage_account() -> str:
+    return os.getenv(
+        "INSYT_REVIEW_STORAGE_ACCOUNT",
+        "insytreviewstorage",
+    )
+
+
+def get_review_container_name(
+    workspace: str,
+) -> str:
+    workspace_clean = (
+        str(workspace or "")
+        .lower()
+        .strip()
+    )
+
+    if workspace_clean not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid workspace.",
+        )
+
+    return (
+        os.getenv(
+            f"INSYT_REVIEW_CONTAINER_{workspace_clean.upper()}"
+        )
+        or os.getenv("INSYT_REVIEW_CONTAINER")
+        or f"insyt-{workspace_clean}"
+    )
+
+
+def get_review_container(
+    workspace: str,
+):
+    connection_string = os.getenv(
+        "INSYT_REVIEW_STORAGE_CONNECTION_STRING"
+    )
+
+    if connection_string:
+        service = (
+            BlobServiceClient
+            .from_connection_string(
+                connection_string
+            )
+        )
+    else:
+        service = BlobServiceClient(
+            account_url=(
+                f"https://"
+                f"{get_review_storage_account()}"
+                ".blob.core.windows.net"
+            ),
+            credential=DefaultAzureCredential(),
+        )
+
+    return service.get_container_client(
+        get_review_container_name(
+            workspace
+        )
+    )
 
 def build_prefix(
     workspace: str,
@@ -332,7 +393,17 @@ def preview_workspace_native_file(
 ):
     workspace = workspace.lower().strip()
 
-    container = get_workspace_container(workspace)
+    live_container = (
+        get_workspace_container(
+            workspace
+        )
+    )
+
+    review_container = (
+        get_review_container(
+            workspace
+        )
+    )
 
     extension = get_file_extension(blob_path)
     file_name = blob_path.split("/")[-1]
@@ -343,12 +414,44 @@ def preview_workspace_native_file(
             detail="File extension could not be detected.",
         )
 
+    file_bytes = None
+    load_errors = []
+
     try:
-        file_bytes = container.download_blob(blob_path).readall()
+        file_bytes = (
+            live_container
+            .download_blob(
+                blob_path
+            )
+            .readall()
+        )
     except Exception as exc:
+        load_errors.append(
+            f"live_source={exc}"
+        )
+
+    if file_bytes is None:
+        try:
+            file_bytes = (
+                review_container
+                .download_blob(
+                    blob_path
+                )
+                .readall()
+            )
+        except Exception as exc:
+            load_errors.append(
+                f"review_storage={exc}"
+            )
+
+    if file_bytes is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Unable to load native file: {exc}",
+            detail=(
+                "Unable to load native file "
+                "from live source or review storage. "
+                + " | ".join(load_errors)
+            ),
         )
 
     if extension == "pdf":
