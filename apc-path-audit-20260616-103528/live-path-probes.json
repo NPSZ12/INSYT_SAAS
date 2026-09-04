@@ -1,0 +1,266 @@
+﻿{
+    "expected":  {
+                     "expected_base_display":  "Client1/capture/Project_Client1",
+                     "expected_base_project_param":  "Client1/capture/Project_Client1",
+                     "bad_workspace_first_display":  "capture/Client1/Project_Client1",
+                     "bad_workspace_first_project_param":  "capture/Client1/Project_Client1",
+                     "bad_space_base":  "Client1/capture/Project Client1"
+                 },
+    "urls":  {
+                 "uploads_display":  "https://api.insyt360.com/api/capture/processing-center/uploads?client=Client1\u0026project=Project%20Client1",
+                 "uploads_project":  "https://api.insyt360.com/api/capture/processing-center/uploads?client=Client1\u0026project=Project_Client1",
+                 "history":  "https://api.insyt360.com/api/capture/processing-center/job-history?client=Client1\u0026project=Project_Client1"
+             },
+    "uploads_display":  {
+                            "workspace":  "capture",
+                            "client":  "Client1",
+                            "project":  "Project Client1",
+                            "project_storage_key":  "Project_Client1",
+                            "project_base_path":  "Client1/capture/Project_Client1",
+                            "apc_path_version":  "project-storage-key-v2",
+                            "storage_account":  "insytprodstorage",
+                            "container":  "insyt-capture",
+                            "uploads_prefix":  "Client1/capture/Project_Client1/source/processing_center/uploads/",
+                            "uploads":  [
+                                            {
+                                                "name":  "Test005_Spreadsheet_Data.txt",
+                                                "blob_name":  "Client1/capture/Project_Client1/source/processing_center/uploads/Test005_Spreadsheet_Data.txt",
+                                                "size":  57,
+                                                "last_modified":  "2026-06-16T13:26:38+00:00",
+                                                "content_type":  "text/plain"
+                                            }
+                                        ],
+                            "upload_count":  1
+                        },
+    "uploads_project":  {
+                            "workspace":  "capture",
+                            "client":  "Client1",
+                            "project":  "Project_Client1",
+                            "project_storage_key":  "Project_Client1",
+                            "project_base_path":  "Client1/capture/Project_Client1",
+                            "apc_path_version":  "project-storage-key-v2",
+                            "storage_account":  "insytprodstorage",
+                            "container":  "insyt-capture",
+                            "uploads_prefix":  "Client1/capture/Project_Client1/source/processing_center/uploads/",
+                            "uploads":  [
+                                            {
+                                                "name":  "Test005_Spreadsheet_Data.txt",
+                                                "blob_name":  "Client1/capture/Project_Client1/source/processing_center/uploads/Test005_Spreadsheet_Data.txt",
+                                                "size":  57,
+                                                "last_modified":  "2026-06-16T13:26:38+00:00",
+                                                "content_type":  "text/plain"
+                                            }
+                                        ],
+                            "upload_count":  1
+                        },
+    "history_latest_job":  {
+                               "job_id":  "JOB-4DA0026C729C4FBD",
+                               "apc_job_id":  null,
+                               "status":  "no_uploads",
+                               "message":  "No processing uploads were found. Nothing to process.",
+                               "matter_id":  "Project_Client1-AZURE-RUN",
+                               "workspace":  "capture",
+                               "client":  "Client1",
+                               "project":  "Project_Client1",
+                               "generated_at":  null,
+                               "created_at":  "2026-06-16T14:27:29.900237+00:00",
+                               "completed_at":  "2026-06-16T14:28:16.476038+00:00",
+                               "source_file_count":  0,
+                               "expanded_file_count":  0,
+                               "unique_doc_count":  0,
+                               "duplicate_doc_count":  0,
+                               "ocr_page_count":  0,
+                               "ocr_candidate_files":  0,
+                               "ocr_candidate_bytes":  0,
+                               "ocr_candidate_gb":  0.0,
+                               "ocr_estimated_pages":  0,
+                               "ocr_estimated_cost_usd":  0.0,
+                               "ocr_cost_pct_of_total":  null,
+                               "ocr_reason_counts":  {
+
+                                                     },
+                               "non_ocr_estimated_cost_usd":  0.0,
+                               "estimated_azure_cost_usd":  0.0,
+                               "downloaded_count":  0,
+                               "native_text_upload_count":  0,
+                               "report_upload_count":  0,
+                               "warning_count":  0,
+                               "hash_index_added_count":  0,
+                               "archive_upload_count":  0,
+                               "report_file_count":  0,
+                               "promoted_doc_count":  0,
+                               "history_metrics_source":  "tracked_status_wrapper",
+                               "actual_azure_cost_status":  "pending_cost_management_ingestion",
+                               "actual_azure_cost_usd":  null,
+                               "status_blob_path":  "Client1/capture/Project_Client1/processing_center/jobs/JOB-4DA0026C729C4FBD/status.json",
+                               "last_modified":  "2026-06-16T14:28:16+00:00"
+                           },
+    "tracked_status":  {
+                           "job_id":  "JOB-4DA0026C729C4FBD",
+                           "workspace":  "capture",
+                           "client":  "Client1",
+                           "project":  "Project_Client1",
+                           "matter_id":  "Project_Client1-AZURE-RUN",
+                           "status":  "no_uploads",
+                           "stage":  "completed",
+                           "progress_pct":  100,
+                           "message":  "No processing uploads were found. Nothing to process.",
+                           "requested_by":  "Nathaniel",
+                           "requested_at":  "2026-06-16T14:27:29.900208+00:00",
+                           "created_at":  "2026-06-16T14:27:29.900237+00:00",
+                           "updated_at":  "2026-06-16T14:28:16.476051+00:00",
+                           "request_blob_path":  "Client1/capture/Project_Client1/processing_center/jobs/JOB-4DA0026C729C4FBD/request.json",
+                           "status_blob_path":  "Client1/capture/Project_Client1/processing_center/jobs/JOB-4DA0026C729C4FBD/status.json",
+                           "cancel_requested":  false,
+                           "started_at":  "2026-06-16T14:28:13.796309+00:00",
+                           "worker_started_at":  "2026-06-16T14:28:13.512700+00:00",
+                           "apc_job_id":  null,
+                           "routing":  {
+                                           "generated_at":  "2026-06-16T14:28:14.895853+00:00",
+                                           "mode":  "azure-write",
+                                           "job_id":  null,
+                                           "workspace":  "capture",
+                                           "client":  "Client1",
+                                           "project":  "Project_Client1",
+                                           "processing":  {
+                                                              "storage_account":  "insytprodstorage",
+                                                              "container":  "insyt-capture",
+                                                              "paths":  {
+                                                                            "uploads":  "capture/Client1/Project_Client1/source/processing_center/uploads",
+                                                                            "work":  "capture/Client1/Project_Client1/processing_center/work",
+                                                                            "temp":  "capture/Client1/Project_Client1/processing_center/temp",
+                                                                            "jobs":  "capture/Client1/Project_Client1/processing_center/jobs",
+                                                                            "telemetry":  "capture/Client1/Project_Client1/processing_center/telemetry",
+                                                                            "internal_reports":  "capture/Client1/Project_Client1/processing_center/reports/internal"
+                                                                        },
+                                                              "urls":  {
+                                                                           "uploads":  "https://insytprodstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/source/processing_center/uploads",
+                                                                           "work":  "https://insytprodstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/processing_center/work",
+                                                                           "temp":  "https://insytprodstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/processing_center/temp",
+                                                                           "jobs":  "https://insytprodstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/processing_center/jobs",
+                                                                           "telemetry":  "https://insytprodstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/processing_center/telemetry",
+                                                                           "internal_reports":  "https://insytprodstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/processing_center/reports/internal"
+                                                                       }
+                                                          },
+                                           "review_outputs":  {
+                                                                  "storage_account":  "insytreviewstorage",
+                                                                  "container":  "insyt-capture",
+                                                                  "paths":  {
+                                                                                "native":  "capture/Client1/Project_Client1/source/native",
+                                                                                "text":  "capture/Client1/Project_Client1/source/text",
+                                                                                "preview":  "capture/Client1/Project_Client1/source/preview",
+                                                                                "metadata":  "capture/Client1/Project_Client1/source/metadata",
+                                                                                "reports":  "capture/Client1/Project_Client1/processing_center/reports"
+                                                                            },
+                                                                  "urls":  {
+                                                                               "native":  "https://insytreviewstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/source/native",
+                                                                               "text":  "https://insytreviewstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/source/text",
+                                                                               "preview":  "https://insytreviewstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/source/preview",
+                                                                               "metadata":  "https://insytreviewstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/source/metadata",
+                                                                               "reports":  "https://insytreviewstorage.blob.core.windows.net/insyt-capture/capture/Client1/Project_Client1/processing_center/reports"
+                                                                           }
+                                                              },
+                                           "safety":  {
+                                                          "processing_account_expected":  true,
+                                                          "review_account_expected":  true,
+                                                          "accounts_are_separate":  true,
+                                                          "azure_write_enabled":  true
+                                                      },
+                                           "promotion_plan_count":  0
+                                       },
+                           "staging_dir":  "/tmp/apc_worker_runs/Project_Client1-AZURE-RUN/uploads",
+                           "local_review_root":  null,
+                           "downloads":  [
+
+                                         ],
+                           "report_files":  {
+
+                                            },
+                           "review_upload":  null,
+                           "report_upload":  null,
+                           "status_upload":  null,
+                           "hash_index_upload":  null,
+                           "warnings":  [
+
+                                        ],
+                           "archive_upload":  {
+                                                  "status":  "completed",
+                                                  "job_id":  "JOB-4DA0026C729C4FBD",
+                                                  "source_prefix":  "capture/Client1/Project_Client1/source/processing_center/uploads/",
+                                                  "archive_prefix":  "capture/Client1/Project_Client1/processing_center/archive/JOB-4DA0026C729C4FBD/uploads/",
+                                                  "archived_count":  0,
+                                                  "failed_count":  0,
+                                                  "items":  [
+
+                                                            ],
+                                                  "generated_at":  "2026-06-16T14:28:15.482271+00:00"
+                                              },
+                           "completed_at":  "2026-06-16T14:28:16.476038+00:00"
+                       },
+    "path_checks":  [
+                        {
+                            "Name":  "GET uploads with display project uploads_prefix",
+                            "Status":  "PASS",
+                            "Value":  "Client1/capture/Project_Client1/source/processing_center/uploads/",
+                            "ExpectedPrefix":  "Client1/capture/Project_Client1",
+                            "BadWorkspaceFirstPrefix":  "capture/Client1/Project_Client1",
+                            "BadSpacePrefix":  "Client1/capture/Project Client1"
+                        },
+                        {
+                            "Name":  "GET uploads with storage project uploads_prefix",
+                            "Status":  "PASS",
+                            "Value":  "Client1/capture/Project_Client1/source/processing_center/uploads/",
+                            "ExpectedPrefix":  "Client1/capture/Project_Client1",
+                            "BadWorkspaceFirstPrefix":  "capture/Client1/Project_Client1",
+                            "BadSpacePrefix":  "Client1/capture/Project Client1"
+                        },
+                        {
+                            "Name":  "GET job-history jobs_prefix",
+                            "Status":  "PASS",
+                            "Value":  "Client1/capture/Project_Client1/processing_center/jobs/",
+                            "ExpectedPrefix":  "Client1/capture/Project_Client1",
+                            "BadWorkspaceFirstPrefix":  "capture/Client1/Project_Client1",
+                            "BadSpacePrefix":  "Client1/capture/Project Client1"
+                        },
+                        {
+                            "Name":  "Tracked worker routing.processing.paths.uploads",
+                            "Status":  "FAIL_WORKSPACE_FIRST_ORDER",
+                            "Value":  "capture/Client1/Project_Client1/source/processing_center/uploads",
+                            "ExpectedPrefix":  "Client1/capture/Project_Client1",
+                            "BadWorkspaceFirstPrefix":  "capture/Client1/Project_Client1",
+                            "BadSpacePrefix":  "Client1/capture/Project Client1"
+                        },
+                        {
+                            "Name":  "Tracked worker routing.processing.paths.jobs",
+                            "Status":  "FAIL_WORKSPACE_FIRST_ORDER",
+                            "Value":  "capture/Client1/Project_Client1/processing_center/jobs",
+                            "ExpectedPrefix":  "Client1/capture/Project_Client1",
+                            "BadWorkspaceFirstPrefix":  "capture/Client1/Project_Client1",
+                            "BadSpacePrefix":  "Client1/capture/Project Client1"
+                        },
+                        {
+                            "Name":  "Tracked worker routing.review_outputs.paths.native",
+                            "Status":  "FAIL_WORKSPACE_FIRST_ORDER",
+                            "Value":  "capture/Client1/Project_Client1/source/native",
+                            "ExpectedPrefix":  "Client1/capture/Project_Client1",
+                            "BadWorkspaceFirstPrefix":  "capture/Client1/Project_Client1",
+                            "BadSpacePrefix":  "Client1/capture/Project Client1"
+                        },
+                        {
+                            "Name":  "Tracked worker archive_upload.source_prefix",
+                            "Status":  "FAIL_WORKSPACE_FIRST_ORDER",
+                            "Value":  "capture/Client1/Project_Client1/source/processing_center/uploads/",
+                            "ExpectedPrefix":  "Client1/capture/Project_Client1",
+                            "BadWorkspaceFirstPrefix":  "capture/Client1/Project_Client1",
+                            "BadSpacePrefix":  "Client1/capture/Project Client1"
+                        },
+                        {
+                            "Name":  "Tracked worker archive_upload.archive_prefix",
+                            "Status":  "FAIL_WORKSPACE_FIRST_ORDER",
+                            "Value":  "capture/Client1/Project_Client1/processing_center/archive/JOB-4DA0026C729C4FBD/uploads/",
+                            "ExpectedPrefix":  "Client1/capture/Project_Client1",
+                            "BadWorkspaceFirstPrefix":  "capture/Client1/Project_Client1",
+                            "BadSpacePrefix":  "Client1/capture/Project Client1"
+                        }
+                    ]
+}

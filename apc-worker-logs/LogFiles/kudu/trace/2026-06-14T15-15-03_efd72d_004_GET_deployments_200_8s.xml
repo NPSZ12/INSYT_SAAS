@@ -1,0 +1,9 @@
+<step title="Incoming Request" date="2026-06-14T15:15:03.552" instance="efd72d" url="/deployments" method="GET" type="request" pid="831,1,39" Host="insyt-apc-worker-prod-v2.scm.azurewebsites.net" User-Agent="functions-core-tools/4.12.0" Authorization="Bea..." Cookie="ARRAffinity=efd72d504497c861fc81eaea63d24d481f51aeea64f8edb875731e3159ad3490; ARRAffinitySameSite=efd72d504497c861fc81eaea63d24d481f51aeea64f8edb875731e3159ad3490" X-ARR-LOG-ID="f6648771-310e-4cb2-882c-cbda66cd1123" CLIENT-IP="9.134.132.188:52744" X-SITE-DEPLOYMENT-ID="insyt-apc-worker-prod-v2" WAS-DEFAULT-HOSTNAME="insyt-apc-worker-prod-v2.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/deployments" X-Client-IP="9.134.132.188" X-Client-Port="52744" >
+  <step title="DeploymentService.GetCurrentEtag" date="2026-06-14T15:15:04.327" >
+    <step title="Current Etag: &quot;8deca27e63fb52c&quot;, Cached Etag: " date="2026-06-14T15:15:04.995" /><!-- duration: 174ms -->
+  </step><!-- duration: 1214ms -->
+  <step title="DeploymentService.GetDeployResults" date="2026-06-14T15:15:05.815" >
+    <step title="DeploymentManager.GetResults" date="2026-06-14T15:15:06.090" /><!-- duration: 4659ms -->
+  </step><!-- duration: 5343ms -->
+  <step title="Outgoing response" date="2026-06-14T15:15:11.439" type="response" statusCode="200" statusText="OK" /><!-- duration: 142ms -->
+</step><!-- duration: 8171ms -->

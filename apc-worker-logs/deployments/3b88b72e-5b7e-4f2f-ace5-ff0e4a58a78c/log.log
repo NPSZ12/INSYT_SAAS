@@ -1,0 +1,182 @@
+2026-06-14T15:15:18.1574847Z,Updating submodules.,4dd04624-da91-44d6-a6fe-c432fab6c05e,0
+2026-06-14T15:15:22.5723450Z,Preparing deployment for commit id '3b88b72e-5'.,fb1472a6-e2b8-46cf-825a-01fe1cb91526,0
+2026-06-14T15:15:30.7234434Z,PreDeployment: context.CleanOutputPath False,56aa908f-6110-48ce-b195-c0fd759b15b9,0
+2026-06-14T15:15:34.3092455Z,PreDeployment: context.OutputPath /home/site/wwwroot,6ff50142-fb5f-437b-ab48-2dd6e8543a31,0
+2026-06-14T15:15:38.6470309Z,Repository path is /tmp/zipdeploy/extracted,1bb980ea-7a2a-4517-95ca-a3927da3210c,0
+2026-06-14T15:15:40.4667584Z,Running oryx build...,4134d88d-9e74-4a71-a7a0-ffc10d29233b,0
+	2026-06-14T15:15:40.7529910Z,Command: oryx build /tmp/zipdeploy/extracted -o /tmp/build/expressbuild --platform python --platform-version 3.12 -i /tmp/8deca27c3b89e37 -p packagedir=.python_packages/lib/site-packages,,0
+	2026-06-14T15:15:44.1729003Z,Operation performed by Microsoft Oryx&comma; https://github.com/Microsoft/Oryx,,0
+	2026-06-14T15:15:44.8882918Z,You can report issues at https://github.com/Microsoft/Oryx/issues,,0
+	2026-06-14T15:15:45.5090442Z,,,0
+	2026-06-14T15:15:46.1206274Z,Oryx Version: 0.2.20260513.1+5c94136d0d5c06204a00d688dc7aea902452e52c&comma; Commit: 5c94136d0d5c06204a00d688dc7aea902452e52c&comma; ReleaseTagName: 20260513.1,,0
+	2026-06-14T15:15:46.7258756Z,,,0
+	2026-06-14T15:15:47.2527825Z,Build Operation ID: 100087240cd40ab2,,0
+	2026-06-14T15:15:47.8709753Z,Repository Commit : 3b88b72e-5b7e-4f2f-ace5-ff0e4a58a78c,,0
+	2026-06-14T15:15:48.4888705Z,OS Type           : bookworm,,0
+	2026-06-14T15:15:49.0899335Z,Image Type        : githubactions,,0
+	2026-06-14T15:15:49.6495557Z,,,0
+	2026-06-14T15:15:50.2538719Z,Primary SDK Storage URL: https://oryx-cdn.microsoft.io,,0
+	2026-06-14T15:15:50.8668121Z,Backup SDK Storage URL: ,,0
+	2026-06-14T15:15:51.4775255Z,ACR SDK Registry URL: (not set),,0
+	2026-06-14T15:15:52.0123309Z,SDK provider status:,,0
+	2026-06-14T15:15:52.6153922Z,  External ACR SDK provider: Disabled,,0
+	2026-06-14T15:15:52.9692179Z,  External SDK provider: Enabled,,0
+	2026-06-14T15:15:53.2540269Z,  Direct ACR SDK provider: Disabled,,0
+	2026-06-14T15:15:53.6624475Z,  Blob SDK provider: Enabled,,0
+	2026-06-14T15:15:53.9824119Z,Detecting platforms...,,0
+	2026-06-14T15:15:54.2678061Z,Requesting metadata for platform python from external SDK provider,,0
+	2026-06-14T15:15:54.7785837Z,Requesting metadata for platform python from external SDK provider,,0
+	2026-06-14T15:15:55.3753142Z,Version resolved using external SDK provider.,,0
+	2026-06-14T15:15:55.9961193Z,Detected following platforms:,,0
+	2026-06-14T15:15:56.5246007Z,  python: 3.12.13,,0
+	2026-06-14T15:15:57.1288196Z,Requesting metadata for platform python from external SDK provider,,0
+	2026-06-14T15:15:57.7291862Z,SDK for 'python' version '3.12.13' fetched via external SDK provider.,,0
+	2026-06-14T15:15:58.3930483Z,Version '3.12.13' of platform 'python' is not installed. Generating script to install it...,,0
+	2026-06-14T15:15:59.0128989Z,,,0
+	2026-06-14T15:15:59.6014693Z,Using intermediate directory '/tmp/8deca27c3b89e37'.,,0
+	2026-06-14T15:16:00.1387479Z,,,0
+	2026-06-14T15:16:00.7649274Z,Copying files to the intermediate directory...,,0
+	2026-06-14T15:16:01.3241720Z,Copying files to intermediate directory done in 1 sec(s).,,0
+	2026-06-14T15:16:01.9530469Z,,,0
+	2026-06-14T15:16:02.5824786Z,Source directory     : /tmp/8deca27c3b89e37,,0
+	2026-06-14T15:16:03.1528365Z,Destination directory: /tmp/build/expressbuild,,0
+	2026-06-14T15:16:03.6939412Z,,,0
+	2026-06-14T15:16:04.3070075Z,Installing platform...,,0
+	2026-06-14T15:16:04.9254114Z,,,0
+	2026-06-14T15:16:05.6254119Z,Downloading and extracting 'python' version '3.12.13' to '/tmp/oryx/platforms/python/3.12.13'...,,0
+	2026-06-14T15:16:06.2552528Z,Detected image debian flavor: bookworm.,,0
+	2026-06-14T15:16:06.8022513Z,SDK binary download was skipped. Looking for cached tarball...,,0
+	2026-06-14T15:16:07.1494603Z,Found tarball at /var/OryxSdks/python/python-bookworm-3.12.13.tar.gz,,0
+	2026-06-14T15:16:07.4002965Z,Successfully extracted python version 3.12.13 from cached tarball.,,0
+	2026-06-14T15:16:07.7139943Z,,,0
+	2026-06-14T15:16:07.9949992Z,Platform installation done in 4 sec(s).,,0
+	2026-06-14T15:16:08.3824566Z,Running build script snippets...,,0
+	2026-06-14T15:16:08.8534671Z,Python Version: /tmp/oryx/platforms/python/3.12.13/bin/python3.12,,0
+	2026-06-14T15:16:09.4013602Z,Creating directory for command manifest file if it does not exist,,0
+	2026-06-14T15:16:09.9982168Z,Removing existing manifest file,,0
+	2026-06-14T15:16:10.6023317Z,,,0
+	2026-06-14T15:16:11.1955033Z,Running pip install...,,0
+	2026-06-14T15:16:11.8529626Z,Using preloaded wheels from: /tux-wheels,,0
+	2026-06-14T15:16:12.4212419Z,[15:15:52+0000] Looking in links: /tux-wheels,,0
+	2026-06-14T15:16:13.1093180Z,[15:15:52+0000] Collecting azure-functions (from -r requirements.txt (line 1)),,0
+	2026-06-14T15:16:13.6594787Z,[15:15:52+0000]   Downloading azure_functions-1.24.0-py3-none-any.whl.metadata (7.4 kB),,0
+	2026-06-14T15:16:14.2725374Z,[15:15:52+0000] Collecting azure-storage-blob>=12.19.0 (from -r requirements.txt (line 2)),,0
+	2026-06-14T15:16:14.8126563Z,[15:15:52+0000]   Downloading azure_storage_blob-12.30.0-py3-none-any.whl.metadata (26 kB),,0
+	2026-06-14T15:16:15.5042422Z,[15:15:52+0000] Collecting azure-storage-queue>=12.9.0 (from -r requirements.txt (line 3)),,0
+	2026-06-14T15:16:16.1278067Z,[15:15:52+0000]   Downloading azure_storage_queue-12.17.0-py3-none-any.whl.metadata (39 kB),,0
+	2026-06-14T15:16:16.8165122Z,[15:15:52+0000] Collecting azure-identity>=1.16.0 (from -r requirements.txt (line 4)),,0
+	2026-06-14T15:16:17.3656448Z,[15:15:52+0000]   Downloading azure_identity-1.25.3-py3-none-any.whl.metadata (91 kB),,0
+	2026-06-14T15:16:17.9748329Z,[15:15:52+0000] Collecting azure-ai-documentintelligence (from -r requirements.txt (line 5)),,0
+	2026-06-14T15:16:18.5070441Z,[15:15:52+0000]   Downloading azure_ai_documentintelligence-1.0.2-py3-none-any.whl.metadata (53 kB),,0
+	2026-06-14T15:16:19.1736030Z,[15:15:53+0000] Collecting python-dotenv (from -r requirements.txt (line 6)),,0
+	2026-06-14T15:16:19.7447534Z,[15:15:53+0000]   Downloading python_dotenv-1.2.2-py3-none-any.whl.metadata (27 kB),,0
+	2026-06-14T15:16:20.4619817Z,[15:15:53+0000] Collecting pydantic (from -r requirements.txt (line 7)),,0
+	2026-06-14T15:16:21.0082968Z,[15:15:53+0000]   Downloading pydantic-2.13.4-py3-none-any.whl.metadata (109 kB),,0
+	2026-06-14T15:16:21.4343799Z,[15:15:53+0000] Collecting pypdf (from -r requirements.txt (line 8)),,0
+	2026-06-14T15:16:21.6844839Z,[15:15:53+0000]   Downloading pypdf-6.13.2-py3-none-any.whl.metadata (7.2 kB),,0
+	2026-06-14T15:16:21.9973028Z,[15:15:53+0000] Collecting werkzeug~=3.1.3 (from azure-functions->-r requirements.txt (line 1)),,0
+	2026-06-14T15:16:22.2470424Z,[15:15:53+0000]   Downloading werkzeug-3.1.8-py3-none-any.whl.metadata (4.0 kB),,0
+	2026-06-14T15:16:22.6649449Z,[15:15:53+0000] Collecting markupsafe>=2.1.1 (from werkzeug~=3.1.3->azure-functions->-r requirements.txt (line 1)),,0
+	2026-06-14T15:16:23.0407745Z,[15:15:53+0000]   Downloading markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB),,0
+	2026-06-14T15:16:23.5695272Z,[15:15:53+0000] Collecting azure-core>=1.37.0 (from azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:24.1138592Z,[15:15:53+0000]   Downloading azure_core-1.41.0-py3-none-any.whl.metadata (49 kB),,0
+	2026-06-14T15:16:24.6619432Z,[15:15:53+0000] Collecting cryptography>=2.1.4 (from azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:25.2615126Z,[15:15:53+0000]   Downloading cryptography-49.0.0-cp311-abi3-manylinux_2_34_x86_64.whl.metadata (4.3 kB),,0
+	2026-06-14T15:16:25.8079600Z,[15:15:53+0000] Collecting typing-extensions>=4.6.0 (from azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:26.3399581Z,[15:15:53+0000]   Downloading typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB),,0
+	2026-06-14T15:16:26.9000140Z,[15:15:53+0000] Collecting isodate>=0.6.1 (from azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:27.5747852Z,[15:15:53+0000]   Downloading isodate-0.7.2-py3-none-any.whl.metadata (11 kB),,0
+	2026-06-14T15:16:28.1271592Z,[15:15:53+0000] Collecting msal>=1.35.1 (from azure-identity>=1.16.0->-r requirements.txt (line 4)),,0
+	2026-06-14T15:16:28.7378227Z,[15:15:53+0000]   Downloading msal-1.37.0-py3-none-any.whl.metadata (11 kB),,0
+	2026-06-14T15:16:29.2819303Z,[15:15:53+0000] Collecting msal-extensions>=1.2.0 (from azure-identity>=1.16.0->-r requirements.txt (line 4)),,0
+	2026-06-14T15:16:29.9294766Z,[15:15:53+0000]   Downloading msal_extensions-1.3.1-py3-none-any.whl.metadata (7.8 kB),,0
+	2026-06-14T15:16:30.4689205Z,[15:15:54+0000] Collecting annotated-types>=0.6.0 (from pydantic->-r requirements.txt (line 7)),,0
+	2026-06-14T15:16:31.1506396Z,[15:15:54+0000]   Downloading annotated_types-0.7.0-py3-none-any.whl.metadata (15 kB),,0
+	2026-06-14T15:16:31.7025605Z,[15:15:54+0000] Collecting pydantic-core==2.46.4 (from pydantic->-r requirements.txt (line 7)),,0
+	2026-06-14T15:16:32.3123369Z,[15:15:55+0000]   Downloading pydantic_core-2.46.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.6 kB),,0
+	2026-06-14T15:16:32.9031059Z,[15:15:55+0000] Collecting typing-inspection>=0.4.2 (from pydantic->-r requirements.txt (line 7)),,0
+	2026-06-14T15:16:33.5797814Z,[15:15:55+0000]   Downloading typing_inspection-0.4.2-py3-none-any.whl.metadata (2.6 kB),,0
+	2026-06-14T15:16:34.1594542Z,[15:15:55+0000] Collecting requests>=2.21.0 (from azure-core>=1.37.0->azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:34.8624327Z,[15:15:55+0000]   Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB),,0
+	2026-06-14T15:16:35.4716957Z,[15:15:55+0000] Collecting cffi>=2.0.0 (from cryptography>=2.1.4->azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:35.9319256Z,[15:15:55+0000]   Downloading cffi-2.0.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.6 kB),,0
+	2026-06-14T15:16:36.2592847Z,[15:15:55+0000] Collecting pycparser (from cffi>=2.0.0->cryptography>=2.1.4->azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:36.5188174Z,[15:15:55+0000]   Downloading pycparser-3.0-py3-none-any.whl.metadata (8.2 kB),,0
+	2026-06-14T15:16:36.7714813Z,[15:15:55+0000] Collecting PyJWT<3&comma;>=1.0.0 (from PyJWT[crypto]<3&comma;>=1.0.0->msal>=1.35.1->azure-identity>=1.16.0->-r requirements.txt (line 4)),,0
+	2026-06-14T15:16:37.1865580Z,[15:15:55+0000]   Downloading pyjwt-2.13.0-py3-none-any.whl.metadata (3.4 kB),,0
+	2026-06-14T15:16:37.7202787Z,[15:15:55+0000] Collecting charset_normalizer<4&comma;>=2 (from requests>=2.21.0->azure-core>=1.37.0->azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:38.2125182Z,[15:15:55+0000]   Downloading charset_normalizer-3.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB),,0
+	2026-06-14T15:16:38.7719223Z,[15:15:55+0000] Collecting idna<4&comma;>=2.5 (from requests>=2.21.0->azure-core>=1.37.0->azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:39.2968596Z,[15:15:55+0000]   Downloading idna-3.18-py3-none-any.whl.metadata (6.1 kB),,0
+	2026-06-14T15:16:39.8986464Z,[15:15:55+0000] Collecting urllib3<3&comma;>=1.26 (from requests>=2.21.0->azure-core>=1.37.0->azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:40.4433504Z,[15:15:55+0000]   Downloading urllib3-2.7.0-py3-none-any.whl.metadata (6.9 kB),,0
+	2026-06-14T15:16:41.1493581Z,[15:15:55+0000] Collecting certifi>=2023.5.7 (from requests>=2.21.0->azure-core>=1.37.0->azure-storage-blob>=12.19.0->-r requirements.txt (line 2)),,0
+	2026-06-14T15:16:41.6856575Z,[15:15:55+0000]   Downloading certifi-2026.5.20-py3-none-any.whl.metadata (2.5 kB),,0
+	2026-06-14T15:16:42.3754528Z,[15:15:55+0000] Downloading azure_functions-1.24.0-py3-none-any.whl (108 kB),,0
+	2026-06-14T15:16:42.9156672Z,[15:15:55+0000] Downloading werkzeug-3.1.8-py3-none-any.whl (226 kB),,0
+	2026-06-14T15:16:43.6582541Z,[15:15:55+0000] Downloading azure_storage_blob-12.30.0-py3-none-any.whl (435 kB),,0
+	2026-06-14T15:16:44.2017374Z,[15:15:55+0000] Downloading azure_storage_queue-12.17.0-py3-none-any.whl (189 kB),,0
+	2026-06-14T15:16:44.8939576Z,[15:15:55+0000] Downloading azure_identity-1.25.3-py3-none-any.whl (192 kB),,0
+	2026-06-14T15:16:45.4474090Z,[15:15:55+0000] Downloading azure_ai_documentintelligence-1.0.2-py3-none-any.whl (106 kB),,0
+	2026-06-14T15:16:46.1331070Z,[15:15:55+0000] Downloading python_dotenv-1.2.2-py3-none-any.whl (22 kB),,0
+	2026-06-14T15:16:46.7294471Z,[15:15:55+0000] Downloading pydantic-2.13.4-py3-none-any.whl (472 kB),,0
+	2026-06-14T15:16:47.2970550Z,[15:15:56+0000] Downloading pydantic_core-2.46.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.1 MB),,0
+	2026-06-14T15:16:47.8409183Z,[15:15:56+0000]    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 15.5 MB/s  0:00:00,,0
+	2026-06-14T15:16:48.3865466Z,[15:15:56+0000] Downloading pypdf-6.13.2-py3-none-any.whl (346 kB),,0
+	2026-06-14T15:16:48.9885963Z,[15:15:56+0000] Downloading annotated_types-0.7.0-py3-none-any.whl (13 kB),,0
+	2026-06-14T15:16:49.6992516Z,[15:15:56+0000] Downloading azure_core-1.41.0-py3-none-any.whl (220 kB),,0
+	2026-06-14T15:16:50.2220823Z,[15:15:56+0000] Downloading cryptography-49.0.0-cp311-abi3-manylinux_2_34_x86_64.whl (4.7 MB),,0
+	2026-06-14T15:16:50.6061102Z,[15:15:56+0000]    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.7/4.7 MB 28.2 MB/s  0:00:00,,0
+	2026-06-14T15:16:50.8682977Z,[15:15:56+0000] Downloading cffi-2.0.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (219 kB),,0
+	2026-06-14T15:16:51.1865132Z,[15:15:56+0000] Downloading isodate-0.7.2-py3-none-any.whl (22 kB),,0
+	2026-06-14T15:16:51.4497647Z,[15:15:56+0000] Downloading markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB),,0
+	2026-06-14T15:16:51.9528682Z,[15:15:56+0000] Downloading msal-1.37.0-py3-none-any.whl (123 kB),,0
+	2026-06-14T15:16:52.5597355Z,[15:15:56+0000] Downloading pyjwt-2.13.0-py3-none-any.whl (31 kB),,0
+	2026-06-14T15:16:53.2262481Z,[15:15:56+0000] Downloading requests-2.34.2-py3-none-any.whl (73 kB),,0
+	2026-06-14T15:16:53.7798270Z,[15:15:56+0000] Downloading charset_normalizer-3.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (216 kB),,0
+	2026-06-14T15:16:54.4548197Z,[15:15:56+0000] Downloading idna-3.18-py3-none-any.whl (65 kB),,0
+	2026-06-14T15:16:54.9218809Z,[15:15:56+0000] Downloading urllib3-2.7.0-py3-none-any.whl (131 kB),,0
+	2026-06-14T15:16:55.6072843Z,[15:15:56+0000] Downloading certifi-2026.5.20-py3-none-any.whl (134 kB),,0
+	2026-06-14T15:16:56.1479065Z,[15:15:56+0000] Downloading msal_extensions-1.3.1-py3-none-any.whl (20 kB),,0
+	2026-06-14T15:16:56.8116282Z,[15:15:56+0000] Downloading typing_extensions-4.15.0-py3-none-any.whl (44 kB),,0
+	2026-06-14T15:16:57.3551132Z,[15:15:56+0000] Downloading typing_inspection-0.4.2-py3-none-any.whl (14 kB),,0
+	2026-06-14T15:16:58.0285407Z,[15:15:56+0000] Downloading pycparser-3.0-py3-none-any.whl (48 kB),,0
+	2026-06-14T15:16:58.5946913Z,[15:15:56+0000] Installing collected packages: urllib3&comma; typing-extensions&comma; python-dotenv&comma; pypdf&comma; PyJWT&comma; pycparser&comma; markupsafe&comma; isodate&comma; idna&comma; charset_normalizer&comma; certifi&comma; annotated-types&comma; werkzeug&comma; typing-inspection&comma; requests&comma; pydantic-core&comma; cffi&comma; pydantic&comma; cryptography&comma; azure-functions&comma; azure-core&comma; azure-storage-queue&comma; azure-storage-blob&comma; azure-ai-documentintelligence&comma; msal&comma; msal-extensions&comma; azure-identity,,0
+	2026-06-14T15:16:59.2814255Z,[15:15:59+0000] ,,0
+	2026-06-14T15:16:59.8310784Z,[15:15:59+0000] Successfully installed PyJWT-2.13.0 annotated-types-0.7.0 azure-ai-documentintelligence-1.0.2 azure-core-1.41.0 azure-functions-1.24.0 azure-identity-1.25.3 azure-storage-blob-12.30.0 azure-storage-queue-12.17.0 certifi-2026.5.20 cffi-2.0.0 charset_normalizer-3.4.7 cryptography-49.0.0 idna-3.18 isodate-0.7.2 markupsafe-3.0.3 msal-1.37.0 msal-extensions-1.3.1 pycparser-3.0 pydantic-2.13.4 pydantic-core-2.46.4 pypdf-6.13.2 python-dotenv-1.2.2 requests-2.34.2 typing-extensions-4.15.0 typing-inspection-0.4.2 urllib3-2.7.0 werkzeug-3.1.8,,0
+	2026-06-14T15:17:00.5614521Z,,,0
+	2026-06-14T15:17:01.1106751Z,[notice] A new release of pip is available: 26.0.1 -> 26.1.2,,0
+	2026-06-14T15:17:01.7181136Z,[notice] To update&comma; run: pip install --upgrade pip,,0
+	2026-06-14T15:17:02.3291958Z,pip install done in 8 sec(s).,,0
+	2026-06-14T15:17:02.8854044Z,Not a vso image&comma; so not writing build commands,,0
+	2026-06-14T15:17:03.4462803Z,,,0
+	2026-06-14T15:17:04.1393290Z,Copying 'requirements.txt' to destination directory...,,0
+	2026-06-14T15:17:04.6077909Z,Done copying requirements.txt to destination directory.,,0
+	2026-06-14T15:17:04.9569402Z,Build script snippets done in 8 sec(s).,,0
+	2026-06-14T15:17:05.2390141Z,Preparing output...,,0
+	2026-06-14T15:17:05.5709871Z,Using standard output preparation...,,0
+	2026-06-14T15:17:05.8795457Z,,,0
+	2026-06-14T15:17:06.2703897Z,Copying files to destination directory '/tmp/build/expressbuild'...,,0
+	2026-06-14T15:17:06.8087904Z,Copying to destination directory done in 1 sec(s).,,0
+	2026-06-14T15:17:07.3451251Z,Total time for destination directory preparation done in 1 sec(s).,,0
+	2026-06-14T15:17:07.8935114Z,,,0
+	2026-06-14T15:17:08.3970379Z,Removing existing manifest file,,0
+	2026-06-14T15:17:09.0113992Z,Creating a manifest file...,,0
+	2026-06-14T15:17:09.5232563Z,Manifest file created.,,0
+	2026-06-14T15:17:10.2095474Z,Copying .ostype to manifest output directory.,,0
+	2026-06-14T15:17:10.7652242Z,,,0
+	2026-06-14T15:17:11.4447872Z,Total execution done in 14 sec(s).,,0
+2026-06-14T15:17:14.7731939Z,Writing the artifacts to a Zip file,e9d911d8-7dc6-4106-a011-f72a5a321827,0
+2026-06-14T15:17:21.7579853Z,sending incremental file list,680fbb06-064f-4359-b19e-461a92f1218e,0
+2026-06-14T15:17:25.0180411Z,20260614151712.zip,6b34c181-cde7-4dad-8bbd-8e5c5be16a40,0
+2026-06-14T15:17:27.5369020Z,,f15538d5-591f-4480-a957-ddaf82b6048f,0
+2026-06-14T15:17:30.2040048Z,sent 50&comma;210&comma;994 bytes  received 35 bytes  20&comma;084&comma;411.60 bytes/sec,830309cc-1b74-4b34-81bd-0e2bb6721469,0
+2026-06-14T15:17:32.9894454Z,total size is 50&comma;198&comma;595  speedup is 1.00,fb8573bb-187e-492f-b77a-b46cbb789dc5,0
+2026-06-14T15:17:34.7496841Z,Rsync for express build artifact transfer completed successfully,0d130a25-4c31-4a6e-9d17-a1fca6257741,0
+2026-06-14T15:17:39.6296959Z,Running post deployment command(s)...,a90980d3-fc4f-45ab-b941-ff43cb3a1401,0
+2026-06-14T15:17:42.4704668Z,,0048fbaf-0d82-4835-92bd-e1b67ea51f75,0
+2026-06-14T15:17:45.0310628Z,Generating summary of Oryx build,c2cc7da8-4778-42b1-89a9-279d43ae0e04,0
+2026-06-14T15:17:47.8322796Z,Deployment Log file does not exist in /tmp/oryx-build.log,c0918e21-ed82-425b-93a2-b384e278cd6a,0
+2026-06-14T15:17:49.2530315Z,The logfile at /tmp/oryx-build.log is empty. Unable to fetch the summary of build,e03cb82f-aae0-4edc-8faa-41f6641ff94b,0
+2026-06-14T15:17:53.2169598Z,Triggering recycle (preview mode disabled).,0c392148-6839-4f97-8bb4-733c3e315485,0
+2026-06-14T15:17:58.8013037Z,Deployment successful. deployer = Push-Deployer deploymentPath = Functions App ZipDeploy. Extract zip. Remote build.,9584bcc6-0b92-481c-aab3-fd78d1f81ed3,0

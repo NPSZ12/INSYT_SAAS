@@ -233,6 +233,38 @@ function Cyber2IntakeContent() {
       nativeBlob
     );
 
+    const returnParams =
+      new URLSearchParams();
+
+    returnParams.set(
+      "workspace",
+      workspace
+    );
+
+    if (client) {
+      returnParams.set(
+        "client",
+        client
+      );
+    }
+
+    if (project) {
+      returnParams.set(
+        "project",
+        project
+      );
+    }
+
+    params.set(
+      "return_to",
+      `/cyber-utility/intake?${returnParams.toString()}`
+    );
+
+    params.set(
+      "return_label",
+      "Intake & Preparation"
+    );
+
     router.push(
       `/capture/review/doc?${params.toString()}`
     );

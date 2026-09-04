@@ -610,6 +610,11 @@ def get_summaries_ready_files(
     files: list[dict[str, Any]] = []
 
     for native_blob in native_blobs:
+        file_name = os.path.basename(native_blob)
+
+        if file_name.startswith(".") or file_name.lower() == ".keep":
+            continue
+        
         doc_id = guess_doc_id_from_blob(native_blob)
         matching_text_blob = find_matching_text_blob(text_blobs, native_blob, doc_id)
 
@@ -618,7 +623,7 @@ def get_summaries_ready_files(
         files.append(
             {
                 "doc_id": doc_id,
-                "pdf_name": normalize_pdf_name(native_blob),
+                "pdf_name": file_name,
                 "native_blob": native_blob,
                 "text_blob": matching_text_blob,
                 "outline_blob": outline_blob,
@@ -1295,6 +1300,32 @@ def run_summary_extraction(payload: dict[str, Any]):
 
             upload_json_blob(container, result_outline_blob, outline_payload)
 
+            pending_archive_native_blob = (
+                f"{base}/summary_extraction/archive/{run_id}/native/"
+                f"{safe_name(doc_id)}{native_ext}"
+            )
+            pending_archive_text_blob = (
+                f"{base}/summary_extraction/archive/{run_id}/text/"
+                f"{safe_name(doc_id)}{text_ext}"
+            )
+
+            copy_blob_within_container(
+                container,
+                native_blob,
+                pending_archive_native_blob,
+                overwrite=True,
+            )
+
+            copy_blob_within_container(
+                container,
+                text_blob,
+                pending_archive_text_blob,
+                overwrite=True,
+            )
+
+            container.delete_blob(native_blob)
+            container.delete_blob(text_blob)
+
             processed.append(
                 {
                     "doc_id": doc_id,
@@ -1302,6 +1333,8 @@ def run_summary_extraction(payload: dict[str, Any]):
                     "pdf_name": pdf_name,
                     "pending_native_blob": native_blob,
                     "pending_text_blob": text_blob,
+                    "archived_pending_native_blob": pending_archive_native_blob,
+                    "archived_pending_text_blob": pending_archive_text_blob,
                     "result_native_blob": result_native_blob,
                     "result_text_blob": result_text_blob,
                     "result_outline_blob": result_outline_blob,

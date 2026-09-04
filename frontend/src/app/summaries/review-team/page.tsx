@@ -28,7 +28,7 @@ type AccessUser = {
 const levels = ["1L", "QC", "TL", "Client", "Admin"];
 
 const launches = [
-  "INSYT™ summaries",
+  "INSYT™ Capture",
   "INSYT™ Discovery",
   "INSYT™ Summaries",
   "INSYT™ Developer",
@@ -37,8 +37,8 @@ const launches = [
 const permissions = [
   "Download Docs",
   "Upload Docs",
-  "Edit summariesd Entities",
-  "Delete summariesd Entities",
+  "Edit Summaries",
+  "Delete Summaries",
   "Create Batches",
   "Create Search Folders",
   "View Messaging",
@@ -57,7 +57,7 @@ export default function UserAccessPage() {
     password: "",
     role: "1L",
     project_access: [] as string[],
-    launches: ["INSYT summaries"] as string[],
+    launches: ["INSYT™ Summaries"] as string[],
     permissions: [] as string[],
   });
 
@@ -121,7 +121,7 @@ export default function UserAccessPage() {
           password: "",
           role: "1L",
           project_access: [],
-          launches: ["INSYT™ summaries"],
+          launches: ["INSYT™ Summaries"],
           permissions: [],
           email: "",
         });
@@ -150,7 +150,7 @@ export default function UserAccessPage() {
           password: "",
           role: "1L",
           project_access: [],
-          launches: ["INSYT™ summaries"],
+          launches: ["INSYT™ Summaries"],
           permissions: [],
           email: "",
         });

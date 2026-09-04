@@ -635,11 +635,31 @@ export default function ReviewDocumentPane({
 
   const isPdf = extension === "pdf";
 
+  const isStructuredSpreadsheet = [
+    "csv",
+    "tsv",
+    "xlsx",
+    "xls",
+    "xlsm",
+  ].includes(extension);
+
   const canUseBackendPreview =
     Boolean(nativeBlob) &&
     !isPdf &&
     isBackendPreviewSupported(extension);
 
+  useEffect(() => {
+    if (
+      isStructuredSpreadsheet &&
+      viewMode !== "native"
+    ) {
+      setViewMode("native");
+    }
+  }, [
+    isStructuredSpreadsheet,
+    viewMode,
+  ]);
+  
   useEffect(() => {
     if (!clientId || !projectId || !docId) {
       setReviewPreview(null);
@@ -655,7 +675,16 @@ export default function ReviewDocumentPane({
       doc: docId,
     });
 
-    apiGet(`/api/${workspace}/review/preview?${params.toString()}`)
+    if (nativeBlob) {
+      params.set(
+        "native_blob",
+        nativeBlob
+      );
+    }
+
+    apiGet(
+      `/api/${workspace}/review/preview?${params.toString()}`
+    )
       .then((response: ReviewPreviewResponse) => {
         setReviewPreview(response);
       })
@@ -667,11 +696,27 @@ export default function ReviewDocumentPane({
       .finally(() => {
         setReviewPreviewLoading(false);
       });
-  }, [workspace, clientId, projectId, docId]);
+  }, [
+    workspace,
+    clientId,
+    projectId,
+    docId,
+    nativeBlob,
+  ]);
 
   const effectiveViewerType =
-    reviewPreview?.viewer_type ||
-    (isPdf ? "pdf" : canUseBackendPreview ? "legacy_preview" : "unsupported");
+    isStructuredSpreadsheet
+      ? "needs_preview_conversion"
+      : (
+          reviewPreview?.viewer_type ||
+          (
+            isPdf
+              ? "pdf"
+              : canUseBackendPreview
+                ? "legacy_preview"
+                : "unsupported"
+          )
+        );
 
   const effectiveViewerUrl =
     reviewPreview?.viewer_url ||
@@ -739,13 +784,17 @@ export default function ReviewDocumentPane({
       <div className="shrink-0 flex items-center justify-between mb-4">
         <div>
           <h2 className="insyt-section-title text-lg text-[var(--insyt-text-primary)]">
-            Document Viewer
+            {isStructuredSpreadsheet
+              ? "Spreadsheet Viewer"
+              : "Document Viewer"}
           </h2>
 
           <p className="mt-1 text-xs text-[var(--insyt-text-muted)]">
-            {viewMode === "text"
-              ? "Extracted Text"
-              : nativeBlob || "Native Document"}
+            {isStructuredSpreadsheet
+              ? nativeBlob || "Structured Data"
+              : viewMode === "text"
+                ? "Extracted Text"
+                : nativeBlob || "Native Document"}
           </p>
         </div>
 
@@ -765,32 +814,45 @@ export default function ReviewDocumentPane({
               Highlights {showDetectionHighlights ? "On" : "Off"}
             </button>
           )}
-          <Button
-            variant={
-              viewMode === "text"
-                ? "primary"
-                : "secondary"
-            }
-            onClick={() => setViewMode("text")}
-          >
-            Text
-          </Button>
+          {isStructuredSpreadsheet ? (
+            <div className="inline-flex items-center rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300">
+              Spreadsheet View
+            </div>
+          ) : (
+            <>
+              <Button
+                variant={
+                  viewMode === "text"
+                    ? "primary"
+                    : "secondary"
+                }
+                onClick={() =>
+                  setViewMode("text")
+                }
+              >
+                Text
+              </Button>
 
-          <Button
-            variant={
-              viewMode === "native"
-                ? "primary"
-                : "secondary"
-            }
-            onClick={() => setViewMode("native")}
-          >
-            Native
-          </Button>
+              <Button
+                variant={
+                  viewMode === "native"
+                    ? "primary"
+                    : "secondary"
+                }
+                onClick={() =>
+                  setViewMode("native")
+                }
+              >
+                Native
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        {viewMode === "text" && (
+        {viewMode === "text" &&
+          !isStructuredSpreadsheet && (
           <div className="h-full w-full overflow-hidden rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)]">
             <div className="h-full w-full overflow-auto p-5">
               <pre className="m-0 whitespace-pre-wrap break-words font-sans text-sm leading-7 text-[var(--insyt-text-secondary)]">
@@ -941,7 +1003,10 @@ export default function ReviewDocumentPane({
 
             {!reviewPreviewLoading &&
               !reviewPreviewError &&
-              effectiveViewerType === "needs_preview_conversion" &&
+              (
+                isStructuredSpreadsheet ||
+                effectiveViewerType === "needs_preview_conversion"
+              ) &&
               canUseBackendPreview && (
                 <>
                   {previewLoading && (

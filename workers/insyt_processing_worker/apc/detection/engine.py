@@ -88,7 +88,8 @@ def run_detection_engine(
     )
 
     merged_candidates = merge_detection_candidates(
-        validated_candidates
+        validated_candidates,
+        text=value,
     )
 
     return {

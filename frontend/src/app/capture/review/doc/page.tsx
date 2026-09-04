@@ -96,9 +96,18 @@ function ReviewPageContent() {
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
   const docId = searchParams.get("doc") || "";
-  const nativeBlobParam =
+
+  const nativeBlob =
     searchParams.get("native_blob") ||
     searchParams.get("blob_path") ||
+    "";
+
+  const returnTo =
+    searchParams.get("return_to") ||
+    "";
+
+  const returnLabel =
+    searchParams.get("return_label") ||
     "";
 
   const docSetParam = searchParams.get("docSet") || "";
@@ -135,20 +144,34 @@ function ReviewPageContent() {
     if (docId && !batchId) {
       const params = new URLSearchParams();
 
-      params.set("client", clientId);
       params.set("project", projectId);
       params.set("doc", docId);
 
-      if (nativeBlobParam) {
-        params.set("native_blob", nativeBlobParam);
+      if (clientId) {
+        params.set("client", clientId);
       }
 
-      apiGet(`/api/review/current?${params.toString()}`)
+      if (nativeBlob) {
+        params.set("native_blob", nativeBlob);
+      }
+
+      apiGet(
+        `/api/capture/review/current?${params.toString()}`
+      )
         .then((response) => {
-          setReviewDoc(response);
+          setReviewDoc({
+            ...response,
+            batch:
+              response?.batch ||
+              "Direct Open",
+          });
         })
         .catch((error) => {
-          console.error(error);
+          console.error(
+            "Failed to open document directly:",
+            error
+          );
+
           setError(
             String(
               error?.message ||
@@ -194,7 +217,7 @@ function ReviewPageContent() {
     projectId,
     batchId,
     docId,
-    nativeBlobParam,
+    nativeBlob,
   ]);
 
   useEffect(() => {
@@ -492,23 +515,57 @@ function ReviewPageContent() {
   function buildReviewDocUrl(targetDocId: string) {
     const params = new URLSearchParams();
 
-    if (clientId) params.set("client", clientId);
-    if (projectId) params.set("project", projectId);
-    if (targetDocId) params.set("doc", targetDocId);
+    if (clientId) {
+      params.set("client", clientId);
+    }
+
+    if (projectId) {
+      params.set("project", projectId);
+    }
+
+    if (targetDocId) {
+      params.set("doc", targetDocId);
+    }
+
+    if (returnTo) {
+      params.set(
+        "return_to",
+        returnTo
+      );
+    }
+
+    if (returnLabel) {
+      params.set(
+        "return_label",
+        returnLabel
+      );
+    }
 
     if (isFinalSourceView) {
       params.set("source", "final");
-      params.set("docSet", finalSourceDocIds.join(";"));
+      params.set(
+        "docSet",
+        finalSourceDocIds.join(";")
+      );
 
       if (entityParam) {
-        params.set("entity", entityParam);
+        params.set(
+          "entity",
+          entityParam
+        );
       }
 
       if (entityUidParam) {
-        params.set("entityUid", entityUidParam);
+        params.set(
+          "entityUid",
+          entityUidParam
+        );
       }
     } else if (batchId) {
-      params.set("batch", batchId);
+      params.set(
+        "batch",
+        batchId
+      );
     }
 
     return `/capture/review/doc?${params.toString()}`;
@@ -817,6 +874,30 @@ function ReviewPageContent() {
           onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
           onLastDoc={isFileView ? goFileLastDoc : goLastDoc}
         />
+
+        {returnTo && (
+          <div className="mx-4 mt-4 flex items-center">
+            <button
+              type="button"
+              onClick={() =>
+                router.push(returnTo)
+              }
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-sky-700 hover:bg-slate-800 hover:text-white"
+            >
+              <span
+                aria-hidden="true"
+                className="text-base"
+              >
+                ←
+              </span>
+
+              Return to{" "}
+              {returnLabel ||
+                "Cyber²"}{" "}
+              Landing
+            </button>
+          </div>
+        )}
 
         {protocolMessage && (
           <div className="mx-4 mt-4 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">

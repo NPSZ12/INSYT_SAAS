@@ -1,0 +1,6 @@
+<step title="Incoming Request" date="2026-06-14T15:16:42.340" instance="efd72d" url="/deployments/3b88b72e-5b7e-4f2f-ace5-ff0e4a58a78c/log" method="GET" type="request" pid="831,1,35" Host="insyt-apc-worker-prod-v2.scm.azurewebsites.net" User-Agent="functions-core-tools/4.12.0" Authorization="Bea..." Cookie="ARRAffinity=efd72d504497c861fc81eaea63d24d481f51aeea64f8edb875731e3159ad3490; ARRAffinitySameSite=efd72d504497c861fc81eaea63d24d481f51aeea64f8edb875731e3159ad3490" X-ARR-LOG-ID="d815f5ee-f582-42b1-b156-5039d79def27" CLIENT-IP="9.134.132.188:52744" X-SITE-DEPLOYMENT-ID="insyt-apc-worker-prod-v2" WAS-DEFAULT-HOSTNAME="insyt-apc-worker-prod-v2.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/deployments/3b88b72e-5b7e-4f2f-ace5-ff0e4a58a78c/log" X-Client-IP="9.134.132.188" X-Client-Port="52744" >
+  <step title="DeploymentService.GetLogEntry" date="2026-06-14T15:16:43.074" >
+    <step title="DeploymentManager.GetLogEntries(id:3b88b72e-5b7e-4f2f-ace5-ff0e4a58a78c)" date="2026-06-14T15:16:43.279" /><!-- duration: 476ms -->
+  </step><!-- duration: 1024ms -->
+  <step title="Outgoing response" date="2026-06-14T15:16:44.512" type="response" statusCode="200" statusText="OK" /><!-- duration: 275ms -->
+</step><!-- duration: 2717ms -->

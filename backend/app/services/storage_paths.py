@@ -42,17 +42,34 @@ def build_project_path(
     return f"{base_path}/{'/'.join(clean_parts)}"
 
 
+def normalize_project_storage_key(project: str) -> str:
+    value = (project or "").strip().strip("/")
+
+    if not value:
+        raise ValueError("Project is required.")
+
+    return value.replace(" ", "_")
+
+
 def build_project_prefix(
     workspace: str,
     client: str,
     project: str,
-    *parts: str,
+    folder: str | None = None,
 ) -> str:
-    path = build_project_path(
-        workspace,
-        client,
-        project,
-        *parts,
-    )
+    workspace_clean = (workspace or "").strip().lower().strip("/")
+    client_clean = (client or "").strip().strip("/")
+    project_storage_key = normalize_project_storage_key(project)
 
-    return f"{path}/"
+    parts = [
+        client_clean,
+        workspace_clean,
+        project_storage_key,
+    ]
+
+    if folder:
+        folder_clean = folder.strip().strip("/")
+        if folder_clean:
+            parts.append(folder_clean)
+
+    return "/".join(parts).rstrip("/") + "/"

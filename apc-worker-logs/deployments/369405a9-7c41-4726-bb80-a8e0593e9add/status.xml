@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<deployment>
+  <id>369405a9-7c41-4726-bb80-a8e0593e9add</id>
+  <author>NPS_LAPTOP</author>
+  <deployer>Push-Deployer</deployer>
+  <authorEmail>N/A</authorEmail>
+  <message>Created via a push deployment</message>
+  <progress></progress>
+  <status>Success</status>
+  <statusText></statusText>
+  <lastSuccessEndTime>2026-06-14T13:24:49.9965469Z</lastSuccessEndTime>
+  <receivedTime>2026-06-14T13:22:17.5332864Z</receivedTime>
+  <startTime>2026-06-14T13:22:25.1813832Z</startTime>
+  <endTime>2026-06-14T13:24:49.9965469Z</endTime>
+  <complete>True</complete>
+  <is_temp>False</is_temp>
+  <is_readonly>True</is_readonly>
+  <containerId>5c7ce4e47a3b</containerId>
+  <buildSummary />
+</deployment>

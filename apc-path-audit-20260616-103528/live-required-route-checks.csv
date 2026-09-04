@@ -1,0 +1,5 @@
+"Status","RequiredSuffix","RequiredMethod","MatchingPaths"
+"PASS","/{workspace}/processing-center/uploads/remove","post","/api/{workspace}/processing-center/uploads/remove [post]"
+"PASS","/{workspace}/processing-center/tracked-jobs/start","post","/api/{workspace}/processing-center/tracked-jobs/start [post]"
+"PASS","/{workspace}/processing-center/uploads","get","/api/{workspace}/processing-center/uploads [get]"
+"PASS","/{workspace}/processing-center/job-history","get","/api/{workspace}/processing-center/job-history [get]"

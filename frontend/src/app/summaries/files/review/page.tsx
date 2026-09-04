@@ -75,15 +75,48 @@ function SummariesFileReviewContent() {
   const [qcPaneWidth, setQcPaneWidth] = useState(544);
   const [isResizing, setIsResizing] = useState(false);
 
+  function toPositivePage(value: unknown) {
+    const page = Number(value);
+
+    if (!Number.isFinite(page) || page <= 0) {
+      return null;
+    }
+
+    return page;
+  }
+
+  function getPdfViewerPage(item: any) {
+    return (
+      toPositivePage(item.pdf_viewer_page) ??
+      toPositivePage(item.pdfViewerPage) ??
+      toPositivePage(item.summaryPdfPage) ??
+      toPositivePage(item.summary_pdf_page) ??
+      toPositivePage(item.pdfPage) ??
+      toPositivePage(item.pdf_page) ??
+      toPositivePage(item.page) ??
+      toPositivePage(item.pageStart) ??
+      toPositivePage(item.page_start) ??
+      null
+    );
+  }
+
   function handleOutlineSelect(item: PdfOutlineItem) {
-    const targetPage =
-      item.summaryPdfPage ??
-      item.summary_pdf_page ??
-      item.pdfPage ??
-      item.pdf_page ??
-      item.page ??
-      item.pageStart ??
-      1;
+    const targetPage = getPdfViewerPage(item) || 1;
+
+    console.log("FILES OUTLINE PAGE JUMP:", {
+      id: item.id,
+      title: item.title,
+      pdf_viewer_page: (item as any).pdf_viewer_page,
+      pdfViewerPage: (item as any).pdfViewerPage,
+      summaryPdfPage: item.summaryPdfPage,
+      summary_pdf_page: item.summary_pdf_page,
+      pdfPage: item.pdfPage,
+      pdf_page: item.pdf_page,
+      page: item.page,
+      pageStart: item.pageStart,
+      page_start: (item as any).page_start,
+      targetPage,
+    });
 
     setSelectedSummaryDocId(item.id);
     setCurrentOutlineTitle(item.title);

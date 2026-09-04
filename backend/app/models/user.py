@@ -10,7 +10,7 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     display_name = Column(String, nullable=False)
 
-    email = Column(String, default="")
+    email = Column(String, default="", index=True)
 
     role = Column(String, nullable=False)
     status = Column(String, default="Active")

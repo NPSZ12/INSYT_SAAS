@@ -1,0 +1,34 @@
+﻿{
+  "apc.azure_layout.AzureRoutingConfig": {
+    "Project Client1": {
+      "prefix": "Client1/capture/Project_Client1",
+      "uploads": "Client1/capture/Project_Client1/source/processing_center/uploads",
+      "jobs": "Client1/capture/Project_Client1/processing_center/jobs",
+      "native": "Client1/capture/Project_Client1/source/native",
+      "text": "Client1/capture/Project_Client1/source/text",
+      "reports": "Client1/capture/Project_Client1/processing_center/reports"
+    },
+    "Project_Client1": {
+      "prefix": "Client1/capture/Project_Client1",
+      "uploads": "Client1/capture/Project_Client1/source/processing_center/uploads",
+      "jobs": "Client1/capture/Project_Client1/processing_center/jobs",
+      "native": "Client1/capture/Project_Client1/source/native",
+      "text": "Client1/capture/Project_Client1/source/text",
+      "reports": "Client1/capture/Project_Client1/processing_center/reports"
+    }
+  },
+  "app.api.processing_center_azure._project_base_path": {
+    "Project Client1": {
+      "storage_project_key": "Project_Client1",
+      "project_base_path": "Client1/capture/Project_Client1"
+    },
+    "Project_Client1": {
+      "storage_project_key": "Project_Client1",
+      "project_base_path": "Client1/capture/Project_Client1"
+    }
+  },
+  "app.services.storage_paths.build_project_base_path": {
+    "Project Client1": "Client1/capture/Project_Client1",
+    "Project_Client1": "Client1/capture/Project_Client1"
+  }
+}

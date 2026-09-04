@@ -378,7 +378,33 @@ function BatchesPageContent() {
         loadBatches();
         loadFiles();
       })
-      .catch(() => setMessage("Review batch creation failed."));
+      .catch((error) => {
+        console.error("Review batch creation failed:", error);
+
+        const rawMessage = String(error?.message || "");
+
+        try {
+          const jsonStart = rawMessage.indexOf("{");
+
+          if (jsonStart >= 0) {
+            const parsed = JSON.parse(rawMessage.slice(jsonStart));
+
+            if (typeof parsed?.detail === "string") {
+              setMessage(parsed.detail);
+              return;
+            }
+
+            if (parsed?.detail?.message) {
+              setMessage(parsed.detail.message);
+              return;
+            }
+          }
+        } catch {
+          // Fall back below.
+        }
+
+        setMessage(rawMessage || "Review batch creation failed.");
+      });
   }
 
   function getQcBatchNamePrefix() {

@@ -124,7 +124,7 @@ class DualStorageBlobAdapter:
         """Archive pending Processing Center uploads after a successful worker run.
 
         Files are copied from:
-            {client}/{workspace}/{project}/source/processing_center/uploads/
+            {client}/{workspace}/{project}/processing_center/uploads/
 
         to:
             {client}/{workspace}/{project}/processing_center/archive/{job_id}/uploads/

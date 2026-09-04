@@ -1,0 +1,196 @@
+[1mdiff --git a/backend/app/api/workspace_projects.py b/backend/app/api/workspace_projects.py[m
+[1mindex c799b0c..5933023 100644[m
+[1m--- a/backend/app/api/workspace_projects.py[m
+[1m+++ b/backend/app/api/workspace_projects.py[m
+[36m@@ -227,6 +227,33 @@[m [mdef get_workspace_container_name(workspace: str):[m
+ [m
+     return container_name[m
+ [m
+[32m+[m[32mdef get_processing_container_name():[m
+[32m+[m[32m    return os.getenv("INSYT_PROCESSING_CONTAINER", "insyt-processing")[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef get_review_container_name(workspace: str):[m
+[32m+[m[32m    workspace_key = str(workspace or "capture").strip().lower()[m
+[32m+[m
+[32m+[m[32m    return ([m
+[32m+[m[32m        os.getenv(f"INSYT_REVIEW_CONTAINER_{workspace_key.upper()}")[m
+[32m+[m[32m        or os.getenv("INSYT_REVIEW_CONTAINER")[m
+[32m+[m[32m        or get_workspace_container_name(workspace_key)[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef get_live_source_container_name(workspace: str):[m
+[32m+[m[32m    workspace_key = str(workspace or "capture").strip().lower()[m
+[32m+[m
+[32m+[m[32m    return ([m
+[32m+[m[32m        os.getenv(f"INSYT_LIVE_SOURCE_CONTAINER_{workspace_key.upper()}")[m
+[32m+[m[32m        or os.getenv(f"INSYT_FILES_CONTAINER_{workspace_key.upper()}")[m
+[32m+[m[32m        or os.getenv(f"CDS_INTAKE_CONTAINER_{workspace_key.upper()}")[m
+[32m+[m[32m        or os.getenv("INSYT_LIVE_SOURCE_CONTAINER")[m
+[32m+[m[32m        or os.getenv("INSYT_FILES_CONTAINER")[m
+[32m+[m[32m        or os.getenv("CDS_INTAKE_CONTAINER")[m
+[32m+[m[32m        or get_workspace_container_name(workspace_key)[m
+[32m+[m[32m    )[m
+[32m+[m
+ def parse_insyt_project_marker_path([m
+     blob_name: str,[m
+     workspace: str,[m
+[36m@@ -278,24 +305,44 @@[m [mdef get_project_storage_targets(workspace: str):[m
+             detail=f"Azure Blob SDK unavailable: {error}",[m
+         )[m
+ [m
+[31m-    container_name = get_workspace_container_name(workspace)[m
+[32m+[m[32m    workspace = str(workspace or "").strip().lower()[m
+[32m+[m
+[32m+[m[32m    processing_connection = ([m
+[32m+[m[32m        os.getenv("INSYT_PROCESSING_STORAGE_CONNECTION_STRING")[m
+[32m+[m[32m        or os.getenv("AZURE_STORAGE_CONNECTION_STRING")[m
+[32m+[m[32m    )[m
+ [m
+[31m-    processing_connection = os.getenv("AZURE_STORAGE_CONNECTION_STRING")[m
+     review_connection = os.getenv("INSYT_REVIEW_STORAGE_CONNECTION_STRING")[m
+[32m+[m
+     live_connection = ([m
+         os.getenv("INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING")[m
+         or os.getenv("CDS_STORAGE_CONNECTION_STRING")[m
+     )[m
+ [m
+     required = [[m
+[31m-        ("processing", "insytprodstorage", processing_connection),[m
+[31m-        ("review", "insytreviewstorage", review_connection),[m
+[31m-        ("live", "cdsintakestorage", live_connection),[m
+[32m+[m[32m        ([m
+[32m+[m[32m            "processing",[m
+[32m+[m[32m            "insytprodstorage",[m
+[32m+[m[32m            processing_connection,[m
+[32m+[m[32m            get_processing_container_name(),[m
+[32m+[m[32m        ),[m
+[32m+[m[32m        ([m
+[32m+[m[32m            "review",[m
+[32m+[m[32m            "insytreviewstorage",[m
+[32m+[m[32m            review_connection,[m
+[32m+[m[32m            get_review_container_name(workspace),[m
+[32m+[m[32m        ),[m
+[32m+[m[32m        ([m
+[32m+[m[32m            "live",[m
+[32m+[m[32m            "cdsintakestorage",[m
+[32m+[m[32m            live_connection,[m
+[32m+[m[32m            get_live_source_container_name(workspace),[m
+[32m+[m[32m        ),[m
+     ][m
+ [m
+     missing = [[m
+         target_name[m
+[31m-        for target_name, _account_name, connection_string in required[m
+[32m+[m[32m        for target_name, _account_name, connection_string, _container_name in required[m
+         if not connection_string[m
+     ][m
+ [m
+[36m@@ -310,7 +357,7 @@[m [mdef get_project_storage_targets(workspace: str):[m
+ [m
+     targets = [][m
+ [m
+[31m-    for target_name, account_name, connection_string in required:[m
+[32m+[m[32m    for target_name, account_name, connection_string, container_name in required:[m
+         if f"AccountName={account_name}" not in connection_string:[m
+             raise HTTPException([m
+                 status_code=500,[m
+[36m@@ -663,20 +710,11 @@[m [mdef create_workspace_project([m
+                 ),[m
+             )[m
+ [m
+[31m-        project_folders = [[m
+[31m-            f"{project_root}/source/native/.keep",[m
+[31m-            f"{project_root}/source/text/.keep",[m
+[32m+[m[32m        common_project_folders = [[m
+             f"{project_root}/source/protocol/.keep",[m
+             f"{project_root}/source/metadata/.keep",[m
+             f"{project_root}/source/preview/.keep",[m
+ [m
+[31m-            f"{project_root}/processing_center/uploads/.keep",[m
+[31m-            f"{project_root}/processing_center/jobs/.keep",[m
+[31m-            f"{project_root}/processing_center/staged/.keep",[m
+[31m-            f"{project_root}/processing_center/reports/.keep",[m
+[31m-            f"{project_root}/processing_center/archive/.keep",[m
+[31m-            f"{project_root}/processing_center/removed/.keep",[m
+[31m-[m
+             f"{project_root}/Batches/.keep",[m
+ [m
+             f"{project_root}/SearchFolders/.keep",[m
+[36m@@ -707,6 +745,28 @@[m [mdef create_workspace_project([m
+             f"{project_root}/exports/.keep",[m
+         ][m
+ [m
+[32m+[m[32m        processing_project_folders = [[m
+[32m+[m[32m            f"{project_root}/processing_center/uploads/.keep",[m
+[32m+[m[32m            f"{project_root}/processing_center/jobs/.keep",[m
+[32m+[m[32m            f"{project_root}/processing_center/archive/.keep",[m
+[32m+[m[32m            f"{project_root}/processing_center/removed/.keep",[m
+[32m+[m[32m        ][m
+[32m+[m
+[32m+[m[32m        review_project_folders = [[m
+[32m+[m[32m            f"{project_root}/processing_center/staged/.keep",[m
+[32m+[m[32m            f"{project_root}/processing_center/reports/.keep",[m
+[32m+[m[32m        ][m
+[32m+[m
+[32m+[m[32m        live_project_folders = [[m
+[32m+[m[32m            f"{project_root}/source/native/.keep",[m
+[32m+[m[32m            f"{project_root}/source/text/.keep",[m
+[32m+[m[32m        ][m
+[32m+[m
+[32m+[m[32m        if workspace == "summaries":[m
+[32m+[m[32m            live_project_folders.append([m
+[32m+[m[32m                f"{project_root}/source/summary_extracts/.keep"[m
+[32m+[m[32m            )[m
+[32m+[m
+         protocol_payload = {[m
+             "project_uuid": project_uuid,[m
+             "client_uuid": client_uuid,[m
+[36m@@ -750,7 +810,22 @@[m [mdef create_workspace_project([m
+ [m
+             target_created_paths.append(marker_blob)[m
+ [m
+[31m-            for folder_blob in project_folders:[m
+[32m+[m[32m            if target_name == "processing":[m
+[32m+[m[32m                target_project_folders = processing_project_folders[m
+[32m+[m
+[32m+[m[32m            elif target_name == "review":[m
+[32m+[m[32m                target_project_folders = review_project_folders[m
+[32m+[m
+[32m+[m[32m            elif target_name == "live":[m
+[32m+[m[32m                target_project_folders = [[m
+[32m+[m[32m                    *live_project_folders,[m
+[32m+[m[32m                    *common_project_folders,[m
+[32m+[m[32m                ][m
+[32m+[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                target_project_folders = [][m
+[32m+[m
+[32m+[m[32m            for folder_blob in target_project_folders:[m
+                 container.upload_blob([m
+                     name=folder_blob,[m
+                     data=b"",[m
+[36m@@ -759,14 +834,15 @@[m [mdef create_workspace_project([m
+ [m
+                 target_created_paths.append(folder_blob)[m
+ [m
+[31m-            container.upload_blob([m
+[31m-                name=protocol_blob,[m
+[31m-                data=json.dumps(protocol_payload, indent=2),[m
+[31m-                overwrite=True,[m
+[31m-                content_type="application/json",[m
+[31m-            )[m
+[32m+[m[32m            if target_name == "live":[m
+[32m+[m[32m                container.upload_blob([m
+[32m+[m[32m                    name=protocol_blob,[m
+[32m+[m[32m                    data=json.dumps(protocol_payload, indent=2),[m
+[32m+[m[32m                    overwrite=True,[m
+[32m+[m[32m                    content_type="application/json",[m
+[32m+[m[32m                )[m
+ [m
+[31m-            target_created_paths.append(protocol_blob)[m
+[32m+[m[32m                target_created_paths.append(protocol_blob)[m
+ [m
+             created_targets.append([m
+                 {[m

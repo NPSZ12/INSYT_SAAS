@@ -1,0 +1,763 @@
+2026-06-14T12:57:07.1481702Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T12:57:08.3299966Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T12:57:08.3320730Z Container start method called.
+2026-06-14T12:57:08.3368482Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T12:57:08.3371702Z Establishing network.
+2026-06-14T12:57:08.3373164Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T12:57:31.6268551Z Image azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice is pulled from registry mcr.microsoft.com
+2026-06-14T12:57:31.6377637Z Container is starting.
+2026-06-14T12:57:31.6383780Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T12:57:31.6387282Z Establishing user namespace if not established already.
+2026-06-14T12:57:31.6391077Z Establishing network if not established already.
+2026-06-14T12:57:31.6393393Z Mounting volumes.
+2026-06-14T12:57:31.6422583Z Nested mountpoint 
+2026-06-14T12:57:31.7272273Z Nested mountpoint volatile/logs
+2026-06-14T12:57:31.7353439Z Nested mountpoint 
+2026-06-14T12:57:31.7419329Z Nested mountpoint 
+2026-06-14T12:57:31.7713227Z Nested mountpoint 
+2026-06-14T12:57:31.7748648Z Nested mountpoint 
+2026-06-14T12:57:31.7766554Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T12:57:31.7773239Z Creating container.
+2026-06-14T12:57:31.7782131Z Creating pipes for streaming container io.
+2026-06-14T12:57:31.7793802Z Creating stdout named pipe at /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stdout_de5eb8fb27b84af3be2c097774a2afc6.
+2026-06-14T12:57:31.7798575Z Successfully created stdout named pipe at: /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stdout_de5eb8fb27b84af3be2c097774a2afc6.
+2026-06-14T12:57:31.7804231Z Opening named pipe /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stdout_de5eb8fb27b84af3be2c097774a2afc6 for reading in non-blocking mode.
+2026-06-14T12:57:31.7805842Z Successfully opened named pipe: /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stdout_de5eb8fb27b84af3be2c097774a2afc6.
+2026-06-14T12:57:31.7823805Z Successfully removed non-blocking flag from /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stdout_de5eb8fb27b84af3be2c097774a2afc6.
+2026-06-14T12:57:31.7838160Z Creating stderr named pipe at /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stderr_bf62a86569e9419783b821c505081676.
+2026-06-14T12:57:31.7843889Z Successfully created stderr named pipe at: /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stderr_bf62a86569e9419783b821c505081676.
+2026-06-14T12:57:31.7845962Z Opening named pipe /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stderr_bf62a86569e9419783b821c505081676 for reading in non-blocking mode.
+2026-06-14T12:57:31.7848767Z Successfully opened named pipe: /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stderr_bf62a86569e9419783b821c505081676.
+2026-06-14T12:57:31.7850118Z Successfully removed non-blocking flag from /podr/container/pipe/0db5202ce1b8_insyt-apc-worker-prod-v2/stderr_bf62a86569e9419783b821c505081676.
+2026-06-14T12:57:31.7866133Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T12:57:32.4636021Z Starting container: 0db5202ce1b8_insyt-apc-worker-prod-v2.
+2026-06-14T12:57:32.5224594Z Starting watchers and probes.
+2026-06-14T12:57:32.5371856Z Starting metrics collection.
+2026-06-14T12:57:32.5413634Z Container is running.
+2026-06-14T12:57:32.5414362Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T12:57:32.8293778Z Container start method finished after 24496 ms.
+2026-06-14T12:57:32.9961474Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T12:57:33.0009213Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T12:57:41.1361291Z Site startup probe succeeded after 8.1162576 seconds.
+2026-06-14T12:57:41.2920302Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 8.1162576 seconds., DetailsLevel: INFO
+2026-06-14T12:57:41.4615252Z Site started.
+2026-06-14T12:57:41.4616557Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 12:57:41 (UTC), DetailsLevel: INFO
+2026-06-14T12:57:48.6402761Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T12:57:49.7987478Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T12:57:49.7988952Z Container start method called.
+2026-06-14T12:57:49.7989730Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T12:57:49.7991001Z Establishing network.
+2026-06-14T12:57:49.7992496Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T12:57:50.3421285Z Container is starting.
+2026-06-14T12:57:50.3422101Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T12:57:50.3423531Z Establishing user namespace if not established already.
+2026-06-14T12:57:50.3424666Z Establishing network if not established already.
+2026-06-14T12:57:50.3425889Z Mounting volumes.
+2026-06-14T12:57:50.3428810Z Nested mountpoint 
+2026-06-14T12:57:50.3437335Z Nested mountpoint volatile/logs
+2026-06-14T12:57:50.3505921Z Nested mountpoint 
+2026-06-14T12:57:50.3577387Z Nested mountpoint 
+2026-06-14T12:57:50.3594975Z Nested mountpoint 
+2026-06-14T12:57:50.3728180Z Nested mountpoint 
+2026-06-14T12:57:50.3891377Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T12:57:50.3892924Z Creating container.
+2026-06-14T12:57:50.3894131Z Creating pipes for streaming container io.
+2026-06-14T12:57:50.3929045Z Creating stdout named pipe at /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stdout_cd8a1c1583da40b48304e718d4a842da.
+2026-06-14T12:57:50.3931195Z Successfully created stdout named pipe at: /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stdout_cd8a1c1583da40b48304e718d4a842da.
+2026-06-14T12:57:50.3932207Z Opening named pipe /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stdout_cd8a1c1583da40b48304e718d4a842da for reading in non-blocking mode.
+2026-06-14T12:57:50.3933582Z Successfully opened named pipe: /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stdout_cd8a1c1583da40b48304e718d4a842da.
+2026-06-14T12:57:50.3934700Z Successfully removed non-blocking flag from /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stdout_cd8a1c1583da40b48304e718d4a842da.
+2026-06-14T12:57:50.3936420Z Creating stderr named pipe at /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stderr_bed07a040e844e0d832663e067581533.
+2026-06-14T12:57:50.3938011Z Successfully created stderr named pipe at: /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stderr_bed07a040e844e0d832663e067581533.
+2026-06-14T12:57:50.3938989Z Opening named pipe /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stderr_bed07a040e844e0d832663e067581533 for reading in non-blocking mode.
+2026-06-14T12:57:50.3940205Z Successfully opened named pipe: /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stderr_bed07a040e844e0d832663e067581533.
+2026-06-14T12:57:50.3941259Z Successfully removed non-blocking flag from /podr/container/pipe/42bad7b27368_insyt-apc-worker-prod-v2/stderr_bed07a040e844e0d832663e067581533.
+2026-06-14T12:57:50.3942774Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T12:57:51.1248638Z Starting container: 42bad7b27368_insyt-apc-worker-prod-v2.
+2026-06-14T12:57:51.1712305Z Starting watchers and probes.
+2026-06-14T12:57:51.1720574Z Starting metrics collection.
+2026-06-14T12:57:51.1722238Z Container is running.
+2026-06-14T12:57:51.1723278Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T12:57:51.2729024Z Container start method finished after 1473 ms.
+2026-06-14T12:57:51.2731328Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T12:57:51.2731692Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T12:57:54.8456333Z Site startup probe failed after 3.5598758 seconds.
+2026-06-14T12:57:54.9311791Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: ERR
+2026-06-14T12:57:54.9344558Z Failed to start site. Revert by stopping site.
+2026-06-14T12:57:54.9376139Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: ERR
+2026-06-14T12:57:54.9422890Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: ERR
+2026-06-14T12:57:54.9453220Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T12:57:55.2846487Z Stop and delete container. Retry count = 0
+2026-06-14T12:57:55.2858120Z Stopping container: 42bad7b27368_insyt-apc-worker-prod-v2.
+2026-06-14T12:58:00.0128956Z Deleting container: 42bad7b27368_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T12:58:00.0805124Z Container spec TerminationMessagePolicy  path 
+2026-06-14T12:58:00.0825790Z Container is terminated. Total time elapsed: 5136 ms.
+2026-06-14T12:58:00.0827196Z Site container: insyt-apc-worker-prod-v2 terminated during site startup.
+2026-06-14T12:58:00.0835720Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: insyt-apc-worker-prod-v2 terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-06-14T12:58:00.0882245Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T12:58:22.3716801Z State: Stopping, Action: StoppingSite, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 12:57:41 (UTC), DetailsLevel: INFO
+2026-06-14T12:58:22.3732726Z State: Stopping, Action: StoppingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 12:57:41 (UTC), DetailsLevel: INFO
+2026-06-14T12:58:22.3737147Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T12:58:22.3767853Z Stop and delete container. Retry count = 0
+2026-06-14T12:58:22.3769131Z Stopping container: 0db5202ce1b8_insyt-apc-worker-prod-v2.
+2026-06-14T12:58:27.4577707Z Deleting container: 0db5202ce1b8_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T12:58:27.5258825Z Container spec TerminationMessagePolicy  path 
+2026-06-14T12:58:27.5260340Z Container is terminated. Total time elapsed: 5152 ms.
+2026-06-14T12:58:27.5261491Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T12:58:48.6056332Z State: Starting, Action: EstablishingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 06/14/2026 12:58:00 (UTC), DetailsLevel: ERR
+2026-06-14T12:58:49.0252719Z State: Starting, Action: StartingMsiContainer, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 06/14/2026 12:58:00 (UTC), DetailsLevel: ERR
+2026-06-14T12:59:21.5538657Z State: Starting, Action: StartingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 06/14/2026 12:58:00 (UTC), DetailsLevel: ERR
+2026-06-14T12:59:21.5540067Z Container start method called.
+2026-06-14T12:59:21.5541658Z State: Starting, Action: PullingImage, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T12:59:21.5543707Z Establishing network.
+2026-06-14T12:59:21.5545029Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T12:59:21.6932516Z Container is starting.
+2026-06-14T12:59:21.6933297Z State: Starting, Action: MountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T12:59:21.6934795Z Establishing user namespace if not established already.
+2026-06-14T12:59:21.6935918Z Establishing network if not established already.
+2026-06-14T12:59:21.6937216Z Mounting volumes.
+2026-06-14T12:59:21.6939296Z Nested mountpoint 
+2026-06-14T12:59:21.7464058Z Nested mountpoint volatile/logs
+2026-06-14T12:59:21.7499624Z Nested mountpoint 
+2026-06-14T12:59:21.7506021Z Nested mountpoint 
+2026-06-14T12:59:21.7521552Z Nested mountpoint 
+2026-06-14T12:59:21.7627092Z Nested mountpoint 
+2026-06-14T12:59:21.7670629Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T12:59:21.7673608Z Creating container.
+2026-06-14T12:59:21.7681222Z Creating pipes for streaming container io.
+2026-06-14T12:59:21.7685136Z Creating stdout named pipe at /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stdout_ac4331d993114eb087b31141a4d1149a.
+2026-06-14T12:59:21.7688757Z Successfully created stdout named pipe at: /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stdout_ac4331d993114eb087b31141a4d1149a.
+2026-06-14T12:59:21.7699329Z Opening named pipe /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stdout_ac4331d993114eb087b31141a4d1149a for reading in non-blocking mode.
+2026-06-14T12:59:21.7704446Z Successfully opened named pipe: /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stdout_ac4331d993114eb087b31141a4d1149a.
+2026-06-14T12:59:21.7707793Z Successfully removed non-blocking flag from /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stdout_ac4331d993114eb087b31141a4d1149a.
+2026-06-14T12:59:21.7711509Z Creating stderr named pipe at /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stderr_4d12afb68e2d47598e3c760350110636.
+2026-06-14T12:59:21.7713762Z Successfully created stderr named pipe at: /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stderr_4d12afb68e2d47598e3c760350110636.
+2026-06-14T12:59:21.7720492Z Opening named pipe /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stderr_4d12afb68e2d47598e3c760350110636 for reading in non-blocking mode.
+2026-06-14T12:59:21.7727407Z Successfully opened named pipe: /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stderr_4d12afb68e2d47598e3c760350110636.
+2026-06-14T12:59:21.7730695Z Successfully removed non-blocking flag from /podr/container/pipe/35022f1061e8_insyt-apc-worker-prod-v2/stderr_4d12afb68e2d47598e3c760350110636.
+2026-06-14T12:59:21.7746683Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T12:59:21.9713002Z Starting container: 35022f1061e8_insyt-apc-worker-prod-v2.
+2026-06-14T12:59:21.9866760Z Starting watchers and probes.
+2026-06-14T12:59:21.9869052Z Starting metrics collection.
+2026-06-14T12:59:21.9870657Z Container is running.
+2026-06-14T12:59:21.9871336Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T12:59:22.0624822Z Container start method finished after 508 ms.
+2026-06-14T12:59:22.0626618Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T12:59:22.0626983Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T12:59:28.1680090Z Site startup probe succeeded after 6.1049466 seconds.
+2026-06-14T12:59:28.2825577Z State: Starting, Action: WarmUpProbeSucceeded, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site startup probe succeeded after 6.1049466 seconds., DetailsLevel: INFO
+2026-06-14T12:59:28.3685062Z Site started.
+2026-06-14T12:59:28.3686035Z State: Started, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 12:59:28 (UTC), DetailsLevel: INFO
+2026-06-14T13:00:41.7580454Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:00:42.3503045Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:00:58.9444796Z Site container: insyt-apc-worker-prod-v2_managedIdentity terminated during site startup.
+2026-06-14T13:00:58.9456073Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:00:58.9461953Z State: Starting, Action: StartingMsiContainer, LastError: SiteStartupCancelled, LastErrorTimestamp: 06/14/2026 13:00:58, LastErrorDetails: , Details: , DetailsLevel: WARN
+2026-06-14T13:01:00.0932273Z Site container: insyt-apc-worker-prod-v2_managedIdentity terminated. Stopping the entire site.
+2026-06-14T13:01:00.0934996Z State: Stopping, Action: StoppingSite, LastError: SiteStartupCancelled, LastErrorTimestamp: 06/14/2026 13:00:58, LastErrorDetails: , Details: , DetailsLevel: WARN
+2026-06-14T13:01:00.0936786Z State: Stopping, Action: StoppingSiteContainers, LastError: SiteStartupCancelled, LastErrorTimestamp: 06/14/2026 13:00:58, LastErrorDetails: , Details: , DetailsLevel: WARN
+2026-06-14T13:01:00.0936937Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T13:01:01.1317799Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:01:01.7037969Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:01:34.3252193Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:01:34.3255434Z Container start method called.
+2026-06-14T13:01:34.3256003Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:01:34.3257241Z Establishing network.
+2026-06-14T13:01:34.3274950Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T13:01:34.4940788Z Container is starting.
+2026-06-14T13:01:34.4941757Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:01:34.4942966Z Establishing user namespace if not established already.
+2026-06-14T13:01:34.4944315Z Establishing network if not established already.
+2026-06-14T13:01:34.4945741Z Mounting volumes.
+2026-06-14T13:01:34.4947467Z Nested mountpoint 
+2026-06-14T13:01:34.5293578Z Nested mountpoint volatile/logs
+2026-06-14T13:01:34.5309612Z Nested mountpoint 
+2026-06-14T13:01:34.5316516Z Nested mountpoint 
+2026-06-14T13:01:34.5396918Z Nested mountpoint 
+2026-06-14T13:01:34.5448941Z Nested mountpoint 
+2026-06-14T13:01:34.5513069Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T13:01:34.5516732Z Creating container.
+2026-06-14T13:01:34.5520194Z Creating pipes for streaming container io.
+2026-06-14T13:01:34.5525553Z Creating stdout named pipe at /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stdout_82e8b401ac8047e988209a68f7b0d61c.
+2026-06-14T13:01:34.5530445Z Successfully created stdout named pipe at: /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stdout_82e8b401ac8047e988209a68f7b0d61c.
+2026-06-14T13:01:34.5531590Z Opening named pipe /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stdout_82e8b401ac8047e988209a68f7b0d61c for reading in non-blocking mode.
+2026-06-14T13:01:34.5532952Z Successfully opened named pipe: /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stdout_82e8b401ac8047e988209a68f7b0d61c.
+2026-06-14T13:01:34.5533972Z Successfully removed non-blocking flag from /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stdout_82e8b401ac8047e988209a68f7b0d61c.
+2026-06-14T13:01:34.5540115Z Creating stderr named pipe at /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stderr_87f36510173a4b4a8717ab1f29f4d0a1.
+2026-06-14T13:01:34.5550339Z Successfully created stderr named pipe at: /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stderr_87f36510173a4b4a8717ab1f29f4d0a1.
+2026-06-14T13:01:34.5553141Z Opening named pipe /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stderr_87f36510173a4b4a8717ab1f29f4d0a1 for reading in non-blocking mode.
+2026-06-14T13:01:34.5559096Z Successfully opened named pipe: /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stderr_87f36510173a4b4a8717ab1f29f4d0a1.
+2026-06-14T13:01:34.5563291Z Successfully removed non-blocking flag from /podr/container/pipe/e6ecf9ed170f_insyt-apc-worker-prod-v2/stderr_87f36510173a4b4a8717ab1f29f4d0a1.
+2026-06-14T13:01:34.5624850Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T13:01:34.7587625Z Starting container: e6ecf9ed170f_insyt-apc-worker-prod-v2.
+2026-06-14T13:01:34.7743002Z Starting watchers and probes.
+2026-06-14T13:01:34.7745313Z Starting metrics collection.
+2026-06-14T13:01:34.7746970Z Container is running.
+2026-06-14T13:01:34.7747725Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:01:34.8250836Z Container start method finished after 494 ms.
+2026-06-14T13:01:34.8266054Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:01:34.8268553Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T13:01:41.9373334Z Site startup probe succeeded after 7.1100866 seconds.
+2026-06-14T13:01:42.0641625Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 7.1100866 seconds., DetailsLevel: INFO
+2026-06-14T13:01:42.4807462Z Site is running with deployment version: 
+2026-06-14T13:01:42.4809828Z Site started.
+2026-06-14T13:01:42.4810723Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 13:01:42 (UTC), DetailsLevel: INFO
+2026-06-14T13:02:03.8782779Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 12:59:28 (UTC), DetailsLevel: INFO
+2026-06-14T13:02:03.8785338Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 12:59:28 (UTC), DetailsLevel: INFO
+2026-06-14T13:02:03.8786510Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T13:02:03.8852242Z Stop and delete container. Retry count = 0
+2026-06-14T13:02:03.8853415Z Stopping container: 35022f1061e8_insyt-apc-worker-prod-v2.
+2026-06-14T13:02:08.9901549Z Deleting container: 35022f1061e8_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T13:02:09.1481902Z Container spec TerminationMessagePolicy  path 
+2026-06-14T13:02:09.1490531Z Container is terminated. Total time elapsed: 5269 ms.
+2026-06-14T13:02:09.3331603Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T13:04:25.8352636Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:04:26.1879374Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:04:59.2438145Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:04:59.2439749Z Container start method called.
+2026-06-14T13:04:59.2440238Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:04:59.2441347Z Establishing network.
+2026-06-14T13:04:59.2442571Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T13:04:59.4043741Z Container is starting.
+2026-06-14T13:04:59.4044417Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:04:59.4045613Z Establishing user namespace if not established already.
+2026-06-14T13:04:59.4062715Z Establishing network if not established already.
+2026-06-14T13:04:59.4064195Z Mounting volumes.
+2026-06-14T13:04:59.4067889Z Nested mountpoint site/wwwroot
+2026-06-14T13:04:59.4582771Z Nested mountpoint volatile/logs
+2026-06-14T13:04:59.4617949Z Nested mountpoint 
+2026-06-14T13:04:59.4964243Z Nested mountpoint 
+2026-06-14T13:04:59.5008805Z Nested mountpoint 
+2026-06-14T13:04:59.5124826Z Nested mountpoint 
+2026-06-14T13:04:59.5414645Z Nested mountpoint 
+2026-06-14T13:05:02.4489854Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T13:05:02.4491258Z Creating container.
+2026-06-14T13:05:02.4492279Z Creating pipes for streaming container io.
+2026-06-14T13:05:02.4493347Z Creating stdout named pipe at /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stdout_e496f91f87ad4273bfe836e9f16dfed3.
+2026-06-14T13:05:02.4495288Z Successfully created stdout named pipe at: /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stdout_e496f91f87ad4273bfe836e9f16dfed3.
+2026-06-14T13:05:02.4496334Z Opening named pipe /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stdout_e496f91f87ad4273bfe836e9f16dfed3 for reading in non-blocking mode.
+2026-06-14T13:05:02.4497485Z Successfully opened named pipe: /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stdout_e496f91f87ad4273bfe836e9f16dfed3.
+2026-06-14T13:05:02.4498489Z Successfully removed non-blocking flag from /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stdout_e496f91f87ad4273bfe836e9f16dfed3.
+2026-06-14T13:05:02.4508425Z Creating stderr named pipe at /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stderr_3cffbd4db9eb41f7808f4e42431cd467.
+2026-06-14T13:05:02.4510664Z Successfully created stderr named pipe at: /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stderr_3cffbd4db9eb41f7808f4e42431cd467.
+2026-06-14T13:05:02.4517989Z Opening named pipe /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stderr_3cffbd4db9eb41f7808f4e42431cd467 for reading in non-blocking mode.
+2026-06-14T13:05:02.4529980Z Successfully opened named pipe: /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stderr_3cffbd4db9eb41f7808f4e42431cd467.
+2026-06-14T13:05:02.4530967Z Successfully removed non-blocking flag from /podr/container/pipe/d53df4f84365_insyt-apc-worker-prod-v2/stderr_3cffbd4db9eb41f7808f4e42431cd467.
+2026-06-14T13:05:02.4536018Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T13:05:02.8085463Z Starting container: d53df4f84365_insyt-apc-worker-prod-v2.
+2026-06-14T13:05:02.8248294Z Starting watchers and probes.
+2026-06-14T13:05:02.8250489Z Starting metrics collection.
+2026-06-14T13:05:02.8251940Z Container is running.
+2026-06-14T13:05:02.8252739Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:05:03.7136041Z Container start method finished after 4469 ms.
+2026-06-14T13:05:03.7137829Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:05:03.7138068Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T13:05:09.8256229Z Site startup probe succeeded after 6.1114769 seconds.
+2026-06-14T13:05:09.8897596Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 6.1114769 seconds., DetailsLevel: INFO
+2026-06-14T13:05:10.2110970Z Site is running with deployment version: 3c65103c-9638-4065-88b5-8bd4b54a46d0
+2026-06-14T13:05:10.2113365Z Site started.
+2026-06-14T13:05:10.2118605Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 13:05:10 (UTC), DetailsLevel: INFO
+2026-06-14T13:05:31.4212849Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:01:42 (UTC), DetailsLevel: INFO
+2026-06-14T13:05:31.4218991Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:01:42 (UTC), DetailsLevel: INFO
+2026-06-14T13:05:31.4220130Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T13:05:31.4234710Z Stop and delete container. Retry count = 0
+2026-06-14T13:05:31.4235959Z Stopping container: e6ecf9ed170f_insyt-apc-worker-prod-v2.
+2026-06-14T13:05:37.0378065Z Deleting container: e6ecf9ed170f_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T13:05:37.1020839Z Container spec TerminationMessagePolicy  path 
+2026-06-14T13:05:37.1022420Z Container is terminated. Total time elapsed: 5680 ms.
+2026-06-14T13:05:37.2291212Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T13:07:50.6152205Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:07:51.0093542Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:08:24.1902702Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:08:24.1907092Z Container start method called.
+2026-06-14T13:08:24.1909971Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:08:24.1912732Z Establishing network.
+2026-06-14T13:08:24.1914183Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T13:08:24.3333181Z Container is starting.
+2026-06-14T13:08:24.3333823Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:08:24.3334896Z Establishing user namespace if not established already.
+2026-06-14T13:08:24.3335919Z Establishing network if not established already.
+2026-06-14T13:08:24.3337212Z Mounting volumes.
+2026-06-14T13:08:24.3338616Z Nested mountpoint site/wwwroot
+2026-06-14T13:08:24.3795206Z Nested mountpoint volatile/logs
+2026-06-14T13:08:24.3828549Z Nested mountpoint 
+2026-06-14T13:08:24.3932467Z Nested mountpoint 
+2026-06-14T13:08:24.3939652Z Nested mountpoint 
+2026-06-14T13:08:24.3969389Z Nested mountpoint 
+2026-06-14T13:08:24.3997675Z Nested mountpoint 
+2026-06-14T13:08:27.6778625Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T13:08:27.6780010Z Creating container.
+2026-06-14T13:08:27.6781060Z Creating pipes for streaming container io.
+2026-06-14T13:08:27.6782156Z Creating stdout named pipe at /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stdout_bdacac4088ab4d7d8028b06b1b95b47d.
+2026-06-14T13:08:27.6784329Z Successfully created stdout named pipe at: /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stdout_bdacac4088ab4d7d8028b06b1b95b47d.
+2026-06-14T13:08:27.6785308Z Opening named pipe /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stdout_bdacac4088ab4d7d8028b06b1b95b47d for reading in non-blocking mode.
+2026-06-14T13:08:27.6786540Z Successfully opened named pipe: /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stdout_bdacac4088ab4d7d8028b06b1b95b47d.
+2026-06-14T13:08:27.6787596Z Successfully removed non-blocking flag from /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stdout_bdacac4088ab4d7d8028b06b1b95b47d.
+2026-06-14T13:08:27.6789316Z Creating stderr named pipe at /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stderr_51f6f9b783f1418eb944c987933cc618.
+2026-06-14T13:08:27.6790894Z Successfully created stderr named pipe at: /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stderr_51f6f9b783f1418eb944c987933cc618.
+2026-06-14T13:08:27.6791847Z Opening named pipe /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stderr_51f6f9b783f1418eb944c987933cc618 for reading in non-blocking mode.
+2026-06-14T13:08:27.6793076Z Successfully opened named pipe: /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stderr_51f6f9b783f1418eb944c987933cc618.
+2026-06-14T13:08:27.6794087Z Successfully removed non-blocking flag from /podr/container/pipe/cf69edb11e00_insyt-apc-worker-prod-v2/stderr_51f6f9b783f1418eb944c987933cc618.
+2026-06-14T13:08:27.6918613Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T13:08:28.1627053Z Starting container: cf69edb11e00_insyt-apc-worker-prod-v2.
+2026-06-14T13:08:28.1841415Z Starting watchers and probes.
+2026-06-14T13:08:28.1843757Z Starting metrics collection.
+2026-06-14T13:08:28.1845294Z Container is running.
+2026-06-14T13:08:28.1862109Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:08:29.0890942Z Container start method finished after 4898 ms.
+2026-06-14T13:08:29.0892868Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:08:29.0893123Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T13:08:34.2792647Z Site startup probe succeeded after 5.188916 seconds.
+2026-06-14T13:08:34.4062445Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 5.188916 seconds., DetailsLevel: INFO
+2026-06-14T13:08:34.6843536Z Site is running with deployment version: 1458d187-e3a2-476d-bf54-606b009a0b0c
+2026-06-14T13:08:34.6847913Z Site started.
+2026-06-14T13:08:34.6848564Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 13:08:34 (UTC), DetailsLevel: INFO
+2026-06-14T13:08:56.0140844Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:05:10 (UTC), DetailsLevel: INFO
+2026-06-14T13:08:56.0143296Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:05:10 (UTC), DetailsLevel: INFO
+2026-06-14T13:08:56.0144595Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T13:08:56.0171070Z Stop and delete container. Retry count = 0
+2026-06-14T13:08:56.0172196Z Stopping container: d53df4f84365_insyt-apc-worker-prod-v2.
+2026-06-14T13:09:01.1211870Z Deleting container: d53df4f84365_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T13:09:01.2350766Z Container spec TerminationMessagePolicy  path 
+2026-06-14T13:09:01.2354255Z Container is terminated. Total time elapsed: 5220 ms.
+2026-06-14T13:09:01.3647478Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T13:19:46.8575027Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:19:47.3333357Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:20:21.3294019Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:20:21.3298248Z Container start method called.
+2026-06-14T13:20:21.3299692Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:20:21.3301570Z Establishing network.
+2026-06-14T13:20:21.3305080Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T13:20:21.7997803Z Container is starting.
+2026-06-14T13:20:21.7998579Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:20:21.7999655Z Establishing user namespace if not established already.
+2026-06-14T13:20:21.8000840Z Establishing network if not established already.
+2026-06-14T13:20:21.8002328Z Mounting volumes.
+2026-06-14T13:20:21.8003991Z Nested mountpoint site/wwwroot
+2026-06-14T13:20:21.8668548Z Nested mountpoint volatile/logs
+2026-06-14T13:20:21.8690095Z Nested mountpoint 
+2026-06-14T13:20:21.8760042Z Nested mountpoint 
+2026-06-14T13:20:21.8766785Z Nested mountpoint 
+2026-06-14T13:20:21.8786447Z Nested mountpoint 
+2026-06-14T13:20:21.8804835Z Nested mountpoint 
+2026-06-14T13:20:24.8092101Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T13:20:24.8093568Z Creating container.
+2026-06-14T13:20:24.8094891Z Creating pipes for streaming container io.
+2026-06-14T13:20:24.8095852Z Creating stdout named pipe at /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stdout_bc4316b22dd74f63a489cf9a5aa30e6f.
+2026-06-14T13:20:24.8098227Z Successfully created stdout named pipe at: /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stdout_bc4316b22dd74f63a489cf9a5aa30e6f.
+2026-06-14T13:20:24.8099338Z Opening named pipe /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stdout_bc4316b22dd74f63a489cf9a5aa30e6f for reading in non-blocking mode.
+2026-06-14T13:20:24.8100639Z Successfully opened named pipe: /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stdout_bc4316b22dd74f63a489cf9a5aa30e6f.
+2026-06-14T13:20:24.8101654Z Successfully removed non-blocking flag from /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stdout_bc4316b22dd74f63a489cf9a5aa30e6f.
+2026-06-14T13:20:24.8172259Z Creating stderr named pipe at /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stderr_a4ef26d9ef52439ba7286eaa9fe74d67.
+2026-06-14T13:20:24.8208955Z Successfully created stderr named pipe at: /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stderr_a4ef26d9ef52439ba7286eaa9fe74d67.
+2026-06-14T13:20:24.8210138Z Opening named pipe /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stderr_a4ef26d9ef52439ba7286eaa9fe74d67 for reading in non-blocking mode.
+2026-06-14T13:20:24.8211592Z Successfully opened named pipe: /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stderr_a4ef26d9ef52439ba7286eaa9fe74d67.
+2026-06-14T13:20:24.8212716Z Successfully removed non-blocking flag from /podr/container/pipe/40f300188880_insyt-apc-worker-prod-v2/stderr_a4ef26d9ef52439ba7286eaa9fe74d67.
+2026-06-14T13:20:24.8214187Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T13:20:25.2254240Z Starting container: 40f300188880_insyt-apc-worker-prod-v2.
+2026-06-14T13:20:25.2408214Z Starting watchers and probes.
+2026-06-14T13:20:25.2410538Z Starting metrics collection.
+2026-06-14T13:20:25.2412045Z Container is running.
+2026-06-14T13:20:25.2415161Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:20:25.7057205Z Container start method finished after 4375 ms.
+2026-06-14T13:20:25.7058950Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:20:25.7059209Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T13:20:31.8171319Z Site startup probe succeeded after 6.1108561 seconds.
+2026-06-14T13:20:31.8795023Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 6.1108561 seconds., DetailsLevel: INFO
+2026-06-14T13:20:32.1225145Z Site is running with deployment version: 1458d187-e3a2-476d-bf54-606b009a0b0c
+2026-06-14T13:20:32.1228041Z Site started.
+2026-06-14T13:20:32.1228739Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 13:20:32 (UTC), DetailsLevel: INFO
+2026-06-14T13:20:53.1443600Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:08:34 (UTC), DetailsLevel: INFO
+2026-06-14T13:20:53.1446067Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:08:34 (UTC), DetailsLevel: INFO
+2026-06-14T13:20:53.1447948Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T13:20:53.1464671Z Stop and delete container. Retry count = 0
+2026-06-14T13:20:53.1466023Z Stopping container: cf69edb11e00_insyt-apc-worker-prod-v2.
+2026-06-14T13:20:58.2384097Z Deleting container: cf69edb11e00_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T13:20:58.3082193Z Container spec TerminationMessagePolicy  path 
+2026-06-14T13:20:58.3084394Z Container is terminated. Total time elapsed: 5163 ms.
+2026-06-14T13:20:58.4381901Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T13:24:52.7380664Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:24:53.1425733Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:25:25.8078267Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:25:25.8079787Z Container start method called.
+2026-06-14T13:25:25.8080606Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:25:25.8083226Z Establishing network.
+2026-06-14T13:25:25.8085180Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T13:25:25.9876534Z Container is starting.
+2026-06-14T13:25:25.9877090Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:25:25.9878138Z Establishing user namespace if not established already.
+2026-06-14T13:25:25.9879261Z Establishing network if not established already.
+2026-06-14T13:25:25.9880409Z Mounting volumes.
+2026-06-14T13:25:25.9881719Z Nested mountpoint site/wwwroot
+2026-06-14T13:25:26.0560975Z Nested mountpoint volatile/logs
+2026-06-14T13:25:26.0573054Z Nested mountpoint 
+2026-06-14T13:25:26.0636266Z Nested mountpoint 
+2026-06-14T13:25:26.0642776Z Nested mountpoint 
+2026-06-14T13:25:26.0732421Z Nested mountpoint 
+2026-06-14T13:25:26.0788367Z Nested mountpoint 
+2026-06-14T13:25:29.1039775Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T13:25:29.1042252Z Creating container.
+2026-06-14T13:25:29.1043462Z Creating pipes for streaming container io.
+2026-06-14T13:25:29.1044672Z Creating stdout named pipe at /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stdout_630747875fe241e09fbd9b8490da70c6.
+2026-06-14T13:25:29.1047665Z Successfully created stdout named pipe at: /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stdout_630747875fe241e09fbd9b8490da70c6.
+2026-06-14T13:25:29.1049050Z Opening named pipe /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stdout_630747875fe241e09fbd9b8490da70c6 for reading in non-blocking mode.
+2026-06-14T13:25:29.1050419Z Successfully opened named pipe: /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stdout_630747875fe241e09fbd9b8490da70c6.
+2026-06-14T13:25:29.1051548Z Successfully removed non-blocking flag from /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stdout_630747875fe241e09fbd9b8490da70c6.
+2026-06-14T13:25:29.1053343Z Creating stderr named pipe at /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stderr_4aad75ecbb2847978d2a8894947d46ef.
+2026-06-14T13:25:29.1054997Z Successfully created stderr named pipe at: /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stderr_4aad75ecbb2847978d2a8894947d46ef.
+2026-06-14T13:25:29.1055967Z Opening named pipe /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stderr_4aad75ecbb2847978d2a8894947d46ef for reading in non-blocking mode.
+2026-06-14T13:25:29.1057241Z Successfully opened named pipe: /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stderr_4aad75ecbb2847978d2a8894947d46ef.
+2026-06-14T13:25:29.1058323Z Successfully removed non-blocking flag from /podr/container/pipe/205542386775_insyt-apc-worker-prod-v2/stderr_4aad75ecbb2847978d2a8894947d46ef.
+2026-06-14T13:25:29.1090029Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T13:25:29.5079342Z Starting container: 205542386775_insyt-apc-worker-prod-v2.
+2026-06-14T13:25:29.5257619Z Starting watchers and probes.
+2026-06-14T13:25:29.5266562Z Starting metrics collection.
+2026-06-14T13:25:29.5274715Z Container is running.
+2026-06-14T13:25:29.5280314Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:25:30.5112573Z Container start method finished after 4703 ms.
+2026-06-14T13:25:30.5114656Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:25:30.5114978Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T13:25:36.6238239Z Site startup probe succeeded after 6.1118699 seconds.
+2026-06-14T13:25:36.6909451Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 6.1118699 seconds., DetailsLevel: INFO
+2026-06-14T13:25:36.9551604Z Site is running with deployment version: 369405a9-7c41-4726-bb80-a8e0593e9add
+2026-06-14T13:25:36.9553539Z Site started.
+2026-06-14T13:25:36.9554207Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 13:25:36 (UTC), DetailsLevel: INFO
+2026-06-14T13:25:57.7824814Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:20:32 (UTC), DetailsLevel: INFO
+2026-06-14T13:25:57.7828732Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:20:32 (UTC), DetailsLevel: INFO
+2026-06-14T13:25:57.7833767Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T13:25:57.7848241Z Stop and delete container. Retry count = 0
+2026-06-14T13:25:57.7849344Z Stopping container: 40f300188880_insyt-apc-worker-prod-v2.
+2026-06-14T13:26:03.2905316Z Deleting container: 40f300188880_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T13:26:03.3653329Z Container spec TerminationMessagePolicy  path 
+2026-06-14T13:26:03.3654834Z Container is terminated. Total time elapsed: 5581 ms.
+2026-06-14T13:26:03.4902324Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T13:26:04.0830380Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:26:04.7343184Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:26:37.7565696Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T13:26:37.7567368Z Container start method called.
+2026-06-14T13:26:37.7567977Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:26:37.7569465Z Establishing network.
+2026-06-14T13:26:37.7570853Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T13:26:37.8541710Z Container is starting.
+2026-06-14T13:26:37.8542537Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T13:26:37.8543712Z Establishing user namespace if not established already.
+2026-06-14T13:26:37.8544722Z Establishing network if not established already.
+2026-06-14T13:26:37.8545957Z Mounting volumes.
+2026-06-14T13:26:37.8547353Z Nested mountpoint site/wwwroot
+2026-06-14T13:26:37.8901657Z Nested mountpoint volatile/logs
+2026-06-14T13:26:37.9125478Z Nested mountpoint 
+2026-06-14T13:26:37.9299757Z Nested mountpoint 
+2026-06-14T13:26:37.9311739Z Nested mountpoint 
+2026-06-14T13:26:37.9556930Z Nested mountpoint 
+2026-06-14T13:26:37.9746715Z Nested mountpoint 
+2026-06-14T13:26:41.3976306Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T13:26:41.3977635Z Creating container.
+2026-06-14T13:26:41.3978676Z Creating pipes for streaming container io.
+2026-06-14T13:26:41.3979679Z Creating stdout named pipe at /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stdout_6fb141fb97d84395acdc6a0545ca9f96.
+2026-06-14T13:26:41.3981761Z Successfully created stdout named pipe at: /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stdout_6fb141fb97d84395acdc6a0545ca9f96.
+2026-06-14T13:26:41.3982729Z Opening named pipe /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stdout_6fb141fb97d84395acdc6a0545ca9f96 for reading in non-blocking mode.
+2026-06-14T13:26:41.3983821Z Successfully opened named pipe: /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stdout_6fb141fb97d84395acdc6a0545ca9f96.
+2026-06-14T13:26:41.3984769Z Successfully removed non-blocking flag from /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stdout_6fb141fb97d84395acdc6a0545ca9f96.
+2026-06-14T13:26:41.3986058Z Creating stderr named pipe at /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stderr_4de5707b24f045b6b3735bc5298c5155.
+2026-06-14T13:26:41.3987886Z Successfully created stderr named pipe at: /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stderr_4de5707b24f045b6b3735bc5298c5155.
+2026-06-14T13:26:41.3989121Z Opening named pipe /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stderr_4de5707b24f045b6b3735bc5298c5155 for reading in non-blocking mode.
+2026-06-14T13:26:41.3990284Z Successfully opened named pipe: /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stderr_4de5707b24f045b6b3735bc5298c5155.
+2026-06-14T13:26:41.3991227Z Successfully removed non-blocking flag from /podr/container/pipe/a328d76b1e7c_insyt-apc-worker-prod-v2/stderr_4de5707b24f045b6b3735bc5298c5155.
+2026-06-14T13:26:41.3992460Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T13:26:41.8000740Z Starting container: a328d76b1e7c_insyt-apc-worker-prod-v2.
+2026-06-14T13:26:41.8160682Z Starting watchers and probes.
+2026-06-14T13:26:41.8162703Z Starting metrics collection.
+2026-06-14T13:26:41.8178492Z Container is running.
+2026-06-14T13:26:41.8179489Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:26:41.8502363Z Container start method finished after 4093 ms.
+2026-06-14T13:26:41.8504633Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T13:26:41.8504862Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T13:26:47.9762698Z Site startup probe succeeded after 6.1218058 seconds.
+2026-06-14T13:26:48.0902785Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 6.1218058 seconds., DetailsLevel: INFO
+2026-06-14T13:26:48.3625282Z Site is running with deployment version: 369405a9-7c41-4726-bb80-a8e0593e9add
+2026-06-14T13:26:48.3633769Z Site started.
+2026-06-14T13:26:48.3637723Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 13:26:48 (UTC), DetailsLevel: INFO
+2026-06-14T13:27:10.3137371Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:25:36 (UTC), DetailsLevel: INFO
+2026-06-14T13:27:10.3144133Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:25:36 (UTC), DetailsLevel: INFO
+2026-06-14T13:27:10.3147711Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T13:27:10.3178000Z Stop and delete container. Retry count = 0
+2026-06-14T13:27:10.3183502Z Stopping container: 205542386775_insyt-apc-worker-prod-v2.
+2026-06-14T13:27:15.3941834Z Deleting container: 205542386775_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T13:27:15.4588278Z Container spec TerminationMessagePolicy  path 
+2026-06-14T13:27:15.4589876Z Container is terminated. Total time elapsed: 5144 ms.
+2026-06-14T13:27:15.5739278Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T14:36:16.9297184Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T14:36:17.6706464Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T14:36:21.8575652Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T14:36:21.8576964Z Container start method called.
+2026-06-14T14:36:21.8577364Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T14:36:21.8578379Z Establishing network.
+2026-06-14T14:36:21.8579604Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T14:36:22.4116563Z Container is starting.
+2026-06-14T14:36:22.4117225Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T14:36:22.4118229Z Establishing user namespace if not established already.
+2026-06-14T14:36:22.4151596Z Establishing network if not established already.
+2026-06-14T14:36:22.4153544Z Mounting volumes.
+2026-06-14T14:36:22.4164937Z Nested mountpoint site/wwwroot
+2026-06-14T14:36:22.4880333Z Nested mountpoint volatile/logs
+2026-06-14T14:36:22.4970471Z Nested mountpoint 
+2026-06-14T14:36:22.5130824Z Nested mountpoint 
+2026-06-14T14:36:22.5264437Z Nested mountpoint 
+2026-06-14T14:36:22.5539602Z Nested mountpoint 
+2026-06-14T14:36:22.5671560Z Nested mountpoint 
+2026-06-14T14:36:25.5935324Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T14:36:25.5936640Z Creating container.
+2026-06-14T14:36:25.5937833Z Creating pipes for streaming container io.
+2026-06-14T14:36:25.5938861Z Creating stdout named pipe at /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stdout_1a8f1bfb201143228cf8404e94768b23.
+2026-06-14T14:36:25.5940973Z Successfully created stdout named pipe at: /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stdout_1a8f1bfb201143228cf8404e94768b23.
+2026-06-14T14:36:25.5941939Z Opening named pipe /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stdout_1a8f1bfb201143228cf8404e94768b23 for reading in non-blocking mode.
+2026-06-14T14:36:25.5943111Z Successfully opened named pipe: /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stdout_1a8f1bfb201143228cf8404e94768b23.
+2026-06-14T14:36:25.5944214Z Successfully removed non-blocking flag from /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stdout_1a8f1bfb201143228cf8404e94768b23.
+2026-06-14T14:36:25.5945962Z Creating stderr named pipe at /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stderr_c6835776eb3945e681ffdcd6d922a84c.
+2026-06-14T14:36:25.5947584Z Successfully created stderr named pipe at: /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stderr_c6835776eb3945e681ffdcd6d922a84c.
+2026-06-14T14:36:25.5948588Z Opening named pipe /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stderr_c6835776eb3945e681ffdcd6d922a84c for reading in non-blocking mode.
+2026-06-14T14:36:25.5949812Z Successfully opened named pipe: /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stderr_c6835776eb3945e681ffdcd6d922a84c.
+2026-06-14T14:36:25.5950892Z Successfully removed non-blocking flag from /podr/container/pipe/a700a02a2c40_insyt-apc-worker-prod-v2/stderr_c6835776eb3945e681ffdcd6d922a84c.
+2026-06-14T14:36:25.5952226Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T14:36:26.0596397Z Starting container: a700a02a2c40_insyt-apc-worker-prod-v2.
+2026-06-14T14:36:26.0738648Z Starting watchers and probes.
+2026-06-14T14:36:26.0741704Z Starting metrics collection.
+2026-06-14T14:36:26.0746761Z Container is running.
+2026-06-14T14:36:26.0747580Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T14:36:26.5085620Z Container start method finished after 4650 ms.
+2026-06-14T14:36:26.5091998Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T14:36:26.5092402Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T14:36:32.6478916Z Site startup probe succeeded after 6.1381196 seconds.
+2026-06-14T14:36:32.7179972Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 6.1381196 seconds., DetailsLevel: INFO
+2026-06-14T14:36:33.0393728Z Site is running with deployment version: 369405a9-7c41-4726-bb80-a8e0593e9add
+2026-06-14T14:36:33.0396069Z Site started.
+2026-06-14T14:36:33.0396721Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 14:36:33 (UTC), DetailsLevel: INFO
+2026-06-14T14:36:56.8055483Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:26:48 (UTC), DetailsLevel: INFO
+2026-06-14T14:36:56.8057780Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 13:26:48 (UTC), DetailsLevel: INFO
+2026-06-14T14:36:56.8059264Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T14:36:56.8097859Z Stop and delete container. Retry count = 0
+2026-06-14T14:36:56.8100448Z Stopping container: a328d76b1e7c_insyt-apc-worker-prod-v2.
+2026-06-14T14:37:01.9255843Z Deleting container: a328d76b1e7c_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T14:37:02.0074598Z Container spec TerminationMessagePolicy  path 
+2026-06-14T14:37:02.0076173Z Container is terminated. Total time elapsed: 5201 ms.
+2026-06-14T14:37:02.1750650Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T15:18:03.4508550Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T15:18:03.8577917Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T15:18:07.8680824Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T15:18:07.8682247Z Container start method called.
+2026-06-14T15:18:07.8682696Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T15:18:07.8683582Z Establishing network.
+2026-06-14T15:18:07.8684575Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T15:18:08.0429301Z Container is starting.
+2026-06-14T15:18:08.0430111Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T15:18:08.0431222Z Establishing user namespace if not established already.
+2026-06-14T15:18:08.0432466Z Establishing network if not established already.
+2026-06-14T15:18:08.0433936Z Mounting volumes.
+2026-06-14T15:18:08.0435445Z Nested mountpoint site/wwwroot
+2026-06-14T15:18:08.0980925Z Nested mountpoint volatile/logs
+2026-06-14T15:18:08.0998287Z Nested mountpoint 
+2026-06-14T15:18:08.1129923Z Nested mountpoint 
+2026-06-14T15:18:08.1142542Z Nested mountpoint 
+2026-06-14T15:18:08.1294523Z Nested mountpoint 
+2026-06-14T15:18:08.1415648Z Nested mountpoint 
+2026-06-14T15:18:10.8395347Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T15:18:10.8396727Z Creating container.
+2026-06-14T15:18:10.8397831Z Creating pipes for streaming container io.
+2026-06-14T15:18:10.8398861Z Creating stdout named pipe at /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stdout_137e8fe0a17a403dbed057cae810405d.
+2026-06-14T15:18:10.8401016Z Successfully created stdout named pipe at: /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stdout_137e8fe0a17a403dbed057cae810405d.
+2026-06-14T15:18:10.8402049Z Opening named pipe /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stdout_137e8fe0a17a403dbed057cae810405d for reading in non-blocking mode.
+2026-06-14T15:18:10.8403226Z Successfully opened named pipe: /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stdout_137e8fe0a17a403dbed057cae810405d.
+2026-06-14T15:18:10.8404316Z Successfully removed non-blocking flag from /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stdout_137e8fe0a17a403dbed057cae810405d.
+2026-06-14T15:18:10.8500438Z Creating stderr named pipe at /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stderr_30ceacdf861c4572a9df856ad09b2403.
+2026-06-14T15:18:10.8509355Z Successfully created stderr named pipe at: /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stderr_30ceacdf861c4572a9df856ad09b2403.
+2026-06-14T15:18:10.8518219Z Opening named pipe /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stderr_30ceacdf861c4572a9df856ad09b2403 for reading in non-blocking mode.
+2026-06-14T15:18:10.8566482Z Successfully opened named pipe: /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stderr_30ceacdf861c4572a9df856ad09b2403.
+2026-06-14T15:18:10.8568742Z Successfully removed non-blocking flag from /podr/container/pipe/41de884fddf6_insyt-apc-worker-prod-v2/stderr_30ceacdf861c4572a9df856ad09b2403.
+2026-06-14T15:18:10.8578327Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T15:18:11.3004168Z Starting container: 41de884fddf6_insyt-apc-worker-prod-v2.
+2026-06-14T15:18:11.3150924Z Starting watchers and probes.
+2026-06-14T15:18:11.3153776Z Starting metrics collection.
+2026-06-14T15:18:11.3158739Z Container is running.
+2026-06-14T15:18:11.3162234Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T15:18:12.3175971Z Container start method finished after 4448 ms.
+2026-06-14T15:18:12.3180609Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T15:18:12.3181468Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T15:18:18.4375309Z Site startup probe succeeded after 6.1172584 seconds.
+2026-06-14T15:18:18.5093872Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 6.1172584 seconds., DetailsLevel: INFO
+2026-06-14T15:18:18.7558170Z Site is running with deployment version: 3b88b72e-5b7e-4f2f-ace5-ff0e4a58a78c
+2026-06-14T15:18:18.7560756Z Site started.
+2026-06-14T15:18:18.7561989Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 15:18:18 (UTC), DetailsLevel: INFO
+2026-06-14T15:18:39.9418754Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 14:36:33 (UTC), DetailsLevel: INFO
+2026-06-14T15:18:39.9422294Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 14:36:33 (UTC), DetailsLevel: INFO
+2026-06-14T15:18:39.9424136Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T15:18:39.9547880Z Stop and delete container. Retry count = 0
+2026-06-14T15:18:39.9549400Z Stopping container: a700a02a2c40_insyt-apc-worker-prod-v2.
+2026-06-14T15:18:45.9007923Z Deleting container: a700a02a2c40_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T15:18:45.9940051Z Container spec TerminationMessagePolicy  path 
+2026-06-14T15:18:45.9941498Z Container is terminated. Total time elapsed: 6051 ms.
+2026-06-14T15:18:46.1284609Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T15:19:06.7657712Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T15:19:07.3500412Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T15:19:11.8243221Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T15:19:11.8244766Z Container start method called.
+2026-06-14T15:19:11.8245244Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T15:19:11.8246429Z Establishing network.
+2026-06-14T15:19:11.8248636Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T15:19:12.4237571Z Container is starting.
+2026-06-14T15:19:12.4238291Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T15:19:12.4239372Z Establishing user namespace if not established already.
+2026-06-14T15:19:12.4240390Z Establishing network if not established already.
+2026-06-14T15:19:12.4241821Z Mounting volumes.
+2026-06-14T15:19:12.4243261Z Nested mountpoint site/wwwroot
+2026-06-14T15:19:12.4660133Z Nested mountpoint volatile/logs
+2026-06-14T15:19:12.4812039Z Nested mountpoint 
+2026-06-14T15:19:12.4902009Z Nested mountpoint 
+2026-06-14T15:19:12.5155261Z Nested mountpoint 
+2026-06-14T15:19:12.5353366Z Nested mountpoint 
+2026-06-14T15:19:12.5376160Z Nested mountpoint 
+2026-06-14T15:19:15.7293354Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T15:19:15.7296778Z Creating container.
+2026-06-14T15:19:15.7298554Z Creating pipes for streaming container io.
+2026-06-14T15:19:15.7301659Z Creating stdout named pipe at /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stdout_ab903185272b474ea49e35e6cb359fff.
+2026-06-14T15:19:15.7305631Z Successfully created stdout named pipe at: /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stdout_ab903185272b474ea49e35e6cb359fff.
+2026-06-14T15:19:15.7313323Z Opening named pipe /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stdout_ab903185272b474ea49e35e6cb359fff for reading in non-blocking mode.
+2026-06-14T15:19:15.7335655Z Successfully opened named pipe: /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stdout_ab903185272b474ea49e35e6cb359fff.
+2026-06-14T15:19:15.7340438Z Successfully removed non-blocking flag from /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stdout_ab903185272b474ea49e35e6cb359fff.
+2026-06-14T15:19:15.7361843Z Creating stderr named pipe at /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stderr_571fdd09e6e24e9b890a8107a572c2d9.
+2026-06-14T15:19:15.7368128Z Successfully created stderr named pipe at: /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stderr_571fdd09e6e24e9b890a8107a572c2d9.
+2026-06-14T15:19:15.7369937Z Opening named pipe /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stderr_571fdd09e6e24e9b890a8107a572c2d9 for reading in non-blocking mode.
+2026-06-14T15:19:15.7409646Z Successfully opened named pipe: /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stderr_571fdd09e6e24e9b890a8107a572c2d9.
+2026-06-14T15:19:15.7415137Z Successfully removed non-blocking flag from /podr/container/pipe/6eb3334f199e_insyt-apc-worker-prod-v2/stderr_571fdd09e6e24e9b890a8107a572c2d9.
+2026-06-14T15:19:15.7417783Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T15:19:16.1122882Z Starting container: 6eb3334f199e_insyt-apc-worker-prod-v2.
+2026-06-14T15:19:16.1292452Z Starting watchers and probes.
+2026-06-14T15:19:16.1312703Z Starting metrics collection.
+2026-06-14T15:19:16.1314292Z Container is running.
+2026-06-14T15:19:16.1315104Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T15:19:16.1776142Z Container start method finished after 4352 ms.
+2026-06-14T15:19:16.1809569Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T15:19:16.1810418Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T15:19:23.2901887Z Site startup probe succeeded after 7.1062318 seconds.
+2026-06-14T15:19:23.4246448Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 7.1062318 seconds., DetailsLevel: INFO
+2026-06-14T15:19:23.6831987Z Site is running with deployment version: 3b88b72e-5b7e-4f2f-ace5-ff0e4a58a78c
+2026-06-14T15:19:23.6834093Z Site started.
+2026-06-14T15:19:23.6834743Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 15:19:23 (UTC), DetailsLevel: INFO
+2026-06-14T15:19:45.2114432Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 15:18:18 (UTC), DetailsLevel: INFO
+2026-06-14T15:19:45.2121406Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 15:18:18 (UTC), DetailsLevel: INFO
+2026-06-14T15:19:45.2122808Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T15:19:45.2138766Z Stop and delete container. Retry count = 0
+2026-06-14T15:19:45.2140130Z Stopping container: 41de884fddf6_insyt-apc-worker-prod-v2.
+2026-06-14T15:19:50.6668913Z Deleting container: 41de884fddf6_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T15:19:50.7354469Z Container spec TerminationMessagePolicy  path 
+2026-06-14T15:19:50.7355958Z Container is terminated. Total time elapsed: 5523 ms.
+2026-06-14T15:19:50.8647058Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T16:26:33.2485725Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T16:26:33.6781918Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T16:26:37.6652102Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T16:26:37.6653899Z Container start method called.
+2026-06-14T16:26:37.6654309Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T16:26:37.6655564Z Establishing network.
+2026-06-14T16:26:37.6657254Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T16:26:38.2614745Z Container is starting.
+2026-06-14T16:26:38.2616002Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T16:26:38.2617299Z Establishing user namespace if not established already.
+2026-06-14T16:26:38.2618475Z Establishing network if not established already.
+2026-06-14T16:26:38.2619677Z Mounting volumes.
+2026-06-14T16:26:38.2621131Z Nested mountpoint site/wwwroot
+2026-06-14T16:26:38.2948881Z Nested mountpoint volatile/logs
+2026-06-14T16:26:38.3049374Z Nested mountpoint 
+2026-06-14T16:26:38.3156040Z Nested mountpoint 
+2026-06-14T16:26:38.3163443Z Nested mountpoint 
+2026-06-14T16:26:38.3428357Z Nested mountpoint 
+2026-06-14T16:26:38.3514650Z Nested mountpoint 
+2026-06-14T16:26:41.5589769Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T16:26:41.5590964Z Creating container.
+2026-06-14T16:26:41.5593723Z Creating pipes for streaming container io.
+2026-06-14T16:26:41.5594977Z Creating stdout named pipe at /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stdout_6abefe19731546fa9d22da471b38d328.
+2026-06-14T16:26:41.5597158Z Successfully created stdout named pipe at: /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stdout_6abefe19731546fa9d22da471b38d328.
+2026-06-14T16:26:41.5598105Z Opening named pipe /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stdout_6abefe19731546fa9d22da471b38d328 for reading in non-blocking mode.
+2026-06-14T16:26:41.5599363Z Successfully opened named pipe: /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stdout_6abefe19731546fa9d22da471b38d328.
+2026-06-14T16:26:41.5600391Z Successfully removed non-blocking flag from /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stdout_6abefe19731546fa9d22da471b38d328.
+2026-06-14T16:26:41.5690961Z Creating stderr named pipe at /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stderr_56af685b3d104885b66af9aebf3ca80b.
+2026-06-14T16:26:41.5696873Z Successfully created stderr named pipe at: /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stderr_56af685b3d104885b66af9aebf3ca80b.
+2026-06-14T16:26:41.5729004Z Opening named pipe /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stderr_56af685b3d104885b66af9aebf3ca80b for reading in non-blocking mode.
+2026-06-14T16:26:41.5733046Z Successfully opened named pipe: /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stderr_56af685b3d104885b66af9aebf3ca80b.
+2026-06-14T16:26:41.5812427Z Successfully removed non-blocking flag from /podr/container/pipe/226c5cacf6cc_insyt-apc-worker-prod-v2/stderr_56af685b3d104885b66af9aebf3ca80b.
+2026-06-14T16:26:41.5814400Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T16:26:41.9917484Z Starting container: 226c5cacf6cc_insyt-apc-worker-prod-v2.
+2026-06-14T16:26:42.0113309Z Starting watchers and probes.
+2026-06-14T16:26:42.0115770Z Starting metrics collection.
+2026-06-14T16:26:42.0120213Z Container is running.
+2026-06-14T16:26:42.0124087Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T16:26:42.0816983Z Container start method finished after 4416 ms.
+2026-06-14T16:26:42.0820957Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T16:26:42.0821208Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T16:26:49.1917151Z Site startup probe succeeded after 7.1091354 seconds.
+2026-06-14T16:26:49.2596554Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 7.1091354 seconds., DetailsLevel: INFO
+2026-06-14T16:26:49.5192547Z Site is running with deployment version: 5b6068ad-48f5-4e6d-bf77-6548bde6b67a
+2026-06-14T16:26:49.5197770Z Site started.
+2026-06-14T16:26:49.5198651Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 16:26:49 (UTC), DetailsLevel: INFO
+2026-06-14T16:27:10.5024641Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 15:19:23 (UTC), DetailsLevel: INFO
+2026-06-14T16:27:10.5027491Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 15:19:23 (UTC), DetailsLevel: INFO
+2026-06-14T16:27:10.5028741Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T16:27:10.5064208Z Stop and delete container. Retry count = 0
+2026-06-14T16:27:10.5065534Z Stopping container: 6eb3334f199e_insyt-apc-worker-prod-v2.
+2026-06-14T16:27:15.6117871Z Deleting container: 6eb3334f199e_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T16:27:15.6825476Z Container spec TerminationMessagePolicy  path 
+2026-06-14T16:27:15.6827312Z Container is terminated. Total time elapsed: 5179 ms.
+2026-06-14T16:27:15.8087304Z Site: insyt-apc-worker-prod-v2 stopped.
+2026-06-14T16:27:56.7149213Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T16:27:57.3848133Z State: Starting, Action: StartingMsiContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T16:28:02.6995862Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-06-14T16:28:02.6997159Z Container start method called.
+2026-06-14T16:28:02.6997504Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T16:28:02.6998459Z Establishing network.
+2026-06-14T16:28:02.6999634Z Pulling image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice.
+2026-06-14T16:28:02.9196372Z Container is starting.
+2026-06-14T16:28:02.9196971Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for insyt-apc-worker-prod-v2., DetailsLevel: INFO
+2026-06-14T16:28:02.9198165Z Establishing user namespace if not established already.
+2026-06-14T16:28:02.9199298Z Establishing network if not established already.
+2026-06-14T16:28:02.9200588Z Mounting volumes.
+2026-06-14T16:28:02.9202131Z Nested mountpoint site/wwwroot
+2026-06-14T16:28:02.9757369Z Nested mountpoint volatile/logs
+2026-06-14T16:28:02.9933316Z Nested mountpoint 
+2026-06-14T16:28:03.0128600Z Nested mountpoint 
+2026-06-14T16:28:03.0294776Z Nested mountpoint 
+2026-06-14T16:28:03.0657415Z Nested mountpoint 
+2026-06-14T16:28:03.0705862Z Nested mountpoint 
+2026-06-14T16:28:06.0181845Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for insyt-apc-worker-prod-v2. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-06-14T16:28:06.0183312Z Creating container.
+2026-06-14T16:28:06.0184402Z Creating pipes for streaming container io.
+2026-06-14T16:28:06.0185552Z Creating stdout named pipe at /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stdout_5cc91751555b4e22974f5275558c5c38.
+2026-06-14T16:28:06.0187828Z Successfully created stdout named pipe at: /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stdout_5cc91751555b4e22974f5275558c5c38.
+2026-06-14T16:28:06.0188894Z Opening named pipe /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stdout_5cc91751555b4e22974f5275558c5c38 for reading in non-blocking mode.
+2026-06-14T16:28:06.0190080Z Successfully opened named pipe: /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stdout_5cc91751555b4e22974f5275558c5c38.
+2026-06-14T16:28:06.0191087Z Successfully removed non-blocking flag from /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stdout_5cc91751555b4e22974f5275558c5c38.
+2026-06-14T16:28:06.0264772Z Creating stderr named pipe at /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stderr_7fbb2a6bb6d44213bd83eb1a57a135ed.
+2026-06-14T16:28:06.0266593Z Successfully created stderr named pipe at: /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stderr_7fbb2a6bb6d44213bd83eb1a57a135ed.
+2026-06-14T16:28:06.0267773Z Opening named pipe /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stderr_7fbb2a6bb6d44213bd83eb1a57a135ed for reading in non-blocking mode.
+2026-06-14T16:28:06.0268968Z Successfully opened named pipe: /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stderr_7fbb2a6bb6d44213bd83eb1a57a135ed.
+2026-06-14T16:28:06.0269915Z Successfully removed non-blocking flag from /podr/container/pipe/fd197a784865_insyt-apc-worker-prod-v2/stderr_7fbb2a6bb6d44213bd83eb1a57a135ed.
+2026-06-14T16:28:06.0271338Z Creating container with image: azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice from registry: mcr.microsoft.com and fully qualified image name: mcr.microsoft.com/azure-functions/bookworm/linuxdedicated:4.1048.200-4-python3.12-appservice
+2026-06-14T16:28:06.4235439Z Starting container: fd197a784865_insyt-apc-worker-prod-v2.
+2026-06-14T16:28:06.4383576Z Starting watchers and probes.
+2026-06-14T16:28:06.4404035Z Starting metrics collection.
+2026-06-14T16:28:06.4406331Z Container is running.
+2026-06-14T16:28:06.4409457Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T16:28:06.4812789Z Container start method finished after 3778 ms.
+2026-06-14T16:28:06.4819570Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container insyt-apc-worker-prod-v2 successfully created and is running., DetailsLevel: INFO
+2026-06-14T16:28:06.4819966Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-06-14T16:28:12.6351922Z Site startup probe succeeded after 6.1528405 seconds.
+2026-06-14T16:28:12.7675813Z State: Starting, Action: WarmUpProbeSucceeded, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site startup probe succeeded after 6.1528405 seconds., DetailsLevel: INFO
+2026-06-14T16:28:13.1073062Z Site is running with deployment version: 5b6068ad-48f5-4e6d-bf77-6548bde6b67a
+2026-06-14T16:28:13.1075275Z Site started.
+2026-06-14T16:28:13.1076075Z State: Started, Action: None, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site started at 06/14/2026 16:28:13 (UTC), DetailsLevel: INFO
+2026-06-14T16:28:33.9061402Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 16:26:49 (UTC), DetailsLevel: INFO
+2026-06-14T16:29:22.4994663Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 06/14/2026 12:57:54, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site started at 06/14/2026 16:26:49 (UTC), DetailsLevel: INFO
+2026-06-14T16:29:22.4997385Z Container is terminating. Grace period: 5 seconds.
+2026-06-14T16:29:22.5018963Z Stop and delete container. Retry count = 0
+2026-06-14T16:29:22.5020197Z Stopping container: 226c5cacf6cc_insyt-apc-worker-prod-v2.
+2026-06-14T16:29:27.5539064Z Deleting container: 226c5cacf6cc_insyt-apc-worker-prod-v2. Retry count = 0
+2026-06-14T16:29:27.6254671Z Container spec TerminationMessagePolicy  path 
+2026-06-14T16:29:27.6256358Z Container is terminated. Total time elapsed: 5125 ms.
+2026-06-14T16:29:27.7439665Z Site: insyt-apc-worker-prod-v2 stopped.
