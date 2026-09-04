@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import {
+  ArrowLeft,
   FileSpreadsheet,
   RefreshCw,
   ShieldCheck,
@@ -169,6 +170,31 @@ function Cyber2IntakeContent() {
     intakeData?.documents ||
     [];
 
+  const cyber2LandingParams =
+    new URLSearchParams();
+
+  cyber2LandingParams.set(
+    "workspace",
+    workspace
+  );
+
+  if (client) {
+    cyber2LandingParams.set(
+      "client",
+      client
+    );
+  }
+
+  if (project) {
+    cyber2LandingParams.set(
+      "project",
+      project
+    );
+  }
+
+  const cyber2LandingHref =
+    `/cyber-utility?${cyber2LandingParams.toString()}`;
+
   function openDocument(
     doc: Cyber2IntakeDocument
   ) {
@@ -274,29 +300,49 @@ function Cyber2IntakeContent() {
     <AppShell>
       <PageContainer>
 
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="mb-6">
 
-          <PageHeader
-            title="Cyber² Intake & Preparation"
-            subtitle="Structured-data source files registered from INSYT Promotion for the active project."
-          />
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  cyber2LandingHref
+                )
+              }
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800 hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" />
 
-          <button
-            type="button"
-            onClick={loadIntake}
-            disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${
-                loading
-                  ? "animate-spin"
-                  : ""
-              }`}
+              Return to Cyber² Landing
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-start justify-between gap-4">
+
+            <PageHeader
+              title="Cyber² Intake & Preparation"
+              subtitle="Structured-data source files registered from INSYT Promotion for the active project."
             />
 
-            Refresh
-          </button>
+            <button
+              type="button"
+              onClick={loadIntake}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${
+                  loading
+                    ? "animate-spin"
+                    : ""
+                }`}
+              />
+
+              Refresh
+            </button>
+
+          </div>
 
         </div>
 
