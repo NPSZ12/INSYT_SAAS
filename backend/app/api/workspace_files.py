@@ -472,6 +472,23 @@ def preview_workspace_native_file(
             nrows=limit,
         )
 
+        # If the CSV has only one record and no header row,
+        # pandas treats that record as the header and returns
+        # zero data rows. Retry as headerless so the row is visible.
+        if df.empty and file_bytes.strip():
+            df = pd.read_csv(
+                BytesIO(file_bytes),
+                sep=delimiter,
+                dtype=str,
+                nrows=limit,
+                header=None,
+            )
+
+            df.columns = [
+                f"Column {index + 1}"
+                for index in range(len(df.columns))
+            ]
+
         preview = dataframe_preview(df, limit)
 
         return {

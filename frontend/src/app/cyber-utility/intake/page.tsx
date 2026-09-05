@@ -3,6 +3,7 @@
 import {
   Suspense,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -116,6 +117,31 @@ function Cyber2IntakeContent() {
   ] =
     useState("");
 
+  const [
+    selectedDocIds,
+    setSelectedDocIds,
+  ] = useState<Record<string, boolean>>({});
+
+  const [
+    classificationFilter,
+    setClassificationFilter,
+  ] = useState<"all" | "hit" | "no_hit">("all");
+
+  const [
+    entityTypeFilter,
+    setEntityTypeFilter,
+  ] = useState("all");
+
+  const [
+    workbookFilter,
+    setWorkbookFilter,
+  ] = useState("all");
+
+  const [
+    searchText,
+    setSearchText,
+  ] = useState("");
+
   async function loadIntake() {
     if (!client || !project) {
       return;
@@ -169,6 +195,164 @@ function Cyber2IntakeContent() {
   const documents =
     intakeData?.documents ||
     [];
+
+  function normalizeClassification(
+    value?: string
+  ) {
+    return String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ");
+  }
+
+  const entityTypeOptions = useMemo(() => {
+    const values = new Set<string>();
+
+    for (const doc of documents) {
+      for (const entityType of doc.entity_types || []) {
+        const clean = String(entityType || "").trim();
+
+        if (clean) {
+          values.add(clean);
+        }
+      }
+    }
+
+    return Array.from(values).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [documents]);
+
+  const workbookOptions = useMemo(() => {
+    const values = new Set<string>();
+
+    for (const doc of documents) {
+      const workbook =
+        String(
+          doc.original_workbook_name ||
+            doc.original_filename ||
+            ""
+        ).trim();
+
+      if (workbook) {
+        values.add(workbook);
+      }
+    }
+
+    return Array.from(values).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [documents]);
+
+  const filteredDocuments = useMemo(() => {
+    const search = searchText
+      .trim()
+      .toLowerCase();
+
+    return documents.filter((doc) => {
+      const classification =
+        normalizeClassification(
+          doc.classification
+        );
+
+      if (
+        classificationFilter === "hit" &&
+        classification !== "HIT"
+      ) {
+        return false;
+      }
+
+      if (
+        classificationFilter === "no_hit" &&
+        classification === "HIT"
+      ) {
+        return false;
+      }
+
+      if (
+        entityTypeFilter !== "all" &&
+        !(doc.entity_types || []).includes(
+          entityTypeFilter
+        )
+      ) {
+        return false;
+      }
+
+      const workbook =
+        String(
+          doc.original_workbook_name ||
+            doc.original_filename ||
+            ""
+        ).trim();
+
+      if (
+        workbookFilter !== "all" &&
+        workbook !== workbookFilter
+      ) {
+        return false;
+      }
+
+      if (search) {
+        const searchable = [
+          doc.doc_id,
+          doc.original_filename,
+          doc.original_workbook_name,
+          doc.sheet_name,
+          doc.source_csv_path,
+          doc.classification,
+          ...(doc.entity_types || []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (!searchable.includes(search)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [
+    documents,
+    classificationFilter,
+    entityTypeFilter,
+    workbookFilter,
+    searchText,
+  ]);
+
+  const selectedCount = Object.values(
+    selectedDocIds
+  ).filter(Boolean).length;
+
+  function toggleDocument(
+    docId: string,
+    selected: boolean
+  ) {
+    setSelectedDocIds((current) => ({
+      ...current,
+      [docId]: selected,
+    }));
+  }
+
+  function selectAllFiltered() {
+    setSelectedDocIds((current) => {
+      const next = {
+        ...current,
+      };
+
+      for (const doc of filteredDocuments) {
+        next[doc.doc_id] = true;
+      }
+
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedDocIds({});
+  }
 
   const cyber2LandingParams =
     new URLSearchParams();
@@ -407,6 +591,197 @@ function Cyber2IntakeContent() {
 
         </div>
 
+        <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+
+            <div>
+              <div className="text-sm font-semibold text-white">
+                CSV Intake Inventory
+              </div>
+
+              <div className="mt-1 text-xs text-slate-500">
+                Filter and select promoted CSVs for downstream Header & Schema Mapping.
+              </div>
+            </div>
+
+            <div className="text-sm text-slate-300">
+              Selected:{" "}
+              <span className="font-semibold text-sky-400">
+                {selectedCount}
+              </span>
+            </div>
+
+          </div>
+
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Classification
+              </label>
+
+              <select
+                value={classificationFilter}
+                onChange={(event) =>
+                  setClassificationFilter(
+                    event.target.value as
+                      | "all"
+                      | "hit"
+                      | "no_hit"
+                  )
+                }
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="all">
+                  All Files
+                </option>
+
+                <option value="hit">
+                  HIT
+                </option>
+
+                <option value="no_hit">
+                  No Hit
+                </option>
+              </select>
+            </div>
+
+
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Detected Entity
+              </label>
+
+              <select
+                value={entityTypeFilter}
+                onChange={(event) =>
+                  setEntityTypeFilter(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="all">
+                  All Entity Types
+                </option>
+
+                {entityTypeOptions.map(
+                  (entityType) => (
+                    <option
+                      key={entityType}
+                      value={entityType}
+                    >
+                      {entityType}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Workbook / Source
+              </label>
+
+              <select
+                value={workbookFilter}
+                onChange={(event) =>
+                  setWorkbookFilter(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="all">
+                  All Workbooks
+                </option>
+
+                {workbookOptions.map(
+                  (workbook) => (
+                    <option
+                      key={workbook}
+                      value={workbook}
+                    >
+                      {workbook}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Search
+              </label>
+
+              <input
+                type="text"
+                value={searchText}
+                onChange={(event) =>
+                  setSearchText(
+                    event.target.value
+                  )
+                }
+                placeholder="Doc ID, sheet, path..."
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+              />
+            </div>
+
+          </div>
+
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+
+            <button
+              type="button"
+              onClick={selectAllFiltered}
+              disabled={
+                filteredDocuments.length === 0
+              }
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+            >
+              Select All Filtered
+            </button>
+
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={
+                selectedCount === 0
+              }
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+            >
+              Clear Selection
+            </button>
+
+            <div className="ml-auto text-xs text-slate-500">
+              Showing{" "}
+              <span className="text-slate-300">
+                {filteredDocuments.length}
+              </span>{" "}
+              of{" "}
+              <span className="text-slate-300">
+                {documents.length}
+              </span>{" "}
+              CSVs
+            </div>
+
+            <button
+              type="button"
+              disabled
+              title="Header Set creation will be enabled in the next step."
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white opacity-50"
+            >
+              Create Header Set
+            </button>
+
+          </div>
+
+        </div>
 
         {error ? (
           <div className="mb-6 rounded-xl border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-300">
@@ -451,8 +826,16 @@ function Cyber2IntakeContent() {
 
                   <tr>
 
+                    <th className="w-12 px-4 py-3">
+                      Select
+                    </th>
+
                     <th className="px-4 py-3">
                       Doc ID
+                    </th>
+
+                    <th className="px-4 py-3">
+                      Classification
                     </th>
 
                     <th className="px-4 py-3">
@@ -486,13 +869,33 @@ function Cyber2IntakeContent() {
 
                 <tbody className="divide-y divide-slate-800">
 
-                  {documents.map(
+                  {filteredDocuments.map(
                     (doc) => (
 
                       <tr
                         key={doc.doc_id}
                         className="bg-slate-950/20 hover:bg-slate-900/70"
                       >
+
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={
+                              Boolean(
+                                selectedDocIds[
+                                  doc.doc_id
+                                ]
+                              )
+                            }
+                            onChange={(event) =>
+                              toggleDocument(
+                                doc.doc_id,
+                                event.target.checked
+                              )
+                            }
+                            className="h-4 w-4 rounded border-slate-600 bg-slate-950"
+                          />
+                        </td>
 
                         <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
                           <button
