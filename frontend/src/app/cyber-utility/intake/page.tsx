@@ -22,7 +22,7 @@ import {
 import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
 import PageHeader from "../../../components/PageHeader";
-import { apiGet } from "../../../lib/api";
+import {apiGet, apiPost} from "../../../lib/api";
 
 type Cyber2IntakeDocument = {
   doc_id: string;
@@ -114,6 +114,18 @@ function Cyber2IntakeContent() {
   const [
     error,
     setError,
+  ] =
+    useState("");
+
+  const [
+    creatingHeaderSet,
+    setCreatingHeaderSet,
+  ] =
+    useState(false);
+
+  const [
+    headerSetMessage,
+    setHeaderSetMessage,
   ] =
     useState("");
 
@@ -352,6 +364,76 @@ function Cyber2IntakeContent() {
 
   function clearSelection() {
     setSelectedDocIds({});
+  }
+
+  async function createHeaderSet() {
+    const selectedDocuments =
+      documents.filter(
+        (doc) =>
+          Boolean(
+            selectedDocIds[
+              doc.doc_id
+            ]
+          )
+      );
+
+    if (
+      selectedDocuments.length === 0
+    ) {
+      setHeaderSetMessage(
+        "Select at least one CSV."
+      );
+
+      return;
+    }
+
+    setCreatingHeaderSet(true);
+    setHeaderSetMessage("");
+    setError("");
+
+    try {
+      const result =
+        await apiPost(
+          `/api/${encodeURIComponent(
+            workspace
+          )}/cyber2/header-sets`,
+          {
+            client,
+            project,
+
+            doc_ids:
+              selectedDocuments.map(
+                (doc) =>
+                  doc.doc_id
+              ),
+
+            requested_by: "",
+          }
+        );
+
+      setHeaderSetMessage(
+        result?.message ||
+          "Header Set created."
+      );
+
+      setSelectedDocIds({});
+
+    } catch (err: any) {
+      console.error(
+        "Failed to create Header Set:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Unable to create Header Set."
+      );
+
+    } finally {
+      setCreatingHeaderSet(
+        false
+      );
+    }
   }
 
   const cyber2LandingParams =
@@ -772,14 +854,29 @@ function Cyber2IntakeContent() {
 
             <button
               type="button"
-              disabled
-              title="Header Set creation will be enabled in the next step."
-              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white opacity-50"
+              onClick={createHeaderSet}
+              disabled={
+                selectedCount === 0 ||
+                creatingHeaderSet
+              }
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Create Header Set
+              {creatingHeaderSet
+                ? "Creating..."
+                : `Create Header Set${
+                    selectedCount
+                      ? ` (${selectedCount})`
+                      : ""
+                  }`}
             </button>
 
           </div>
+
+          {headerSetMessage ? (
+            <div className="mt-3 rounded-lg border border-emerald-900/60 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">
+              {headerSetMessage}
+            </div>
+          ) : null}
 
         </div>
 
@@ -910,6 +1007,20 @@ function Cyber2IntakeContent() {
                           >
                             {doc.doc_id}
                           </button>
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-3">
+                          {normalizeClassification(
+                            doc.classification
+                          ) === "HIT" ? (
+                            <span className="rounded-md border border-emerald-700/70 bg-emerald-950/40 px-2 py-1 text-xs font-semibold text-emerald-300">
+                              HIT
+                            </span>
+                          ) : (
+                            <span className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-400">
+                              No Hit
+                            </span>
+                          )}
                         </td>
 
 
