@@ -206,6 +206,44 @@ def _read_csv_rows(
         ),
     }
 
+def _exact_header_schema_signature(
+    *,
+    header_status: str,
+    columns: list[dict[str, Any]],
+) -> str:
+    """
+    Return a stable exact-header signature only for files
+    positively identified as having headers in Row 1.
+
+    Headerless / Needs Review files are intentionally not
+    auto-grouped because identical Column 1 / Column 2 positions
+    do not prove identical semantics.
+    """
+
+    if str(header_status or "").upper() != "HEADER":
+        return ""
+
+    source_headers: list[str] = []
+
+    for column in columns:
+        if not isinstance(column, dict):
+            continue
+
+        source_header = str(
+            column.get("source_header")
+            or ""
+        ).strip()
+
+        source_headers.append(
+            source_header
+        )
+
+    if not source_headers:
+        return ""
+
+    return "\x1f".join(
+        source_headers
+    )
 
 def _load_protocol_library(
     *,
@@ -736,6 +774,13 @@ def identify_cyber2_header_set(
                     "ai_confidence"
                 ] = None
 
+        schema_signature = (
+            _exact_header_schema_signature(
+                header_status=header_status,
+                columns=analyzed_columns,
+            )
+        )
+
         analyzed_documents.append(
             {
                 **document,
@@ -771,6 +816,14 @@ def identify_cyber2_header_set(
                         "confidence"
                     )
                 ),
+                
+                "schema_signature": (
+                    schema_signature
+                ),
+
+                "exact_schema_groupable": (
+                    bool(schema_signature)
+                ),
 
                 "column_count": (
                     analysis.get(
@@ -802,6 +855,79 @@ def identify_cyber2_header_set(
                 ),
             }
         )
+        
+    schema_group_lookup: dict[
+        str,
+        str,
+    ] = {}
+
+    schema_group_members: dict[
+        str,
+        list[str],
+    ] = {}
+
+    next_schema_group_number = 1
+
+    for document in analyzed_documents:
+        if not isinstance(
+            document,
+            dict,
+        ):
+            continue
+
+        signature = str(
+            document.get(
+                "schema_signature"
+            )
+            or ""
+        )
+
+        if not signature:
+            document[
+                "schema_group_id"
+            ] = ""
+
+            continue
+
+        if signature not in (
+            schema_group_lookup
+        ):
+            schema_group_id = (
+                f"SCHEMA-"
+                f"{next_schema_group_number:03d}"
+            )
+
+            schema_group_lookup[
+                signature
+            ] = schema_group_id
+
+            schema_group_members[
+                schema_group_id
+            ] = []
+
+            next_schema_group_number += 1
+
+        schema_group_id = (
+            schema_group_lookup[
+                signature
+            ]
+        )
+
+        document[
+            "schema_group_id"
+        ] = schema_group_id
+
+        doc_id = str(
+            document.get("doc_id")
+            or ""
+        ).strip()
+
+        if doc_id:
+            schema_group_members[
+                schema_group_id
+            ].append(
+                doc_id
+            )
 
     completed_count = sum(
         1
@@ -1023,6 +1149,27 @@ def identify_cyber2_header_set(
                 needs_review_count
             ),
         },
+        
+        "schema_groups": [
+            {
+                "schema_group_id": (
+                    schema_group_id
+                ),
+                "document_count": len(
+                    doc_ids
+                ),
+                "doc_ids": doc_ids,
+            }
+            for (
+                schema_group_id,
+                doc_ids,
+            )
+            in schema_group_members.items()
+        ],
+
+        "schema_group_count": len(
+            schema_group_members
+        ),
 
         "documents": (
             analyzed_documents

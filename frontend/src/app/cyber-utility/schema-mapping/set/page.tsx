@@ -87,6 +87,12 @@ type IdentificationDocument = {
 
   header_confidence?: number;
 
+  schema_signature?: string;
+
+  schema_group_id?: string;
+
+  exact_schema_groupable?: boolean;
+
   matched_column_count?: number;
 
   unmatched_column_count?: number;
@@ -123,6 +129,14 @@ type IdentificationResult = {
     no_headers_in_row_1?: number;
     needs_review?: number;
   };
+
+  schema_group_count?: number;
+
+  schema_groups?: {
+    schema_group_id: string;
+    document_count: number;
+    doc_ids: string[];
+    }[];
 
   documents?: IdentificationDocument[];
 };
@@ -356,6 +370,14 @@ function SchemaMappingSetContent() {
   const [
     activeDocId,
     setActiveDocId,
+  ] =
+    useState<string | null>(
+      null
+    );
+
+  const [
+    activeSchemaGroupId,
+    setActiveSchemaGroupId,
   ] =
     useState<string | null>(
       null
@@ -659,6 +681,27 @@ function SchemaMappingSetContent() {
     identification?.protocol_headers ||
     [];
 
+  const protocolHeaderOrder =
+    useMemo(() => {
+      const order =
+        new Map<string, number>();
+
+      protocolHeaders.forEach(
+        (header, index) => {
+          order.set(
+            String(header)
+              .trim()
+              .toLowerCase(),
+            index
+          );
+        }
+      );
+
+      return order;
+    }, [
+      protocolHeaders,
+    ]);
+
 
   const completedDocuments =
     useMemo(
@@ -674,6 +717,386 @@ function SchemaMappingSetContent() {
       ]
     );
 
+  const exactSchemaGroups =
+    useMemo(() => {
+        const grouped = new Map<
+        string,
+        IdentificationDocument[]
+        >();
+
+        for (
+        const document
+        of completedDocuments
+        ) {
+        const groupId =
+            String(
+            document.schema_group_id ||
+            ""
+            ).trim();
+
+        if (!groupId) {
+            continue;
+        }
+
+        const current =
+            grouped.get(groupId) ||
+            [];
+
+        current.push(document);
+
+        grouped.set(
+            groupId,
+            current
+        );
+        }
+
+        return Array.from(
+        grouped.entries()
+        ).map(
+        ([
+            schemaGroupId,
+            groupDocuments,
+        ]) => ({
+            schemaGroupId,
+            documents:
+            groupDocuments,
+            representative:
+            groupDocuments[0],
+        })
+        );
+    }, [
+        completedDocuments,
+    ]);
+
+  const sharedSchemaGroups =
+    useMemo(
+      () =>
+        exactSchemaGroups.filter(
+          (group) =>
+            group.documents.length > 1
+        ),
+      [
+        exactSchemaGroups,
+      ]
+    );
+
+  const sharedSchemaDocIds =
+    useMemo(() => {
+      const ids =
+        new Set<string>();
+
+      for (
+        const group
+        of sharedSchemaGroups
+      ) {
+        for (
+          const document
+          of group.documents
+        ) {
+          ids.add(
+            document.doc_id
+          );
+        }
+      }
+
+      return ids;
+    }, [
+      sharedSchemaGroups,
+    ]);
+
+  const individualReviewDocuments =
+    useMemo(
+      () =>
+        completedDocuments.filter(
+          (document) =>
+            !sharedSchemaDocIds.has(
+              document.doc_id
+            )
+        ),
+      [
+        completedDocuments,
+        sharedSchemaDocIds,
+      ]
+    );
+
+  const activeSchemaGroup =
+    useMemo(
+      () =>
+        sharedSchemaGroups.find(
+          (group) =>
+            group.schemaGroupId ===
+            activeSchemaGroupId
+        ) || null,
+      [
+        sharedSchemaGroups,
+        activeSchemaGroupId,
+      ]
+    );
+
+  function getProtocolOrderedColumns(
+    document:
+      IdentificationDocument
+  ) {
+    const columns = [
+      ...(document.columns || []),
+    ];
+
+    columns.sort(
+      (a, b) => {
+        const aHeader =
+          String(
+            a.recommended_protocol_header ||
+            ""
+          ).trim();
+
+        const bHeader =
+          String(
+            b.recommended_protocol_header ||
+            ""
+          ).trim();
+
+        const aOrder =
+          aHeader
+            ? protocolHeaderOrder.get(
+                aHeader.toLowerCase()
+              )
+            : undefined;
+
+        const bOrder =
+          bHeader
+            ? protocolHeaderOrder.get(
+                bHeader.toLowerCase()
+              )
+            : undefined;
+
+        const normalizedA =
+          aOrder ??
+          Number.MAX_SAFE_INTEGER;
+
+        const normalizedB =
+          bOrder ??
+          Number.MAX_SAFE_INTEGER;
+
+        if (
+          normalizedA !==
+          normalizedB
+        ) {
+          return (
+            normalizedA -
+            normalizedB
+          );
+        }
+
+        return (
+          a.column_index -
+          b.column_index
+        );
+      }
+    );
+
+    return columns;
+  }
+
+  const consolidatedReviewRows =
+    useMemo(() => {
+      const rows: {
+        document:
+          IdentificationDocument;
+        column:
+          HeaderColumn;
+        key: string;
+        protocolOrder: number;
+      }[] = [];
+
+      for (
+        const document
+        of individualReviewDocuments
+      ) {
+        for (
+          const column
+          of document.columns || []
+        ) {
+          const recommended =
+            String(
+              column
+                .recommended_protocol_header ||
+              ""
+            ).trim();
+
+          const protocolIndex =
+            recommended
+              ? protocolHeaderOrder.get(
+                  recommended.toLowerCase()
+                )
+              : undefined;
+
+          rows.push({
+            document,
+            column,
+
+            key:
+              decisionKey(
+                document.doc_id,
+                column.column_index
+              ),
+
+            protocolOrder:
+              protocolIndex !== undefined
+                ? protocolIndex
+                : Number.MAX_SAFE_INTEGER,
+          });
+        }
+      }
+
+      rows.sort(
+        (a, b) => {
+          if (
+            a.protocolOrder !==
+            b.protocolOrder
+          ) {
+            return (
+              a.protocolOrder -
+              b.protocolOrder
+            );
+          }
+
+          const aConfidence =
+            Number(
+              a.column
+                .mapping_confidence ||
+              0
+            );
+
+          const bConfidence =
+            Number(
+              b.column
+                .mapping_confidence ||
+              0
+            );
+
+          if (
+            aConfidence !==
+            bConfidence
+          ) {
+            return (
+              bConfidence -
+              aConfidence
+            );
+          }
+
+          return (
+            a.document.doc_id.localeCompare(
+              b.document.doc_id
+            )
+          );
+        }
+      );
+
+      return rows;
+    }, [
+      individualReviewDocuments,
+      protocolHeaderOrder,
+    ]);
+
+  const consolidatedReviewGroups =
+    useMemo(() => {
+      const groups: {
+        groupKey: string;
+        protocolHeader: string;
+        rows: typeof consolidatedReviewRows;
+        unmatched: boolean;
+      }[] = [];
+
+      const byKey =
+        new Map<
+          string,
+          typeof consolidatedReviewRows
+        >();
+
+      for (
+        const row
+        of consolidatedReviewRows
+      ) {
+        const recommended =
+          String(
+            row.column
+              .recommended_protocol_header ||
+            ""
+          ).trim();
+
+        const groupKey =
+          recommended ||
+          "__UNMATCHED__";
+
+        if (!byKey.has(groupKey)) {
+          byKey.set(
+            groupKey,
+            []
+          );
+        }
+
+        byKey.get(
+          groupKey
+        )!.push(row);
+      }
+
+      for (
+        const protocolHeader
+        of protocolHeaders
+      ) {
+        const rows =
+          byKey.get(
+            protocolHeader
+          );
+
+        if (
+          !rows ||
+          rows.length === 0
+        ) {
+          continue;
+        }
+
+        groups.push({
+          groupKey:
+            protocolHeader,
+
+          protocolHeader,
+
+          rows,
+
+          unmatched:
+            false,
+        });
+      }
+
+      const unmatchedRows =
+        byKey.get(
+          "__UNMATCHED__"
+        ) || [];
+
+      if (
+        unmatchedRows.length > 0
+      ) {
+        groups.push({
+          groupKey:
+            "__UNMATCHED__",
+
+          protocolHeader:
+            "Unmatched Fields",
+
+          rows:
+            unmatchedRows,
+
+          unmatched:
+            true,
+        });
+      }
+
+      return groups;
+    }, [
+      consolidatedReviewRows,
+      protocolHeaders,
+    ]);
 
   const activeDocument =
     useMemo(
@@ -769,6 +1192,146 @@ function SchemaMappingSetContent() {
       })
     );
   }
+
+  function updateGroupDecision(
+    documents:
+        IdentificationDocument[],
+    columnIndex: number,
+    patch:
+        Partial<ColumnDecision>
+    ) {
+    setDecisions(
+        (current) => {
+        const next = {
+            ...current,
+        };
+
+        for (
+            const document
+            of documents
+        ) {
+            const key =
+            decisionKey(
+                document.doc_id,
+                columnIndex
+            );
+
+            next[key] = {
+            disposition:
+                current[key]
+                ?.disposition ||
+                "keep",
+
+            final_header:
+                current[key]
+                ?.final_header ||
+                "",
+
+            ...patch,
+            };
+        }
+
+        return next;
+        }
+    );
+    }
+
+  function changeGroupDisposition(
+    documents:
+        IdentificationDocument[],
+    column: HeaderColumn,
+    disposition:
+        ColumnDecision[
+        "disposition"
+        ]
+    ) {
+    const representative =
+        documents[0];
+
+    if (!representative) {
+        return;
+    }
+
+    const key =
+        decisionKey(
+        representative.doc_id,
+        column.column_index
+        );
+
+    let finalHeader =
+        decisions[key]
+        ?.final_header ||
+        "";
+
+    if (
+        disposition ===
+        "approve"
+    ) {
+        finalHeader =
+        String(
+            column
+            .recommended_protocol_header ||
+            ""
+        );
+    }
+
+    if (
+        disposition ===
+        "keep"
+    ) {
+        finalHeader =
+        String(
+            column.source_header ||
+            `Column ${
+            column.column_index + 1
+            }`
+        );
+    }
+
+    if (
+        disposition ===
+        "delete"
+    ) {
+        finalHeader = "";
+    }
+
+    if (
+        disposition ===
+        "map"
+    ) {
+        if (
+        !protocolHeaders.includes(
+            finalHeader
+        )
+        ) {
+        finalHeader =
+            protocolHeaders[0] ||
+            "";
+        }
+    }
+
+    if (
+        disposition ===
+        "rename" &&
+        !finalHeader
+    ) {
+        finalHeader =
+        String(
+            column.source_header ||
+            ""
+        );
+    }
+
+    updateGroupDecision(
+        documents,
+        column.column_index,
+        {
+        disposition,
+        final_header:
+            finalHeader,
+        }
+    );
+    }  
 
 
   function changeDisposition(
@@ -1268,271 +1831,764 @@ function SchemaMappingSetContent() {
                 </div>
 
 
-                <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+                <div className="mt-6">
+
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+
+                    <div>
+
+                      <h2 className="text-lg font-semibold text-white">
+                        Exact Schema Groups
+                      </h2>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        CSVs with identical Row 1 headers are reviewed once
+                        and the approved mapping is applied to every CSV in
+                        the matching schema group.
+                      </p>
+
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={
+                        runIdentification
+                      }
+                      disabled={
+                        identifying
+                      }
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {identifying
+                        ? "Reanalyzing..."
+                        : "Re-run Identification"}
+                    </button>
+
+                  </div>
+
+
+                  <div className="mt-4 space-y-3">
+
+                    {sharedSchemaGroups.length ===
+                    0 ? (
+
+                      <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/30 px-5 py-8 text-center text-sm text-slate-500">
+                        No multi-file exact schema groups were found.
+                      </div>
+
+                    ) : (
+
+                      sharedSchemaGroups.map(
+                        (group) => {
+
+                          const representative =
+                            group.representative;
+
+                          const orderedColumns =
+                            representative
+                              ? getProtocolOrderedColumns(
+                                  representative
+                                )
+                              : [];
+
+                          return (
+                            <div
+                              key={
+                                group.schemaGroupId
+                              }
+                              className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60"
+                            >
+
+                              <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+
+                                <div>
+
+                                  <div className="font-mono text-sm font-semibold text-sky-400">
+                                    {
+                                      group.schemaGroupId
+                                    }
+                                  </div>
+
+                                  <div className="mt-1 text-xs text-slate-400">
+                                    {
+                                      group.documents.length
+                                    }{" "}
+                                    CSVs with identical headers
+                                  </div>
+
+                                </div>
+
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setActiveSchemaGroupId(
+                                      group.schemaGroupId
+                                    )
+                                  }
+                                  className="rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-500"
+                                >
+                                  Review Mapping for All{" "}
+                                  {
+                                    group.documents.length
+                                  }
+                                </button>
+
+                              </div>
+
+
+                              <div className="border-t border-slate-800 px-5 py-4">
+
+                                <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                                  Protocol-Aligned Mapping Preview
+                                </div>
+
+                                <div className="mt-3 flex flex-wrap gap-2">
+
+                                  {orderedColumns.map(
+                                    (column) => (
+
+                                      <div
+                                        key={
+                                          column.column_index
+                                        }
+                                        className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2"
+                                      >
+
+                                        <div className="text-[11px] text-slate-500">
+                                          {
+                                            column.source_header ||
+                                            `Column ${
+                                              column.column_index +
+                                              1
+                                            }`
+                                          }
+                                        </div>
+
+                                        <div className="mt-1 text-xs font-semibold text-emerald-300">
+                                          →{" "}
+                                          {
+                                            column.recommended_protocol_header ||
+                                            "Unmatched"
+                                          }
+                                        </div>
+
+                                      </div>
+
+                                    )
+                                  )}
+
+                                </div>
+
+
+                                <div className="mt-4 flex flex-wrap gap-2">
+
+                                  {group.documents.map(
+                                    (document) => (
+
+                                      <span
+                                        key={
+                                          document.doc_id
+                                        }
+                                        className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-[11px] text-slate-400"
+                                      >
+                                        {
+                                          document.doc_id
+                                        }
+                                      </span>
+
+                                    )
+                                  )}
+
+                                </div>
+
+                              </div>
+
+                            </div>
+                          );
+                        }
+                      )
+
+                    )}
+
+                  </div>
+
+                </div>
+
+
+                <div className="mt-8">
 
                   <div>
 
                     <h2 className="text-lg font-semibold text-white">
-                      Identified CSVs
+                      Consolidated Mapping Review
                     </h2>
 
-                    <p className="mt-1 text-sm text-slate-500">
-                      Open a CSV to review and approve INSYT's recommended mappings.
+                    <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-500">
+                      Unique and headerless CSV schemas are consolidated by
+                      INSYT&apos;s recommended Project Protocol field. Protocol
+                      fields are shown in the exact order defined by the
+                      assigned Project Protocol, with unmatched fields last.
                     </p>
 
                   </div>
 
 
-                  <button
-                    type="button"
-                    onClick={
-                      runIdentification
-                    }
-                    disabled={
-                      identifying
-                    }
-                    className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                  >
-                    {identifying
-                      ? "Reanalyzing..."
-                      : "Re-run Identification"}
-                  </button>
+                  {consolidatedReviewGroups.length ===
+                  0 ? (
 
-                </div>
+                    <div className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/30 px-5 py-8 text-center text-sm text-slate-500">
+                      All identified CSVs are covered by multi-file exact schema groups.
+                    </div>
 
+                  ) : (
 
-                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60">
+                    <div className="mt-4 space-y-5">
 
-                  <div className="max-h-[500px] overflow-auto">
+                      {consolidatedReviewGroups.map(
+                        (group) => (
 
-                    <table className="w-full min-w-[1000px] text-sm">
+                          <div
+                            key={
+                              group.groupKey
+                            }
+                            className={
+                              group.unmatched
+                                ? "overflow-hidden rounded-2xl border border-amber-900/60 bg-amber-950/10"
+                                : "overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60"
+                            }
+                          >
 
-                      <thead className="sticky top-0 bg-slate-950 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
 
-                        <tr>
+                              <div>
 
-                          <th className="px-4 py-3">
-                            Doc ID
-                          </th>
-
-                          <th className="px-4 py-3">
-                            Workbook / Source
-                          </th>
-
-                          <th className="px-4 py-3">
-                            Worksheet
-                          </th>
-
-                          <th className="px-4 py-3">
-                            Header Result
-                          </th>
-
-                          <th className="px-4 py-3">
-                            Confidence
-                          </th>
-
-                          <th className="px-4 py-3">
-                            Matched
-                          </th>
-
-                          <th className="px-4 py-3">
-                            Unmatched
-                          </th>
-
-                          <th className="px-4 py-3 text-right">
-                            Action
-                          </th>
-
-                        </tr>
-
-                      </thead>
-
-
-                      <tbody className="divide-y divide-slate-800">
-
-                        {documents.map(
-                          (document) => (
-
-                            <tr
-                              key={
-                                document.doc_id
-                              }
-                              className="hover:bg-slate-900/70"
-                            >
-
-                              <td className="px-4 py-3 font-mono text-xs text-sky-400">
-                                {
-                                  document.doc_id
-                                }
-                              </td>
-
-
-                              <td className="px-4 py-3 text-slate-300">
-                                {
-                                  document.original_workbook_name ||
-                                  document.original_filename ||
-                                  "—"
-                                }
-                              </td>
-
-
-                              <td className="px-4 py-3 text-slate-400">
-                                {
-                                  document.sheet_name ||
-                                  "—"
-                                }
-                              </td>
-
-
-                              <td className="px-4 py-3">
-
-                                <HeaderStatusBadge
-                                  value={
-                                    document.header_status
+                                <div
+                                  className={
+                                    group.unmatched
+                                      ? "text-sm font-semibold text-amber-300"
+                                      : "text-sm font-semibold text-emerald-300"
                                   }
-                                />
+                                >
+                                  {
+                                    group.protocolHeader
+                                  }
+                                </div>
 
-                              </td>
+                                <div className="mt-1 text-xs text-slate-500">
+                                  {
+                                    group.rows.length
+                                  }{" "}
+                                  source column
+                                  {
+                                    group.rows.length ===
+                                    1
+                                      ? ""
+                                      : "s"
+                                  }
+                                </div>
 
-
-                              <td className="px-4 py-3 text-slate-300">
-                                {formatPercent(
-                                  document.header_confidence
-                                )}
-                              </td>
-
-
-                              <td className="px-4 py-3 text-emerald-300">
-                                {
-                                  document.matched_column_count ??
-                                  0
-                                }
-                              </td>
-
-
-                              <td className="px-4 py-3 text-amber-300">
-                                {
-                                  document.unmatched_column_count ??
-                                  0
-                                }
-                              </td>
+                              </div>
 
 
-                              <td className="px-4 py-3 text-right">
+                              {group.unmatched ? (
 
-                                {document.identification_status ===
-                                "COMPLETED" ? (
+                                <div className="flex flex-wrap gap-2">
 
                                   <button
                                     type="button"
-                                    onClick={() =>
-                                      setActiveDocId(
-                                        document.doc_id
-                                      )
+                                    onClick={
+                                      selectAllUnmatched
                                     }
-                                    className="rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-500"
+                                    className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
                                   >
-                                    Review Mapping
+                                    Select All Unmatched
                                   </button>
 
-                                ) : (
-
-                                  <span className="text-xs text-red-400">
-                                    {
-                                      document.identification_error ||
-                                      "Identification Error"
+                                  <button
+                                    type="button"
+                                    onClick={
+                                      clearUnmatchedSelection
                                     }
-                                  </span>
+                                    className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
+                                  >
+                                    Clear Selection
+                                  </button>
 
-                                )}
+                                  <button
+                                    type="button"
+                                    onClick={
+                                      deleteSelectedUnmatched
+                                    }
+                                    disabled={
+                                      selectedUnmatchedCount ===
+                                      0
+                                    }
+                                    className="rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-950/50 disabled:opacity-40"
+                                  >
+                                    Delete Selected (
+                                    {
+                                      selectedUnmatchedCount
+                                    }
+                                    )
+                                  </button>
 
-                              </td>
+                                </div>
 
-                            </tr>
+                              ) : null}
 
-                          )
-                        )}
-
-                      </tbody>
-
-                    </table>
-
-                  </div>
-
-                </div>
-
-
-                {unmatchedKeys.length >
-                0 ? (
-
-                  <div className="mt-6 rounded-xl border border-amber-900/50 bg-amber-950/10 p-4">
-
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-
-                      <div>
-
-                        <div className="text-sm font-semibold text-amber-200">
-                          Unmatched Fields
-                        </div>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          Unmatched fields are placed after recommended
-                          protocol matches. You can preserve, map, rename,
-                          or mark them for deletion.
-                        </p>
-
-                      </div>
+                            </div>
 
 
-                      <div className="flex flex-wrap gap-2">
+                            <div className="overflow-x-auto">
 
-                        <button
-                          type="button"
-                          onClick={
-                            selectAllUnmatched
-                          }
-                          className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
-                        >
-                          Select All Unmatched
-                        </button>
+                              <table className="w-full min-w-[1450px] text-sm">
+
+                                <thead className="bg-slate-950 text-left text-[11px] uppercase tracking-wide text-slate-500">
+
+                                  <tr>
+
+                                    <th className="w-12 px-4 py-3">
+                                      Select
+                                    </th>
+
+                                    <th className="px-4 py-3">
+                                      Source Header
+                                    </th>
+
+                                    <th className="px-4 py-3">
+                                      Doc ID
+                                    </th>
+
+                                    <th className="px-4 py-3">
+                                      Workbook / Sheet
+                                    </th>
+
+                                    <th className="px-4 py-3">
+                                      Sample Data
+                                    </th>
+
+                                    <th className="px-4 py-3">
+                                      Confidence
+                                    </th>
+
+                                    <th className="px-4 py-3">
+                                      Evidence
+                                    </th>
+
+                                    <th className="px-4 py-3">
+                                      Action
+                                    </th>
+
+                                    <th className="px-4 py-3">
+                                      Final Header
+                                    </th>
+
+                                  </tr>
+
+                                </thead>
 
 
-                        <button
-                          type="button"
-                          onClick={
-                            clearUnmatchedSelection
-                          }
-                          className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
-                        >
-                          Clear Selection
-                        </button>
+                                <tbody className="divide-y divide-slate-800">
+
+                                  {group.rows.map(
+                                    ({
+                                      document,
+                                      column,
+                                      key,
+                                    }) => {
+
+                                      const decision =
+                                        decisions[key] || {
+                                          disposition:
+                                            column.matched
+                                              ? "approve"
+                                              : "keep",
+
+                                          final_header:
+                                            column
+                                              .recommended_protocol_header ||
+                                            column.source_header ||
+                                            `Column ${
+                                              column.column_index +
+                                              1
+                                            }`,
+                                        };
+
+                                      const isUnmatched =
+                                        !column
+                                          .recommended_protocol_header;
+
+                                      const needsProtocolDropdown =
+                                        decision.disposition ===
+                                          "approve" ||
+                                        decision.disposition ===
+                                          "map";
+
+                                      const needsRename =
+                                        decision.disposition ===
+                                        "rename";
+
+                                      return (
+
+                                        <tr
+                                          key={
+                                            key
+                                          }
+                                          className={
+                                            isUnmatched
+                                              ? "bg-amber-950/10"
+                                              : "bg-slate-950/20"
+                                          }
+                                        >
+
+                                          <td className="px-4 py-4">
+
+                                            {isUnmatched ? (
+
+                                              <input
+                                                type="checkbox"
+                                                checked={
+                                                  Boolean(
+                                                    selectedUnmatched[
+                                                      key
+                                                    ]
+                                                  )
+                                                }
+                                                onChange={() =>
+                                                  toggleUnmatched(
+                                                    document.doc_id,
+                                                    column.column_index
+                                                  )
+                                                }
+                                                className="h-4 w-4"
+                                              />
+
+                                            ) : (
+
+                                              <span className="text-slate-700">
+                                                —
+                                              </span>
+
+                                            )}
+
+                                          </td>
 
 
-                        <button
-                          type="button"
-                          onClick={
-                            deleteSelectedUnmatched
-                          }
-                          disabled={
-                            selectedUnmatchedCount ===
-                            0
-                          }
-                          className="rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-950/50 disabled:opacity-40"
-                        >
-                          Delete Selected (
-                          {
-                            selectedUnmatchedCount
-                          }
-                          )
-                        </button>
+                                          <td className="px-4 py-4">
 
-                      </div>
+                                            <div className="font-semibold text-slate-200">
+                                              {
+                                                column.source_header ||
+                                                `Column ${
+                                                  column.column_index +
+                                                  1
+                                                }`
+                                              }
+                                            </div>
+
+                                            <div className="mt-1 text-[11px] text-slate-500">
+                                              Source Column{" "}
+                                              {
+                                                column.column_number ??
+                                                column.column_index +
+                                                1
+                                              }
+                                            </div>
+
+                                          </td>
+
+
+                                          <td className="whitespace-nowrap px-4 py-4 font-mono text-xs text-sky-400">
+                                            {
+                                              document.doc_id
+                                            }
+                                          </td>
+
+
+                                          <td className="max-w-[260px] px-4 py-4">
+
+                                            <div className="truncate text-xs text-slate-300">
+                                              {
+                                                document.original_workbook_name ||
+                                                document.original_filename ||
+                                                "—"
+                                              }
+                                            </div>
+
+                                            <div className="mt-1 truncate text-[11px] text-slate-500">
+                                              {
+                                                document.sheet_name ||
+                                                "—"
+                                              }
+                                            </div>
+
+                                          </td>
+
+
+                                          <td className="max-w-[260px] px-4 py-4">
+
+                                            <div className="space-y-1">
+
+                                              {(
+                                                column.sample_values ||
+                                                []
+                                              )
+                                                .slice(
+                                                  0,
+                                                  3
+                                                )
+                                                .map(
+                                                  (
+                                                    value,
+                                                    index
+                                                  ) => (
+
+                                                    <div
+                                                      key={
+                                                        index
+                                                      }
+                                                      className="truncate font-mono text-xs text-slate-400"
+                                                      title={
+                                                        value
+                                                      }
+                                                    >
+                                                      {
+                                                        value
+                                                      }
+                                                    </div>
+
+                                                  )
+                                                )}
+
+                                              {!column
+                                                .sample_values
+                                                ?.length ? (
+
+                                                <span className="text-xs text-slate-600">
+                                                  No sample values
+                                                </span>
+
+                                              ) : null}
+
+                                            </div>
+
+                                          </td>
+
+
+                                          <td className="px-4 py-4">
+
+                                            <div className="font-semibold text-slate-200">
+                                              {formatPercent(
+                                                column.mapping_confidence
+                                              )}
+                                            </div>
+
+                                            {column.ai_confidence !==
+                                            null &&
+                                            column.ai_confidence !==
+                                            undefined ? (
+
+                                              <div className="mt-1 text-[11px] text-violet-400">
+                                                AI{" "}
+                                                {formatPercent(
+                                                  column.ai_confidence
+                                                )}
+                                              </div>
+
+                                            ) : null}
+
+                                          </td>
+
+
+                                          <td className="px-4 py-4">
+
+                                            <div className="text-xs text-slate-400">
+                                              Type:{" "}
+                                              <span className="text-slate-200">
+                                                {
+                                                  formatStatus(
+                                                    column.semantic_type
+                                                  )
+                                                }
+                                              </span>
+                                            </div>
+
+                                            <div className="mt-1 text-[11px] text-slate-500">
+                                              {
+                                                formatStatus(
+                                                  column.match_method
+                                                )
+                                              }
+                                            </div>
+
+                                          </td>
+
+
+                                          <td className="px-4 py-4">
+
+                                            <select
+                                              value={
+                                                decision.disposition
+                                              }
+                                              onChange={
+                                                (
+                                                  event
+                                                ) =>
+                                                  changeDisposition(
+                                                    document.doc_id,
+                                                    column,
+                                                    event.target
+                                                      .value as ColumnDecision["disposition"]
+                                                  )
+                                              }
+                                              className="min-w-[160px] rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                                            >
+
+                                              {column
+                                                .recommended_protocol_header ? (
+                                                <option value="approve">
+                                                  Approve Recommendation
+                                                </option>
+                                              ) : null}
+
+                                              <option value="map">
+                                                Map to Protocol Field
+                                              </option>
+
+                                              <option value="keep">
+                                                Keep As-Is
+                                              </option>
+
+                                              <option value="rename">
+                                                Rename
+                                              </option>
+
+                                              <option value="delete">
+                                                Delete
+                                              </option>
+
+                                            </select>
+
+                                          </td>
+
+
+                                          <td className="min-w-[280px] px-4 py-4">
+
+                                            {decision.disposition ===
+                                            "delete" ? (
+
+                                              <div className="rounded-lg border border-red-900/60 bg-red-950/20 px-3 py-2 text-sm text-red-300">
+                                                Column marked for deletion
+                                              </div>
+
+                                            ) : needsProtocolDropdown ? (
+
+                                              <select
+                                                value={
+                                                  decision.final_header
+                                                }
+                                                onChange={
+                                                  (
+                                                    event
+                                                  ) =>
+                                                    updateDecision(
+                                                      document.doc_id,
+                                                      column.column_index,
+                                                      {
+                                                        final_header:
+                                                          event.target.value,
+                                                      }
+                                                    )
+                                                }
+                                                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                                              >
+
+                                                <option value="">
+                                                  Select Protocol Header
+                                                </option>
+
+                                                {protocolHeaders.map(
+                                                  (
+                                                    header
+                                                  ) => (
+
+                                                    <option
+                                                      key={
+                                                        header
+                                                      }
+                                                      value={
+                                                        header
+                                                      }
+                                                    >
+                                                      {
+                                                        header
+                                                      }
+                                                    </option>
+
+                                                  )
+                                                )}
+
+                                              </select>
+
+                                            ) : needsRename ? (
+
+                                              <input
+                                                type="text"
+                                                value={
+                                                  decision.final_header
+                                                }
+                                                onChange={
+                                                  (
+                                                    event
+                                                  ) =>
+                                                    updateDecision(
+                                                      document.doc_id,
+                                                      column.column_index,
+                                                      {
+                                                        final_header:
+                                                          event.target.value,
+                                                      }
+                                                    )
+                                                }
+                                                placeholder="Enter new header"
+                                                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                                              />
+
+                                            ) : (
+
+                                              <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
+                                                {
+                                                  decision.final_header
+                                                }
+                                              </div>
+
+                                            )}
+
+                                          </td>
+
+                                        </tr>
+
+                                      );
+                                    }
+                                  )}
+
+                                </tbody>
+
+                              </table>
+
+                            </div>
+
+                          </div>
+
+                        )
+                      )}
 
                     </div>
 
-                  </div>
+                  )}
 
-                ) : null}
+                </div>
 
 
                 <div className="mt-6 flex justify-end">
@@ -1563,6 +2619,65 @@ function SchemaMappingSetContent() {
           </>
 
         )}
+
+        {activeSchemaGroup &&
+        activeSchemaGroup.representative ? (
+
+          <MappingModal
+            document={
+              activeSchemaGroup.representative
+            }
+
+            protocolHeaders={
+              protocolHeaders
+            }
+
+            decisions={
+              decisions
+            }
+
+            selectedUnmatched={
+              selectedUnmatched
+            }
+
+            onToggleUnmatched={
+              toggleUnmatched
+            }
+
+            onChangeDisposition={
+              (
+                _docId,
+                column,
+                disposition
+              ) =>
+                changeGroupDisposition(
+                  activeSchemaGroup.documents,
+                  column,
+                  disposition
+                )
+            }
+
+            onUpdateDecision={
+              (
+                _docId,
+                columnIndex,
+                patch
+              ) =>
+                updateGroupDecision(
+                  activeSchemaGroup.documents,
+                  columnIndex,
+                  patch
+                )
+            }
+
+            onClose={() =>
+              setActiveSchemaGroupId(
+                null
+              )
+            }
+          />
+
+        ) : null}
 
 
         {activeDocument ? (
@@ -1654,9 +2769,74 @@ function MappingModal({
   onClose: () => void;
 }) {
 
-  const columns =
-    document.columns ||
-    [];
+  const protocolOrder =
+    new Map<string, number>();
+
+  protocolHeaders.forEach(
+    (header, index) => {
+      protocolOrder.set(
+        String(header)
+          .trim()
+          .toLowerCase(),
+        index
+      );
+    }
+  );
+
+  const columns = [
+    ...(document.columns || []),
+  ].sort(
+    (a, b) => {
+      const aHeader =
+        String(
+          a.recommended_protocol_header ||
+          ""
+        ).trim();
+
+      const bHeader =
+        String(
+          b.recommended_protocol_header ||
+          ""
+        ).trim();
+
+      const aOrder =
+        aHeader
+          ? protocolOrder.get(
+              aHeader.toLowerCase()
+            )
+          : undefined;
+
+      const bOrder =
+        bHeader
+          ? protocolOrder.get(
+              bHeader.toLowerCase()
+            )
+          : undefined;
+
+      const normalizedA =
+        aOrder ??
+        Number.MAX_SAFE_INTEGER;
+
+      const normalizedB =
+        bOrder ??
+        Number.MAX_SAFE_INTEGER;
+
+      if (
+        normalizedA !==
+        normalizedB
+      ) {
+        return (
+          normalizedA -
+          normalizedB
+        );
+      }
+
+      return (
+        a.column_index -
+        b.column_index
+      );
+    }
+  );
 
 
   return (

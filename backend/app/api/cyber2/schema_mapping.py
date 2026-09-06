@@ -1005,6 +1005,55 @@ def approve_cyber2_header_mapping(
                 "columns": (
                     approved_columns
                 ),
+                
+                "canonical_output_headers": [
+                    header
+                    for header in protocol_headers
+                    if any(
+                        str(
+                            column.get(
+                                "final_header"
+                            )
+                            or ""
+                        ).strip()
+                        == header
+                        and not bool(
+                            column.get(
+                                "delete_column"
+                            )
+                        )
+                        for column
+                        in approved_columns
+                    )
+                ]
+                + [
+                    str(
+                        column.get(
+                            "final_header"
+                        )
+                        or ""
+                    ).strip()
+                    for column
+                    in approved_columns
+                    if str(
+                        column.get(
+                            "final_header"
+                        )
+                        or ""
+                    ).strip()
+                    and str(
+                        column.get(
+                            "final_header"
+                        )
+                        or ""
+                    ).strip()
+                    not in protocol_headers
+                    and not bool(
+                        column.get(
+                            "delete_column"
+                        )
+                    )
+                ],
             }
         )
 
@@ -1113,6 +1162,14 @@ def approve_cyber2_header_mapping(
 
         "protocol_headers": (
             protocol_headers
+        ),
+
+        "canonical_column_order": (
+            protocol_headers
+        ),
+
+        "canonical_order_source": (
+            "project_protocol"
         ),
 
         "document_count": len(
