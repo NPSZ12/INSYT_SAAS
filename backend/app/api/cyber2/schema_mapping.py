@@ -22,6 +22,8 @@ from app.api.processing_center_azure import (
     _write_processing_json_blob,
 )
 
+from app.services.batch_service import get_container_client
+
 
 router = APIRouter(
     prefix="/api",
@@ -184,11 +186,7 @@ def _load_protocol_library(
         _get_live_source_blob_service_client()
     )
 
-    container = (
-        get_live_source_container_client(
-            workspace
-        )
-    )
+    container = get_container_client(workspace)
 
     library, source_blob = (
         get_protocol_header_library(

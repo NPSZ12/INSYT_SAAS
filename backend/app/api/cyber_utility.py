@@ -2322,59 +2322,23 @@ def load_project_header_library(
 
     Final dropdown values should come from Project Protocol headers.
     """
-    #
-    # Use the same authoritative Project Protocol loader used by
-    # the Protocol tab. This supports the canonical JSON/XLSX
-    # protocol locations and prevents Cyber² from maintaining a
-    # separate protocol-discovery path.
-    #
-    from app.api.workspace_protocols import get_workspace_protocol
-
-    protocol_result = get_workspace_protocol(
+    protocol_json, protocol_blob_path = load_project_protocol_json(
+        container=container,
         workspace=workspace,
-        project_id=project,
+        project=project,
         client=client,
     )
 
-    protocol_blob_path = str(
-        protocol_result.get(
-            "protocol_blob_path"
-        )
-        or protocol_result.get(
-            "protocol_blob"
-        )
-        or ""
-    ).strip()
-
-    protocol_fields = (
-        protocol_result.get("fields")
-        or protocol_result.get(
-            "protocol",
-            {}
-        ).get("fields")
-        or []
+    protocol_headers = extract_protocol_headers_from_json(
+        protocol_json
     )
 
-    protocol_json = {
-        "fields": protocol_fields
-    }
-
-    protocol_headers = (
-        extract_protocol_headers_from_json(
-            protocol_json
-        )
+    library = build_protocol_header_library(
+        protocol_headers
     )
 
-    library = (
-        build_protocol_header_library(
-            protocol_headers
-        )
-    )
-
-    library = (
-        apply_common_aliases_to_library(
-            library
-        )
+    library = apply_common_aliases_to_library(
+        library
     )
 
     # Optional alias/custom library.
