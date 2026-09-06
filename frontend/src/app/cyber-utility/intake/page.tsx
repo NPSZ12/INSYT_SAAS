@@ -195,6 +195,11 @@ function Cyber2IntakeContent() {
       {}
     );
 
+  const [
+    intakeExpanded,
+    setIntakeExpanded,
+  ] = useState(true);
+
   async function loadIntake() {
     if (!client || !project) {
       return;
@@ -899,10 +904,17 @@ function Cyber2IntakeContent() {
 
         </div>
 
-        <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
 
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-
+          <button
+            type="button"
+            onClick={() =>
+              setIntakeExpanded(
+                (current) => !current
+              )
+            }
+            className="flex items-center gap-3 text-left"
+          >
             <div>
               <div className="text-sm font-semibold text-white">
                 CSV Intake Inventory
@@ -913,14 +925,28 @@ function Cyber2IntakeContent() {
               </div>
             </div>
 
-            <div className="text-sm text-slate-300">
-              Selected:{" "}
-              <span className="font-semibold text-sky-400">
-                {selectedCount}
-              </span>
-            </div>
+            <span className="text-sm text-slate-400">
+              {intakeExpanded
+                ? "Collapse ▲"
+                : "Expand ▼"}
+            </span>
+          </button>
 
+          <div className="text-sm text-slate-300">
+            Ready:{" "}
+            <span className="font-semibold text-sky-400">
+              {availableDocuments.length}
+            </span>
+            {" • "}
+            Selected:{" "}
+            <span className="font-semibold text-sky-400">
+              {selectedCount}
+            </span>
           </div>
+
+        </div>
+        {intakeExpanded ? (
+          <>
 
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -1104,7 +1130,9 @@ function Cyber2IntakeContent() {
             </div>
           ) : null}
 
-        </div>
+          </>
+        ) : null}
+
 
         {error ? (
           <div className="mb-6 rounded-xl border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-300">
@@ -1113,13 +1141,14 @@ function Cyber2IntakeContent() {
         ) : null}
 
 
-        {loading ? (
+        {intakeExpanded && (
+          loading ? (
 
           <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-16 text-center text-slate-400">
             Loading Cyber² Intake...
           </div>
 
-        ) : documents.length === 0 ? (
+        ) : availableDocuments.length === 0 ? (
 
           <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 px-6 py-16 text-center">
 
@@ -1343,7 +1372,7 @@ function Cyber2IntakeContent() {
 
           </div>
 
-        )}
+        ))}
 
         <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
 

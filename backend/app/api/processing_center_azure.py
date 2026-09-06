@@ -3638,31 +3638,49 @@ def get_data_element_detection_document_hits(
             if not isinstance(indexed_hits, list):
                 indexed_hits = []
 
-            return {
-                "workspace": workspace,
-                "client": client,
-                "project": project,
-                "doc_id": requested_doc_id,
-                "hit_count": len(indexed_hits),
-                "detection_job_ids": [
-                    document_index.get("latest_detection_job_id")
-                ]
-                if document_index.get("latest_detection_job_id")
-                else [],
-                "classification": (
-                    document_index.get("classification")
-                    or ""
-                ),
-                "entity_type_counts": (
-                    document_index.get("entity_type_counts")
-                    or {}
-                ),
-                "source": "document_index",
-                "document_index_blob_path": (
-                    document_index_blob_path
-                ),
-                "hits": indexed_hits,
-            }
+            #
+            # Only return immediately when the document index
+            # actually contains character-offset hits.
+            #
+            # Some detection indexes contain classification and
+            # entity counts but not the detailed hit offsets needed
+            # by ReviewDocumentPane. In that case, continue into the
+            # detection-job results fallback below.
+            #
+            if indexed_hits:
+                return {
+                    "workspace": workspace,
+                    "client": client,
+                    "project": project,
+                    "doc_id": requested_doc_id,
+                    "hit_count": len(indexed_hits),
+                    "detection_job_ids": [
+                        document_index.get(
+                            "latest_detection_job_id"
+                        )
+                    ]
+                    if document_index.get(
+                        "latest_detection_job_id"
+                    )
+                    else [],
+                    "classification": (
+                        document_index.get(
+                            "classification"
+                        )
+                        or ""
+                    ),
+                    "entity_type_counts": (
+                        document_index.get(
+                            "entity_type_counts"
+                        )
+                        or {}
+                    ),
+                    "source": "document_index",
+                    "document_index_blob_path": (
+                        document_index_blob_path
+                    ),
+                    "hits": indexed_hits,
+                }
 
     except Exception:
         pass
