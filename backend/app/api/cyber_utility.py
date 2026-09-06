@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.workspace_files import build_prefix, clean_folder, get_workspace_container
+from app.services.storage_paths import build_project_path
 
 
 router = APIRouter(
@@ -1923,11 +1924,14 @@ def get_protocol_folder_prefix(
     project: str,
     client: str | None,
 ) -> str:
-    return build_canonical_project_prefix(
-        workspace=workspace,
-        project=project,
-        client=client,
-        folder="source/protocol",
+    return (
+        build_project_path(
+            client,
+            workspace,
+            project,
+            "source/protocol",
+        ).rstrip("/")
+        + "/"
     )
 
 def get_project_protocol_blob_paths(

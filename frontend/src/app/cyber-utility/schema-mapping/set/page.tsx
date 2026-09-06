@@ -15,6 +15,7 @@ import {
 import AppShell from "../../../../components/AppShell";
 import PageContainer from "../../../../components/PageContainer";
 import PageHeader from "../../../../components/PageHeader";
+import CyberUtilityWorkflowNav from "../../../../components/CyberUtilityWorkflowNav";
 
 import {
   apiGet,
@@ -1067,6 +1068,7 @@ function SchemaMappingSetContent() {
     return (
       <AppShell>
         <PageContainer>
+        <CyberUtilityWorkflowNav />
 
           <PageHeader
             title="Header & Schema Mapping"

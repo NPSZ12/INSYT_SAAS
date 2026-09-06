@@ -7,6 +7,7 @@ import AppShell from "./AppShell";
 import PageContainer from "./PageContainer";
 import PageHeader from "./PageHeader";
 import ContentCard from "./ContentCard";
+import CyberUtilityWorkflowNav from "./CyberUtilityWorkflowNav";
 
 type CyberUtilityWorkflowPlaceholderProps = {
   title: string;
@@ -49,6 +50,7 @@ export default function CyberUtilityWorkflowPlaceholder({
   return (
     <AppShell>
       <PageContainer>
+        <CyberUtilityWorkflowNav />
         <PageHeader
           title={title}
           subtitle={subtitle}

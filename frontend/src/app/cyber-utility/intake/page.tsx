@@ -22,7 +22,8 @@ import {
 import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
 import PageHeader from "../../../components/PageHeader";
-import {apiGet, apiPost} from "../../../lib/api";
+import { apiGet, apiPost } from "../../../lib/api";
+import CyberUtilityWorkflowNav from "../../../components/CyberUtilityWorkflowNav";
 
 type Cyber2IntakeDocument = {
   doc_id: string;
@@ -62,6 +63,12 @@ type Cyber2IntakeDocument = {
   sent_to_cyber2_by?: string;
 
   last_modified?: string;
+
+  header_set_id?: string;
+  cyber2_stage?: string;
+  header_set_status?: string;
+  sent_to_header_mapping_at?: string;
+  sent_to_header_mapping_by?: string;
 };
 
 type Cyber2IntakeResponse = {
@@ -154,6 +161,40 @@ function Cyber2IntakeContent() {
     setSearchText,
   ] = useState("");
 
+  const [
+    sentClassificationFilter,
+    setSentClassificationFilter,
+  ] =
+    useState<
+      "all" | "hit" | "no_hit"
+    >("all");
+
+  const [
+    sentEntityTypeFilter,
+    setSentEntityTypeFilter,
+  ] =
+    useState("all");
+
+  const [
+    sentWorkbookFilter,
+    setSentWorkbookFilter,
+  ] =
+    useState("all");
+
+  const [
+    sentSearchText,
+    setSentSearchText,
+  ] =
+    useState("");
+
+  const [
+    expandedHeaderSets,
+    setExpandedHeaderSets,
+  ] =
+    useState<Record<string, boolean>>(
+      {}
+    );
+
   async function loadIntake() {
     if (!client || !project) {
       return;
@@ -207,6 +248,26 @@ function Cyber2IntakeContent() {
   const documents =
     intakeData?.documents ||
     [];
+
+  const availableDocuments =
+    documents.filter(
+      (doc) =>
+        !String(
+          doc.header_set_id ||
+          ""
+        ).trim()
+    );
+
+  const sentToHeaderDocuments =
+    documents.filter(
+      (doc) =>
+        Boolean(
+          String(
+            doc.header_set_id ||
+            ""
+          ).trim()
+        )
+    );
 
   function normalizeClassification(
     value?: string
@@ -262,7 +323,7 @@ function Cyber2IntakeContent() {
       .trim()
       .toLowerCase();
 
-    return documents.filter((doc) => {
+    return availableDocuments.filter((doc) => {
       const classification =
         normalizeClassification(
           doc.classification
@@ -327,12 +388,163 @@ function Cyber2IntakeContent() {
       return true;
     });
   }, [
-    documents,
+    availableDocuments,
     classificationFilter,
     entityTypeFilter,
     workbookFilter,
     searchText,
   ]);
+
+  const filteredSentToHeaderDocuments =
+    useMemo(() => {
+      const search =
+        sentSearchText
+          .trim()
+          .toLowerCase();
+
+      return sentToHeaderDocuments.filter(
+        (doc) => {
+          const classification =
+            normalizeClassification(
+              doc.classification
+            );
+
+          if (
+            sentClassificationFilter ===
+              "hit" &&
+            classification !== "HIT"
+          ) {
+            return false;
+          }
+
+          if (
+            sentClassificationFilter ===
+              "no_hit" &&
+            classification === "HIT"
+          ) {
+            return false;
+          }
+
+          if (
+            sentEntityTypeFilter !==
+              "all" &&
+            !(
+              doc.entity_types || []
+            ).includes(
+              sentEntityTypeFilter
+            )
+          ) {
+            return false;
+          }
+
+          const workbook =
+            String(
+              doc.original_workbook_name ||
+                doc.original_filename ||
+                ""
+            ).trim();
+
+          if (
+            sentWorkbookFilter !==
+              "all" &&
+            workbook !==
+              sentWorkbookFilter
+          ) {
+            return false;
+          }
+
+          if (search) {
+            const searchable = [
+              doc.doc_id,
+              doc.header_set_id,
+              doc.original_filename,
+              doc.original_workbook_name,
+              doc.sheet_name,
+              doc.source_csv_path,
+              doc.classification,
+              ...(doc.entity_types ||
+                []),
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+
+            if (
+              !searchable.includes(
+                search
+              )
+            ) {
+              return false;
+            }
+          }
+
+          return true;
+        }
+      );
+    }, [
+      sentToHeaderDocuments,
+      sentClassificationFilter,
+      sentEntityTypeFilter,
+      sentWorkbookFilter,
+      sentSearchText,
+    ]);
+  
+  const sentHeaderSets =
+    useMemo(() => {
+      const grouped: Record<
+        string,
+        Cyber2IntakeDocument[]
+      > = {};
+
+      for (
+        const doc
+        of filteredSentToHeaderDocuments
+      ) {
+        const headerSetId =
+          String(
+            doc.header_set_id ||
+              "UNASSIGNED"
+          ).trim();
+
+        if (!grouped[headerSetId]) {
+          grouped[headerSetId] = [];
+        }
+
+        grouped[headerSetId].push(
+          doc
+        );
+      }
+
+      return Object.entries(
+        grouped
+      )
+        .map(
+          ([
+            headerSetId,
+            docs,
+          ]) => ({
+            headerSetId,
+            docs,
+            sentAt:
+              docs
+                .map(
+                  (doc) =>
+                    doc.sent_to_header_mapping_at ||
+                    ""
+                )
+                .sort()
+                .reverse()[0] || "",
+          })
+        )
+        .sort(
+          (a, b) =>
+            b.sentAt.localeCompare(
+              a.sentAt
+            )
+        );
+    }, [
+      filteredSentToHeaderDocuments,
+    ]);
 
   const selectedCount = Object.values(
     selectedDocIds
@@ -368,7 +580,7 @@ function Cyber2IntakeContent() {
 
   async function createHeaderSet() {
     const selectedDocuments =
-      documents.filter(
+      availableDocuments.filter(
         (doc) =>
           Boolean(
             selectedDocIds[
@@ -417,6 +629,8 @@ function Cyber2IntakeContent() {
       );
 
       setSelectedDocIds({});
+
+      await loadIntake();
 
     } catch (err: any) {
       console.error(
@@ -562,9 +776,22 @@ function Cyber2IntakeContent() {
     );
   }
 
+  function toggleHeaderSet(
+    headerSetId: string
+  ) {
+    setExpandedHeaderSets(
+      (current) => ({
+        ...current,
+        [headerSetId]:
+          !current[headerSetId],
+      })
+    );
+  }
+
   return (
     <AppShell>
       <PageContainer>
+        <CyberUtilityWorkflowNav />
 
         <div className="mb-6">
 
@@ -618,8 +845,7 @@ function Cyber2IntakeContent() {
           <MetricCard
             label="Files Ready"
             value={String(
-              intakeData?.intake_count ??
-                documents.length
+              availableDocuments.length
             )}
           />
 
@@ -847,7 +1073,7 @@ function Cyber2IntakeContent() {
               </span>{" "}
               of{" "}
               <span className="text-slate-300">
-                {documents.length}
+                {availableDocuments.length}
               </span>{" "}
               CSVs
             </div>
@@ -900,13 +1126,12 @@ function Cyber2IntakeContent() {
             <FileSpreadsheet className="mx-auto mb-4 h-8 w-8 text-slate-600" />
 
             <div className="text-base font-medium text-slate-300">
-              No files have been sent to Cyber².
+              No CSVs are currently ready for Header Set creation.
             </div>
 
             <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              Responsive spreadsheet or CSV documents will appear
-              here after they are sent from Processing Center -
-              Promotion.
+              All current Cyber² Intake CSVs may already be assigned to Header Sets.
+              New promoted spreadsheet or CSV documents will appear here when available.
             </p>
 
           </div>
@@ -1119,6 +1344,394 @@ function Cyber2IntakeContent() {
           </div>
 
         )}
+
+        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+
+            <div>
+              <div className="text-sm font-semibold text-white">
+                Sent to Header & Schema Mapping
+              </div>
+
+              <div className="mt-1 text-xs text-slate-500">
+                CSVs already assigned to Header Sets are grouped below and removed from the active Intake inventory.
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-500">
+              {
+                filteredSentToHeaderDocuments.length
+              }{" "}
+              CSVs in{" "}
+              {
+                sentHeaderSets.length
+              }{" "}
+              Header Sets
+            </div>
+
+          </div>
+
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Classification
+              </label>
+
+              <select
+                value={
+                  sentClassificationFilter
+                }
+                onChange={(event) =>
+                  setSentClassificationFilter(
+                    event.target.value as
+                      | "all"
+                      | "hit"
+                      | "no_hit"
+                  )
+                }
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="all">
+                  All Files
+                </option>
+
+                <option value="hit">
+                  HIT
+                </option>
+
+                <option value="no_hit">
+                  No Hit
+                </option>
+              </select>
+            </div>
+
+
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Detected Entity
+              </label>
+
+              <select
+                value={
+                  sentEntityTypeFilter
+                }
+                onChange={(event) =>
+                  setSentEntityTypeFilter(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="all">
+                  All Entity Types
+                </option>
+
+                {entityTypeOptions.map(
+                  (entityType) => (
+                    <option
+                      key={entityType}
+                      value={entityType}
+                    >
+                      {entityType}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Workbook / Source
+              </label>
+
+              <select
+                value={
+                  sentWorkbookFilter
+                }
+                onChange={(event) =>
+                  setSentWorkbookFilter(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="all">
+                  All Workbooks
+                </option>
+
+                {workbookOptions.map(
+                  (workbook) => (
+                    <option
+                      key={workbook}
+                      value={workbook}
+                    >
+                      {workbook}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Search
+              </label>
+
+              <input
+                type="text"
+                value={sentSearchText}
+                onChange={(event) =>
+                  setSentSearchText(
+                    event.target.value
+                  )
+                }
+                placeholder="Header Set, Doc ID, sheet..."
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+              />
+            </div>
+
+          </div>
+
+
+          <div className="mt-5 space-y-3">
+
+            {sentHeaderSets.length ===
+            0 ? (
+
+              <div className="rounded-xl border border-dashed border-slate-700 px-5 py-8 text-center text-sm text-slate-500">
+                No CSVs have been sent to Header & Schema Mapping.
+              </div>
+
+            ) : (
+
+              sentHeaderSets.map(
+                ({
+                  headerSetId,
+                  docs,
+                  sentAt,
+                }) => {
+
+                  const expanded =
+                    Boolean(
+                      expandedHeaderSets[
+                        headerSetId
+                      ]
+                    );
+
+                  return (
+                    <div
+                      key={headerSetId}
+                      className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60"
+                    >
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toggleHeaderSet(
+                            headerSetId
+                          )
+                        }
+                        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-900"
+                      >
+                        <div>
+
+                          <div className="font-mono text-sm font-semibold text-sky-400">
+                            {headerSetId}
+                          </div>
+
+                          <div className="mt-1 text-xs text-slate-500">
+                            {docs.length} CSV
+                            {docs.length === 1
+                              ? ""
+                              : "s"}
+                            {" • "}
+                            {
+                              docs[0]
+                                ?.header_set_status ||
+                              "assigned"
+                            }
+                            {sentAt
+                              ? ` • ${new Date(
+                                  sentAt
+                                ).toLocaleString()}`
+                              : ""}
+                          </div>
+
+                        </div>
+
+                        <div className="text-sm text-slate-400">
+                          {expanded
+                            ? "Collapse ▲"
+                            : "Expand ▼"}
+                        </div>
+                      </button>
+
+
+                      {expanded ? (
+
+                        <div className="overflow-x-auto border-t border-slate-800">
+
+                          <table className="w-full min-w-[1100px] text-sm">
+
+                            <thead className="bg-slate-950 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                              <tr>
+                                <th className="px-4 py-3">
+                                  Doc ID
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  Classification
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  Workbook / Source
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  Worksheet
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  Visibility
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  Detected Types
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  Status
+                                </th>
+
+                                <th className="px-4 py-3 text-right">
+                                  Action
+                                </th>
+                              </tr>
+                            </thead>
+
+
+                            <tbody className="divide-y divide-slate-800">
+
+                              {docs.map(
+                                (doc) => (
+                                  <tr
+                                    key={doc.doc_id}
+                                    className="hover:bg-slate-900/70"
+                                  >
+
+                                    <td className="px-4 py-3 font-mono text-xs text-sky-400">
+                                      {
+                                        doc.doc_id
+                                      }
+                                    </td>
+
+                                    <td className="px-4 py-3 text-emerald-300">
+                                      {
+                                        doc.classification ||
+                                        "—"
+                                      }
+                                    </td>
+
+                                    <td className="px-4 py-3 text-slate-300">
+                                      {
+                                        doc.original_workbook_name ||
+                                        doc.original_filename ||
+                                        "—"
+                                      }
+                                    </td>
+
+                                    <td className="px-4 py-3 text-slate-400">
+                                      {
+                                        doc.sheet_name ||
+                                        "—"
+                                      }
+                                    </td>
+
+                                    <td className="px-4 py-3 text-slate-400">
+                                      {
+                                        doc.sheet_visibility ||
+                                        "—"
+                                      }
+                                    </td>
+
+                                    <td className="px-4 py-3">
+
+                                      <div className="flex flex-wrap gap-1">
+
+                                        {(
+                                          doc.entity_types ||
+                                          []
+                                        ).map(
+                                          (
+                                            entityType
+                                          ) => (
+                                            <span
+                                              key={
+                                                entityType
+                                              }
+                                              className="rounded-md border border-violet-900 bg-violet-950/30 px-2 py-1 text-[11px] text-violet-300"
+                                            >
+                                              {
+                                                entityType
+                                              }
+                                            </span>
+                                          )
+                                        )}
+
+                                      </div>
+
+                                    </td>
+
+                                    <td className="px-4 py-3 text-slate-400">
+                                      {
+                                        doc.header_set_status ||
+                                        "assigned"
+                                      }
+                                    </td>
+
+                                    <td className="px-4 py-3 text-right">
+
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          openDocument(
+                                            doc
+                                          )
+                                        }
+                                        className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                                      >
+                                        Open
+                                      </button>
+
+                                    </td>
+
+                                  </tr>
+                                )
+                              )}
+
+                            </tbody>
+
+                          </table>
+
+                        </div>
+
+                      ) : null}
+
+                    </div>
+                  );
+                }
+              )
+
+            )}
+
+          </div>
+
+        </div>
 
       </PageContainer>
     </AppShell>

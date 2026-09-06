@@ -15,6 +15,7 @@ import AppShell from "../../../components/AppShell";
 import PageContainer from "../../../components/PageContainer";
 import PageHeader from "../../../components/PageHeader";
 import { apiGet } from "../../../lib/api";
+import CyberUtilityWorkflowNav from "../../../components/CyberUtilityWorkflowNav";
 
 
 type HeaderSetDocument = {
@@ -293,6 +294,7 @@ function SchemaMappingPageContent() {
     <AppShell>
 
       <PageContainer>
+        <CyberUtilityWorkflowNav />
 
         <div className="mb-4 flex flex-wrap gap-2">
 

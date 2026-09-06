@@ -361,6 +361,57 @@ def create_cyber2_header_set(
             overwrite=False,
         )
     )
+    
+    #
+    # Advance selected Intake documents to
+    # Header & Schema Mapping.
+    #
+    for doc_id in requested_doc_ids:
+        intake_document = dict(
+            intake_documents[
+                doc_id
+            ]
+        )
+
+        intake_document[
+            "header_set_id"
+        ] = header_set_id
+
+        intake_document[
+            "cyber2_stage"
+        ] = "header_schema_mapping"
+
+        intake_document[
+            "header_set_status"
+        ] = "assigned"
+
+        intake_document[
+            "sent_to_header_mapping_at"
+        ] = created_at
+
+        intake_document[
+            "sent_to_header_mapping_by"
+        ] = str(
+            request.requested_by
+            or ""
+        ).strip()
+
+        intake_path = str(
+            intake_document.get(
+                "intake_index_path"
+            )
+            or (
+                f"{base_path}/cyber2/"
+                f"intake/documents/"
+                f"{doc_id}.json"
+            )
+        )
+
+        _write_processing_json_blob(
+            blob_path=intake_path,
+            payload=intake_document,
+            overwrite=True,
+        )
 
     return {
         "status": "created",
