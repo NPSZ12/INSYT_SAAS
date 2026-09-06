@@ -9,6 +9,10 @@ from app.api.cyber_utility import (
     get_protocol_header_library,
 )
 
+from app.api.workspace_protocols import (
+    get_live_source_container_client,
+)
+
 from app.api.processing_center_azure import (
     _get_live_source_blob_service_client,
     _live_source_container,
@@ -181,11 +185,8 @@ def _load_protocol_library(
     )
 
     container = (
-        blob_service
-        .get_container_client(
-            _live_source_container(
-                workspace
-            )
+        get_live_source_container_client(
+            workspace
         )
     )
 
