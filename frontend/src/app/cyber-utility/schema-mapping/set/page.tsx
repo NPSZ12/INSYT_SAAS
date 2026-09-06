@@ -383,6 +383,22 @@ function SchemaMappingSetContent() {
       null
     );
 
+  const [
+    approvedDataElements,
+    setApprovedDataElements,
+  ] =
+    useState<Record<string, boolean>>(
+      {}
+    );
+
+  const [
+    expandedDataElement,
+    setExpandedDataElement,
+  ] =
+    useState<string | null>(
+      null
+    );
+
 
   function buildProjectParams() {
     const params =
@@ -1098,6 +1114,42 @@ function SchemaMappingSetContent() {
       protocolHeaders,
     ]);
 
+  useEffect(() => {
+    if (
+      consolidatedReviewGroups.length ===
+      0
+    ) {
+      setExpandedDataElement(
+        null
+      );
+
+      return;
+    }
+
+    setExpandedDataElement(
+      (current) => {
+        if (
+          current &&
+          consolidatedReviewGroups.some(
+            (group) =>
+              group.groupKey ===
+              current
+          )
+        ) {
+          return current;
+        }
+
+        return (
+          consolidatedReviewGroups[0]
+            ?.groupKey ||
+          null
+        );
+      }
+    );
+  }, [
+    consolidatedReviewGroups,
+  ]);
+
   const activeDocument =
     useMemo(
       () =>
@@ -1116,38 +1168,22 @@ function SchemaMappingSetContent() {
 
   const unmatchedKeys =
     useMemo(
-      () => {
-        const keys: string[] =
-          [];
-
-        for (
-          const document
-          of completedDocuments
-        ) {
-          for (
-            const column
-            of document.columns ||
-            []
-          ) {
-            if (
-              column.matched
-            ) {
-              continue;
-            }
-
-            keys.push(
-              decisionKey(
-                document.doc_id,
-                column.column_index
-              )
-            );
-          }
-        }
-
-        return keys;
-      },
+      () =>
+        consolidatedReviewRows
+          .filter(
+            (row) =>
+              !String(
+                row.column
+                  .recommended_protocol_header ||
+                ""
+              ).trim()
+          )
+          .map(
+            (row) =>
+              row.key
+          ),
       [
-        completedDocuments,
+        consolidatedReviewRows,
       ]
     );
 
@@ -1515,6 +1551,70 @@ function SchemaMappingSetContent() {
     );
   }
 
+  function approveDataElement(
+    groupKey: string
+  ) {
+    setApprovedDataElements(
+      (current) => ({
+        ...current,
+        [groupKey]: true,
+      })
+    );
+
+    const currentIndex =
+      consolidatedReviewGroups.findIndex(
+        (group) =>
+          group.groupKey ===
+          groupKey
+      );
+
+    let nextGroupKey:
+      string | null = null;
+
+    for (
+      let index =
+        currentIndex + 1;
+      index <
+        consolidatedReviewGroups.length;
+      index += 1
+    ) {
+      const candidate =
+        consolidatedReviewGroups[
+          index
+        ];
+
+      if (
+        !approvedDataElements[
+          candidate.groupKey
+        ]
+      ) {
+        nextGroupKey =
+          candidate.groupKey;
+
+        break;
+      }
+    }
+
+    setExpandedDataElement(
+      nextGroupKey
+    );
+  }
+
+
+  function reopenDataElement(
+    groupKey: string
+  ) {
+    setApprovedDataElements(
+      (current) => ({
+        ...current,
+        [groupKey]: false,
+      })
+    );
+
+    setExpandedDataElement(
+      groupKey
+    );
+  }
 
   async function approveMapping() {
     if (
@@ -2046,7 +2146,20 @@ function SchemaMappingSetContent() {
                     <div className="mt-4 space-y-5">
 
                       {consolidatedReviewGroups.map(
-                        (group) => (
+                        (group) => {
+
+                            const approved =
+                            Boolean(
+                                approvedDataElements[
+                                group.groupKey
+                                ]
+                            );
+
+                            const expanded =
+                            expandedDataElement ===
+                            group.groupKey;
+
+                            return (
 
                           <div
                             key={
@@ -2091,58 +2204,97 @@ function SchemaMappingSetContent() {
                               </div>
 
 
-                              {group.unmatched ? (
+                              <div className="flex flex-wrap items-center gap-2">
 
-                                <div className="flex flex-wrap gap-2">
+                                {group.unmatched ? (
+                                    <>
+                                    <button
+                                        type="button"
+                                        onClick={
+                                        selectAllUnmatched
+                                        }
+                                        className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
+                                    >
+                                        Select All Unmatched
+                                    </button>
 
-                                  <button
+                                    <button
+                                        type="button"
+                                        onClick={
+                                        clearUnmatchedSelection
+                                        }
+                                        className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
+                                    >
+                                        Clear Selection
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={
+                                        deleteSelectedUnmatched
+                                        }
+                                        disabled={
+                                        selectedUnmatchedCount ===
+                                        0
+                                        }
+                                        className="rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-950/50 disabled:opacity-40"
+                                    >
+                                        Delete Selected (
+                                        {
+                                        selectedUnmatchedCount
+                                        }
+                                        )
+                                    </button>
+                                    </>
+                                ) : null}
+
+
+                                {approved ? (
+                                    <span className="rounded-md border border-emerald-800 bg-emerald-950/30 px-3 py-1.5 text-xs font-semibold text-emerald-300">
+                                    Approved
+                                    </span>
+                                ) : (
+                                    <span className="rounded-md border border-amber-800 bg-amber-950/20 px-3 py-1.5 text-xs font-semibold text-amber-300">
+                                    Needs Review
+                                    </span>
+                                )}
+
+
+                                <button
                                     type="button"
-                                    onClick={
-                                      selectAllUnmatched
+                                    onClick={() => {
+                                    if (approved) {
+                                        reopenDataElement(
+                                        group.groupKey
+                                        );
+                                    } else {
+                                        setExpandedDataElement(
+                                        expanded
+                                            ? null
+                                            : group.groupKey
+                                        );
                                     }
-                                    className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
-                                  >
-                                    Select All Unmatched
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={
-                                      clearUnmatchedSelection
-                                    }
-                                    className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
-                                  >
-                                    Clear Selection
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={
-                                      deleteSelectedUnmatched
-                                    }
-                                    disabled={
-                                      selectedUnmatchedCount ===
-                                      0
-                                    }
-                                    className="rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-950/50 disabled:opacity-40"
-                                  >
-                                    Delete Selected (
-                                    {
-                                      selectedUnmatchedCount
-                                    }
-                                    )
-                                  </button>
+                                    }}
+                                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                                >
+                                    {approved
+                                    ? "Reopen"
+                                    : expanded
+                                        ? "Collapse ▲"
+                                        : "Review ▼"}
+                                </button>
 
                                 </div>
-
-                              ) : null}
 
                             </div>
 
 
-                            <div className="overflow-x-auto">
+                            {expanded ? (
+                                <>
 
-                              <table className="w-full min-w-[1450px] text-sm">
+                                    <div className="overflow-x-auto">
+
+                                    <table className="w-full min-w-[1450px] text-sm">
 
                                 <thead className="bg-slate-950 text-left text-[11px] uppercase tracking-wide text-slate-500">
 
@@ -2579,10 +2731,35 @@ function SchemaMappingSetContent() {
 
                             </div>
 
-                          </div>
+                                <div className="flex items-center justify-between gap-4 border-t border-slate-800 px-5 py-4">
 
-                        )
-                      )}
+                                    <div className="text-xs text-slate-500">
+                                        Approving this data element accepts the current mapping decisions for all source columns shown above.
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                        approveDataElement(
+                                            group.groupKey
+                                        )
+                                        }
+                                        className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500"
+                                    >
+                                        {group.unmatched
+                                        ? "Approve Unmatched Review"
+                                        : `Approve ${group.protocolHeader}`}
+                                    </button>
+
+                                    </div>
+
+                                </>
+                                ) : null}
+
+                          </div>
+                          );
+                        }
+                    )}
 
                     </div>
 

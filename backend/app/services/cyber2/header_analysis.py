@@ -993,6 +993,66 @@ SEMANTIC_HEADER_ALIASES = {
     ],
 }
 
+STRICT_SEMANTIC_TYPES = {
+    "email",
+    "ssn",
+    "phone",
+    "ip_address",
+    "date",
+    "zip_code",
+}
+
+
+def protocol_header_is_semantically_compatible(
+    *,
+    semantic_type: str,
+    protocol_header: str,
+    variations: list[str] | None = None,
+) -> bool:
+
+    semantic_type = str(
+        semantic_type or ""
+    ).strip().lower()
+
+    if semantic_type not in STRICT_SEMANTIC_TYPES:
+        return True
+
+    aliases = (
+        SEMANTIC_HEADER_ALIASES.get(
+            semantic_type,
+            [],
+        )
+    )
+
+    candidates = [
+        protocol_header,
+        *(variations or []),
+    ]
+
+    normalized_candidates = [
+        normalize_text(candidate)
+        for candidate in candidates
+        if str(candidate or "").strip()
+    ]
+
+    for alias in aliases:
+        normalized_alias = (
+            normalize_text(alias)
+        )
+
+        if not normalized_alias:
+            continue
+
+        for candidate in normalized_candidates:
+            if (
+                normalized_alias == candidate
+                or normalized_alias in candidate
+                or candidate in normalized_alias
+            ):
+                return True
+
+    return False
+
 
 def semantic_protocol_match(
     semantic_type: str,
@@ -1018,9 +1078,16 @@ def semantic_protocol_match(
     best_canonical = ""
     best_score = 0.0
 
-    for canonical in (
-        library.keys()
+    for canonical, variations in (
+        library.items()
     ):
+
+        if not protocol_header_is_semantically_compatible(
+            semantic_type=semantic_type,
+            protocol_header=canonical,
+            variations=variations,
+        ):
+            continue
         normalized_canonical = (
             normalize_text(
                 canonical
@@ -1269,6 +1336,55 @@ def recommend_protocol_header(
         recommended = ""
         combined_confidence = 0.0
         method = "unmatched"
+
+    #
+    # Strong structured-data semantics must not be
+    # overridden by an incompatible fuzzy text match.
+    #
+    semantic_type = str(
+        profile.get(
+            "semantic_type"
+        )
+        or ""
+    ).strip().lower()
+
+    if (
+        recommended
+        and semantic_type
+        in STRICT_SEMANTIC_TYPES
+        and semantic_profile_confidence
+        >= 0.85
+        and not protocol_header_is_semantically_compatible(
+            semantic_type=semantic_type,
+            protocol_header=recommended,
+            variations=library.get(
+                recommended,
+                [],
+            ),
+        )
+    ):
+        if semantic_canonical:
+            recommended = (
+                semantic_canonical
+            )
+
+            combined_confidence = (
+                0.65
+                * semantic_match_confidence
+                + 0.35
+                * semantic_profile_confidence
+            )
+
+            method = (
+                "semantic_conflict_override"
+            )
+
+        else:
+            recommended = ""
+            combined_confidence = 0.0
+            method = (
+                "semantic_conflict_unmatched"
+            )
 
     combined_confidence = (
         clamp_confidence(

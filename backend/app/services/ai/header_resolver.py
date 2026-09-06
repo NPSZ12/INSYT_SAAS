@@ -5,6 +5,10 @@ import os
 from typing import Any
 from openai import OpenAI
 
+from app.services.cyber2.header_analysis import (
+    protocol_header_is_semantically_compatible,
+)
+
 
 def ai_header_resolution_enabled() -> bool:
     return (
@@ -219,6 +223,27 @@ def resolve_header_with_ai(
             recommendation = (
                 canonical
             )
+            
+            if (
+                semantic_type
+                and not protocol_header_is_semantically_compatible(
+                    semantic_type=semantic_type,
+                    protocol_header=recommendation,
+                )
+            ):
+                return {
+                    "ai_invoked": True,
+                    "ai_status": (
+                        "semantic_conflict"
+                    ),
+                    "ai_recommendation": "",
+                    "ai_confidence": None,
+                    "ai_reason": (
+                        "AI recommendation conflicts "
+                        "with the detected column "
+                        f"semantic type: {semantic_type}."
+                    ),
+                }
 
         try:
             confidence = (
@@ -328,6 +353,18 @@ def build_ai_header_prompt_payload(
                 "Return JSON with exactly these fields: "
                 "recommendation, confidence, reason. "
                 "confidence must be between 0 and 1."
+            ),
+            (
+                "The semantic_type is evidence from the "
+                "actual column values. Do not map a "
+                "strongly typed value such as phone, "
+                "email, SSN, IP address, date, or ZIP "
+                "to a semantically incompatible field."
+            ),
+            (
+                "If no semantically compatible Project "
+                "Protocol header exists, return NO_MATCH "
+                "rather than forcing a mapping."
             ),
         ],
     }
