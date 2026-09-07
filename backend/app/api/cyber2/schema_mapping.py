@@ -19,6 +19,7 @@ from app.api.workspace_protocols import (
 from app.api.processing_center_azure import (
     _get_live_source_blob_service_client,
     _live_source_container,
+    _processing_container_client,
     _project_base_path,
     _read_processing_json_blob,
     _utc_now,
@@ -2021,9 +2022,7 @@ def generate_cyber2_mapped_csvs(
         )
 
     container = (
-        get_container_client(
-            workspace
-        )
+        _processing_container_client()
     )
 
     generated_at = (
