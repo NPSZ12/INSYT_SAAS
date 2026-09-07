@@ -370,6 +370,11 @@ function SchemaMappingSetContent() {
     ] =
     useState(false);
 
+  const [
+    generatingRawCapture,
+    setGeneratingRawCapture,
+  ] =
+    useState(false);
 
   const [
     decisions,
@@ -1900,6 +1905,56 @@ function SchemaMappingSetContent() {
     }
   }
 
+  async function generateRawCapture() {
+    if (
+      !client ||
+      !project ||
+      !headerSetId
+    ) {
+      return;
+    }
+
+    setGeneratingRawCapture(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const result =
+        await apiPost(
+          `/api/${encodeURIComponent(
+            workspace
+          )}/cyber2/header-sets/${encodeURIComponent(
+            headerSetId
+          )}/mapping/generate-raw-capture`,
+          {
+            client,
+            project,
+            generated_by: "",
+            replace_header_set_rows: true,
+          }
+        );
+
+      setMessage(
+        result?.message ||
+        "Raw XL capture generation completed."
+      );
+
+    } catch (err: any) {
+      console.error(
+        "Raw XL capture generation failed:",
+        err
+      );
+
+      setError(
+        err?.message ||
+        "Raw XL capture generation failed."
+      );
+
+    } finally {
+      setGeneratingRawCapture(false);
+    }
+  }
+
 
   if (
     !client ||
@@ -2973,32 +3028,58 @@ function SchemaMappingSetContent() {
 
                         <div>
 
-                        <h2 className="text-lg font-semibold text-white">
-                            Mapped CSV Outputs
-                        </h2>
+                            <h2 className="text-lg font-semibold text-white">
+                                Mapped CSV Outputs
+                            </h2>
 
-                        <p className="mt-1 text-sm text-slate-500">
-                            Generate new protocol-aligned working CSVs from the approved Header Set mapping.
-                            Source CSV files remain unchanged.
-                        </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                                Generate new protocol-aligned working CSVs from the approved Header Set mapping.
+                                Source CSV files remain unchanged.
+                            </p>
 
                         </div>
 
-                        <button
-                        type="button"
-                        onClick={
-                            generateMappedCsvs
-                        }
-                        disabled={
-                            generatingMappedCsvs ||
-                            !mappingData?.approved_mapping_exists
-                        }
-                        className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                        {generatingMappedCsvs
-                            ? "Generating..."
-                            : "Generate Mapped CSVs"}
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+
+                            <button
+                                type="button"
+                                onClick={
+                                generateMappedCsvs
+                                }
+                                disabled={
+                                generatingMappedCsvs ||
+                                !mappingData?.approved_mapping_exists
+                                }
+                                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {generatingMappedCsvs
+                                ? "Generating..."
+                                : "Generate Mapped CSVs"}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={
+                                generateRawCapture
+                                }
+                                disabled={
+                                generatingRawCapture ||
+                                !mappedCsvData?.mapped_csv_manifest_exists ||
+                                (
+                                    mappedCsvData
+                                    ?.mapped_csv_manifest
+                                    ?.generated_document_count ??
+                                    0
+                                ) === 0
+                                }
+                                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {generatingRawCapture
+                                ? "Generating Raw Capture..."
+                                : "Generate Raw Capture"}
+                            </button>
+
+                        </div>
 
                     </div>
 

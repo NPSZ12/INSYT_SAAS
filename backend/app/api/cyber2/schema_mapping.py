@@ -4,6 +4,7 @@ import csv
 import io
 
 from typing import Any, Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -84,6 +85,16 @@ class GenerateMappedCsvsRequest(
 
     overwrite_existing: bool = True
 
+class GenerateRawCaptureRequest(
+    BaseModel
+):
+    client: str
+    project: str
+
+    generated_by: str = ""
+
+    replace_header_set_rows: bool = True
+
 def _header_set_manifest_path(
     *,
     workspace: str,
@@ -106,6 +117,10 @@ def _header_set_manifest_path(
         f"{header_set_id}.json"
     )
 
+def _generate_cyber2_ucid() -> str:
+    return (
+        f"UCID-{uuid4().hex}"
+    )
 
 def _identification_path(
     *,
@@ -223,6 +238,27 @@ def _mapped_csv_manifest_path(
         f"header_mapping/"
         f"{header_set_id}/"
         f"mapped_csv_manifest.json"
+    )
+
+def _raw_capture_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+) -> str:
+
+    base_path = (
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    )
+
+    return (
+        f"{base_path}/cyber2/"
+        f"raw_capture/"
+        f"latest_raw_capture.json"
     )
 
 def _load_required_json(
@@ -1501,6 +1537,47 @@ def approve_cyber2_header_mapping(
                     )
                     or ""
                 ),
+                
+                "original_filename": (
+                    identified_document.get(
+                        "original_filename"
+                    )
+                    or ""
+                ),
+
+                "original_workbook_name": (
+                    identified_document.get(
+                        "original_workbook_name"
+                    )
+                    or ""
+                ),
+
+                "original_workbook_file_id": (
+                    identified_document.get(
+                        "original_workbook_file_id"
+                    )
+                    or ""
+                ),
+
+                "sheet_name": (
+                    identified_document.get(
+                        "sheet_name"
+                    )
+                    or ""
+                ),
+
+                "sheet_index": (
+                    identified_document.get(
+                        "sheet_index"
+                    )
+                ),
+
+                "sheet_visibility": (
+                    identified_document.get(
+                        "sheet_visibility"
+                    )
+                    or ""
+                ),
 
                 "classification": (
                     identified_document.get(
@@ -2208,6 +2285,47 @@ def generate_cyber2_mapped_csvs(
 
                     "mapped_csv_path":
                         mapped_csv_path,
+                        
+                    "original_filename": (
+                        approved_document.get(
+                            "original_filename"
+                        )
+                        or ""
+                    ),
+
+                    "original_workbook_name": (
+                        approved_document.get(
+                            "original_workbook_name"
+                        )
+                        or ""
+                    ),
+
+                    "original_workbook_file_id": (
+                        approved_document.get(
+                            "original_workbook_file_id"
+                        )
+                        or ""
+                    ),
+
+                    "sheet_name": (
+                        approved_document.get(
+                            "sheet_name"
+                        )
+                        or ""
+                    ),
+
+                    "sheet_index": (
+                        approved_document.get(
+                            "sheet_index"
+                        )
+                    ),
+
+                    "sheet_visibility": (
+                        approved_document.get(
+                            "sheet_visibility"
+                        )
+                        or ""
+                    ),
 
                     "header_status": (
                         approved_document.get(
@@ -2513,4 +2631,504 @@ def generate_cyber2_mapped_csvs(
 
         "source_csvs_modified":
             False,
+    }
+
+@router.post(
+    "/{workspace}/cyber2/"
+    "header-sets/{header_set_id}/"
+    "mapping/generate-raw-capture"
+)
+def generate_cyber2_raw_capture(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    header_set_id: str,
+    request: GenerateRawCaptureRequest,
+) -> dict[str, Any]:
+
+    client = str(
+        request.client or ""
+    ).strip()
+
+    project = str(
+        request.project or ""
+    ).strip()
+
+    header_set_id = str(
+        header_set_id or ""
+    ).strip()
+
+    if not client:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required.",
+        )
+
+    if not project:
+        raise HTTPException(
+            status_code=400,
+            detail="Project is required.",
+        )
+
+    mapped_manifest_path = (
+        _mapped_csv_manifest_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        )
+    )
+
+    mapped_manifest = (
+        _load_required_json(
+            mapped_manifest_path,
+            description=(
+                "Mapped CSV Manifest"
+            ),
+        )
+    )
+
+    mapped_documents = (
+        mapped_manifest.get(
+            "documents"
+        )
+        or []
+    )
+
+    if not isinstance(
+        mapped_documents,
+        list,
+    ):
+        mapped_documents = []
+
+    if not mapped_documents:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Mapped CSV outputs must be "
+                "generated before Raw Capture."
+            ),
+        )
+
+    raw_capture_path = (
+        _raw_capture_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    )
+
+    existing_payload: dict[
+        str,
+        Any,
+    ] = {}
+
+    try:
+        existing_payload = (
+            _read_processing_json_blob(
+                raw_capture_path
+            )
+        )
+
+        if not isinstance(
+            existing_payload,
+            dict,
+        ):
+            existing_payload = {}
+
+    except Exception:
+        existing_payload = {}
+
+    existing_records = (
+        existing_payload.get(
+            "records"
+        )
+        or []
+    )
+
+    if not isinstance(
+        existing_records,
+        list,
+    ):
+        existing_records = []
+
+    #
+    # Re-running one Header Set must not
+    # duplicate its existing raw rows.
+    #
+    if request.replace_header_set_rows:
+        existing_records = [
+            record
+            for record
+            in existing_records
+            if str(
+                (
+                    record.get(
+                        "provenance"
+                    )
+                    or {}
+                ).get(
+                    "header_set_id"
+                )
+                or ""
+            ).strip()
+            != header_set_id
+        ]
+
+    output_container = (
+        _processing_container_client()
+    )
+
+    generated_at = (
+        _utc_now()
+    )
+
+    new_records: list[
+        dict[str, Any]
+    ] = []
+
+    failed_documents: list[
+        dict[str, Any]
+    ] = []
+
+    for document in mapped_documents:
+
+        if not isinstance(
+            document,
+            dict,
+        ):
+            continue
+
+        doc_id = str(
+            document.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+
+        mapped_csv_path = str(
+            document.get(
+                "mapped_csv_path"
+            )
+            or ""
+        ).strip()
+
+        if (
+            not doc_id
+            or not mapped_csv_path
+        ):
+            failed_documents.append(
+                {
+                    "doc_id": doc_id,
+                    "error": (
+                        "Doc ID or mapped CSV "
+                        "path is missing."
+                    ),
+                }
+            )
+
+            continue
+
+        try:
+            (
+                mapped_rows,
+                _mapped_delimiter,
+            ) = (
+                _read_csv_blob_rows(
+                    container=(
+                        output_container
+                    ),
+                    blob_path=(
+                        mapped_csv_path
+                    ),
+                )
+            )
+
+            if not mapped_rows:
+                continue
+
+            mapped_headers = [
+                str(
+                    value or ""
+                ).strip()
+                for value
+                in mapped_rows[0]
+            ]
+
+            data_rows = (
+                mapped_rows[1:]
+            )
+
+            header_status = str(
+                document.get(
+                    "header_status"
+                )
+                or ""
+            ).strip().upper()
+
+            for data_index, row in enumerate(
+                data_rows
+            ):
+
+                #
+                # Original source row numbering:
+                #
+                # HEADER:
+                # mapped data row 1 came from source row 2.
+                #
+                # NO_HEADER:
+                # mapped data row 1 came from source row 1.
+                #
+                if header_status == "HEADER":
+                    source_row_number = (
+                        data_index + 2
+                    )
+
+                else:
+                    source_row_number = (
+                        data_index + 1
+                    )
+
+                metadata: dict[
+                    str,
+                    Any,
+                ] = {}
+
+                for column_index, header in enumerate(
+                    mapped_headers
+                ):
+
+                    if not header:
+                        continue
+
+                    metadata[
+                        header
+                    ] = (
+                        row[
+                            column_index
+                        ]
+                        if column_index
+                        < len(row)
+                        else ""
+                    )
+
+                ucid = (
+                    _generate_cyber2_ucid()
+                )
+
+                metadata[
+                    "UCID"
+                ] = ucid
+
+                new_records.append(
+                    {
+                        "ucid":
+                            ucid,
+
+                        "doc_id":
+                            doc_id,
+
+                        "metadata":
+                            metadata,
+
+                        "provenance": {
+                            "capture_source":
+                                "xl",
+
+                            "header_set_id":
+                                header_set_id,
+
+                            "original_filename": (
+                                document.get(
+                                    "original_filename"
+                                )
+                                or ""
+                            ),
+
+                            "original_workbook_name": (
+                                document.get(
+                                    "original_workbook_name"
+                                )
+                                or ""
+                            ),
+
+                            "original_workbook_file_id": (
+                                document.get(
+                                    "original_workbook_file_id"
+                                )
+                                or ""
+                            ),
+
+                            "sheet_name": (
+                                document.get(
+                                    "sheet_name"
+                                )
+                                or ""
+                            ),
+
+                            "sheet_index": (
+                                document.get(
+                                    "sheet_index"
+                                )
+                            ),
+
+                            "sheet_visibility": (
+                                document.get(
+                                    "sheet_visibility"
+                                )
+                                or ""
+                            ),
+
+                            "source_row_number":
+                                source_row_number,
+
+                            "source_csv_path": (
+                                document.get(
+                                    "source_csv_path"
+                                )
+                                or ""
+                            ),
+
+                            "mapped_csv_path":
+                                mapped_csv_path,
+
+                            "generated_at":
+                                generated_at,
+                        },
+                    }
+                )
+
+        except Exception as exc:
+            failed_documents.append(
+                {
+                    "doc_id":
+                        doc_id,
+
+                    "mapped_csv_path":
+                        mapped_csv_path,
+
+                    "error":
+                        str(exc),
+                }
+            )
+
+    combined_records = [
+        *existing_records,
+        *new_records,
+    ]
+
+    payload = {
+        "schema_version": 1,
+
+        "workspace":
+            workspace,
+
+        "client":
+            client,
+
+        "project":
+            project,
+
+        "status": (
+            "completed"
+            if not failed_documents
+            else (
+                "completed_with_errors"
+                if new_records
+                else "failed"
+            )
+        ),
+
+        "generated_at":
+            generated_at,
+
+        "generated_by": str(
+            request.generated_by
+            or ""
+        ).strip(),
+
+        "record_count": (
+            len(
+                combined_records
+            )
+        ),
+
+        "header_set_record_count": (
+            len(
+                new_records
+            )
+        ),
+
+        "failed_document_count": (
+            len(
+                failed_documents
+            )
+        ),
+
+        "records":
+            combined_records,
+
+        "failed_documents":
+            failed_documents,
+    }
+
+    _write_processing_json_blob(
+        blob_path=(
+            raw_capture_path
+        ),
+        payload=payload,
+        overwrite=True,
+    )
+
+    return {
+        "status":
+            payload[
+                "status"
+            ],
+
+        "message": (
+            f"Generated "
+            f"{len(new_records)} "
+            f"Raw XL capture row(s); "
+            f"{len(failed_documents)} "
+            f"document(s) failed."
+        ),
+
+        "workspace":
+            workspace,
+
+        "client":
+            client,
+
+        "project":
+            project,
+
+        "header_set_id":
+            header_set_id,
+
+        "raw_capture_path":
+            raw_capture_path,
+
+        "header_set_record_count": (
+            len(
+                new_records
+            )
+        ),
+
+        "project_raw_record_count": (
+            len(
+                combined_records
+            )
+        ),
+
+        "failed_document_count": (
+            len(
+                failed_documents
+            )
+        ),
+
+        "failed_documents":
+            failed_documents,
     }

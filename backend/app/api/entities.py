@@ -17,6 +17,7 @@ from typing import Any
 
 from app.services.batch_service import get_container_client
 from app.services.storage_paths import build_project_base_path
+from app.api.processing_center_azure import _read_processing_json_blob
 
 
 def clean_path(value: str | None) -> str:
@@ -218,6 +219,63 @@ def load_latest_overlay_records(
     )
 
     return payload.get("records", [])
+
+def load_cyber2_raw_capture_records(
+    workspace: str,
+    client: str | None,
+    project: str,
+) -> list[dict[str, Any]]:
+
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    raw_capture_path = (
+        f"{base_path}/cyber2/"
+        f"raw_capture/"
+        f"latest_raw_capture.json"
+    )
+
+    try:
+        payload = (
+            _read_processing_json_blob(
+                raw_capture_path
+            )
+        )
+
+    except Exception:
+        return []
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return []
+
+    records = (
+        payload.get(
+            "records"
+        )
+        or []
+    )
+
+    if not isinstance(
+        records,
+        list,
+    ):
+        return []
+
+    return [
+        record
+        for record
+        in records
+        if isinstance(
+            record,
+            dict,
+        )
+    ]
 
 def safe_export_name(value: str, fallback: str = "export") -> str:
     clean = "".join(
@@ -495,6 +553,88 @@ def list_entities(
         and (not batch or entity.get("batch_id") == batch)
         and entity.get("entity_view", "raw") == normalized_view
     )
+    
+    if normalized_view == "raw":
+        for index, record in enumerate(
+            load_cyber2_raw_capture_records(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+        ):
+            metadata = (
+                record.get(
+                    "metadata"
+                )
+                or {}
+            )
+
+            provenance = (
+                record.get(
+                    "provenance"
+                )
+                or {}
+            )
+
+            matching_entities.append(
+                {
+                    "id": (
+                        f"cyber2-xl-"
+                        f"{index}"
+                    ),
+
+                    "ucid": (
+                        record.get(
+                            "ucid"
+                        )
+                        or metadata.get(
+                            "UCID"
+                        )
+                        or ""
+                    ),
+
+                    "UCID": (
+                        record.get(
+                            "ucid"
+                        )
+                        or metadata.get(
+                            "UCID"
+                        )
+                        or ""
+                    ),
+
+                    "project_id":
+                        project,
+
+                    "batch_id":
+                        "Cyber2 XL",
+
+                    "doc_id": (
+                        record.get(
+                            "doc_id"
+                        )
+                        or ""
+                    ),
+
+                    "captured_by":
+                        "Cyber² XL",
+
+                    "linked":
+                        True,
+
+                    "source":
+                        "cyber2_xl",
+
+                    "xl_mapped":
+                        True,
+
+                    "values":
+                        metadata,
+
+                    "provenance":
+                        provenance,
+                }
+            )
 
     captured_value_headers = []
 
@@ -606,9 +746,123 @@ def list_document_entities(
         if is_deleted_entity(review_state, overlay_entity):
             continue
 
-        overlay_entities.append(overlay_entity)
+        overlay_entities.append(
+            overlay_entity
+        )
 
-    return manual_entities + overlay_entities
+    cyber2_entities = []
+
+    if (
+        str(
+            view or ""
+        ).strip().lower()
+        != "final"
+    ):
+        for index, record in enumerate(
+            load_cyber2_raw_capture_records(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+        ):
+            record_doc_id = str(
+                record.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+
+            if (
+                normalize_doc_lookup(
+                    record_doc_id
+                )
+                != normalized_doc
+            ):
+                continue
+
+            metadata = (
+                record.get(
+                    "metadata"
+                )
+                or {}
+            )
+
+            provenance = (
+                record.get(
+                    "provenance"
+                )
+                or {}
+            )
+
+            cyber2_entity = {
+                "id": (
+                    f"cyber2-xl-"
+                    f"{index}"
+                ),
+
+                "ucid": (
+                    record.get(
+                        "ucid"
+                    )
+                    or metadata.get(
+                        "UCID"
+                    )
+                    or ""
+                ),
+
+                "UCID": (
+                    record.get(
+                        "ucid"
+                    )
+                    or metadata.get(
+                        "UCID"
+                    )
+                    or ""
+                ),
+
+                "project_id":
+                    project,
+
+                "batch_id":
+                    "Cyber2 XL",
+
+                "doc_id":
+                    record_doc_id,
+
+                "captured_by":
+                    "Cyber² XL",
+
+                "linked":
+                    True,
+
+                "source":
+                    "cyber2_xl",
+
+                "xl_mapped":
+                    True,
+
+                "values":
+                    metadata,
+
+                "provenance":
+                    provenance,
+            }
+
+            if is_deleted_entity(
+                review_state,
+                cyber2_entity,
+            ):
+                continue
+
+            cyber2_entities.append(
+                cyber2_entity
+            )
+
+    return (
+        manual_entities
+        + overlay_entities
+        + cyber2_entities
+    )
 
 @router.post("/export-source-docs")
 def export_source_docs(
