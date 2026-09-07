@@ -179,6 +179,47 @@ type HeaderSetResponse = {
   identification_path?: string;
 };
 
+type MappedCsvDocument = {
+  doc_id?: string;
+  status?: string;
+  source_csv_path?: string;
+  mapped_csv_path?: string;
+  header_status?: string;
+  source_delimiter?: string;
+  output_delimiter?: string;
+  source_row_count?: number;
+  mapped_row_count?: number;
+  source_column_count?: number;
+  mapped_column_count?: number;
+  output_headers?: string[];
+  protocol_headers_present?: string[];
+  custom_headers_retained?: string[];
+  deleted_headers?: string[];
+  generated_at?: string;
+};
+
+type MappedCsvManifest = {
+  status?: string;
+  generated_at?: string;
+  generated_by?: string;
+  document_count?: number;
+  generated_document_count?: number;
+  failed_document_count?: number;
+  total_source_rows?: number;
+  total_mapped_rows?: number;
+  documents?: MappedCsvDocument[];
+  failed_documents?: any[];
+};
+
+type MappedCsvResponse = {
+  workspace?: string;
+  client?: string;
+  project?: string;
+  header_set_id?: string;
+  mapped_csv_manifest_exists?: boolean;
+  mapped_csv_manifest_path?: string;
+  mapped_csv_manifest?: MappedCsvManifest | null;
+};
 
 type MappingResponse = {
   workspace?: string;
@@ -315,6 +356,20 @@ function SchemaMappingSetContent() {
       null
     );
 
+  const [
+    mappedCsvData,
+    setMappedCsvData,
+    ] =
+    useState<MappedCsvResponse | null>(
+        null
+    );
+
+  const [
+    generatingMappedCsvs,
+    setGeneratingMappedCsvs,
+    ] =
+    useState(false);
+
 
   const [
     decisions,
@@ -446,6 +501,47 @@ function SchemaMappingSetContent() {
     );
   }
 
+  function openMappedCsv(
+    document: MappedCsvDocument
+  ) {
+    const mappedPath =
+      String(
+        document.mapped_csv_path ||
+        ""
+      ).trim();
+
+    const docId =
+      String(
+        document.doc_id ||
+        ""
+      ).trim();
+
+    if (
+      !mappedPath ||
+      !docId
+    ) {
+      setError(
+        "Mapped CSV path or Doc ID is missing."
+      );
+
+      return;
+    }
+
+    const params =
+      new URLSearchParams({
+        workspace,
+        client,
+        project,
+        doc_id: docId,
+        blob_path: mappedPath,
+        source: "cyber2_mapped_csv",
+      });
+
+    router.push(
+      `/capture/review/doc?${params.toString()}`
+    );
+  }
+
 
   async function loadHeaderSet() {
     if (
@@ -483,6 +579,7 @@ function SchemaMappingSetContent() {
         response?.identification_exists
       ) {
         await loadMapping();
+        await loadMappedCsvs();
       }
 
     } catch (err: any) {
@@ -531,6 +628,35 @@ function SchemaMappingSetContent() {
     );
 
     initializeDecisions(
+      response
+    );
+  }
+
+  async function loadMappedCsvs() {
+    if (
+      !client ||
+      !project ||
+      !headerSetId
+    ) {
+      return;
+    }
+
+    const params =
+      new URLSearchParams({
+        client,
+        project,
+      });
+
+    const response =
+      await apiGet(
+        `/api/${encodeURIComponent(
+          workspace
+        )}/cyber2/header-sets/${encodeURIComponent(
+          headerSetId
+        )}/mapping/mapped-csvs?${params.toString()}`
+      );
+
+    setMappedCsvData(
       response
     );
   }
@@ -1722,6 +1848,58 @@ function SchemaMappingSetContent() {
     }
   }
 
+  async function generateMappedCsvs() {
+    if (
+      !client ||
+      !project ||
+      !headerSetId
+    ) {
+      return;
+    }
+
+    setGeneratingMappedCsvs(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const result =
+        await apiPost(
+          `/api/${encodeURIComponent(
+            workspace
+          )}/cyber2/header-sets/${encodeURIComponent(
+            headerSetId
+          )}/mapping/generate-mapped-csvs`,
+          {
+            client,
+            project,
+            generated_by: "",
+            overwrite_existing: true,
+          }
+        );
+
+      setMessage(
+        result?.message ||
+        "Mapped CSV generation completed."
+      );
+
+      await loadMappedCsvs();
+
+    } catch (err: any) {
+      console.error(
+        "Mapped CSV generation failed:",
+        err
+      );
+
+      setError(
+        err?.message ||
+        "Mapped CSV generation failed."
+      );
+
+    } finally {
+      setGeneratingMappedCsvs(false);
+    }
+  }
+
 
   if (
     !client ||
@@ -2788,6 +2966,269 @@ function SchemaMappingSetContent() {
                   </button>
 
                 </div>
+
+                <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/60">
+
+                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 px-5 py-4">
+
+                        <div>
+
+                        <h2 className="text-lg font-semibold text-white">
+                            Mapped CSV Outputs
+                        </h2>
+
+                        <p className="mt-1 text-sm text-slate-500">
+                            Generate new protocol-aligned working CSVs from the approved Header Set mapping.
+                            Source CSV files remain unchanged.
+                        </p>
+
+                        </div>
+
+                        <button
+                        type="button"
+                        onClick={
+                            generateMappedCsvs
+                        }
+                        disabled={
+                            generatingMappedCsvs ||
+                            !mappingData?.approved_mapping_exists
+                        }
+                        className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                        {generatingMappedCsvs
+                            ? "Generating..."
+                            : "Generate Mapped CSVs"}
+                        </button>
+
+                    </div>
+
+
+                    {!mappingData?.approved_mapping_exists ? (
+
+                        <div className="px-5 py-8 text-center text-sm text-slate-500">
+                        Approve Header Mapping before generating mapped CSV outputs.
+                        </div>
+
+                    ) : !mappedCsvData
+                        ?.mapped_csv_manifest_exists ? (
+
+                        <div className="px-5 py-8 text-center text-sm text-slate-500">
+                        No mapped CSV outputs have been generated yet.
+                        </div>
+
+                    ) : (
+
+                        <>
+
+                        <div className="grid gap-4 border-b border-slate-800 px-5 py-4 md:grid-cols-4">
+
+                            <MetricCard
+                            label="Generated"
+                            value={String(
+                                mappedCsvData
+                                ?.mapped_csv_manifest
+                                ?.generated_document_count ??
+                                0
+                            )}
+                            />
+
+                            <MetricCard
+                            label="Failed"
+                            value={String(
+                                mappedCsvData
+                                ?.mapped_csv_manifest
+                                ?.failed_document_count ??
+                                0
+                            )}
+                            />
+
+                            <MetricCard
+                            label="Source Rows"
+                            value={String(
+                                mappedCsvData
+                                ?.mapped_csv_manifest
+                                ?.total_source_rows ??
+                                0
+                            )}
+                            />
+
+                            <MetricCard
+                            label="Mapped Rows"
+                            value={String(
+                                mappedCsvData
+                                ?.mapped_csv_manifest
+                                ?.total_mapped_rows ??
+                                0
+                            )}
+                            />
+
+                        </div>
+
+
+                        <div className="overflow-x-auto">
+
+                            <table className="w-full min-w-[1100px] text-sm">
+
+                            <thead className="bg-slate-950 text-left text-[11px] uppercase tracking-wide text-slate-500">
+
+                                <tr>
+
+                                <th className="px-4 py-3">
+                                    Doc ID
+                                </th>
+
+                                <th className="px-4 py-3">
+                                    Rows
+                                </th>
+
+                                <th className="px-4 py-3">
+                                    Columns
+                                </th>
+
+                                <th className="px-4 py-3">
+                                    Protocol Fields
+                                </th>
+
+                                <th className="px-4 py-3">
+                                    Custom Fields
+                                </th>
+
+                                <th className="px-4 py-3">
+                                    Deleted
+                                </th>
+
+                                <th className="px-4 py-3">
+                                    Status
+                                </th>
+
+                                <th className="px-4 py-3">
+                                    Merge Ready
+                                </th>
+
+                                <th className="px-4 py-3">
+                                    Action
+                                </th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody className="divide-y divide-slate-800">
+
+                                {(
+                                mappedCsvData
+                                    ?.mapped_csv_manifest
+                                    ?.documents ||
+                                []
+                                ).map(
+                                (document) => (
+
+                                    <tr
+                                    key={
+                                        document.doc_id
+                                    }
+                                    className="bg-slate-950/20"
+                                    >
+
+                                    <td className="px-4 py-4 font-mono text-xs text-sky-400">
+                                        {
+                                        document.doc_id
+                                        }
+                                    </td>
+
+                                    <td className="px-4 py-4 text-slate-300">
+                                        {
+                                        document.mapped_row_count ??
+                                        0
+                                        }
+                                    </td>
+
+                                    <td className="px-4 py-4 text-slate-300">
+                                        {
+                                        document.mapped_column_count ??
+                                        0
+                                        }
+                                    </td>
+
+                                    <td className="px-4 py-4 text-slate-300">
+                                        {
+                                        document
+                                            .protocol_headers_present
+                                            ?.length ??
+                                        0
+                                        }
+                                    </td>
+
+                                    <td className="px-4 py-4 text-slate-300">
+                                        {
+                                        document
+                                            .custom_headers_retained
+                                            ?.length ??
+                                        0
+                                        }
+                                    </td>
+
+                                    <td className="px-4 py-4 text-slate-300">
+                                        {
+                                        document
+                                            .deleted_headers
+                                            ?.length ??
+                                        0
+                                        }
+                                    </td>
+
+                                    <td className="px-4 py-4">
+                                        <span className="rounded-md border border-emerald-800 bg-emerald-950/30 px-2 py-1 text-xs font-semibold text-emerald-300">
+                                            {
+                                            formatStatus(
+                                                document.status
+                                            )
+                                            }
+                                        </span>
+                                        </td>
+
+                                        <td className="px-4 py-4">
+                                        <span className="rounded-md border border-sky-800 bg-sky-950/30 px-2 py-1 text-xs font-semibold text-sky-300">
+                                            Ready
+                                        </span>
+                                        </td>
+
+                                        <td className="px-4 py-4">
+
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                            openMappedCsv(
+                                                document
+                                            )
+                                            }
+                                            disabled={
+                                            !document.mapped_csv_path
+                                            }
+                                            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                            Open
+                                        </button>
+
+                                        </td>
+
+                                        </tr>
+
+                                    )
+                                )}
+
+                            </tbody>
+
+                            </table>
+
+                        </div>
+
+                        </>
+
+                    )}
+
+                    </div>
 
               </>
 

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import csv
+import io
+
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -68,6 +71,15 @@ class ApproveHeaderMappingRequest(
 
     approved_by: str = ""
 
+class GenerateMappedCsvsRequest(
+    BaseModel
+):
+    client: str
+    project: str
+
+    generated_by: str = ""
+
+    overwrite_existing: bool = True
 
 def _header_set_manifest_path(
     *,
@@ -139,6 +151,76 @@ def _approved_mapping_path(
         f"approved_mapping.json"
     )
 
+def _mapped_csv_folder_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    header_set_id: str,
+) -> str:
+
+    base_path = (
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    )
+
+    return (
+        f"{base_path}/cyber2/"
+        f"header_mapping/"
+        f"{header_set_id}/"
+        f"mapped_csv"
+    )
+
+
+def _mapped_csv_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    header_set_id: str,
+    doc_id: str,
+) -> str:
+
+    folder_path = (
+        _mapped_csv_folder_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        )
+    )
+
+    return (
+        f"{folder_path}/"
+        f"{doc_id}.csv"
+    )
+
+
+def _mapped_csv_manifest_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    header_set_id: str,
+) -> str:
+
+    base_path = (
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    )
+
+    return (
+        f"{base_path}/cyber2/"
+        f"header_mapping/"
+        f"{header_set_id}/"
+        f"mapped_csv_manifest.json"
+    )
 
 def _load_required_json(
     blob_path: str,
@@ -227,6 +309,452 @@ def _normalize_header(
         .split()
     )
 
+def _decode_csv_bytes(
+    payload: bytes,
+) -> str:
+
+    if not payload:
+        return ""
+
+    try:
+        return payload.decode(
+            "utf-8-sig"
+        )
+
+    except UnicodeDecodeError:
+        return payload.decode(
+            "cp1252"
+        )
+
+
+def _detect_csv_delimiter(
+    text: str,
+) -> str:
+
+    sample = text[:8192]
+
+    try:
+        dialect = (
+            csv.Sniffer().sniff(
+                sample,
+                delimiters=",\t;|",
+            )
+        )
+
+        delimiter = str(
+            dialect.delimiter
+            or ","
+        )
+
+        if delimiter:
+            return delimiter
+
+    except csv.Error:
+        pass
+
+    return ","
+
+
+def _read_csv_blob_rows(
+    *,
+    container: Any,
+    blob_path: str,
+) -> tuple[list[list[str]], str]:
+
+    blob_client = (
+        container.get_blob_client(
+            blob_path
+        )
+    )
+
+    raw_bytes = (
+        blob_client
+        .download_blob()
+        .readall()
+    )
+
+    text = (
+        _decode_csv_bytes(
+            raw_bytes
+        )
+    )
+
+    delimiter = (
+        _detect_csv_delimiter(
+            text
+        )
+    )
+
+    rows = list(
+        csv.reader(
+            io.StringIO(
+                text
+            ),
+            delimiter=delimiter,
+        )
+    )
+
+    return (
+        rows,
+        delimiter,
+    )
+
+
+def _write_csv_blob_rows(
+    *,
+    container: Any,
+    blob_path: str,
+    rows: list[list[Any]],
+    overwrite: bool,
+) -> None:
+
+    output = (
+        io.StringIO(
+            newline=""
+        )
+    )
+
+    writer = csv.writer(
+        output,
+        delimiter=",",
+        lineterminator="\n",
+    )
+
+    for row in rows:
+        writer.writerow(
+            [
+                ""
+                if value is None
+                else value
+                for value in row
+            ]
+        )
+
+    payload = (
+        "\ufeff"
+        + output.getvalue()
+    ).encode(
+        "utf-8"
+    )
+
+    blob_client = (
+        container.get_blob_client(
+            blob_path
+        )
+    )
+
+    blob_client.upload_blob(
+        payload,
+        overwrite=overwrite,
+    )
+    
+def _generate_mapped_document_rows(
+    *,
+    source_rows: list[list[str]],
+    approved_document: dict[str, Any],
+    protocol_headers: list[str],
+) -> dict[str, Any]:
+
+    header_status = str(
+        approved_document.get(
+            "header_status"
+        )
+        or ""
+    ).strip().upper()
+
+    approved_columns = (
+        approved_document.get(
+            "columns"
+        )
+        or []
+    )
+
+    if not isinstance(
+        approved_columns,
+        list,
+    ):
+        approved_columns = []
+
+    #
+    # HEADER:
+    #   Row 1 is source metadata and is
+    #   replaced by approved final headers.
+    #
+    # NO_HEADER / NEEDS_REVIEW:
+    #   Row 1 remains data.
+    #
+    if header_status == "HEADER":
+        data_rows = (
+            source_rows[1:]
+            if source_rows
+            else []
+        )
+
+    else:
+        data_rows = (
+            source_rows
+        )
+
+    retained_columns: list[
+        dict[str, Any]
+    ] = []
+
+    for column in approved_columns:
+
+        if not isinstance(
+            column,
+            dict,
+        ):
+            continue
+
+        if bool(
+            column.get(
+                "delete_column"
+            )
+        ):
+            continue
+
+        final_header = str(
+            column.get(
+                "final_header"
+            )
+            or ""
+        ).strip()
+
+        if not final_header:
+            continue
+
+        try:
+            column_index = int(
+                column.get(
+                    "column_index"
+                )
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        retained_columns.append(
+            {
+                **column,
+                "column_index":
+                    column_index,
+                "final_header":
+                    final_header,
+            }
+        )
+
+    #
+    # Do not permit duplicate output
+    # headers inside one mapped CSV.
+    #
+    duplicate_check: dict[
+        str,
+        list[int],
+    ] = {}
+
+    for column in retained_columns:
+
+        normalized = (
+            _normalize_header(
+                column[
+                    "final_header"
+                ]
+            )
+        )
+
+        duplicate_check.setdefault(
+            normalized,
+            [],
+        ).append(
+            int(
+                column[
+                    "column_index"
+                ]
+            )
+        )
+
+    duplicates = {
+        key: indexes
+        for key, indexes
+        in duplicate_check.items()
+        if key
+        and len(indexes) > 1
+    }
+
+    if duplicates:
+        raise ValueError(
+            "Multiple source columns map "
+            "to the same final output header: "
+            f"{duplicates}"
+        )
+
+    protocol_order = {
+        _normalize_header(
+            header
+        ): index
+        for index, header
+        in enumerate(
+            protocol_headers
+        )
+    }
+
+    retained_columns.sort(
+        key=lambda column: (
+            protocol_order.get(
+                _normalize_header(
+                    column[
+                        "final_header"
+                    ]
+                ),
+                1_000_000,
+            ),
+
+            int(
+                column[
+                    "column_index"
+                ]
+            ),
+        )
+    )
+
+    output_headers = [
+        str(
+            column[
+                "final_header"
+            ]
+        )
+        for column
+        in retained_columns
+    ]
+
+    output_rows: list[
+        list[Any]
+    ] = [
+        output_headers
+    ]
+
+    for source_row in data_rows:
+
+        output_row: list[
+            Any
+        ] = []
+
+        for column in (
+            retained_columns
+        ):
+            column_index = int(
+                column[
+                    "column_index"
+                ]
+            )
+
+            value = (
+                source_row[
+                    column_index
+                ]
+                if column_index
+                < len(
+                    source_row
+                )
+                else ""
+            )
+
+            output_row.append(
+                value
+            )
+
+        output_rows.append(
+            output_row
+        )
+
+    protocol_headers_present = [
+        header
+        for header
+        in output_headers
+        if _normalize_header(
+            header
+        )
+        in protocol_order
+    ]
+
+    custom_headers_retained = [
+        header
+        for header
+        in output_headers
+        if _normalize_header(
+            header
+        )
+        not in protocol_order
+    ]
+
+    deleted_headers = [
+        str(
+            column.get(
+                "source_header"
+            )
+            or ""
+        ).strip()
+        for column
+        in approved_columns
+        if isinstance(
+            column,
+            dict,
+        )
+        and bool(
+            column.get(
+                "delete_column"
+            )
+        )
+    ]
+
+    return {
+        "rows": output_rows,
+
+        "output_headers":
+            output_headers,
+
+        "protocol_headers_present":
+            protocol_headers_present,
+
+        "custom_headers_retained":
+            custom_headers_retained,
+
+        "deleted_headers":
+            deleted_headers,
+
+        "source_row_count": (
+            len(
+                data_rows
+            )
+        ),
+
+        "mapped_row_count": (
+            len(
+                data_rows
+            )
+        ),
+
+        "source_column_count": (
+            max(
+                (
+                    len(row)
+                    for row
+                    in source_rows
+                ),
+                default=0,
+            )
+        ),
+
+        "mapped_column_count": (
+            len(
+                output_headers
+            )
+        ),
+    }
 
 @router.get(
     "/{workspace}/cyber2/"
@@ -1310,4 +1838,642 @@ def approve_cyber2_header_mapping(
         "source_csvs_modified": (
             False
         ),
+    }
+    
+@router.get(
+    "/{workspace}/cyber2/"
+    "header-sets/{header_set_id}/"
+    "mapping/mapped-csvs"
+)
+def get_cyber2_mapped_csvs(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    header_set_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+
+    manifest_blob_path = (
+        _mapped_csv_manifest_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        )
+    )
+
+    mapped_manifest = None
+
+    try:
+        mapped_manifest = (
+            _read_processing_json_blob(
+                manifest_blob_path
+            )
+        )
+
+    except Exception:
+        mapped_manifest = None
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+
+        "header_set_id":
+            header_set_id,
+
+        "mapped_csv_manifest_exists":
+            isinstance(
+                mapped_manifest,
+                dict,
+            ),
+
+        "mapped_csv_manifest_path":
+            manifest_blob_path,
+
+        "mapped_csv_manifest":
+            mapped_manifest,
+    }    
+
+@router.post(
+    "/{workspace}/cyber2/"
+    "header-sets/{header_set_id}/"
+    "mapping/generate-mapped-csvs"
+)
+
+def generate_cyber2_mapped_csvs(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    header_set_id: str,
+    request: GenerateMappedCsvsRequest,
+) -> dict[str, Any]:
+
+    client = str(
+        request.client or ""
+    ).strip()
+
+    project = str(
+        request.project or ""
+    ).strip()
+
+    header_set_id = str(
+        header_set_id or ""
+    ).strip()
+
+    if not client:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required.",
+        )
+
+    if not project:
+        raise HTTPException(
+            status_code=400,
+            detail="Project is required.",
+        )
+
+    if not header_set_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Header Set ID is required."
+            ),
+        )
+
+    approved_mapping_blob_path = (
+        _approved_mapping_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        )
+    )
+
+    approved_mapping = (
+        _load_required_json(
+            approved_mapping_blob_path,
+            description=(
+                "Approved Header Mapping"
+            ),
+        )
+    )
+
+    if (
+        str(
+            approved_mapping.get(
+                "status"
+            )
+            or ""
+        ).strip().lower()
+        != "approved"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Header mapping must be "
+                "approved before mapped CSVs "
+                "can be generated."
+            ),
+        )
+
+    protocol_headers = (
+        approved_mapping.get(
+            "canonical_column_order"
+        )
+        or approved_mapping.get(
+            "protocol_headers"
+        )
+        or []
+    )
+
+    if not isinstance(
+        protocol_headers,
+        list,
+    ):
+        protocol_headers = []
+
+    approved_documents = (
+        approved_mapping.get(
+            "documents"
+        )
+        or []
+    )
+
+    if not isinstance(
+        approved_documents,
+        list,
+    ):
+        approved_documents = []
+
+    if not approved_documents:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Approved mapping contains "
+                "no documents."
+            ),
+        )
+
+    container = (
+        get_container_client(
+            workspace
+        )
+    )
+
+    generated_at = (
+        _utc_now()
+    )
+
+    generated_documents: list[
+        dict[str, Any]
+    ] = []
+
+    failed_documents: list[
+        dict[str, Any]
+    ] = []
+
+    total_source_rows = 0
+    total_mapped_rows = 0
+
+    for approved_document in (
+        approved_documents
+    ):
+
+        if not isinstance(
+            approved_document,
+            dict,
+        ):
+            continue
+
+        doc_id = str(
+            approved_document.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+
+        source_csv_path = str(
+            approved_document.get(
+                "source_csv_path"
+            )
+            or ""
+        ).strip()
+
+        if (
+            not doc_id
+            or not source_csv_path
+        ):
+            failed_documents.append(
+                {
+                    "doc_id":
+                        doc_id,
+
+                    "source_csv_path":
+                        source_csv_path,
+
+                    "status":
+                        "failed",
+
+                    "error": (
+                        "Doc ID or source CSV "
+                        "path is missing."
+                    ),
+                }
+            )
+
+            continue
+
+        mapped_csv_path = (
+            _mapped_csv_path(
+                workspace=workspace,
+                client=client,
+                project=project,
+                header_set_id=(
+                    header_set_id
+                ),
+                doc_id=doc_id,
+            )
+        )
+
+        try:
+            (
+                source_rows,
+                source_delimiter,
+            ) = (
+                _read_csv_blob_rows(
+                    container=container,
+                    blob_path=(
+                        source_csv_path
+                    ),
+                )
+            )
+
+            transformed = (
+                _generate_mapped_document_rows(
+                    source_rows=(
+                        source_rows
+                    ),
+                    approved_document=(
+                        approved_document
+                    ),
+                    protocol_headers=(
+                        protocol_headers
+                    ),
+                )
+            )
+
+            _write_csv_blob_rows(
+                container=container,
+                blob_path=(
+                    mapped_csv_path
+                ),
+                rows=(
+                    transformed[
+                        "rows"
+                    ]
+                ),
+                overwrite=(
+                    request
+                    .overwrite_existing
+                ),
+            )
+
+            total_source_rows += int(
+                transformed[
+                    "source_row_count"
+                ]
+                or 0
+            )
+
+            total_mapped_rows += int(
+                transformed[
+                    "mapped_row_count"
+                ]
+                or 0
+            )
+
+            generated_documents.append(
+                {
+                    "doc_id":
+                        doc_id,
+
+                    "status":
+                        "generated",
+
+                    "source_csv_path":
+                        source_csv_path,
+
+                    "mapped_csv_path":
+                        mapped_csv_path,
+
+                    "header_status": (
+                        approved_document.get(
+                            "header_status"
+                        )
+                        or ""
+                    ),
+
+                    "source_delimiter":
+                        source_delimiter,
+
+                    "output_delimiter":
+                        ",",
+
+                    "source_row_count": (
+                        transformed[
+                            "source_row_count"
+                        ]
+                    ),
+
+                    "mapped_row_count": (
+                        transformed[
+                            "mapped_row_count"
+                        ]
+                    ),
+
+                    "source_column_count": (
+                        transformed[
+                            "source_column_count"
+                        ]
+                    ),
+
+                    "mapped_column_count": (
+                        transformed[
+                            "mapped_column_count"
+                        ]
+                    ),
+
+                    "output_headers": (
+                        transformed[
+                            "output_headers"
+                        ]
+                    ),
+
+                    "protocol_headers_present": (
+                        transformed[
+                            "protocol_headers_present"
+                        ]
+                    ),
+
+                    "custom_headers_retained": (
+                        transformed[
+                            "custom_headers_retained"
+                        ]
+                    ),
+
+                    "deleted_headers": (
+                        transformed[
+                            "deleted_headers"
+                        ]
+                    ),
+
+                    "generated_at":
+                        generated_at,
+                }
+            )
+
+        except Exception as exc:
+
+            failed_documents.append(
+                {
+                    "doc_id":
+                        doc_id,
+
+                    "status":
+                        "failed",
+
+                    "source_csv_path":
+                        source_csv_path,
+
+                    "mapped_csv_path":
+                        mapped_csv_path,
+
+                    "error":
+                        str(exc),
+                }
+            )
+
+    manifest_blob_path = (
+        _mapped_csv_manifest_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        )
+    )
+
+    if (
+        generated_documents
+        and not failed_documents
+    ):
+        manifest_status = (
+            "completed"
+        )
+
+    elif generated_documents:
+        manifest_status = (
+            "completed_with_errors"
+        )
+
+    else:
+        manifest_status = (
+            "failed"
+        )
+
+    manifest_payload = {
+        "schema_version": 1,
+
+        "workspace":
+            workspace,
+
+        "client":
+            client,
+
+        "project":
+            project,
+
+        "header_set_id":
+            header_set_id,
+
+        "status":
+            manifest_status,
+
+        "generated_at":
+            generated_at,
+
+        "generated_by": str(
+            request.generated_by
+            or ""
+        ).strip(),
+
+        "approved_mapping_path": (
+            approved_mapping_blob_path
+        ),
+
+        "mapped_csv_manifest_path": (
+            manifest_blob_path
+        ),
+
+        "canonical_column_order": (
+            protocol_headers
+        ),
+
+        "document_count": (
+            len(
+                approved_documents
+            )
+        ),
+
+        "generated_document_count": (
+            len(
+                generated_documents
+            )
+        ),
+
+        "failed_document_count": (
+            len(
+                failed_documents
+            )
+        ),
+
+        "total_source_rows": (
+            total_source_rows
+        ),
+
+        "total_mapped_rows": (
+            total_mapped_rows
+        ),
+
+        "documents": (
+            generated_documents
+        ),
+
+        "failed_documents": (
+            failed_documents
+        ),
+
+        "source_csvs_modified":
+            False,
+    }
+
+    _write_processing_json_blob(
+        blob_path=(
+            manifest_blob_path
+        ),
+        payload=(
+            manifest_payload
+        ),
+        overwrite=True,
+    )
+
+    #
+    # Update the Header Set but do not
+    # destroy its prior approval state.
+    #
+    manifest_path = (
+        _header_set_manifest_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        )
+    )
+
+    header_set_manifest = (
+        _load_required_json(
+            manifest_path,
+            description=(
+                "Header Set manifest"
+            ),
+        )
+    )
+
+    header_set_manifest[
+        "mapped_csv_status"
+    ] = manifest_status
+
+    header_set_manifest[
+        "mapped_csv_generated_at"
+    ] = generated_at
+
+    header_set_manifest[
+        "mapped_csv_manifest_path"
+    ] = manifest_blob_path
+
+    header_set_manifest[
+        "mapped_csv_generated_count"
+    ] = len(
+        generated_documents
+    )
+
+    header_set_manifest[
+        "mapped_csv_failed_count"
+    ] = len(
+        failed_documents
+    )
+
+    _write_processing_json_blob(
+        blob_path=(
+            manifest_path
+        ),
+        payload=(
+            header_set_manifest
+        ),
+        overwrite=True,
+    )
+
+    return {
+        "status":
+            manifest_status,
+
+        "message": (
+            f"Generated "
+            f"{len(generated_documents)} "
+            f"mapped CSV(s); "
+            f"{len(failed_documents)} "
+            f"failed."
+        ),
+
+        "workspace":
+            workspace,
+
+        "client":
+            client,
+
+        "project":
+            project,
+
+        "header_set_id":
+            header_set_id,
+
+        "mapped_csv_manifest_path": (
+            manifest_blob_path
+        ),
+
+        "generated_document_count": (
+            len(
+                generated_documents
+            )
+        ),
+
+        "failed_document_count": (
+            len(
+                failed_documents
+            )
+        ),
+
+        "documents":
+            generated_documents,
+
+        "failed_documents":
+            failed_documents,
+
+        "source_csvs_modified":
+            False,
     }
