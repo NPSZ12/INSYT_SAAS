@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .azure_layout import AzureRoutingConfig, build_review_promotion_blob_plan, build_azure_routing_summary
+from .azure_layout import (
+    AzureRoutingConfig,
+    build_azure_routing_summary,
+    build_review_promotion_blob_plan,
+    build_xl_files_staging_plan,
+)
+
 from .db import LedgerDB
 from .reports import latest_job_id
 from .util import utc_now
@@ -456,6 +462,133 @@ def azure_upload_review_outputs(
         export_json(Path(export_dir) / f"{job_id}.azure_upload_results.json", payload)
     return payload
 
+def azure_upload_xl_files_outputs(
+    db: LedgerDB,
+    routing: AzureRoutingConfig,
+    job_id: str,
+    azure_write: bool,
+    overwrite: bool = False,
+) -> dict[str, object]:
+    if not azure_write:
+        raise ValueError(
+            "Refusing to write XL Files outputs to Azure "
+            "because --azure-write was not passed."
+        )
+
+    plan = build_xl_files_staging_plan(
+        db,
+        job_id,
+        routing,
+    )
+
+    adapter = DualStorageBlobAdapter(
+        routing
+    )
+
+    uploaded: list[
+        dict[str, object]
+    ] = []
+
+    failed: list[
+        dict[str, object]
+    ] = []
+
+    for row in plan:
+        local_path = Path(
+            str(
+                row.get(
+                    "original_path"
+                )
+                or ""
+            )
+        )
+
+        blob_path = str(
+            row.get(
+                "staged_blob_path"
+            )
+            or ""
+        )
+
+        doc_id = str(
+            row.get(
+                "doc_id"
+            )
+            or ""
+        )
+
+        if not local_path.exists():
+            failed.append(
+                {
+                    "doc_id": doc_id,
+                    "local_path": str(
+                        local_path
+                    ),
+                    "blob_path": blob_path,
+                    "status": "missing_local_file",
+                }
+            )
+            continue
+
+        try:
+            blob_client = (
+                adapter
+                .review_container
+                .get_blob_client(
+                    blob_path
+                )
+            )
+
+            with local_path.open(
+                "rb"
+            ) as fh:
+                blob_client.upload_blob(
+                    fh,
+                    overwrite=overwrite,
+                    content_settings=(
+                        adapter
+                        ._content_settings_cls(
+                            content_type=(
+                                "application/octet-stream"
+                            )
+                        )
+                    ),
+                )
+
+            uploaded.append(
+                {
+                    **row,
+                    "status": "uploaded",
+                    "bytes": (
+                        local_path.stat().st_size
+                    ),
+                }
+            )
+
+        except Exception as exc:
+            failed.append(
+                {
+                    **row,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "job_id": job_id,
+        "destination_mode": "xl_files_staged",
+        "planned_count": len(
+            plan
+        ),
+        "uploaded_count": len(
+            uploaded
+        ),
+        "failed_count": len(
+            failed
+        ),
+        "uploaded": uploaded,
+        "failed": failed,
+    }
 
 def azure_upload_report_files(
     routing: AzureRoutingConfig,
