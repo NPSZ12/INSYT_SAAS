@@ -24,6 +24,8 @@ from app.api.processing_center_azure import (
     _read_processing_json_blob,
     _utc_now,
     _write_processing_json_blob,
+    _read_review_blob_bytes,
+    _review_container,
 )
 
 from app.services.batch_service import get_container_client
@@ -2021,8 +2023,14 @@ def generate_cyber2_mapped_csvs(
             ),
         )
 
-    container = (
+    output_container = (
         _processing_container_client()
+    )
+
+    review_container_name = (
+        _review_container(
+            workspace
+        )
     )
 
     generated_at = (
@@ -2101,14 +2109,42 @@ def generate_cyber2_mapped_csvs(
         )
 
         try:
-            (
-                source_rows,
-                source_delimiter,
-            ) = (
-                _read_csv_blob_rows(
-                    container=container,
+            csv_bytes = (
+                _read_review_blob_bytes(
+                    container_name=(
+                        review_container_name
+                    ),
                     blob_path=(
                         source_csv_path
+                    ),
+                )
+            )
+
+            if csv_bytes is None:
+                raise FileNotFoundError(
+                    f"Source CSV not found: "
+                    f"{source_csv_path}"
+                )
+
+            source_text = (
+                _decode_csv_bytes(
+                    csv_bytes
+                )
+            )
+
+            source_delimiter = (
+                _detect_csv_delimiter(
+                    source_text
+                )
+            )
+
+            source_rows = list(
+                csv.reader(
+                    io.StringIO(
+                        source_text
+                    ),
+                    delimiter=(
+                        source_delimiter
                     ),
                 )
             )
@@ -2128,7 +2164,9 @@ def generate_cyber2_mapped_csvs(
             )
 
             _write_csv_blob_rows(
-                container=container,
+                container=(
+                    output_container
+                ),
                 blob_path=(
                     mapped_csv_path
                 ),
