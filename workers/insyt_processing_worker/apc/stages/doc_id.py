@@ -108,6 +108,49 @@ def _workbook_sheet_metadata(
 
     return workbook_sheet
 
+def _workbook_parent_file_id(
+    row,
+) -> str:
+    workbook_sheet = (
+        _workbook_sheet_metadata(
+            row
+        )
+    )
+
+    if not workbook_sheet:
+        return ""
+
+    return str(
+        workbook_sheet.get(
+            "original_workbook_file_id"
+        )
+        or row[
+            "parent_file_id"
+        ]
+        or ""
+    ).strip()
+
+def _is_workbook_parent(
+    row,
+) -> bool:
+    extension = str(
+        row[
+            "extension"
+        ]
+        or ""
+    ).strip().lower()
+
+    extension = (
+        extension.lstrip(".")
+    )
+
+    return extension in {
+        "xls",
+        "xlsx",
+        "xlsm",
+        "xlsb",
+        "ods",
+    }
 
 def _derived_workbook_csv_filename(
     *,
@@ -393,15 +436,8 @@ def run_doc_id_assignment(
     width: int = 9,
     suppress_duplicates: bool = True,
 ) -> None:
-    #
-    # Containers are deliberately excluded.
-    #
-    # Successful ZIPs/workbooks remain parent source objects,
-    # while their extracted children receive normal Doc IDs.
-    #
     where = (
         "job_id=? "
-        "AND is_container=0 "
         "AND is_denisted=0"
     )
 
@@ -414,7 +450,7 @@ def run_doc_id_assignment(
             " AND is_duplicate=0"
         )
 
-    rows = db.query(
+    candidate_rows = db.query(
         f"""
         SELECT
             file_id,
@@ -424,7 +460,8 @@ def run_doc_id_assignment(
             original_path,
             normalized_path,
             extension,
-            stage_status_json
+            stage_status_json,
+            is_container
         FROM file_processing_metrics
         WHERE {where}
         ORDER BY
@@ -437,19 +474,64 @@ def run_doc_id_assignment(
         params,
     )
 
+    rows = [
+        row
+        for row in candidate_rows
+        if (
+            not bool(
+                row[
+                    "is_container"
+                ]
+            )
+            or _is_workbook_parent(
+                row
+            )
+        )
+    ]
+
     with StageRunner(
         db,
         settings,
         job_id,
         matter_id,
         "doc_id_assignment",
-        "sequential-doc-id",
+        "family-aware-doc-id",
     ) as stage:
+        root_rows = []
+        workbook_child_rows = []
+
+        for row in rows:
+            workbook_metadata = (
+                _workbook_sheet_metadata(
+                    row
+                )
+            )
+
+            if workbook_metadata:
+                workbook_child_rows.append(
+                    row
+                )
+            else:
+                root_rows.append(
+                    row
+                )
+
+        #
+        # Only root documents consume normal registry
+        # sequence numbers.
+        #
+        # Example:
+        #
+        #   INSYT000000001      workbook parent
+        #   INSYT000000001.1    worksheet child
+        #   INSYT000000001.2    worksheet child
+        #   INSYT000000002      next root document
+        #
         allocation = (
             reserve_doc_ids(
                 routing=routing,
                 count=len(
-                    rows
+                    root_rows
                 ),
                 prefix=prefix,
                 width=width,
@@ -460,21 +542,35 @@ def run_doc_id_assignment(
             allocation.start_number
         )
 
+        root_doc_ids: dict[
+            str,
+            str,
+        ] = {}
+
         workbook_sheet_count = 0
         workbook_sheet_rename_count = 0
         workbook_sheet_rename_failures: list[
             dict
         ] = []
 
-        for row in rows:
+        #
+        # First assign normal project Doc IDs to
+        # all root documents, including workbook
+        # parent objects.
+        #
+        for row in root_rows:
             doc_id = (
                 f"{prefix}"
                 f"{n:0{width}d}"
             )
 
-            #
-            # Assign Doc ID first.
-            #
+            file_id = str(
+                row[
+                    "file_id"
+                ]
+                or ""
+            ).strip()
+
             db.execute(
                 """
                 UPDATE file_processing_metrics
@@ -492,14 +588,157 @@ def run_doc_id_assignment(
                 ),
             )
 
-            workbook_metadata = (
-                _workbook_sheet_metadata(
+            if file_id:
+                root_doc_ids[
+                    file_id
+                ] = doc_id
+
+            n += 1
+
+        #
+        # Group worksheet-derived CSV children by
+        # their original workbook parent.
+        #
+        workbook_children_by_parent: dict[
+            str,
+            list,
+        ] = {}
+
+        for row in workbook_child_rows:
+            parent_file_id = (
+                _workbook_parent_file_id(
                     row
                 )
             )
 
-            if workbook_metadata:
+            workbook_children_by_parent.setdefault(
+                parent_file_id,
+                [],
+            ).append(
+                row
+            )
+
+        #
+        # Assign child Doc IDs underneath the
+        # workbook parent's normal Doc ID.
+        #
+        for (
+            parent_file_id,
+            child_rows,
+        ) in workbook_children_by_parent.items():
+            parent_doc_id = (
+                root_doc_ids.get(
+                    parent_file_id
+                )
+            )
+
+            if not parent_doc_id:
+                for row in child_rows:
+                    workbook_sheet_rename_failures.append(
+                        {
+                            "file_id": (
+                                row[
+                                    "file_id"
+                                ]
+                            ),
+                            "parent_file_id": (
+                                parent_file_id
+                            ),
+                            "error": (
+                                "Workbook parent did not "
+                                "receive a Doc ID."
+                            ),
+                        }
+                    )
+
+                continue
+
+            def _sheet_sort_key(
+                child_row,
+            ):
+                metadata = (
+                    _workbook_sheet_metadata(
+                        child_row
+                    )
+                )
+
+                try:
+                    sheet_index = int(
+                        metadata.get(
+                            "sheet_index"
+                        )
+                        or 0
+                    )
+                except Exception:
+                    sheet_index = 0
+
+                return (
+                    sheet_index,
+                    str(
+                        child_row[
+                            "normalized_path"
+                        ]
+                        or ""
+                    ),
+                )
+
+            ordered_children = sorted(
+                child_rows,
+                key=_sheet_sort_key,
+            )
+
+            for (
+                child_number,
+                row,
+            ) in enumerate(
+                ordered_children,
+                start=1,
+            ):
+                doc_id = (
+                    f"{parent_doc_id}"
+                    f".{child_number}"
+                )
+
                 workbook_sheet_count += 1
+
+                #
+                # Assign child Doc ID first.
+                #
+                db.execute(
+                    """
+                    UPDATE file_processing_metrics
+                    SET
+                        doc_id=?,
+                        updated_at=?,
+                        stage_status_json=json_patch(
+                            stage_status_json,
+                            ?
+                        )
+                    WHERE file_id=?
+                    """,
+                    (
+                        doc_id,
+                        utc_now(),
+                        json_dumps(
+                            {
+                                "workbook_sheet": {
+                                    "doc_id": (
+                                        doc_id
+                                    ),
+                                    "parent_doc_id": (
+                                        parent_doc_id
+                                    ),
+                                    "child_doc_number": (
+                                        child_number
+                                    ),
+                                }
+                            }
+                        ),
+                        row[
+                            "file_id"
+                        ],
+                    ),
+                )
 
                 try:
                     rename_result = (
@@ -541,6 +780,12 @@ def run_doc_id_assignment(
                                             "doc_id": (
                                                 doc_id
                                             ),
+                                            "parent_doc_id": (
+                                                parent_doc_id
+                                            ),
+                                            "child_doc_number": (
+                                                child_number
+                                            ),
                                             "derived_filename": (
                                                 rename_result[
                                                     "derived_filename"
@@ -576,6 +821,9 @@ def run_doc_id_assignment(
                                 "doc_id": (
                                     doc_id
                                 ),
+                                "parent_doc_id": (
+                                    parent_doc_id
+                                ),
                                 **rename_result,
                             }
                         )
@@ -591,6 +839,9 @@ def run_doc_id_assignment(
                             "doc_id": (
                                 doc_id
                             ),
+                            "parent_doc_id": (
+                                parent_doc_id
+                            ),
                             "error": repr(
                                 exc
                             ),
@@ -599,7 +850,7 @@ def run_doc_id_assignment(
 
                     #
                     # Filename enhancement failure must not
-                    # invalidate the assigned Doc ID.
+                    # invalidate the assigned child Doc ID.
                     #
                     db.execute(
                         """
@@ -620,6 +871,12 @@ def run_doc_id_assignment(
                                         "doc_id": (
                                             doc_id
                                         ),
+                                        "parent_doc_id": (
+                                            parent_doc_id
+                                        ),
+                                        "child_doc_number": (
+                                            child_number
+                                        ),
                                         "derived_filename_status": (
                                             "rename_failed"
                                         ),
@@ -636,8 +893,6 @@ def run_doc_id_assignment(
                             ],
                         ),
                     )
-
-            n += 1
 
         stage.metrics.files_in = (
             len(
@@ -693,6 +948,21 @@ def run_doc_id_assignment(
                 "assigned": (
                     len(
                         rows
+                    )
+                ),
+                "registry_doc_ids_consumed": (
+                    len(
+                        root_rows
+                    )
+                ),
+                "root_doc_count": (
+                    len(
+                        root_rows
+                    )
+                ),
+                "workbook_child_doc_count": (
+                    len(
+                        workbook_child_rows
                     )
                 ),
                 "workbook_sheet_doc_count": (

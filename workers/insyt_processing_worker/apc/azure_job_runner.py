@@ -12,6 +12,7 @@ from .azure_blob_adapter import (
     azure_upload_report_files,
     azure_upload_review_outputs,
     upload_processing_job_status,
+    azure_upload_xl_files_outputs,
 )
 from .azure_layout import AzureRoutingConfig, build_azure_routing_summary
 from .config import DEFAULT_SETTINGS
@@ -32,6 +33,7 @@ class AzureRunResult:
     downloads: list[dict[str, Any]]
     report_files: dict[str, str]
     review_upload: dict[str, Any] | None
+    xl_files_upload: dict[str, Any] | None
     report_upload: dict[str, Any] | None
     status_upload: dict[str, Any] | None
     hash_index_upload: dict[str, Any] | None
@@ -160,6 +162,7 @@ def run_azure_processing_job(
         review_upload = None
         report_upload = None
         hash_index_upload = None
+        xl_files_upload = None
 
         if azure_write:
             review_upload = azure_upload_review_outputs(
@@ -170,6 +173,15 @@ def run_azure_processing_job(
                 azure_write=True,
                 overwrite=overwrite,
                 export_dir=export_dir,
+            )
+            xl_files_upload = (
+                azure_upload_xl_files_outputs(
+                    db=db,
+                    routing=routing,
+                    job_id=job_id,
+                    azure_write=True,
+                    overwrite=overwrite,
+                )
             )
             hash_index_upload = azure_update_processed_hash_index(
                 db=db,
@@ -221,6 +233,7 @@ def run_azure_processing_job(
             downloads=downloads,
             report_files=report_files,
             review_upload=review_upload,
+            xl_files_upload=xl_files_upload,
             report_upload=report_upload,
             status_upload=status_upload,
             hash_index_upload=hash_index_upload,

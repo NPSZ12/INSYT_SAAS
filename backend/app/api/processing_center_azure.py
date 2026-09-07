@@ -119,6 +119,24 @@ class PromoteReviewPopulationRequest(BaseModel):
     doc_ids: list[str] = []
     overwrite: bool = False
 
+class PromoteXLFilesRequest(BaseModel):
+    """
+    Promote selected workbook families from XL staging into
+    the project's Files tab.
+
+    Selecting a workbook parent Doc ID promotes the original
+    workbook plus every worksheet-derived child CSV.
+
+    This is a native-only promotion. It does not route the
+    workbook family into Review and does not require text.
+    """
+
+    client: str
+    project: str
+    job_id: str
+    parent_doc_ids: list[str] = []
+    overwrite: bool = False
+
 class SendCyber2PopulationRequest(BaseModel):
     """
     Project-wide Promotion Center request for responsive
@@ -4980,6 +4998,582 @@ def promote_processing_center_staged_results(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+@router.post(
+    "/{workspace}/processing-center/"
+    "promotion/promote-xl-files"
+)
+def promote_processing_center_xl_files(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    request: PromoteXLFilesRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """
+    Promote selected XL workbook families to the Files tab.
+
+    Source:
+      processing_center/staged/{job_id}/xl/native/
+
+    Destination:
+      source/native/
+
+    Selecting a parent workbook Doc ID automatically includes
+    all child worksheet CSVs:
+
+      INSYT000000031.xlsx
+      INSYT000000031.1.csv
+      INSYT000000031.2.csv
+      INSYT000000031.3.csv
+
+    This workflow is intentionally separate from Promote to
+    Review. No source/text object is required or created here.
+    """
+
+    requested_parent_doc_ids = {
+        str(
+            doc_id
+            or ""
+        ).strip()
+        for doc_id in (
+            request.parent_doc_ids
+            or []
+        )
+        if str(
+            doc_id
+            or ""
+        ).strip()
+    }
+
+    if not requested_parent_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Select at least one workbook "
+                "parent Doc ID for promotion."
+            ),
+        )
+
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=request.client,
+        project=request.project,
+    )
+
+    staged_prefix = (
+        f"{base_path}/processing_center/"
+        f"staged/{request.job_id}/xl/native/"
+    )
+
+    final_native_prefix = (
+        f"{base_path}/source/native/"
+    )
+
+    review_container = (
+        _review_container(
+            workspace
+        )
+    )
+
+    #
+    # Enumerate the dedicated XL native-only staging area.
+    #
+    staged_blobs = _list_review_blobs(
+        container_name=review_container,
+        prefix=staged_prefix,
+    )
+
+    if not staged_blobs:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": (
+                    "No staged XL Files outputs were found "
+                    "for this processing job."
+                ),
+                "job_id": request.job_id,
+                "staged_prefix": staged_prefix,
+            },
+        )
+
+    selected: list[
+        dict[str, Any]
+    ] = []
+
+    available_parent_doc_ids: set[
+        str
+    ] = set()
+
+    #
+    # Determine each staged file's Doc ID from its filename.
+    #
+    # Examples:
+    #
+    # INSYT000000031.xlsx
+    #   -> INSYT000000031
+    #
+    # INSYT000000031.2.csv
+    #   -> INSYT000000031.2
+    #
+    # Family root:
+    #   INSYT000000031
+    #
+    for blob in staged_blobs:
+        blob_path = str(
+            blob.get(
+                "name"
+            )
+            or ""
+        ).strip()
+
+        if not blob_path:
+            continue
+
+        filename = (
+            blob_path
+            .rsplit(
+                "/",
+                1,
+            )[-1]
+        )
+
+        if "." not in filename:
+            continue
+
+        doc_id = (
+            filename
+            .rsplit(
+                ".",
+                1,
+            )[0]
+            .strip()
+        )
+
+        if not doc_id:
+            continue
+
+        parent_doc_id = (
+            doc_id.split(
+                ".",
+                1,
+            )[0]
+        )
+
+        available_parent_doc_ids.add(
+            parent_doc_id
+        )
+
+        if (
+            parent_doc_id
+            not in requested_parent_doc_ids
+        ):
+            continue
+
+        selected.append(
+            {
+                **blob,
+                "doc_id": doc_id,
+                "parent_doc_id": (
+                    parent_doc_id
+                ),
+                "filename": filename,
+                "source_blob_path": (
+                    blob_path
+                ),
+                "destination_blob_path": (
+                    f"{final_native_prefix}"
+                    f"{filename}"
+                ),
+            }
+        )
+
+    missing_parent_doc_ids = sorted(
+        requested_parent_doc_ids
+        - available_parent_doc_ids
+    )
+
+    if not selected:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "None of the selected workbook families "
+                    "were found in XL staging."
+                ),
+                "requested_parent_doc_ids": sorted(
+                    requested_parent_doc_ids
+                ),
+                "available_parent_doc_ids": sorted(
+                    available_parent_doc_ids
+                ),
+                "job_id": request.job_id,
+            },
+        )
+
+    #
+    # Stable ordering:
+    #
+    # parent workbook first, then .1, .2, .3...
+    #
+    def _xl_family_sort_key(
+        row: dict[str, Any],
+    ) -> tuple:
+        parent_doc_id = str(
+            row.get(
+                "parent_doc_id"
+            )
+            or ""
+        )
+
+        doc_id = str(
+            row.get(
+                "doc_id"
+            )
+            or ""
+        )
+
+        if doc_id == parent_doc_id:
+            return (
+                parent_doc_id,
+                0,
+                0,
+                doc_id,
+            )
+
+        child_part = (
+            doc_id[
+                len(
+                    parent_doc_id
+                )
+                + 1:
+            ]
+            if doc_id.startswith(
+                f"{parent_doc_id}."
+            )
+            else ""
+        )
+
+        try:
+            child_number = int(
+                child_part
+            )
+        except Exception:
+            child_number = 999999999
+
+        return (
+            parent_doc_id,
+            1,
+            child_number,
+            doc_id,
+        )
+
+    selected.sort(
+        key=_xl_family_sort_key
+    )
+
+    promoted: list[
+        dict[str, Any]
+    ] = []
+
+    skipped: list[
+        dict[str, Any]
+    ] = []
+
+    failed: list[
+        dict[str, Any]
+    ] = []
+
+    for row in selected:
+        doc_id = str(
+            row.get(
+                "doc_id"
+            )
+            or ""
+        )
+
+        parent_doc_id = str(
+            row.get(
+                "parent_doc_id"
+            )
+            or ""
+        )
+
+        source_blob_path = str(
+            row.get(
+                "source_blob_path"
+            )
+            or ""
+        )
+
+        destination_blob_path = str(
+            row.get(
+                "destination_blob_path"
+            )
+            or ""
+        )
+
+        filename = str(
+            row.get(
+                "filename"
+            )
+            or ""
+        )
+
+        is_parent = (
+            doc_id
+            == parent_doc_id
+        )
+
+        destination_exists = (
+            _live_source_blob_exists(
+                workspace=workspace,
+                blob_path=(
+                    destination_blob_path
+                ),
+            )
+        )
+
+        if (
+            destination_exists
+            and not request.overwrite
+        ):
+            skipped.append(
+                {
+                    "doc_id": doc_id,
+                    "parent_doc_id": (
+                        parent_doc_id
+                    ),
+                    "filename": filename,
+                    "is_workbook_parent": (
+                        is_parent
+                    ),
+                    "status": (
+                        "already_promoted"
+                    ),
+                    "source": (
+                        source_blob_path
+                    ),
+                    "destination": (
+                        destination_blob_path
+                    ),
+                }
+            )
+
+            continue
+
+        try:
+            native_bytes = (
+                _read_review_blob_bytes(
+                    container_name=(
+                        review_container
+                    ),
+                    blob_path=(
+                        source_blob_path
+                    ),
+                )
+            )
+
+            if native_bytes is None:
+                failed.append(
+                    {
+                        "doc_id": doc_id,
+                        "parent_doc_id": (
+                            parent_doc_id
+                        ),
+                        "filename": filename,
+                        "is_workbook_parent": (
+                            is_parent
+                        ),
+                        "status": (
+                            "missing_staged_blob"
+                        ),
+                        "source": (
+                            source_blob_path
+                        ),
+                    }
+                )
+
+                continue
+
+            extension = (
+                filename
+                .rsplit(
+                    ".",
+                    1,
+                )[-1]
+                .lower()
+                if "." in filename
+                else ""
+            )
+
+            content_type = (
+                "text/csv; charset=utf-8"
+                if extension == "csv"
+                else (
+                    "application/vnd.openxmlformats-"
+                    "officedocument.spreadsheetml.sheet"
+                    if extension == "xlsx"
+                    else (
+                        "application/vnd.ms-excel"
+                        if extension in {
+                            "xls",
+                            "xlsm",
+                            "xlsb",
+                        }
+                        else (
+                            "application/octet-stream"
+                        )
+                    )
+                )
+            )
+
+            upload = (
+                _write_live_source_blob_bytes(
+                    workspace=workspace,
+                    blob_path=(
+                        destination_blob_path
+                    ),
+                    data=native_bytes,
+                    overwrite=(
+                        request.overwrite
+                    ),
+                    content_type=(
+                        content_type
+                    ),
+                )
+            )
+
+            promoted.append(
+                {
+                    "doc_id": doc_id,
+                    "parent_doc_id": (
+                        parent_doc_id
+                    ),
+                    "filename": filename,
+                    "is_workbook_parent": (
+                        is_parent
+                    ),
+                    "is_workbook_child": (
+                        not is_parent
+                    ),
+                    "status": "promoted",
+                    "source": (
+                        source_blob_path
+                    ),
+                    "destination": (
+                        destination_blob_path
+                    ),
+                    "bytes": len(
+                        native_bytes
+                    ),
+                    "upload": upload,
+                }
+            )
+
+        except Exception as exc:
+            failed.append(
+                {
+                    "doc_id": doc_id,
+                    "parent_doc_id": (
+                        parent_doc_id
+                    ),
+                    "filename": filename,
+                    "is_workbook_parent": (
+                        is_parent
+                    ),
+                    "status": (
+                        "promotion_failed"
+                    ),
+                    "source": (
+                        source_blob_path
+                    ),
+                    "destination": (
+                        destination_blob_path
+                    ),
+                    "error": str(
+                        exc
+                    ),
+                }
+            )
+
+    promoted_parent_count = sum(
+        1
+        for row in promoted
+        if row.get(
+            "is_workbook_parent"
+        )
+    )
+
+    promoted_child_count = sum(
+        1
+        for row in promoted
+        if row.get(
+            "is_workbook_child"
+        )
+    )
+
+    return {
+        "workspace": workspace,
+        "client": request.client,
+        "project": request.project,
+        "job_id": request.job_id,
+
+        "requested_parent_doc_ids": sorted(
+            requested_parent_doc_ids
+        ),
+
+        "missing_parent_doc_ids": (
+            missing_parent_doc_ids
+        ),
+
+        "staged_prefix": staged_prefix,
+        "final_native_prefix": (
+            final_native_prefix
+        ),
+
+        "selected_file_count": len(
+            selected
+        ),
+
+        "promoted_count": len(
+            promoted
+        ),
+
+        "promoted_parent_count": (
+            promoted_parent_count
+        ),
+
+        "promoted_child_count": (
+            promoted_child_count
+        ),
+
+        "skipped_count": len(
+            skipped
+        ),
+
+        "failed_count": len(
+            failed
+        ),
+
+        "promoted": promoted,
+        "skipped": skipped,
+        "failed": failed,
+
+        "status": (
+            "completed"
+            if not failed
+            else "completed_with_errors"
+        ),
+
+        "message": (
+            f"Promoted {promoted_parent_count} workbook "
+            f"parent(s) and {promoted_child_count} worksheet "
+            f"child file(s) to the Files tab."
+        ),
+    }
 
 @router.post(
     "/{workspace}/processing-center/"

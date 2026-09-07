@@ -445,9 +445,17 @@ def _is_internal_insyt_identifier(
 
     upper = text.upper()
 
-    # INSYT assigned Doc IDs, e.g. INSYT000000019
+    # INSYT assigned Doc IDs.
+    #
+    # Root:
+    #   INSYT000000019
+    #
+    # Workbook worksheet children:
+    #   INSYT000000019.1
+    #   INSYT000000019.2
+    #
     if re.fullmatch(
-        r"INSYT\d{9}",
+        r"INSYT\d{9}(?:\.\d+)?",
         upper,
     ):
         return True

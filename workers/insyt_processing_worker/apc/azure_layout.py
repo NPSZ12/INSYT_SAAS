@@ -235,6 +235,137 @@ def build_review_promotion_blob_plan(
 
     return plan
 
+def build_xl_files_staging_plan(
+    db: LedgerDB,
+    job_id: str,
+    routing: AzureRoutingConfig,
+) -> list[dict[str, object]]:
+    rows = db.query(
+        """
+        SELECT
+            file_id,
+            doc_id,
+            parent_file_id,
+            original_path,
+            normalized_path,
+            extension,
+            stage_status_json,
+            is_container
+        FROM file_processing_metrics
+        WHERE job_id=?
+          AND is_denisted=0
+          AND is_duplicate=0
+          AND doc_id IS NOT NULL
+        ORDER BY doc_id
+        """,
+        (job_id,),
+    )
+
+    workbook_extensions = {
+        "xls",
+        "xlsx",
+        "xlsm",
+        "xlsb",
+        "ods",
+    }
+
+    parent_file_ids: set[str] = set()
+
+    for row in rows:
+        ext = str(
+            row["extension"]
+            or ""
+        ).lower().lstrip(".")
+
+        if (
+            bool(row["is_container"])
+            and ext in workbook_extensions
+        ):
+            parent_file_ids.add(
+                str(row["file_id"])
+            )
+
+    plan: list[dict[str, object]] = []
+
+    staged_prefix = (
+        f"{routing.prefix}/processing_center/"
+        f"staged/{job_id}/xl/native"
+    )
+
+    for row in rows:
+        file_id = str(
+            row["file_id"]
+            or ""
+        ).strip()
+
+        parent_file_id = str(
+            row["parent_file_id"]
+            or ""
+        ).strip()
+
+        ext = str(
+            row["extension"]
+            or "bin"
+        ).lower().lstrip(".") or "bin"
+
+        is_workbook_parent = (
+            file_id in parent_file_ids
+        )
+
+        is_workbook_child = (
+            parent_file_id in parent_file_ids
+        )
+
+        if not (
+            is_workbook_parent
+            or is_workbook_child
+        ):
+            continue
+
+        doc_id = str(
+            row["doc_id"]
+            or ""
+        ).strip()
+
+        if not doc_id:
+            continue
+
+        staged_blob_path = (
+            f"{staged_prefix}/"
+            f"{doc_id}.{ext}"
+        )
+
+        plan.append(
+            {
+                "job_id": job_id,
+                "file_id": file_id,
+                "doc_id": doc_id,
+                "parent_file_id": parent_file_id,
+                "original_path": str(
+                    row["original_path"]
+                    or ""
+                ),
+                "normalized_path": str(
+                    row["normalized_path"]
+                    or ""
+                ),
+                "extension": ext,
+                "is_workbook_parent": (
+                    is_workbook_parent
+                ),
+                "is_workbook_child": (
+                    is_workbook_child
+                ),
+                "staged_blob_path": (
+                    staged_blob_path
+                ),
+                "write_enabled": (
+                    routing.azure_write
+                ),
+            }
+        )
+
+    return plan
 
 def build_azure_routing_summary(
     routing: AzureRoutingConfig,

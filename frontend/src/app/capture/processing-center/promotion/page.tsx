@@ -194,6 +194,9 @@ function ProcessingCenterPromotionPageContent() {
   const [promotingReview, setPromotingReview] =
     useState(false);
 
+  const [promotingXLFiles, setPromotingXLFiles] =
+    useState(false);
+
   const [sendingCyber2, setSendingCyber2] =
     useState(false);
 
@@ -603,6 +606,263 @@ function ProcessingCenterPromotionPageContent() {
     );
   }
 
+  async function promoteSelectedXLToFiles() {
+  if (
+    selectedSpreadsheetIds.size ===
+    0
+  ) {
+    setError(
+      "Select at least one workbook worksheet."
+    );
+
+    return;
+  }
+
+  if (!clientId || !projectId) {
+    setError(
+      "Client and project are required for XL Files promotion."
+    );
+
+    return;
+  }
+
+  const selectedDocs =
+    spreadsheetHits.filter(
+      (doc) =>
+        selectedSpreadsheetIds.has(
+          doc.doc_id
+        )
+    );
+
+  //
+  // Only worksheet-derived documents belong to
+  // workbook-family promotion.
+  //
+  const selectedWorkbookSheets =
+    selectedDocs.filter(
+      (doc) =>
+        Boolean(
+          doc.is_workbook_sheet
+        )
+    );
+
+  if (
+    selectedWorkbookSheets.length ===
+    0
+  ) {
+    setError(
+      "The selected Spreadsheet / CSV documents do not contain a workbook family to promote."
+    );
+
+    return;
+  }
+
+  //
+  // Group parent workbook Doc IDs by the APC
+  // source job that created the XL staging set.
+  //
+  const parentIdsByJob =
+    new Map<
+      string,
+      Set<string>
+    >();
+
+  const missingSourceJobIds:
+    string[] = [];
+
+  for (
+    const doc
+    of selectedWorkbookSheets
+  ) {
+    const sourceJobId =
+      String(
+        doc.source_job_id || ""
+      ).trim();
+
+    if (!sourceJobId) {
+      missingSourceJobIds.push(
+        doc.doc_id
+      );
+
+      continue;
+    }
+
+    //
+    // Child Doc IDs use:
+    //
+    // INSYT000000031.1
+    // INSYT000000031.2
+    //
+    // Therefore the family parent is:
+    //
+    // INSYT000000031
+    //
+    const childDocId =
+      String(
+        doc.doc_id || ""
+      ).trim();
+
+    const parentDocId =
+      childDocId.includes(".")
+        ? childDocId.substring(
+            0,
+            childDocId.indexOf(".")
+          )
+        : childDocId;
+
+    if (!parentDocId) {
+      continue;
+    }
+
+    if (
+      !parentIdsByJob.has(
+        sourceJobId
+      )
+    ) {
+      parentIdsByJob.set(
+        sourceJobId,
+        new Set<string>()
+      );
+    }
+
+    parentIdsByJob
+      .get(
+        sourceJobId
+      )!
+      .add(
+        parentDocId
+      );
+  }
+
+  if (
+    parentIdsByJob.size ===
+    0
+  ) {
+    setError(
+      "The selected workbook worksheets could not be resolved to their source processing jobs."
+    );
+
+    return;
+  }
+
+  setPromotingXLFiles(true);
+  setError("");
+
+  try {
+    let promotedCount = 0;
+    let promotedParentCount = 0;
+    let promotedChildCount = 0;
+    let failedCount = 0;
+    let skippedCount = 0;
+
+    const results: any[] = [];
+
+    for (
+      const [
+        sourceJobId,
+        parentDocIds,
+      ]
+      of parentIdsByJob.entries()
+    ) {
+      const response =
+        await apiPost(
+          `/api/${encodeURIComponent(
+            workspace
+          )}/processing-center/promotion/promote-xl-files`,
+          {
+            client: clientId,
+            project: projectId,
+            job_id: sourceJobId,
+            parent_doc_ids:
+              Array.from(
+                parentDocIds
+              ),
+            overwrite: false,
+          }
+        );
+
+      results.push(
+        response
+      );
+
+      promotedCount +=
+        Number(
+          response?.promoted_count ||
+            0
+        );
+
+      promotedParentCount +=
+        Number(
+          response?.promoted_parent_count ||
+            0
+        );
+
+      promotedChildCount +=
+        Number(
+          response?.promoted_child_count ||
+            0
+        );
+
+      failedCount +=
+        Number(
+          response?.failed_count ||
+            0
+        );
+
+      skippedCount +=
+        Number(
+          response?.skipped_count ||
+            0
+        );
+    }
+
+    if (
+      failedCount > 0 ||
+      skippedCount > 0 ||
+      missingSourceJobIds.length > 0
+    ) {
+      console.warn(
+        "XL Files promotion completed with skipped/errors:",
+        {
+          results,
+          missingSourceJobIds,
+        }
+      );
+    }
+
+    setSelectedSpreadsheetIds(
+      new Set()
+    );
+
+    await loadPromotionPopulation(
+      true
+    );
+
+    if (promotedCount === 0) {
+      setError(
+        "No new XL files were promoted. The selected workbook family may already be in the Files tab."
+      );
+    } else {
+      console.info(
+        `Promoted ${promotedParentCount} workbook parent(s) and ${promotedChildCount} worksheet child file(s) to Files.`
+      );
+    }
+
+  } catch (err: any) {
+    console.error(
+      "Failed to promote XL workbook family to Files:",
+      err
+    );
+
+    setError(
+      err?.message ||
+        "Unable to promote the selected XL workbook family to the Files tab."
+    );
+
+  } finally {
+    setPromotingXLFiles(false);
+  }
+}
 
 async function sendSelectedToCyber2() {
   if (
@@ -1156,6 +1416,25 @@ async function promoteSelectedToReview() {
                     className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-40"
                   >
                     Clear
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      promoteSelectedXLToFiles
+                    }
+                    disabled={
+                      promotingXLFiles ||
+                      selectedSpreadsheetIds.size ===
+                        0
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-cyan-500 bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <FileCheck2 className="h-3.5 w-3.5" />
+
+                    {promotingXLFiles
+                      ? "Promoting..."
+                      : "Promote XL Set to Files"}
                   </button>
 
                   <button
