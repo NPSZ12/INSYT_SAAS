@@ -194,9 +194,6 @@ function ProcessingCenterPromotionPageContent() {
   const [promotingReview, setPromotingReview] =
     useState(false);
 
-  const [promotingXLFiles, setPromotingXLFiles] =
-    useState(false);
-
   const [sendingCyber2, setSendingCyber2] =
     useState(false);
 
@@ -606,13 +603,14 @@ function ProcessingCenterPromotionPageContent() {
     );
   }
 
-  async function promoteSelectedXLToFiles() {
+
+async function sendSelectedToCyber2() {
   if (
     selectedSpreadsheetIds.size ===
     0
   ) {
     setError(
-      "Select at least one workbook worksheet."
+      "Select at least one Spreadsheet / CSV Hit."
     );
 
     return;
@@ -620,7 +618,7 @@ function ProcessingCenterPromotionPageContent() {
 
   if (!clientId || !projectId) {
     setError(
-      "Client and project are required for XL Files promotion."
+      "Client and project are required."
     );
 
     return;
@@ -634,11 +632,16 @@ function ProcessingCenterPromotionPageContent() {
         )
     );
 
+  const docIds =
+    selectedDocs.map(
+      (doc) => doc.doc_id
+    );
+
   //
-  // Only worksheet-derived documents belong to
-  // workbook-family promotion.
+  // Workbook-sheet documents must first promote
+  // their entire workbook family to Files.
   //
-  const selectedWorkbookSheets =
+  const workbookSheets =
     selectedDocs.filter(
       (doc) =>
         Boolean(
@@ -646,33 +649,15 @@ function ProcessingCenterPromotionPageContent() {
         )
     );
 
-  if (
-    selectedWorkbookSheets.length ===
-    0
-  ) {
-    setError(
-      "The selected Spreadsheet / CSV documents do not contain a workbook family to promote."
-    );
-
-    return;
-  }
-
-  //
-  // Group parent workbook Doc IDs by the APC
-  // source job that created the XL staging set.
-  //
   const parentIdsByJob =
     new Map<
       string,
       Set<string>
     >();
 
-  const missingSourceJobIds:
-    string[] = [];
-
   for (
     const doc
-    of selectedWorkbookSheets
+    of workbookSheets
   ) {
     const sourceJobId =
       String(
@@ -680,23 +665,13 @@ function ProcessingCenterPromotionPageContent() {
       ).trim();
 
     if (!sourceJobId) {
-      missingSourceJobIds.push(
-        doc.doc_id
+      setError(
+        `Unable to resolve source processing job for ${doc.doc_id}.`
       );
 
-      continue;
+      return;
     }
 
-    //
-    // Child Doc IDs use:
-    //
-    // INSYT000000031.1
-    // INSYT000000031.2
-    //
-    // Therefore the family parent is:
-    //
-    // INSYT000000031
-    //
     const childDocId =
       String(
         doc.doc_id || ""
@@ -709,10 +684,6 @@ function ProcessingCenterPromotionPageContent() {
             childDocId.indexOf(".")
           )
         : childDocId;
-
-    if (!parentDocId) {
-      continue;
-    }
 
     if (
       !parentIdsByJob.has(
@@ -734,29 +705,14 @@ function ProcessingCenterPromotionPageContent() {
       );
   }
 
-  if (
-    parentIdsByJob.size ===
-    0
-  ) {
-    setError(
-      "The selected workbook worksheets could not be resolved to their source processing jobs."
-    );
-
-    return;
-  }
-
-  setPromotingXLFiles(true);
+  setSendingCyber2(true);
   setError("");
 
   try {
-    let promotedCount = 0;
-    let promotedParentCount = 0;
-    let promotedChildCount = 0;
-    let failedCount = 0;
-    let skippedCount = 0;
-
-    const results: any[] = [];
-
+    //
+    // STEP 1:
+    // Promote every selected workbook family to Files.
+    //
     for (
       const [
         sourceJobId,
@@ -764,7 +720,7 @@ function ProcessingCenterPromotionPageContent() {
       ]
       of parentIdsByJob.entries()
     ) {
-      const response =
+      const filesResponse =
         await apiPost(
           `/api/${encodeURIComponent(
             workspace
@@ -781,118 +737,29 @@ function ProcessingCenterPromotionPageContent() {
           }
         );
 
-      results.push(
-        response
-      );
-
-      promotedCount +=
+      const failedCount =
         Number(
-          response?.promoted_count ||
+          filesResponse?.failed_count ||
             0
         );
 
-      promotedParentCount +=
-        Number(
-          response?.promoted_parent_count ||
-            0
+      if (failedCount > 0) {
+        console.error(
+          "XL Files promotion failed:",
+          filesResponse
         );
 
-      promotedChildCount +=
-        Number(
-          response?.promoted_child_count ||
-            0
+        throw new Error(
+          "Workbook promotion to Files did not complete successfully. Nothing was sent to Cyber²."
         );
-
-      failedCount +=
-        Number(
-          response?.failed_count ||
-            0
-        );
-
-      skippedCount +=
-        Number(
-          response?.skipped_count ||
-            0
-        );
+      }
     }
 
-    if (
-      failedCount > 0 ||
-      skippedCount > 0 ||
-      missingSourceJobIds.length > 0
-    ) {
-      console.warn(
-        "XL Files promotion completed with skipped/errors:",
-        {
-          results,
-          missingSourceJobIds,
-        }
-      );
-    }
-
-    setSelectedSpreadsheetIds(
-      new Set()
-    );
-
-    await loadPromotionPopulation(
-      true
-    );
-
-    if (promotedCount === 0) {
-      setError(
-        "No new XL files were promoted. The selected workbook family may already be in the Files tab."
-      );
-    } else {
-      console.info(
-        `Promoted ${promotedParentCount} workbook parent(s) and ${promotedChildCount} worksheet child file(s) to Files.`
-      );
-    }
-
-  } catch (err: any) {
-    console.error(
-      "Failed to promote XL workbook family to Files:",
-      err
-    );
-
-    setError(
-      err?.message ||
-        "Unable to promote the selected XL workbook family to the Files tab."
-    );
-
-  } finally {
-    setPromotingXLFiles(false);
-  }
-}
-
-async function sendSelectedToCyber2() {
-  if (
-    selectedSpreadsheetIds.size ===
-    0
-  ) {
-    setError(
-      "Select at least one Spreadsheet / CSV Hit."
-    );
-
-    return;
-  }
-
-  if (!clientId || !projectId) {
-    setError(
-      "Client and project are required for Cyber² Intake."
-    );
-
-    return;
-  }
-
-  const docIds =
-    Array.from(
-      selectedSpreadsheetIds
-    );
-
-  setSendingCyber2(true);
-  setError("");
-
-  try {
+    //
+    // STEP 2:
+    // Only after Files promotion succeeds,
+    // register the selected documents in Cyber².
+    //
     const response =
       await apiPost(
         `/api/${encodeURIComponent(
@@ -917,7 +784,7 @@ async function sendSelectedToCyber2() {
 
     if (skippedCount > 0) {
       console.warn(
-        "Cyber² Intake registration completed with skipped documents:",
+        "Cyber² registration completed with skipped documents:",
         response
       );
     }
@@ -926,7 +793,9 @@ async function sendSelectedToCyber2() {
       new Set()
     );
 
-    await loadPromotionPopulation(true);
+    await loadPromotionPopulation(
+      true
+    );
 
     if (sentCount === 0) {
       setError(
@@ -937,13 +806,13 @@ async function sendSelectedToCyber2() {
 
   } catch (err: any) {
     console.error(
-      "Failed to send selected documents to Cyber²:",
+      "Failed to promote spreadsheet files and send to Cyber²:",
       err
     );
 
     setError(
       err?.message ||
-        "Unable to send selected documents to Cyber²."
+        "Unable to promote the selected files and send them to Cyber²."
     );
 
   } finally {
@@ -1421,25 +1290,6 @@ async function promoteSelectedToReview() {
                   <button
                     type="button"
                     onClick={
-                      promoteSelectedXLToFiles
-                    }
-                    disabled={
-                      promotingXLFiles ||
-                      selectedSpreadsheetIds.size ===
-                        0
-                    }
-                    className="inline-flex items-center gap-2 rounded-lg border border-cyan-500 bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <FileCheck2 className="h-3.5 w-3.5" />
-
-                    {promotingXLFiles
-                      ? "Promoting..."
-                      : "Promote XL Set to Files"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={
                       sendSelectedToCyber2
                     }
                     disabled={
@@ -1452,8 +1302,8 @@ async function promoteSelectedToReview() {
                     <Send className="h-3.5 w-3.5" />
 
                     {sendingCyber2
-                      ? "Sending..."
-                      : "Send Selected to Cyber²"}
+                      ? "Promoting & Sending..."
+                      : "Promote to Files & Send to Cyber²"}
                   </button>
 
                 </div>
