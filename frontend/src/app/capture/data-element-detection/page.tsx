@@ -512,7 +512,7 @@ function DataElementDetectionPageContent() {
     detectionStatus?.entity_hit_count ??
     0;
 
-  function exportImpactAssessmentCsv() {
+  function exportImpactAssessmentReport() {
     if (!detectionJobId || !clientId || !projectId) {
       return;
     }
@@ -524,7 +524,7 @@ function DataElementDetectionPageContent() {
 
     const url =
       `/api/capture/processing-center/data-element-detection/` +
-      `${encodeURIComponent(detectionJobId)}/impact-assessment.csv?` +
+      `${encodeURIComponent(detectionJobId)}/impact-assessment.xlsx?` +
       params.toString();
 
     window.open(url, "_blank");
@@ -932,7 +932,7 @@ function DataElementDetectionPageContent() {
 
             <button
               type="button"
-              onClick={exportImpactAssessmentCsv}
+              onClick={exportImpactAssessmentReport}
               disabled={!detectionJobId || !detectionSummary}
               className="inline-flex items-center gap-2 rounded-lg border border-sky-700 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/60 disabled:opacity-40"
             >
