@@ -129,6 +129,16 @@ function DataElementDetectionPageContent() {
   const [detectionSummary, setDetectionSummary] =
     useState<DetectionSummary | null>(null);
 
+  const [
+    projectImpact,
+    setProjectImpact,
+  ] = useState<any | null>(null);
+
+  const [
+    loadingProjectImpact,
+    setLoadingProjectImpact,
+  ] = useState(false);
+
   const [error, setError] = useState("");
 
   const readyDocs = readyData?.docs || [];
@@ -232,9 +242,50 @@ function DataElementDetectionPageContent() {
     }
   }
 
+  async function loadProjectImpactAssessment() {
+    if (!clientId || !projectId) {
+      return;
+    }
+
+    setLoadingProjectImpact(true);
+
+    try {
+      const params =
+        new URLSearchParams({
+          client: clientId,
+          project: projectId,
+        });
+
+      const response =
+        await apiGet(
+          `/api/capture/processing-center/` +
+            `data-element-detection/` +
+            `project-impact-assessment?` +
+            params.toString()
+        );
+
+      setProjectImpact(
+        response
+      );
+
+    } catch (err: any) {
+      console.error(
+        "Unable to load project Impact Assessment:",
+        err
+      );
+
+    } finally {
+      setLoadingProjectImpact(false);
+    }
+  }
+
   useEffect(() => {
     loadDetectionReady();
-  }, [clientId, projectId]);
+    loadProjectImpactAssessment();
+  }, [
+    clientId,
+    projectId,
+  ]);
 
   function toggleDoc(docId: string) {
     setSelectedDocIds((current) => {
@@ -400,6 +451,8 @@ function DataElementDetectionPageContent() {
 
           await loadDetectionReady(true);
 
+          await loadProjectImpactAssessment();
+
           return;
         }
 
@@ -528,6 +581,29 @@ function DataElementDetectionPageContent() {
       params.toString();
 
     window.open(url, "_blank");
+  }
+
+  function exportProjectImpactAssessmentReport() {
+    if (!clientId || !projectId) {
+      return;
+    }
+
+    const params =
+      new URLSearchParams({
+        client: clientId,
+        project: projectId,
+      });
+
+    const url =
+      `/api/capture/processing-center/` +
+      `data-element-detection/` +
+      `project-impact-assessment.xlsx?` +
+      params.toString();
+
+    window.open(
+      url,
+      "_blank"
+    );
   }
 
   return (
@@ -917,16 +993,145 @@ function DataElementDetectionPageContent() {
           </div>
         </section>
 
+        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60">
+          <div className="border-b border-slate-800 px-5 py-4">
+            <div>
+              <h2 className="text-base font-semibold text-white">
+                Completed Detection - Project
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-400">
+                Every document in this project with a completed Data Element
+                Detection result, using the latest completed Detection state
+                per Doc ID.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-5">
+            {loadingProjectImpact ? (
+              <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
+                Loading completed Detection documents...
+              </div>
+            ) : (projectImpact?.documents || []).length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
+                No completed Detection documents yet.
+              </div>
+            ) : (
+              <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-800">
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">
+                        Doc ID
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Original File
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Workbook
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Sheet
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Classification
+                      </th>
+
+                      <th className="px-4 py-3 text-right">
+                        Entities
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Detection Job
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Detection Date
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Source Job
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-800">
+                    {(projectImpact?.documents || []).map(
+                      (doc: any) => {
+                        const hits = Array.isArray(doc?.hits)
+                          ? doc.hits
+                          : [];
+
+                        return (
+                          <tr key={doc.doc_id}>
+                            <td className="px-4 py-3 font-mono text-xs text-sky-300">
+                              {doc.doc_id || "—"}
+                            </td>
+
+                            <td className="max-w-[360px] truncate px-4 py-3 text-slate-200">
+                              {doc.original_filename ||
+                                doc.original_workbook_name ||
+                                "—"}
+                            </td>
+
+                            <td className="max-w-[280px] truncate px-4 py-3 text-slate-400">
+                              {doc.original_workbook_name || "—"}
+                            </td>
+
+                            <td className="px-4 py-3 text-slate-400">
+                              {doc.sheet_name || "—"}
+                            </td>
+
+                            <td className="px-4 py-3 text-slate-300">
+                              {doc.classification || "—"}
+                            </td>
+
+                            <td className="px-4 py-3 text-right text-slate-300">
+                              {hits.length}
+                            </td>
+
+                            <td className="px-4 py-3 font-mono text-xs text-slate-400">
+                              {doc.latest_detection_job_id ||
+                                doc.detection_job_id ||
+                                "—"}
+                            </td>
+
+                            <td className="px-4 py-3 text-slate-400">
+                              {doc.detected_at ||
+                                doc.document_index_last_modified ||
+                                "—"}
+                            </td>
+
+                            <td className="px-4 py-3 font-mono text-xs text-slate-400">
+                              {doc.source_job_id || "—"}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
             <div>
               <h2 className="text-base font-semibold text-white">
-                Impact Assessment
+                Impact Assessment - Set
               </h2>
 
               <p className="mt-1 text-sm text-slate-400">
-                Project-level counts by detected data element
-                from the most recent detection run.
+                Latest completed Detection set only.
+                Counts and detected data elements for the documents
+                processed in the current Detection run.
               </p>
             </div>
 
@@ -937,7 +1142,7 @@ function DataElementDetectionPageContent() {
               className="inline-flex items-center gap-2 rounded-lg border border-sky-700 bg-sky-950/40 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-900/60 disabled:opacity-40"
             >
               <Download className="h-4 w-4" />
-              Export Impact Assessment CSV
+              Export Impact Assessment XL - Set
             </button>
           </div>
 
@@ -1007,6 +1212,157 @@ function DataElementDetectionPageContent() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
+            <div>
+              <h2 className="text-base font-semibold text-white">
+                Impact Assessment - Project
+              </h2>
+
+              <p className="mt-1 max-w-4xl text-sm text-slate-400">
+                Cumulative project assessment of every document
+                that has completed Data Element Detection through
+                the current time. Each Doc ID is counted once using
+                its latest completed Detection result.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={
+                exportProjectImpactAssessmentReport
+              }
+              disabled={
+                !projectImpact ||
+                Number(
+                  projectImpact?.counts
+                    ?.documents_completed || 0
+                ) === 0
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-violet-700 bg-violet-950/40 px-3 py-2 text-xs font-semibold text-violet-200 hover:bg-violet-900/60 disabled:opacity-40"
+            >
+              <Download className="h-4 w-4" />
+
+              Export Impact Assessment XL - Project
+            </button>
+          </div>
+
+          <div className="p-5">
+            {loadingProjectImpact ? (
+              <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
+                Loading project Impact Assessment...
+              </div>
+            ) : (
+              <>
+                <div className="mb-5 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+                  <MetricCard
+                    label="Completed Detection"
+                    value={String(
+                      projectImpact?.counts
+                        ?.documents_completed || 0
+                    )}
+                  />
+
+                  <MetricCard
+                    label="Hits"
+                    value={String(
+                      projectImpact?.counts
+                        ?.documents_with_hits || 0
+                    )}
+                  />
+
+                  <MetricCard
+                    label="No Hits"
+                    value={String(
+                      projectImpact?.counts
+                        ?.documents_no_hits || 0
+                    )}
+                  />
+
+                  <MetricCard
+                    label="NFR"
+                    value={String(
+                      projectImpact?.counts
+                        ?.documents_nfr || 0
+                    )}
+                  />
+
+                  <MetricCard
+                    label="Exceptions"
+                    value={String(
+                      projectImpact?.counts
+                        ?.documents_exception || 0
+                    )}
+                  />
+
+                  <MetricCard
+                    label="Elements Identified"
+                    value={String(
+                      projectImpact?.counts
+                        ?.entity_hit_count || 0
+                    )}
+                  />
+                </div>
+
+                {(projectImpact?.entity_type_counts || [])
+                  .length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
+                    No completed project Detection results yet.
+                  </div>
+                ) : (
+                  <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-800">
+                    <table className="min-w-full text-sm">
+                      <thead className="sticky top-0 z-10 bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-4 py-3">
+                            Data Element
+                          </th>
+
+                          <th className="px-4 py-3 text-right">
+                            Documents
+                          </th>
+
+                          <th className="px-4 py-3 text-right">
+                            Total Hits
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody className="divide-y divide-slate-800">
+                        {(
+                          projectImpact
+                            ?.entity_type_counts ||
+                          []
+                        ).map(
+                          (row: any) => (
+                            <tr
+                              key={
+                                row.entity_type
+                              }
+                            >
+                              <td className="px-4 py-3 text-slate-200">
+                                {row.entity_type}
+                              </td>
+
+                              <td className="px-4 py-3 text-right text-slate-300">
+                                {row.document_count || 0}
+                              </td>
+
+                              <td className="px-4 py-3 text-right text-slate-300">
+                                {row.hit_count || 0}
+                              </td>
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </section>

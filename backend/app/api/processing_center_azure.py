@@ -5872,6 +5872,1957 @@ def _load_current_detection_document_indexes(
 
     return rows
 
+@router.get(
+    "/{workspace}/processing-center/"
+    "data-element-detection/project-impact-assessment"
+)
+def get_project_detection_impact_assessment(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    client: str = Query(...),
+    project: str = Query(...),
+) -> dict[str, Any]:
+    """
+    Return the current project-wide Detection population.
+
+    Each Doc ID is represented once using its canonical latest
+    Detection index:
+
+      processing_center/detection/documents/{DOC_ID}.json
+    """
+
+    try:
+        document_indexes = (
+            _load_current_detection_document_indexes(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+        )
+
+        documents: list[
+            dict[str, Any]
+        ] = []
+
+        entities: list[
+            dict[str, Any]
+        ] = []
+
+        detection_job_ids: set[
+            str
+        ] = set()
+
+        source_job_ids: set[
+            str
+        ] = set()
+
+        for index in document_indexes:
+            if not isinstance(
+                index,
+                dict,
+            ):
+                continue
+
+            doc_id = str(
+                index.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+
+            if not doc_id:
+                continue
+
+            detection_job_id = str(
+                index.get(
+                    "latest_detection_job_id"
+                )
+                or ""
+            ).strip()
+
+            source_job_id = str(
+                index.get(
+                    "source_job_id"
+                )
+                or ""
+            ).strip()
+
+            if detection_job_id:
+                detection_job_ids.add(
+                    detection_job_id
+                )
+
+            if source_job_id:
+                source_job_ids.add(
+                    source_job_id
+                )
+
+            hits = (
+                index.get(
+                    "hits"
+                )
+                or []
+            )
+
+            if not isinstance(
+                hits,
+                list,
+            ):
+                hits = []
+
+            documents.append(
+                {
+                    **index,
+                    "doc_id": doc_id,
+                    "detection_job_id": (
+                        detection_job_id
+                    ),
+                    "source_job_id": (
+                        source_job_id
+                    ),
+                }
+            )
+
+            #
+            # Flatten only this document's current/latest hits.
+            # This prevents prior Detection reruns from inflating
+            # project totals.
+            #
+            for hit in hits:
+                if not isinstance(
+                    hit,
+                    dict,
+                ):
+                    continue
+
+                entities.append(
+                    {
+                        **hit,
+                        "doc_id": doc_id,
+                        "detection_job_id": (
+                            detection_job_id
+                        ),
+                        "source_job_id": (
+                            source_job_id
+                        ),
+                    }
+                )
+
+        impact = (
+            _build_detection_impact_assessment(
+                documents=documents,
+                entities=entities,
+            )
+        )
+
+        hit_count = 0
+        no_hit_count = 0
+        nfr_count = 0
+        exception_count = 0
+
+        for document in documents:
+            classification = str(
+                document.get(
+                    "classification"
+                )
+                or ""
+            ).strip().upper()
+
+            if classification == "HIT":
+                hit_count += 1
+
+            elif classification in {
+                "NO_HIT",
+                "NO HIT",
+            }:
+                no_hit_count += 1
+
+            elif classification == "NFR":
+                nfr_count += 1
+
+            else:
+                exception_count += 1
+
+        entity_type_counts = (
+            impact.get(
+                "element_breakdown"
+            )
+            or []
+        )
+
+        return {
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+
+            "scope": "project",
+
+            "population_basis": (
+                "latest_detection_state_per_doc_id"
+            ),
+
+            "generated_at": (
+                _utc_now()
+            ),
+
+            "detection_job_ids": sorted(
+                detection_job_ids
+            ),
+
+            "source_job_ids": sorted(
+                source_job_ids
+            ),
+
+            "counts": {
+                "documents_completed": len(
+                    documents
+                ),
+                "documents_with_hits": (
+                    hit_count
+                ),
+                "documents_no_hits": (
+                    no_hit_count
+                ),
+                "documents_nfr": (
+                    nfr_count
+                ),
+                "documents_exception": (
+                    exception_count
+                ),
+                "entity_hit_count": len(
+                    entities
+                ),
+            },
+
+            "impact_assessment": (
+                impact
+            ),
+
+            "entity_type_counts": (
+                entity_type_counts
+            ),
+
+            "documents": documents,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Unable to build project-wide "
+                "Impact Assessment: "
+                f"{exc}"
+            ),
+        ) from exc
+
+@router.get(
+    "/{workspace}/processing-center/"
+    "data-element-detection/project-impact-assessment.xlsx"
+)
+def export_project_detection_impact_assessment_xlsx(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    client: str = Query(...),
+    project: str = Query(...),
+):
+    """
+    Export the cumulative project-wide Data Element Detection
+    Impact Assessment.
+
+    Each Doc ID is represented once using its latest canonical
+    Detection document index.
+    """
+
+    try:
+        document_indexes = (
+            _load_current_detection_document_indexes(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+        )
+
+        documents: list[
+            dict[str, Any]
+        ] = []
+
+        entities: list[
+            dict[str, Any]
+        ] = []
+
+        detection_job_ids: set[
+            str
+        ] = set()
+
+        source_job_ids: set[
+            str
+        ] = set()
+
+        #
+        # Build the project-wide current Detection population.
+        #
+        for index in document_indexes:
+            if not isinstance(
+                index,
+                dict,
+            ):
+                continue
+
+            doc_id = str(
+                index.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+
+            if not doc_id:
+                continue
+
+            detection_job_id = str(
+                index.get(
+                    "latest_detection_job_id"
+                )
+                or ""
+            ).strip()
+
+            source_job_id = str(
+                index.get(
+                    "source_job_id"
+                )
+                or ""
+            ).strip()
+
+            if detection_job_id:
+                detection_job_ids.add(
+                    detection_job_id
+                )
+
+            if source_job_id:
+                source_job_ids.add(
+                    source_job_id
+                )
+
+            hits = (
+                index.get(
+                    "hits"
+                )
+                or []
+            )
+
+            if not isinstance(
+                hits,
+                list,
+            ):
+                hits = []
+
+            documents.append(
+                {
+                    **index,
+                    "doc_id": doc_id,
+                    "detection_job_id": (
+                        detection_job_id
+                    ),
+                    "source_job_id": (
+                        source_job_id
+                    ),
+                }
+            )
+
+            for hit in hits:
+                if not isinstance(
+                    hit,
+                    dict,
+                ):
+                    continue
+
+                entities.append(
+                    {
+                        **hit,
+                        "doc_id": doc_id,
+                        "detection_job_id": (
+                            detection_job_id
+                        ),
+                        "source_job_id": (
+                            source_job_id
+                        ),
+                    }
+                )
+
+        #
+        # Enrich current Detection indexes with APC staged metadata
+        # across every source ingestion job represented in the project.
+        #
+        staged_by_doc_id: dict[
+            str,
+            dict[str, Any],
+        ] = {}
+
+        for source_job_id in sorted(
+            source_job_ids
+        ):
+            try:
+                staged_payload = (
+                    _build_staged_results_payload(
+                        workspace=workspace,
+                        client=client,
+                        project=project,
+                        job_id=source_job_id,
+                    )
+                )
+
+                staged_docs = (
+                    staged_payload.get(
+                        "docs"
+                    )
+                    or []
+                )
+
+                if not isinstance(
+                    staged_docs,
+                    list,
+                ):
+                    continue
+
+                for staged_doc in staged_docs:
+                    if not isinstance(
+                        staged_doc,
+                        dict,
+                    ):
+                        continue
+
+                    staged_doc_id = str(
+                        staged_doc.get(
+                            "doc_id"
+                        )
+                        or ""
+                    ).strip()
+
+                    if not staged_doc_id:
+                        continue
+
+                    staged_by_doc_id[
+                        staged_doc_id
+                    ] = staged_doc
+
+            except Exception:
+                continue
+
+        def merged_doc(
+            document: dict[str, Any],
+        ) -> dict[str, Any]:
+            doc_id = str(
+                document.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+
+            return {
+                **(
+                    staged_by_doc_id.get(
+                        doc_id
+                    )
+                    or {}
+                ),
+                **document,
+            }
+
+        merged_documents = [
+            merged_doc(
+                document
+            )
+            for document in documents
+        ]
+
+        impact = (
+            _build_detection_impact_assessment(
+                documents=merged_documents,
+                entities=entities,
+            )
+        )
+
+        generated_at = _utc_now()
+
+        #
+        # Workbook.
+        #
+        wb = Workbook()
+
+        default_sheet = wb.active
+        wb.remove(
+            default_sheet
+        )
+
+        title_fill = PatternFill(
+            "solid",
+            fgColor="0B1F33",
+        )
+
+        section_fill = PatternFill(
+            "solid",
+            fgColor="163A5F",
+        )
+
+        header_fill = PatternFill(
+            "solid",
+            fgColor="1F4E78",
+        )
+
+        light_fill = PatternFill(
+            "solid",
+            fgColor="EEF4F8",
+        )
+
+        thin_side = Side(
+            style="thin",
+            color="B7C9D6",
+        )
+
+        thin_border = Border(
+            left=thin_side,
+            right=thin_side,
+            top=thin_side,
+            bottom=thin_side,
+        )
+
+        title_font = Font(
+            bold=True,
+            size=18,
+            color="FFFFFF",
+        )
+
+        section_font = Font(
+            bold=True,
+            size=12,
+            color="FFFFFF",
+        )
+
+        header_font = Font(
+            bold=True,
+            color="FFFFFF",
+        )
+
+        label_font = Font(
+            bold=True,
+            color="1F2937",
+        )
+
+        def clean_value(
+            value: Any,
+        ) -> Any:
+            if value is None:
+                return ""
+
+            if isinstance(
+                value,
+                (
+                    str,
+                    int,
+                    float,
+                    bool,
+                ),
+            ):
+                return value
+
+            if isinstance(
+                value,
+                (
+                    list,
+                    tuple,
+                    set,
+                ),
+            ):
+                return ", ".join(
+                    str(item)
+                    for item in value
+                )
+
+            if isinstance(
+                value,
+                dict,
+            ):
+                return json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    default=str,
+                )
+
+            return str(
+                value
+            )
+
+        def source_filename(
+            doc: dict[str, Any],
+        ) -> str:
+            value = str(
+                doc.get(
+                    "original_filename"
+                )
+                or ""
+            ).strip()
+
+            if value:
+                return value
+
+            workbook_name = str(
+                doc.get(
+                    "original_workbook_name"
+                )
+                or ""
+            ).strip()
+
+            if workbook_name:
+                return workbook_name
+
+            native_path = str(
+                doc.get(
+                    "native_staged_blob_path"
+                )
+                or ""
+            ).strip()
+
+            if native_path:
+                return native_path.rsplit(
+                    "/",
+                    1,
+                )[-1]
+
+            return ""
+
+        def entity_type(
+            entity: dict[str, Any],
+        ) -> str:
+            return str(
+                entity.get(
+                    "entity_type"
+                )
+                or entity.get(
+                    "category"
+                )
+                or entity.get(
+                    "type"
+                )
+                or "Unknown"
+            ).strip() or "Unknown"
+
+        def detected_value(
+            entity: dict[str, Any],
+        ) -> str:
+            return str(
+                entity.get(
+                    "detected_value"
+                )
+                or entity.get(
+                    "text"
+                )
+                or entity.get(
+                    "normalized_value"
+                )
+                or ""
+            )
+
+        def confidence_value(
+            entity: dict[str, Any],
+        ) -> Any:
+            raw = (
+                entity.get(
+                    "confidence"
+                )
+                if entity.get(
+                    "confidence"
+                )
+                is not None
+                else entity.get(
+                    "confidence_score"
+                )
+            )
+
+            try:
+                return (
+                    float(raw)
+                    if raw is not None
+                    else ""
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                return clean_value(
+                    raw
+                )
+
+        def style_table(
+            ws,
+        ) -> None:
+            ws.freeze_panes = "A2"
+
+            if ws.max_row >= 1:
+                ws.auto_filter.ref = (
+                    ws.dimensions
+                )
+
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = thin_border
+                cell.alignment = Alignment(
+                    vertical="center",
+                    wrap_text=True,
+                )
+
+            for column_cells in ws.columns:
+                letter = get_column_letter(
+                    column_cells[0].column
+                )
+
+                max_length = 0
+
+                for cell in column_cells:
+                    value = str(
+                        cell.value
+                        if cell.value
+                        is not None
+                        else ""
+                    )
+
+                    max_length = max(
+                        max_length,
+                        min(
+                            len(value),
+                            80,
+                        ),
+                    )
+
+                    cell.alignment = Alignment(
+                        vertical="top",
+                        wrap_text=True,
+                    )
+
+                ws.column_dimensions[
+                    letter
+                ].width = min(
+                    max(
+                        max_length + 2,
+                        11,
+                    ),
+                    45,
+                )
+
+        def append_table(
+            ws,
+            headers: list[str],
+            rows: list[list[Any]],
+        ) -> None:
+            ws.append(
+                headers
+            )
+
+            for row in rows:
+                ws.append(
+                    [
+                        clean_value(
+                            value
+                        )
+                        for value
+                        in row
+                    ]
+                )
+
+            style_table(
+                ws
+            )
+
+        #
+        # Classification totals.
+        #
+        classification_counts = {
+            "HIT": 0,
+            "NO_HIT": 0,
+            "NFR": 0,
+            "EXCEPTION": 0,
+        }
+
+        for document in merged_documents:
+            classification = str(
+                document.get(
+                    "classification"
+                )
+                or ""
+            ).strip().upper()
+
+            if classification == "HIT":
+                classification_counts[
+                    "HIT"
+                ] += 1
+
+            elif classification in {
+                "NO_HIT",
+                "NO HIT",
+            }:
+                classification_counts[
+                    "NO_HIT"
+                ] += 1
+
+            elif classification == "NFR":
+                classification_counts[
+                    "NFR"
+                ] += 1
+
+            else:
+                classification_counts[
+                    "EXCEPTION"
+                ] += 1
+
+        workbook_children = [
+            document
+            for document
+            in merged_documents
+            if bool(
+                document.get(
+                    "is_workbook_sheet"
+                )
+            )
+        ]
+
+        workbook_families = {
+            str(
+                document.get(
+                    "original_workbook_file_id"
+                )
+                or document.get(
+                    "parent_file_id"
+                )
+                or ""
+            ).strip()
+            for document
+            in workbook_children
+            if str(
+                document.get(
+                    "original_workbook_file_id"
+                )
+                or document.get(
+                    "parent_file_id"
+                )
+                or ""
+            ).strip()
+        }
+
+        #
+        # Cover & Totals
+        #
+        cover = wb.create_sheet(
+            "Cover & Totals"
+        )
+
+        cover.merge_cells(
+            "A1:F2"
+        )
+
+        cover["A1"] = (
+            "INSYT Data Element Detection "
+            "Impact Assessment"
+        )
+
+        cover["A1"].fill = (
+            title_fill
+        )
+
+        cover["A1"].font = (
+            title_font
+        )
+
+        cover["A1"].alignment = (
+            Alignment(
+                vertical="center",
+                horizontal="left",
+            )
+        )
+
+        cover.merge_cells(
+            "A4:F4"
+        )
+
+        cover["A4"] = (
+            "Project-Wide Assessment"
+        )
+
+        cover["A4"].fill = (
+            section_fill
+        )
+
+        cover["A4"].font = (
+            section_font
+        )
+
+        metadata_rows = [
+            (
+                "Assessment Scope",
+                (
+                    "Project - All completed Data Element "
+                    "Detection through export time"
+                ),
+            ),
+            (
+                "Population Basis",
+                (
+                    "Latest completed Detection state "
+                    "per Doc ID"
+                ),
+            ),
+            (
+                "Client",
+                client,
+            ),
+            (
+                "Project",
+                project,
+            ),
+            (
+                "Workspace",
+                workspace,
+            ),
+            (
+                "Generated At",
+                generated_at,
+            ),
+            (
+                "Detection Jobs Included",
+                len(
+                    detection_job_ids
+                ),
+            ),
+            (
+                "Detection Job IDs",
+                ", ".join(
+                    sorted(
+                        detection_job_ids
+                    )
+                ),
+            ),
+            (
+                "Source Jobs Included",
+                len(
+                    source_job_ids
+                ),
+            ),
+            (
+                "Source Job IDs",
+                ", ".join(
+                    sorted(
+                        source_job_ids
+                    )
+                ),
+            ),
+        ]
+
+        row_number = 5
+
+        for label, value in metadata_rows:
+            cover.cell(
+                row=row_number,
+                column=1,
+                value=label,
+            )
+
+            cover.cell(
+                row=row_number,
+                column=2,
+                value=clean_value(
+                    value
+                ),
+            )
+
+            cover.cell(
+                row=row_number,
+                column=1,
+            ).font = label_font
+
+            cover.cell(
+                row=row_number,
+                column=1,
+            ).fill = light_fill
+
+            cover.cell(
+                row=row_number,
+                column=1,
+            ).border = thin_border
+
+            cover.cell(
+                row=row_number,
+                column=2,
+            ).border = thin_border
+
+            row_number += 1
+
+        row_number += 1
+
+        cover.merge_cells(
+            start_row=row_number,
+            start_column=1,
+            end_row=row_number,
+            end_column=6,
+        )
+
+        cover.cell(
+            row=row_number,
+            column=1,
+            value="Project Totals",
+        )
+
+        cover.cell(
+            row=row_number,
+            column=1,
+        ).fill = section_fill
+
+        cover.cell(
+            row=row_number,
+            column=1,
+        ).font = section_font
+
+        row_number += 1
+
+        total_rows = [
+            (
+                "Completed Detection Documents",
+                len(
+                    merged_documents
+                ),
+            ),
+            (
+                "Documents With Hits",
+                classification_counts[
+                    "HIT"
+                ],
+            ),
+            (
+                "No Hit Documents",
+                classification_counts[
+                    "NO_HIT"
+                ],
+            ),
+            (
+                "NFR Documents",
+                classification_counts[
+                    "NFR"
+                ],
+            ),
+            (
+                "Exceptions",
+                classification_counts[
+                    "EXCEPTION"
+                ],
+            ),
+            (
+                "Workbook Families",
+                len(
+                    workbook_families
+                ),
+            ),
+            (
+                "Worksheet Children",
+                len(
+                    workbook_children
+                ),
+            ),
+            (
+                "Total Elements Identified",
+                impact.get(
+                    "total_elements_identified"
+                )
+                or len(
+                    entities
+                ),
+            ),
+            (
+                "Rough Names With Attached Elements",
+                impact.get(
+                    "rough_names_with_attached_elements"
+                )
+                or 0,
+            ),
+        ]
+
+        for label, value in total_rows:
+            cover.cell(
+                row=row_number,
+                column=1,
+                value=label,
+            )
+
+            cover.cell(
+                row=row_number,
+                column=2,
+                value=value,
+            )
+
+            cover.cell(
+                row=row_number,
+                column=1,
+            ).font = label_font
+
+            cover.cell(
+                row=row_number,
+                column=1,
+            ).fill = light_fill
+
+            cover.cell(
+                row=row_number,
+                column=1,
+            ).border = thin_border
+
+            cover.cell(
+                row=row_number,
+                column=2,
+            ).border = thin_border
+
+            row_number += 1
+
+        row_number += 1
+
+        cover.merge_cells(
+            start_row=row_number,
+            start_column=1,
+            end_row=row_number,
+            end_column=6,
+        )
+
+        cover.cell(
+            row=row_number,
+            column=1,
+            value="Detected Element Totals",
+        )
+
+        cover.cell(
+            row=row_number,
+            column=1,
+        ).fill = section_fill
+
+        cover.cell(
+            row=row_number,
+            column=1,
+        ).font = section_font
+
+        row_number += 1
+
+        for column, value in enumerate(
+            [
+                "Data Element",
+                "Documents",
+                "Total Hits",
+            ],
+            start=1,
+        ):
+            cell = cover.cell(
+                row=row_number,
+                column=column,
+                value=value,
+            )
+
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.border = thin_border
+
+        row_number += 1
+
+        for row in (
+            impact.get(
+                "element_breakdown"
+            )
+            or []
+        ):
+            cover.cell(
+                row=row_number,
+                column=1,
+                value=row.get(
+                    "entity_type"
+                )
+                or "Unknown",
+            )
+
+            cover.cell(
+                row=row_number,
+                column=2,
+                value=row.get(
+                    "document_count"
+                )
+                or 0,
+            )
+
+            cover.cell(
+                row=row_number,
+                column=3,
+                value=row.get(
+                    "hit_count"
+                )
+                or 0,
+            )
+
+            row_number += 1
+
+        cover.column_dimensions[
+            "A"
+        ].width = 42
+
+        cover.column_dimensions[
+            "B"
+        ].width = 60
+
+        cover.column_dimensions[
+            "C"
+        ].width = 18
+
+        #
+        # Document Inventory
+        #
+        inventory = wb.create_sheet(
+            "Document Inventory"
+        )
+
+        append_table(
+            inventory,
+            [
+                "Doc ID",
+                "File ID",
+                "Parent File ID",
+                "Original File",
+                "Extension",
+                "Source Type",
+                "Classification",
+                "Source Job",
+                "Latest Detection Job",
+                "Detection Run",
+                "Detection Date",
+                "Entity Count",
+                "Original Workbook",
+                "Sheet Name",
+                "Sheet Index",
+                "Sheet Visibility",
+                "Source Bytes",
+                "Page Count",
+                "Staged Native Path",
+                "Staged Text Path",
+                "Final Native Path",
+                "Final Text Path",
+                "Document Index Path",
+            ],
+            [
+                [
+                    document.get(
+                        "doc_id"
+                    ),
+                    document.get(
+                        "file_id"
+                    ),
+                    document.get(
+                        "parent_file_id"
+                    ),
+                    source_filename(
+                        document
+                    ),
+                    document.get(
+                        "extension"
+                    ),
+                    document.get(
+                        "source_type"
+                    ),
+                    document.get(
+                        "classification"
+                    ),
+                    document.get(
+                        "source_job_id"
+                    ),
+                    document.get(
+                        "latest_detection_job_id"
+                    )
+                    or document.get(
+                        "detection_job_id"
+                    ),
+                    document.get(
+                        "detection_run_id"
+                    ),
+                    document.get(
+                        "detected_at"
+                    )
+                    or document.get(
+                        "document_index_last_modified"
+                    ),
+                    len(
+                        document.get(
+                            "hits"
+                        )
+                        or []
+                    ),
+                    document.get(
+                        "original_workbook_name"
+                    ),
+                    document.get(
+                        "sheet_name"
+                    ),
+                    document.get(
+                        "sheet_index"
+                    ),
+                    document.get(
+                        "sheet_visibility"
+                    ),
+                    document.get(
+                        "source_bytes"
+                    ),
+                    document.get(
+                        "page_count"
+                    ),
+                    document.get(
+                        "native_staged_blob_path"
+                    ),
+                    document.get(
+                        "text_staged_blob_path"
+                    ),
+                    document.get(
+                        "final_native_blob_path"
+                    ),
+                    document.get(
+                        "final_text_blob_path"
+                    ),
+                    document.get(
+                        "document_index_blob_path"
+                    ),
+                ]
+                for document
+                in merged_documents
+            ],
+        )
+
+        #
+        # Detection Results
+        #
+        detection_results = (
+            wb.create_sheet(
+                "Detection Results"
+            )
+        )
+
+        append_table(
+            detection_results,
+            [
+                "Doc ID",
+                "Original File",
+                "Classification",
+                "Entity Count",
+                "Detection Mode",
+                "Type Profile Complete",
+                "Entity Counts Complete",
+                "Source Job",
+                "Detection Job",
+                "Detection Run",
+                "Detection Date",
+            ],
+            [
+                [
+                    document.get(
+                        "doc_id"
+                    ),
+                    source_filename(
+                        document
+                    ),
+                    document.get(
+                        "classification"
+                    ),
+                    len(
+                        document.get(
+                            "hits"
+                        )
+                        or []
+                    ),
+                    document.get(
+                        "detection_mode"
+                    ),
+                    document.get(
+                        "type_profile_complete"
+                    ),
+                    document.get(
+                        "entity_counts_complete"
+                    ),
+                    document.get(
+                        "source_job_id"
+                    ),
+                    document.get(
+                        "latest_detection_job_id"
+                    )
+                    or document.get(
+                        "detection_job_id"
+                    ),
+                    document.get(
+                        "detection_run_id"
+                    ),
+                    document.get(
+                        "detected_at"
+                    )
+                    or document.get(
+                        "document_index_last_modified"
+                    ),
+                ]
+                for document
+                in merged_documents
+            ],
+        )
+
+        #
+        # Entity Summary
+        #
+        entity_summary = (
+            wb.create_sheet(
+                "Entity Summary"
+            )
+        )
+
+        append_table(
+            entity_summary,
+            [
+                "Data Element",
+                "Document Count",
+                "Total Hits",
+            ],
+            [
+                [
+                    row.get(
+                        "entity_type"
+                    )
+                    or "Unknown",
+                    row.get(
+                        "document_count"
+                    )
+                    or 0,
+                    row.get(
+                        "hit_count"
+                    )
+                    or 0,
+                ]
+                for row
+                in (
+                    impact.get(
+                        "element_breakdown"
+                    )
+                    or []
+                )
+            ],
+        )
+
+        #
+        # Entity Detail
+        #
+        docs_by_id = {
+            str(
+                document.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip(): document
+            for document
+            in merged_documents
+        }
+
+        entity_detail = (
+            wb.create_sheet(
+                "Entity Detail"
+            )
+        )
+
+        append_table(
+            entity_detail,
+            [
+                "Doc ID",
+                "Original File",
+                "Entity Type",
+                "Entity Subtype",
+                "Detected Value",
+                "Confidence",
+                "Page",
+                "Start Offset",
+                "End Offset",
+                "Length",
+                "Protocol",
+                "Detector",
+                "Reportability",
+                "Original Workbook",
+                "Sheet Name",
+                "Sheet Index",
+                "Sheet Visibility",
+                "Detection Job",
+                "Source Job",
+            ],
+            [
+                [
+                    entity.get(
+                        "doc_id"
+                    ),
+                    source_filename(
+                        docs_by_id.get(
+                            str(
+                                entity.get(
+                                    "doc_id"
+                                )
+                                or ""
+                            ).strip(),
+                            {},
+                        )
+                    ),
+                    entity_type(
+                        entity
+                    ),
+                    entity.get(
+                        "entity_subtype"
+                    )
+                    or entity.get(
+                        "subcategory"
+                    ),
+                    detected_value(
+                        entity
+                    ),
+                    confidence_value(
+                        entity
+                    ),
+                    entity.get(
+                        "page_number"
+                    )
+                    or entity.get(
+                        "page"
+                    ),
+                    entity.get(
+                        "start_offset"
+                    )
+                    if entity.get(
+                        "start_offset"
+                    )
+                    is not None
+                    else entity.get(
+                        "offset"
+                    ),
+                    entity.get(
+                        "end_offset"
+                    ),
+                    entity.get(
+                        "length"
+                    ),
+                    entity.get(
+                        "protocol"
+                    )
+                    or entity.get(
+                        "protocol_name"
+                    ),
+                    entity.get(
+                        "detector"
+                    )
+                    or entity.get(
+                        "detector_name"
+                    ),
+                    entity.get(
+                        "reportability"
+                    ),
+                    docs_by_id.get(
+                        str(
+                            entity.get(
+                                "doc_id"
+                            )
+                            or ""
+                        ).strip(),
+                        {},
+                    ).get(
+                        "original_workbook_name"
+                    ),
+                    docs_by_id.get(
+                        str(
+                            entity.get(
+                                "doc_id"
+                            )
+                            or ""
+                        ).strip(),
+                        {},
+                    ).get(
+                        "sheet_name"
+                    ),
+                    docs_by_id.get(
+                        str(
+                            entity.get(
+                                "doc_id"
+                            )
+                            or ""
+                        ).strip(),
+                        {},
+                    ).get(
+                        "sheet_index"
+                    ),
+                    docs_by_id.get(
+                        str(
+                            entity.get(
+                                "doc_id"
+                            )
+                            or ""
+                        ).strip(),
+                        {},
+                    ).get(
+                        "sheet_visibility"
+                    ),
+                    entity.get(
+                        "detection_job_id"
+                    ),
+                    entity.get(
+                        "source_job_id"
+                    ),
+                ]
+                for entity
+                in entities
+            ],
+        )
+
+        #
+        # Workbook Lineage
+        #
+        workbook_lineage = (
+            wb.create_sheet(
+                "Workbook Lineage"
+            )
+        )
+
+        append_table(
+            workbook_lineage,
+            [
+                "Parent Doc ID",
+                "Workbook File ID",
+                "Original Workbook",
+                "Original Workbook Path",
+                "Child Doc ID",
+                "Child File ID",
+                "Sheet Name",
+                "Sheet Index",
+                "Sheet Visibility",
+                "Nonblank Rows",
+                "Column Count",
+                "Staged Native Path",
+                "Staged Text Path",
+            ],
+            [
+                [
+                    (
+                        str(
+                            document.get(
+                                "doc_id"
+                            )
+                            or ""
+                        ).split(
+                            ".",
+                            1,
+                        )[0]
+                    ),
+                    document.get(
+                        "original_workbook_file_id"
+                    ),
+                    document.get(
+                        "original_workbook_name"
+                    ),
+                    document.get(
+                        "original_workbook_path"
+                    ),
+                    document.get(
+                        "doc_id"
+                    ),
+                    document.get(
+                        "file_id"
+                    ),
+                    document.get(
+                        "sheet_name"
+                    ),
+                    document.get(
+                        "sheet_index"
+                    ),
+                    document.get(
+                        "sheet_visibility"
+                    ),
+                    document.get(
+                        "sheet_nonblank_row_count"
+                    ),
+                    document.get(
+                        "sheet_column_count"
+                    ),
+                    document.get(
+                        "native_staged_blob_path"
+                    ),
+                    document.get(
+                        "text_staged_blob_path"
+                    ),
+                ]
+                for document
+                in workbook_children
+            ],
+        )
+
+        #
+        # Exceptions
+        #
+        exceptions_ws = (
+            wb.create_sheet(
+                "Exceptions"
+            )
+        )
+
+        exception_rows: list[
+            list[Any]
+        ] = []
+
+        for document in merged_documents:
+            classification = str(
+                document.get(
+                    "classification"
+                )
+                or ""
+            ).strip().upper()
+
+            error_value = (
+                document.get(
+                    "error"
+                )
+                or document.get(
+                    "exception"
+                )
+                or document.get(
+                    "message"
+                )
+                or document.get(
+                    "reason"
+                )
+                or ""
+            )
+
+            if (
+                classification
+                not in {
+                    "EXCEPTION",
+                    "ERROR",
+                    "FAILED",
+                }
+                and not error_value
+            ):
+                continue
+
+            exception_rows.append(
+                [
+                    document.get(
+                        "doc_id"
+                    ),
+                    source_filename(
+                        document
+                    ),
+                    classification,
+                    error_value,
+                    document.get(
+                        "source_job_id"
+                    ),
+                    document.get(
+                        "latest_detection_job_id"
+                    ),
+                    document.get(
+                        "native_staged_blob_path"
+                    ),
+                    document.get(
+                        "text_staged_blob_path"
+                    ),
+                ]
+            )
+
+        append_table(
+            exceptions_ws,
+            [
+                "Doc ID",
+                "Original File",
+                "Classification",
+                "Error / Reason",
+                "Source Job",
+                "Detection Job",
+                "Staged Native Path",
+                "Staged Text Path",
+            ],
+            exception_rows,
+        )
+
+        #
+        # Processing Audit
+        #
+        audit = wb.create_sheet(
+            "Processing Audit"
+        )
+
+        append_table(
+            audit,
+            [
+                "Audit Field",
+                "Value",
+            ],
+            [
+                [
+                    "Assessment Scope",
+                    "Project",
+                ],
+                [
+                    "Population Basis",
+                    (
+                        "latest_detection_state_per_doc_id"
+                    ),
+                ],
+                [
+                    "Generated At",
+                    generated_at,
+                ],
+                [
+                    "Workspace",
+                    workspace,
+                ],
+                [
+                    "Client",
+                    client,
+                ],
+                [
+                    "Project",
+                    project,
+                ],
+                [
+                    "Unique Documents",
+                    len(
+                        merged_documents
+                    ),
+                ],
+                [
+                    "Detection Jobs Included",
+                    len(
+                        detection_job_ids
+                    ),
+                ],
+                [
+                    "Detection Job IDs",
+                    ", ".join(
+                        sorted(
+                            detection_job_ids
+                        )
+                    ),
+                ],
+                [
+                    "Source Jobs Included",
+                    len(
+                        source_job_ids
+                    ),
+                ],
+                [
+                    "Source Job IDs",
+                    ", ".join(
+                        sorted(
+                            source_job_ids
+                        )
+                    ),
+                ],
+                [
+                    "Project Base Path",
+                    _project_base_path(
+                        workspace=workspace,
+                        client=client,
+                        project=project,
+                    ),
+                ],
+                [
+                    "Detection Document Index Path",
+                    (
+                        f"{_project_base_path(workspace=workspace, client=client, project=project)}"
+                        "/processing_center/detection/documents/"
+                    ),
+                ],
+            ],
+        )
+
+        wb.properties.title = (
+            "INSYT Project Data Element "
+            "Detection Impact Assessment"
+        )
+
+        wb.properties.subject = (
+            f"{client} / {project}"
+        )
+
+        wb.properties.creator = (
+            "INSYT360"
+        )
+
+        wb.properties.description = (
+            "Cumulative project-wide Data Element Detection "
+            "Impact Assessment using the latest completed "
+            "Detection state per Doc ID."
+        )
+
+        output = io.BytesIO()
+
+        wb.save(
+            output
+        )
+
+        output.seek(
+            0
+        )
+
+        safe_project = (
+            str(
+                project
+                or "project"
+            )
+            .replace(
+                " ",
+                "_",
+            )
+            .replace(
+                "/",
+                "_",
+            )
+            .replace(
+                "\\",
+                "_",
+            )
+        )
+
+        filename = (
+            f"{safe_project}_"
+            f"Project_"
+            f"Impact_Assessment.xlsx"
+        )
+
+        return StreamingResponse(
+            output,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{filename}"'
+                )
+            },
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Unable to export project-wide "
+                "Impact Assessment: "
+                f"{exc}"
+            ),
+        ) from exc
 
 @router.get(
     "/{workspace}/processing-center/promotion"
