@@ -1,6 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+
 import { useSearchParams } from "next/navigation";
 import { ScanSearch, RefreshCw, Play, Download } from "lucide-react";
 
@@ -139,6 +146,22 @@ function DataElementDetectionPageContent() {
     setLoadingProjectImpact,
   ] = useState(false);
 
+  const [
+    completedProjectFilters,
+    setCompletedProjectFilters,
+  ] = useState({
+    doc_id: "",
+    original_file: "",
+    workbook: "",
+    sheet: "",
+    classification: "",
+    entities: "",
+    elements: "",
+    detection_job: "",
+    detection_date: "",
+    source_job: "",
+  });
+
   const [error, setError] = useState("");
 
   const readyDocs = readyData?.docs || [];
@@ -163,6 +186,106 @@ function DataElementDetectionPageContent() {
       })
     );
   }, [readyDocs]);
+
+  const filteredCompletedProjectDocs = useMemo(() => {
+    const docs = Array.isArray(projectImpact?.documents)
+      ? projectImpact.documents
+      : [];
+
+    const contains = (
+      value: unknown,
+      filter: string
+    ) => {
+      if (!filter.trim()) {
+        return true;
+      }
+
+      return String(value ?? "")
+        .toLowerCase()
+        .includes(filter.trim().toLowerCase());
+    };
+
+    return docs.filter((doc: any) => {
+      const hits = Array.isArray(doc?.hits)
+        ? doc.hits
+        : [];
+
+      const elementTypes = Array.from(
+        new Set(
+          hits
+            .map(
+              (hit: any) =>
+                hit?.entity_type ||
+                hit?.category ||
+                hit?.type ||
+                ""
+            )
+            .filter(Boolean)
+        )
+      ).join(", ");
+
+      const originalFile =
+        doc.original_filename ||
+        doc.original_workbook_name ||
+        "";
+
+      const detectionJob =
+        doc.latest_detection_job_id ||
+        doc.detection_job_id ||
+        "";
+
+      const detectionDate =
+        doc.detected_at ||
+        doc.document_index_last_modified ||
+        "";
+
+      return (
+        contains(
+          doc.doc_id,
+          completedProjectFilters.doc_id
+        ) &&
+        contains(
+          originalFile,
+          completedProjectFilters.original_file
+        ) &&
+        contains(
+          doc.original_workbook_name,
+          completedProjectFilters.workbook
+        ) &&
+        contains(
+          doc.sheet_name,
+          completedProjectFilters.sheet
+        ) &&
+        contains(
+          doc.classification,
+          completedProjectFilters.classification
+        ) &&
+        contains(
+          hits.length,
+          completedProjectFilters.entities
+        ) &&
+        contains(
+          elementTypes,
+          completedProjectFilters.elements
+        ) &&
+        contains(
+          detectionJob,
+          completedProjectFilters.detection_job
+        ) &&
+        contains(
+          detectionDate,
+          completedProjectFilters.detection_date
+        ) &&
+        contains(
+          doc.source_job_id,
+          completedProjectFilters.source_job
+        )
+      );
+    });
+  }, [
+    projectImpact,
+    completedProjectFilters,
+  ]);
 
   async function loadDetectionReady(
     isRefresh = false
@@ -689,20 +812,11 @@ function DataElementDetectionPageContent() {
           />
         </div>
 
-        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
-            <div>
-              <h2 className="text-base font-semibold text-white">
-                Detection Ready
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-400">
-                Documents become available here after
-                Initial Ingestion, document ID assignment,
-                text extraction, and any required OCR.
-              </p>
-            </div>
-
+        <CollapsiblePane
+          title="Detection Ready"
+          description="Documents become available here after Initial Ingestion, document ID assignment, text extraction, and any required OCR."
+          className="mb-6"
+          actions={
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -722,8 +836,8 @@ function DataElementDetectionPageContent() {
                 Clear
               </button>
             </div>
-          </div>
-
+          }
+        >
           <div className="max-h-[520px] overflow-y-auto p-5">
             {initialLoadingReady ? (
               <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
@@ -905,14 +1019,12 @@ function DataElementDetectionPageContent() {
               </div>
             )}
           </div>
-        </section>
+        </CollapsiblePane>
 
-        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60">
-          <div className="border-b border-slate-800 px-5 py-4">
-            <h2 className="text-base font-semibold text-white">
-              Detection Status
-            </h2>
-          </div>
+        <CollapsiblePane
+          title="Detection Status"
+          className="mb-6"
+        >
 
           <div className="max-h-[260px] overflow-y-auto p-5">
             {!detectionJobId ? (
@@ -954,14 +1066,12 @@ function DataElementDetectionPageContent() {
               </div>
             )}
           </div>
-        </section>
+        </CollapsiblePane>
 
-        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60">
-          <div className="border-b border-slate-800 px-5 py-4">
-            <h2 className="text-base font-semibold text-white">
-              Detection Populations
-            </h2>
-          </div>
+        <CollapsiblePane
+          title="Detection Populations"
+          className="mb-6"
+        >
 
           <div className="grid gap-4 p-5 lg:grid-cols-4">
             <PopulationPane
@@ -991,150 +1101,13 @@ function DataElementDetectionPageContent() {
               }
             />
           </div>
-        </section>
+        </CollapsiblePane>
 
-        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60">
-          <div className="border-b border-slate-800 px-5 py-4">
-            <div>
-              <h2 className="text-base font-semibold text-white">
-                Completed Detection - Project
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-400">
-                Every document in this project with a completed Data Element
-                Detection result, using the latest completed Detection state
-                per Doc ID.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-5">
-            {loadingProjectImpact ? (
-              <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
-                Loading completed Detection documents...
-              </div>
-            ) : (projectImpact?.documents || []).length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
-                No completed Detection documents yet.
-              </div>
-            ) : (
-              <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-800">
-                <table className="min-w-full text-sm">
-                  <thead className="sticky top-0 z-10 bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">
-                        Doc ID
-                      </th>
-
-                      <th className="px-4 py-3">
-                        Original File
-                      </th>
-
-                      <th className="px-4 py-3">
-                        Workbook
-                      </th>
-
-                      <th className="px-4 py-3">
-                        Sheet
-                      </th>
-
-                      <th className="px-4 py-3">
-                        Classification
-                      </th>
-
-                      <th className="px-4 py-3 text-right">
-                        Entities
-                      </th>
-
-                      <th className="px-4 py-3">
-                        Detection Job
-                      </th>
-
-                      <th className="px-4 py-3">
-                        Detection Date
-                      </th>
-
-                      <th className="px-4 py-3">
-                        Source Job
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-800">
-                    {(projectImpact?.documents || []).map(
-                      (doc: any) => {
-                        const hits = Array.isArray(doc?.hits)
-                          ? doc.hits
-                          : [];
-
-                        return (
-                          <tr key={doc.doc_id}>
-                            <td className="px-4 py-3 font-mono text-xs text-sky-300">
-                              {doc.doc_id || "—"}
-                            </td>
-
-                            <td className="max-w-[360px] truncate px-4 py-3 text-slate-200">
-                              {doc.original_filename ||
-                                doc.original_workbook_name ||
-                                "—"}
-                            </td>
-
-                            <td className="max-w-[280px] truncate px-4 py-3 text-slate-400">
-                              {doc.original_workbook_name || "—"}
-                            </td>
-
-                            <td className="px-4 py-3 text-slate-400">
-                              {doc.sheet_name || "—"}
-                            </td>
-
-                            <td className="px-4 py-3 text-slate-300">
-                              {doc.classification || "—"}
-                            </td>
-
-                            <td className="px-4 py-3 text-right text-slate-300">
-                              {hits.length}
-                            </td>
-
-                            <td className="px-4 py-3 font-mono text-xs text-slate-400">
-                              {doc.latest_detection_job_id ||
-                                doc.detection_job_id ||
-                                "—"}
-                            </td>
-
-                            <td className="px-4 py-3 text-slate-400">
-                              {doc.detected_at ||
-                                doc.document_index_last_modified ||
-                                "—"}
-                            </td>
-
-                            <td className="px-4 py-3 font-mono text-xs text-slate-400">
-                              {doc.source_job_id || "—"}
-                            </td>
-                          </tr>
-                        );
-                      }
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
-            <div>
-              <h2 className="text-base font-semibold text-white">
-                Impact Assessment - Set
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-400">
-                Latest completed Detection set only.
-                Counts and detected data elements for the documents
-                processed in the current Detection run.
-              </p>
-            </div>
-
+        <CollapsiblePane
+          title="Impact Assessment - Set"
+          description="Latest completed Detection set only. Counts and detected data elements for the documents processed in the current Detection run."
+          className="mb-6"
+          actions={
             <button
               type="button"
               onClick={exportImpactAssessmentReport}
@@ -1144,7 +1117,8 @@ function DataElementDetectionPageContent() {
               <Download className="h-4 w-4" />
               Export Impact Assessment XL - Set
             </button>
-          </div>
+          }
+        >
 
           <div className="p-5">
               <div className="mb-5 grid gap-4 md:grid-cols-3">
@@ -1214,28 +1188,16 @@ function DataElementDetectionPageContent() {
               </div>
             )}
           </div>
-        </section>
+        </CollapsiblePane>
 
-        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
-            <div>
-              <h2 className="text-base font-semibold text-white">
-                Impact Assessment - Project
-              </h2>
-
-              <p className="mt-1 max-w-4xl text-sm text-slate-400">
-                Cumulative project assessment of every document
-                that has completed Data Element Detection through
-                the current time. Each Doc ID is counted once using
-                its latest completed Detection result.
-              </p>
-            </div>
-
+        <CollapsiblePane
+          title="Impact Assessment - Project"
+          description="Cumulative project assessment of every document that has completed Data Element Detection through the current time. Each Doc ID is counted once using its latest completed Detection result."
+          className="mb-6"
+          actions={
             <button
               type="button"
-              onClick={
-                exportProjectImpactAssessmentReport
-              }
+              onClick={exportProjectImpactAssessmentReport}
               disabled={
                 !projectImpact ||
                 Number(
@@ -1246,10 +1208,10 @@ function DataElementDetectionPageContent() {
               className="inline-flex items-center gap-2 rounded-lg border border-violet-700 bg-violet-950/40 px-3 py-2 text-xs font-semibold text-violet-200 hover:bg-violet-900/60 disabled:opacity-40"
             >
               <Download className="h-4 w-4" />
-
               Export Impact Assessment XL - Project
             </button>
-          </div>
+          }
+        >
 
           <div className="p-5">
             {loadingProjectImpact ? (
@@ -1365,7 +1327,185 @@ function DataElementDetectionPageContent() {
               </>
             )}
           </div>
-        </section>
+        </CollapsiblePane>
+
+        <CollapsiblePane
+          title="Completed Detection - Project"
+          description="Every document in this project with a completed Data Element Detection result, using the latest completed Detection state per Doc ID."
+          className="mb-6"
+        >
+
+          <div className="p-5">
+            {loadingProjectImpact ? (
+              <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
+                Loading completed Detection documents...
+              </div>
+            ) : (projectImpact?.documents || []).length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
+                No completed Detection documents yet.
+              </div>
+            ) : (
+              <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-800">
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">
+                        Doc ID
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Original File
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Workbook
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Sheet
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Classification
+                      </th>
+
+                      <th className="px-4 py-3 text-right">
+                        Entities
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Detected Data Elements
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Detection Job
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Detection Date
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Source Job
+                      </th>
+                      </tr>
+
+                      <tr className="border-t border-slate-800 bg-slate-950">
+                        {[
+                          ["doc_id", "Search Doc ID"],
+                          ["original_file", "Search file"],
+                          ["workbook", "Search workbook"],
+                          ["sheet", "Search sheet"],
+                          ["classification", "Filter class"],
+                          ["entities", "Filter count"],
+                          ["elements", "Search elements"],
+                          ["detection_job", "Search Detection job"],
+                          ["detection_date", "Search date"],
+                          ["source_job", "Search source job"],
+                        ].map(([field, placeholder]) => (
+                          <th
+                            key={field}
+                            className="px-2 pb-3"
+                          >
+                            <input
+                              type="text"
+                              value={
+                                completedProjectFilters[
+                                  field as keyof typeof completedProjectFilters
+                                ]
+                              }
+                              onChange={(event) =>
+                                setCompletedProjectFilters(
+                                  (current) => ({
+                                    ...current,
+                                    [field]: event.target.value,
+                                  })
+                                )
+                              }
+                              placeholder={placeholder}
+                              className="w-full min-w-[110px] rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs font-normal normal-case tracking-normal text-slate-200 outline-none placeholder:text-slate-600 focus:border-sky-600"
+                            />
+                          </th>
+                        ))}
+                      </tr>
+                      </thead>
+
+                  <tbody className="divide-y divide-slate-800">
+                    {filteredCompletedProjectDocs.map(
+                      (doc: any) => {
+                        const hits = Array.isArray(doc?.hits)
+                          ? doc.hits
+                          : [];
+
+                        return (
+                          <tr key={doc.doc_id}>
+                            <td className="px-4 py-3 font-mono text-xs text-sky-300">
+                              {doc.doc_id || "—"}
+                            </td>
+
+                            <td className="max-w-[360px] truncate px-4 py-3 text-slate-200">
+                              {doc.original_filename ||
+                                doc.original_workbook_name ||
+                                "—"}
+                            </td>
+
+                            <td className="max-w-[280px] truncate px-4 py-3 text-slate-400">
+                              {doc.original_workbook_name || "—"}
+                            </td>
+
+                            <td className="px-4 py-3 text-slate-400">
+                              {doc.sheet_name || "—"}
+                            </td>
+
+                            <td className="px-4 py-3 text-slate-300">
+                              {doc.classification || "—"}
+                            </td>
+
+                            <td className="px-4 py-3 text-right text-slate-300">
+                              {hits.length}
+                            </td>
+
+                            <td className="max-w-[360px] px-4 py-3 text-slate-300">
+                              {Array.from(
+                                new Set(
+                                  hits
+                                    .map(
+                                      (hit: any) =>
+                                        hit?.entity_type ||
+                                        hit?.category ||
+                                        hit?.type ||
+                                        ""
+                                    )
+                                    .filter(Boolean)
+                                )
+                              ).join(", ") || "—"}
+                            </td>
+
+                            <td className="px-4 py-3 font-mono text-xs text-slate-400">
+                              {doc.latest_detection_job_id ||
+                                doc.detection_job_id ||
+                                "—"}
+                            </td>
+
+                            <td className="px-4 py-3 text-slate-400">
+                              {doc.detected_at ||
+                                doc.document_index_last_modified ||
+                                "—"}
+                            </td>
+
+                            <td className="px-4 py-3 font-mono text-xs text-slate-400">
+                              {doc.source_job_id || "—"}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </CollapsiblePane>
 
         <div className="mt-5 text-xs text-slate-600">
           Client: {clientId || "—"} &nbsp;•&nbsp;
@@ -1373,6 +1513,62 @@ function DataElementDetectionPageContent() {
         </div>
       </div>
     </div>
+  );
+}
+
+function CollapsiblePane({
+  title,
+  description,
+  actions,
+  children,
+  className = "",
+}: {
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section
+      className={`rounded-2xl border border-slate-800 bg-slate-900/60 ${className}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
+        <button
+          type="button"
+          onClick={() =>
+            setOpen((current) => !current)
+          }
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          <span className="w-4 shrink-0 text-xs text-slate-400">
+            {open ? "▼" : "▶"}
+          </span>
+
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-white">
+              {title}
+            </h2>
+
+            {description ? (
+              <p className="mt-1 text-sm text-slate-400">
+                {description}
+              </p>
+            ) : null}
+          </div>
+        </button>
+
+        {actions ? (
+          <div className="shrink-0">
+            {actions}
+          </div>
+        ) : null}
+      </div>
+
+      {open ? children : null}
+    </section>
   );
 }
 
