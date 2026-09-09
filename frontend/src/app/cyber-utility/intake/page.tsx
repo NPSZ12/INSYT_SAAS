@@ -162,6 +162,13 @@ function Cyber2IntakeContent() {
   ] = useState("");
 
   const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState<
+    "all" | "ready" | "assigned"
+  >("all");
+
+  const [
     sentClassificationFilter,
     setSentClassificationFilter,
   ] =
@@ -328,11 +335,31 @@ function Cyber2IntakeContent() {
       .trim()
       .toLowerCase();
 
-    return availableDocuments.filter((doc) => {
+    return documents.filter((doc) => {
       const classification =
         normalizeClassification(
           doc.classification
         );
+      const isAssigned = Boolean(
+        String(
+          doc.header_set_id ||
+          ""
+        ).trim()
+      );
+
+      if (
+        statusFilter === "ready" &&
+        isAssigned
+      ) {
+        return false;
+      }
+
+      if (
+        statusFilter === "assigned" &&
+        !isAssigned
+      ) {
+        return false;
+      }
 
       if (
         classificationFilter === "hit" &&
@@ -393,7 +420,8 @@ function Cyber2IntakeContent() {
       return true;
     });
   }, [
-    availableDocuments,
+    documents,
+    statusFilter,
     classificationFilter,
     entityTypeFilter,
     workbookFilter,
@@ -467,8 +495,9 @@ function Cyber2IntakeContent() {
               doc.sheet_name,
               doc.source_csv_path,
               doc.classification,
-              ...(doc.entity_types ||
-                []),
+              doc.header_set_status,
+              "assigned",
+              ...(doc.entity_types || []),
             ]
               .filter(Boolean)
               .join(" ")
@@ -572,7 +601,16 @@ function Cyber2IntakeContent() {
       };
 
       for (const doc of filteredDocuments) {
-        next[doc.doc_id] = true;
+        const isAssigned = Boolean(
+          String(
+            doc.header_set_id ||
+            ""
+          ).trim()
+        );
+
+        if (!isAssigned) {
+          next[doc.doc_id] = true;
+        }
       }
 
       return next;
@@ -939,7 +977,16 @@ function Cyber2IntakeContent() {
               <span className="font-semibold text-sky-400">
                 {availableDocuments.length}
               </span>
+
               {" • "}
+
+              Assigned:{" "}
+              <span className="font-semibold text-violet-300">
+                {sentToHeaderDocuments.length}
+              </span>
+
+              {" • "}
+
               Selected:{" "}
               <span className="font-semibold text-sky-400">
                 {selectedCount}
@@ -953,7 +1000,7 @@ function Cyber2IntakeContent() {
 
             <div className="border-t border-slate-800 p-5">
 
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
 
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -1050,6 +1097,37 @@ function Cyber2IntakeContent() {
                   </select>
                 </div>
 
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Status
+                  </label>
+
+                  <select
+                    value={statusFilter}
+                    onChange={(event) =>
+                      setStatusFilter(
+                        event.target.value as
+                          | "all"
+                          | "ready"
+                          | "assigned"
+                      )
+                    }
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+                  >
+                    <option value="all">
+                      All Statuses
+                    </option>
+
+                    <option value="ready">
+                      Ready
+                    </option>
+
+                    <option value="assigned">
+                      Assigned
+                    </option>
+                  </select>
+                </div>
+
 
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -1103,7 +1181,7 @@ function Cyber2IntakeContent() {
                   </span>{" "}
                   of{" "}
                   <span className="text-slate-300">
-                    {availableDocuments.length}
+                    {documents.length}
                   </span>{" "}
                   CSVs
                 </div>
@@ -1230,13 +1308,21 @@ function Cyber2IntakeContent() {
                                       ]
                                     )
                                   }
+                                  disabled={
+                                    Boolean(
+                                      String(
+                                        doc.header_set_id ||
+                                        ""
+                                      ).trim()
+                                    )
+                                  }
                                   onChange={(event) =>
                                     toggleDocument(
                                       doc.doc_id,
                                       event.target.checked
                                     )
                                   }
-                                  className="h-4 w-4 rounded border-slate-600 bg-slate-950"
+                                  className="h-4 w-4 rounded border-slate-600 bg-slate-950 disabled:cursor-not-allowed disabled:opacity-30"
                                 />
                               </td>
 
@@ -1327,9 +1413,18 @@ function Cyber2IntakeContent() {
 
 
                               <td className="px-4 py-3">
-                                <span className="text-xs font-medium text-emerald-300">
-                                  Ready
-                                </span>
+                                {String(
+                                  doc.header_set_id ||
+                                  ""
+                                ).trim() ? (
+                                  <span className="text-xs font-medium text-violet-300">
+                                    Assigned
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-medium text-emerald-300">
+                                    Ready
+                                  </span>
+                                )}
                               </td>
 
 
@@ -1372,11 +1467,11 @@ function Cyber2IntakeContent() {
 
             <div>
               <div className="text-sm font-semibold text-white">
-                Sent to Header & Schema Mapping
+                Assigned Header Sets
               </div>
 
               <div className="mt-1 text-xs text-slate-500">
-                CSVs already assigned to Header Sets are grouped below and removed from the active Intake inventory.
+                CSVs already assigned to Header Sets are also grouped below for workflow reference.
               </div>
             </div>
 

@@ -273,11 +273,39 @@ function SchemaMappingPageContent() {
   function formatStatus(
     value?: string
   ) {
-    const clean =
+    const normalized =
       String(
         value ||
         "pending_header_identification"
       )
+        .trim()
+        .toLowerCase();
+
+    if (
+      normalized ===
+        "pending_header_identification" ||
+      normalized ===
+        "header_identification_complete"
+    ) {
+      return "Needs Review";
+    }
+
+    if (
+      normalized ===
+      "schema_mapping_approved"
+    ) {
+      return "Approved";
+    }
+
+    if (
+      normalized ===
+      "completed"
+    ) {
+      return "Completed";
+    }
+
+    const clean =
+      normalized
         .replaceAll(
           "_",
           " "
