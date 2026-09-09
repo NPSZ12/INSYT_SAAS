@@ -56,6 +56,8 @@ type HeaderSet = {
 
   created_at?: string;
 
+  completed_at?: string;
+
   created_by?: string;
 
   document_count?: number;
@@ -197,6 +199,28 @@ function SchemaMappingPageContent() {
   const headerSets =
     data?.header_sets ||
     [];
+
+  const completedHeaderSets =
+    headerSets.filter(
+      (headerSet) =>
+        String(
+          headerSet.status || ""
+        )
+          .trim()
+          .toLowerCase() ===
+        "completed"
+    );
+
+  const activeHeaderSets =
+    headerSets.filter(
+      (headerSet) =>
+        String(
+          headerSet.status || ""
+        )
+          .trim()
+          .toLowerCase() !==
+        "completed"
+    );
 
 
   function buildProjectParams() {
@@ -388,12 +412,12 @@ function SchemaMappingPageContent() {
           <div>
 
             <h2 className="text-lg font-semibold text-white">
-              Header Sets
+              Header Sets - Needs Review
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Select a Header Set to begin header identification and
-              schema mapping.
+              Review Header Sets requiring header identification,
+              schema mapping, mapped CSV generation, or Raw Capture.
             </p>
 
           </div>
@@ -495,7 +519,7 @@ function SchemaMappingPageContent() {
 
                   <tbody className="divide-y divide-slate-800">
 
-                    {headerSets.map(
+                    {activeHeaderSets.map(
                       (headerSet) => (
 
                         <tr
@@ -601,6 +625,193 @@ function SchemaMappingPageContent() {
                               className="rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-sky-500"
                             >
                               Open
+                            </button>
+
+                          </td>
+
+                        </tr>
+
+                      )
+                    )}
+
+                  </tbody>
+
+                </table>
+
+              </div>
+
+            </div>
+
+          )}
+
+        </div>
+
+        <div className="mt-8">
+
+          <div className="mb-4">
+
+            <h2 className="text-lg font-semibold text-white">
+              Completed
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Header Sets that completed mapping, mapped CSV
+              generation, and Raw Capture. Reopen a completed
+              set if header changes are required.
+            </p>
+
+          </div>
+
+          {completedHeaderSets.length === 0 ? (
+
+            <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 px-6 py-10 text-center text-sm text-slate-500">
+              No completed Header Sets.
+            </div>
+
+          ) : (
+
+            <div className="overflow-hidden rounded-2xl border border-emerald-900/60 bg-slate-900/60">
+
+              <div className="max-h-[500px] overflow-auto">
+
+                <table className="w-full min-w-[1050px] text-sm">
+
+                  <thead className="sticky top-0 z-10 bg-slate-950 text-left text-[11px] uppercase tracking-wide text-slate-500">
+
+                    <tr>
+
+                      <th className="px-4 py-3">
+                        Header Set ID
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Files
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Status
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Completed
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Created By
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Manifest
+                      </th>
+
+                      <th className="px-4 py-3 text-right">
+                        Action
+                      </th>
+
+                    </tr>
+
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-800">
+
+                    {completedHeaderSets.map(
+                      (headerSet) => (
+
+                        <tr
+                          key={
+                            headerSet.header_set_id
+                          }
+                          className="bg-emerald-950/10 hover:bg-slate-900/70"
+                        >
+
+                          <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-semibold text-emerald-300">
+                            {
+                              headerSet.header_set_id
+                            }
+                          </td>
+
+                          <td className="px-4 py-3 text-slate-200">
+                            {
+                              headerSet.document_count ??
+                              headerSet.documents?.length ??
+                              0
+                            }
+                          </td>
+
+                          <td className="px-4 py-3">
+
+                            <span className="whitespace-nowrap rounded-md border border-emerald-800/70 bg-emerald-950/30 px-2 py-1 text-xs font-medium text-emerald-300">
+                              Completed
+                            </span>
+
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-400">
+                            {formatDate(
+                              headerSet.completed_at ||
+                              headerSet.last_modified
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 text-slate-400">
+                            {
+                              headerSet.created_by ||
+                              "—"
+                            }
+                          </td>
+
+                          <td
+                            className="max-w-[340px] px-4 py-3"
+                            title={
+                              headerSet.header_set_path ||
+                              ""
+                            }
+                          >
+
+                            <div className="truncate font-mono text-[11px] text-slate-500">
+                              {
+                                headerSet.header_set_path ||
+                                "—"
+                              }
+                            </div>
+
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3 text-right">
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const params =
+                                  new URLSearchParams();
+
+                                params.set(
+                                  "workspace",
+                                  workspace
+                                );
+
+                                params.set(
+                                  "client",
+                                  client
+                                );
+
+                                params.set(
+                                  "project",
+                                  project
+                                );
+
+                                params.set(
+                                  "header_set",
+                                  headerSet.header_set_id
+                                );
+
+                                router.push(
+                                  `/cyber-utility/schema-mapping/set?${params.toString()}`
+                                );
+                              }}
+                              className="rounded-lg border border-emerald-700 bg-emerald-950/40 px-4 py-2 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-900/60"
+                            >
+                              Reopen Mapping
                             </button>
 
                           </td>

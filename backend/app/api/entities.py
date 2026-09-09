@@ -49,9 +49,55 @@ def project_base_path(
 def normalize_doc_lookup(value: str) -> str:
     clean = str(value or "").strip()
     clean = clean.split("/")[-1]
-    clean = clean.rsplit(".", 1)[0]
-    return clean.replace("_", " ").lower()
 
+    #
+    # Preserve INSYT workbook-child Doc IDs such as:
+    #
+    #   INSYT000000034.1
+    #   INSYT000000034.2
+    #
+    # Strip only a real file extension, not the numeric
+    # child suffix.
+    #
+    known_extensions = (
+        ".csv",
+        ".txt",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".xlsm",
+        ".xlsb",
+        ".ods",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".msg",
+        ".eml",
+        ".rtf",
+        ".html",
+        ".htm",
+        ".xml",
+        ".json",
+    )
+
+    lower_clean = clean.lower()
+
+    for extension in known_extensions:
+        if lower_clean.endswith(extension):
+            clean = clean[
+                : -len(extension)
+            ]
+            break
+
+    return (
+        clean
+        .replace("_", " ")
+        .lower()
+    )
 
 def get_document_review_blob_name(
     workspace: str,
@@ -64,12 +110,57 @@ def get_document_review_blob_name(
         client=client,
         project=project,
     )
-    clean_doc_id = str(doc_id or "").strip().split("/")[-1]
+    clean_doc_id = (
+        str(
+            doc_id
+            or ""
+        )
+        .strip()
+        .split("/")[-1]
+    )
 
-    if "." in clean_doc_id:
-        clean_doc_id = clean_doc_id.rsplit(".", 1)[0]
+    known_extensions = (
+        ".csv",
+        ".txt",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".xlsm",
+        ".xlsb",
+        ".ods",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".msg",
+        ".eml",
+        ".rtf",
+        ".html",
+        ".htm",
+        ".xml",
+        ".json",
+    )
 
-    return f"{base_path}/Review/documents/{clean_doc_id}.json"
+    lower_clean_doc_id = (
+        clean_doc_id.lower()
+    )
+
+    for extension in known_extensions:
+        if lower_clean_doc_id.endswith(
+            extension
+        ):
+            clean_doc_id = clean_doc_id[
+                : -len(extension)
+            ]
+            break
+
+    return (
+        f"{base_path}/Review/documents/"
+        f"{clean_doc_id}.json"
+    )
 
 
 def load_document_review_state(

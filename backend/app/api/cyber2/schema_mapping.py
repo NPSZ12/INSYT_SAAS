@@ -3081,6 +3081,74 @@ def generate_cyber2_raw_capture(
         payload=payload,
         overwrite=True,
     )
+    
+    #
+    # Advance the Header Set workflow after
+    # successful Raw Capture generation.
+    #
+    manifest_blob_path = (
+        _header_set_manifest_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        )
+    )
+
+    manifest = (
+        _load_required_json(
+            manifest_blob_path,
+            description=(
+                "Header Set manifest"
+            ),
+        )
+    )
+
+    if not failed_documents:
+        manifest[
+            "status"
+        ] = "completed"
+
+        manifest[
+            "completed_at"
+        ] = generated_at
+
+    else:
+        manifest[
+            "status"
+        ] = (
+            "raw_capture_completed_with_errors"
+            if new_records
+            else "raw_capture_failed"
+        )
+
+    manifest[
+        "raw_capture_path"
+    ] = raw_capture_path
+
+    manifest[
+        "raw_capture_generated_at"
+    ] = generated_at
+
+    manifest[
+        "raw_capture_record_count"
+    ] = len(
+        new_records
+    )
+
+    manifest[
+        "raw_capture_failed_document_count"
+    ] = len(
+        failed_documents
+    )
+
+    _write_processing_json_blob(
+        blob_path=(
+            manifest_blob_path
+        ),
+        payload=manifest,
+        overwrite=True,
+    )
 
     return {
         "status":

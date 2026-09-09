@@ -532,14 +532,27 @@ function SchemaMappingSetContent() {
       return;
     }
 
+    const returnParams =
+      buildProjectParams();
+
+    if (headerSetId) {
+      returnParams.set(
+        "headerSetId",
+        headerSetId
+      );
+    }
+
+    const returnTo =
+      `/cyber-utility/schema-mapping/set?${returnParams.toString()}`;
+
     const params =
       new URLSearchParams({
-        workspace,
         client,
         project,
-        doc_id: docId,
-        blob_path: mappedPath,
-        source: "cyber2_mapped_csv",
+        doc: docId,
+        native_blob: mappedPath,
+        return_to: returnTo,
+        return_label: "Header Schema Mapping",
       });
 
     router.push(
@@ -1938,6 +1951,10 @@ function SchemaMappingSetContent() {
         result?.message ||
         "Raw XL capture generation completed."
       );
+
+      await loadHeaderSet();
+
+      await loadMappedCsvs();
 
     } catch (err: any) {
       console.error(
