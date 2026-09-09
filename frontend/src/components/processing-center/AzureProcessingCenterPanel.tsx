@@ -953,7 +953,19 @@ export default function AzureProcessingCenterPanel({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-5">
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">
+                    APC Job ID
+                  </div>
+
+                  <div className="mt-1 break-all font-mono text-sm font-semibold text-sky-400">
+                    {(trackedJob as any)?.job_id ||
+                      (activeJobStatus as any)?.job_id ||
+                      "—"}
+                  </div>
+                </div>
+                
                 <div className="insyt-metric">
                   <div className="text-xs insyt-text-muted">
                     Current step
