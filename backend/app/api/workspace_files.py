@@ -11,6 +11,10 @@ from azure.storage.blob import BlobServiceClient
 
 from app.services.storage_paths import build_project_prefix
 
+from app.api.processing_center_azure import (
+    _processing_container_client,
+)
+
 try:
     from docx import Document
 except Exception:
@@ -404,6 +408,10 @@ def preview_workspace_native_file(
             workspace
         )
     )
+    
+    processing_container = (
+        _processing_container_client()
+    )
 
     extension = get_file_extension(blob_path)
     file_name = blob_path.split("/")[-1]
@@ -443,13 +451,28 @@ def preview_workspace_native_file(
             load_errors.append(
                 f"review_storage={exc}"
             )
+            
+    if file_bytes is None:
+        try:
+            file_bytes = (
+                processing_container
+                .download_blob(
+                    blob_path
+                )
+                .readall()
+            )
+        except Exception as exc:
+            load_errors.append(
+                f"processing_storage={exc}"
+            )
 
     if file_bytes is None:
         raise HTTPException(
             status_code=404,
             detail=(
                 "Unable to load native file "
-                "from live source or review storage. "
+                "from live source, review storage, "
+                "or processing storage. "
                 + " | ".join(load_errors)
             ),
         )

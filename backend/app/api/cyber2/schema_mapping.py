@@ -676,7 +676,9 @@ def _generate_mapped_document_rows(
         output_headers
     ]
 
-    for source_row in data_rows:
+    for data_index, source_row in enumerate(
+        data_rows
+    ):
 
         output_row: list[
             Any
@@ -705,6 +707,46 @@ def _generate_mapped_document_rows(
             output_row.append(
                 value
             )
+
+        #
+        # Defensive duplicate-header guard.
+        #
+        # Some source CSVs may contain a real header row
+        # even when the Header Set was classified as
+        # NO_HEADER or NEEDS_REVIEW.
+        #
+        # If the FIRST projected data row is effectively
+        # identical to the approved output headers, do not
+        # write it as a data record.
+        #
+        if data_index == 0:
+            normalized_output_row = [
+                _normalize_header(
+                    str(
+                        value
+                        or ""
+                    )
+                )
+                for value
+                in output_row
+            ]
+
+            normalized_output_headers = [
+                _normalize_header(
+                    str(
+                        value
+                        or ""
+                    )
+                )
+                for value
+                in output_headers
+            ]
+
+            if (
+                normalized_output_row
+                == normalized_output_headers
+            ):
+                continue
 
         output_rows.append(
             output_row
@@ -772,8 +814,9 @@ def _generate_mapped_document_rows(
         ),
 
         "mapped_row_count": (
-            len(
-                data_rows
+            max(
+                len(output_rows) - 1,
+                0,
             )
         ),
 
