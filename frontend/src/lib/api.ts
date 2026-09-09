@@ -59,6 +59,10 @@ function buildUrl(path: string) {
   return `${cleanBase}${cleanPath}`;
 }
 
+export function buildApiUrl(path: string) {
+  return buildUrl(path);
+}
+
 export async function apiGet(path: string) {
   const url = buildUrl(path);
   console.log("API GET:", url);

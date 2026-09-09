@@ -12,7 +12,11 @@ import { useSearchParams } from "next/navigation";
 import { ScanSearch, RefreshCw, Play, Download } from "lucide-react";
 
 import AppShell from "../../../components/AppShell";
-import { apiGet, apiPost } from "../../../lib/api";
+import {
+  apiGet,
+  apiPost,
+  buildApiUrl,
+} from "../../../lib/api";
 
 
 type DetectionReadyDoc = {
@@ -703,7 +707,10 @@ function DataElementDetectionPageContent() {
       `${encodeURIComponent(detectionJobId)}/impact-assessment.xlsx?` +
       params.toString();
 
-    window.open(url, "_blank");
+    window.open(
+      buildApiUrl(url),
+      "_blank"
+    );
   }
 
   function exportProjectImpactAssessmentReport() {
@@ -724,7 +731,7 @@ function DataElementDetectionPageContent() {
       params.toString();
 
     window.open(
-      url,
+      buildApiUrl(url),
       "_blank"
     );
   }
