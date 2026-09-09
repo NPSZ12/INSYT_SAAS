@@ -2398,12 +2398,26 @@ function SchemaMappingSetContent() {
                       {consolidatedReviewGroups.map(
                         (group) => {
 
+                            const headerSetApproved =
+                              [
+                                "schema_mapping_approved",
+                                "completed",
+                              ].includes(
+                                String(
+                                  headerSetData?.manifest?.status ||
+                                  ""
+                                )
+                                  .trim()
+                                  .toLowerCase()
+                              );
+
                             const approved =
-                            Boolean(
+                              headerSetApproved ||
+                              Boolean(
                                 approvedDataElements[
-                                group.groupKey
+                                  group.groupKey
                                 ]
-                            );
+                              );
 
                             const expanded =
                             expandedDataElement ===
