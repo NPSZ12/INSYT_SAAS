@@ -204,14 +204,199 @@ function DataElementDetectionPageContent() {
     );
   }
 
+  const [
+    readySearchText,
+    setReadySearchText,
+  ] = useState("");
+
+  const [
+    readyTypeFilter,
+    setReadyTypeFilter,
+  ] = useState("all");
+
+  type ReadySortKey =
+    | "doc_id"
+    | "file"
+    | "type"
+    | "pages"
+    | "text_bytes";
+
+  const [
+    readySort,
+    setReadySort,
+  ] = useState<{
+    key: ReadySortKey;
+    direction: "asc" | "desc";
+  }>({
+    key: "doc_id",
+    direction: "asc",
+  });
+
+  const [
+    collapsedReadyJobs,
+    setCollapsedReadyJobs,
+  ] = useState<
+    Record<string, boolean>
+  >({});
+
   const [error, setError] = useState("");
 
   const readyDocs = readyData?.docs || [];
 
-  const groupedReadyJobs = useMemo(() => {
-    const groups = new Map<string, DetectionReadyDoc[]>();
+  const readyTypeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          readyDocs
+            .map(
+              (doc) =>
+                String(
+                  doc.extension ||
+                  ""
+                )
+                  .trim()
+                  .toLowerCase()
+            )
+            .filter(Boolean)
+        )
+      ).sort(),
+    [readyDocs]
+  );
 
-    for (const doc of readyDocs) {
+  const groupedReadyJobs = useMemo(() => {
+    const search =
+      readySearchText
+        .trim()
+        .toLowerCase();
+
+    const filteredReadyDocs =
+      readyDocs.filter(
+        (doc) => {
+          const extension =
+            String(
+              doc.extension ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+
+          if (
+            readyTypeFilter !== "all" &&
+            extension !== readyTypeFilter
+          ) {
+            return false;
+          }
+
+          if (search) {
+            const searchable = [
+              doc.doc_id,
+              doc.original_filename,
+              doc.source_job_id,
+              doc.extension,
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+
+            if (
+              !searchable.includes(
+                search
+              )
+            ) {
+              return false;
+            }
+          }
+
+          return true;
+        }
+      );
+
+    const getSortValue = (
+      doc: DetectionReadyDoc
+    ) => {
+      switch (readySort.key) {
+        case "doc_id":
+          return String(
+            doc.doc_id || ""
+          );
+
+        case "file":
+          return String(
+            doc.original_filename ||
+            ""
+          );
+
+        case "type":
+          return String(
+            doc.extension ||
+            ""
+          );
+
+        case "pages":
+          return Number(
+            doc.page_count || 0
+          );
+
+        case "text_bytes":
+          return Number(
+            doc.text_staged_bytes || 0
+          );
+
+        default:
+          return "";
+      }
+    };
+
+    const sortedReadyDocs = [
+      ...filteredReadyDocs,
+    ].sort(
+      (a, b) => {
+        const aValue =
+          getSortValue(a);
+
+        const bValue =
+          getSortValue(b);
+
+        let comparison = 0;
+
+        if (
+          typeof aValue ===
+            "number" &&
+          typeof bValue ===
+            "number"
+        ) {
+          comparison =
+            aValue - bValue;
+        } else {
+          comparison =
+            String(aValue)
+              .localeCompare(
+                String(bValue),
+                undefined,
+                {
+                  numeric: true,
+                  sensitivity: "base",
+                }
+              );
+        }
+
+        return readySort.direction ===
+          "asc"
+          ? comparison
+          : -comparison;
+      }
+    );
+
+    const groups =
+      new Map<
+        string,
+        DetectionReadyDoc[]
+      >();
+
+    for (
+      const doc
+      of sortedReadyDocs
+    ) {
       const jobId =
         doc.source_job_id ||
         "UNKNOWN";
@@ -220,13 +405,18 @@ function DataElementDetectionPageContent() {
         groups.set(jobId, []);
       }
 
-      groups.get(jobId)?.push(doc);
+      groups
+        .get(jobId)
+        ?.push(doc);
     }
 
     const jobDateById =
       new Map<string, string>();
 
-    for (const job of readyData?.jobs || []) {
+    for (
+      const job
+      of readyData?.jobs || []
+    ) {
       const jobId =
         String(
           job.source_job_id ||
@@ -259,7 +449,24 @@ function DataElementDetectionPageContent() {
   }, [
     readyDocs,
     readyData?.jobs,
+    readySearchText,
+    readyTypeFilter,
+    readySort,
   ]);
+
+  function toggleReadyJob(
+    sourceJobId: string
+  ) {
+    setCollapsedReadyJobs(
+      (current) => ({
+        ...current,
+        [sourceJobId]:
+          !current[
+            sourceJobId
+          ],
+      })
+    );
+  }
 
   const filteredCompletedProjectDocs = useMemo(() => {
     const docs: any[] =
@@ -1052,7 +1259,136 @@ function DataElementDetectionPageContent() {
             </div>
           }
         >
-          <div className="max-h-[520px] overflow-y-auto p-5">
+          <div className="p-5">
+
+            <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Search
+                </label>
+
+                <input
+                  type="text"
+                  value={readySearchText}
+                  onChange={(event) =>
+                    setReadySearchText(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Doc ID, file, job..."
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  File Type
+                </label>
+
+                <select
+                  value={readyTypeFilter}
+                  onChange={(event) =>
+                    setReadyTypeFilter(
+                      event.target.value
+                    )
+                  }
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+                >
+                  <option value="all">
+                    All Types
+                  </option>
+
+                  {readyTypeOptions.map(
+                    (extension) => (
+                      <option
+                        key={extension}
+                        value={extension}
+                      >
+                        {extension.toUpperCase()}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Sort By
+                </label>
+
+                <select
+                  value={readySort.key}
+                  onChange={(event) =>
+                    setReadySort(
+                      (current) => ({
+                        ...current,
+                        key:
+                          event.target
+                            .value as ReadySortKey,
+                      })
+                    )
+                  }
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+                >
+                  <option value="doc_id">
+                    Doc ID
+                  </option>
+
+                  <option value="file">
+                    File
+                  </option>
+
+                  <option value="type">
+                    Type
+                  </option>
+
+                  <option value="pages">
+                    Pages
+                  </option>
+
+                  <option value="text_bytes">
+                    Text Bytes
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Direction
+                </label>
+
+                <select
+                  value={
+                    readySort.direction
+                  }
+                  onChange={(event) =>
+                    setReadySort(
+                      (current) => ({
+                        ...current,
+                        direction:
+                          event.target
+                            .value as
+                            | "asc"
+                            | "desc",
+                      })
+                    )
+                  }
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+                >
+                  <option value="asc">
+                    Ascending
+                  </option>
+
+                  <option value="desc">
+                    Descending
+                  </option>
+                </select>
+              </div>
+
+            </div>
+
+            <div className="max-h-[520px] overflow-y-auto">
             {initialLoadingReady ? (
               <div className="rounded-xl border border-dashed border-slate-700 px-5 py-10 text-center text-sm text-slate-500">
                 Loading Detection Ready documents...
@@ -1068,12 +1404,63 @@ function DataElementDetectionPageContent() {
                     sourceJobId,
                     docs,
                     jobDate,
-                  }) => (
+                  }) => {
+                    const collapsed =
+                      Boolean(
+                        collapsedReadyJobs[
+                          sourceJobId
+                        ]
+                      );
+
+                    return (
                     <div
                       key={sourceJobId}
                       className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/40"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleReadyJob(
+                              sourceJobId
+                            )
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
+                          <span className="w-4 shrink-0 text-xs text-slate-400">
+                            {collapsed
+                              ? "▶"
+                              : "▼"}
+                          </span>
+
+                          <div>
+                            <div className="text-xs uppercase tracking-[0.12em] text-slate-500">
+                              Source APC Job
+                            </div>
+
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-xs text-slate-300">
+                                {sourceJobId}
+                              </span>
+
+                              <span className="text-xs text-slate-500">
+                                • {docs.length.toLocaleString()}{" "}
+                                {docs.length === 1
+                                  ? "doc"
+                                  : "docs"}
+                              </span>
+
+                              {jobDate ? (
+                                <span className="text-xs text-slate-500">
+                                  •{" "}
+                                  {new Date(
+                                    jobDate
+                                  ).toLocaleString()}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
                         <div>
                           <div className="text-xs uppercase tracking-[0.12em] text-slate-500">
                             Source APC Job
@@ -1167,7 +1554,8 @@ function DataElementDetectionPageContent() {
                         </div>
                       </div>
 
-                      <div className="max-h-[360px] overflow-auto">
+                      {!collapsed ? (
+                        <div className="max-h-[360px] overflow-auto">
                         <table className="min-w-full text-sm">
                           <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs uppercase tracking-wide text-slate-500">
                             <tr>
@@ -1241,11 +1629,14 @@ function DataElementDetectionPageContent() {
                           </tbody>
                         </table>
                       </div>
+                      ) : null}
                     </div>
-                  )
+                  );
+                  }
                 )}
               </div>
             )}
+          </div>
           </div>
         </CollapsiblePane>
 
