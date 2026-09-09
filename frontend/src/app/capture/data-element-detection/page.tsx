@@ -166,6 +166,44 @@ function DataElementDetectionPageContent() {
     source_job: "",
   });
 
+  type CompletedProjectSortKey =
+    | "doc_id"
+    | "original_file"
+    | "workbook"
+    | "sheet"
+    | "classification"
+    | "entities"
+    | "elements"
+    | "detection_job"
+    | "detection_date"
+    | "source_job";
+
+  const [
+    completedProjectSort,
+    setCompletedProjectSort,
+  ] = useState<{
+    key: CompletedProjectSortKey;
+    direction: "asc" | "desc";
+  }>({
+    key: "doc_id",
+    direction: "asc",
+  });
+
+  function toggleCompletedProjectSort(
+    key: CompletedProjectSortKey
+  ) {
+    setCompletedProjectSort(
+      (current) => ({
+        key,
+        direction:
+          current.key === key &&
+          current.direction === "asc"
+            ? "desc"
+            : "asc",
+      })
+    );
+  }
+
   const [error, setError] = useState("");
 
   const readyDocs = readyData?.docs || [];
@@ -174,7 +212,9 @@ function DataElementDetectionPageContent() {
     const groups = new Map<string, DetectionReadyDoc[]>();
 
     for (const doc of readyDocs) {
-      const jobId = doc.source_job_id || "UNKNOWN";
+      const jobId =
+        doc.source_job_id ||
+        "UNKNOWN";
 
       if (!groups.has(jobId)) {
         groups.set(jobId, []);
@@ -183,18 +223,49 @@ function DataElementDetectionPageContent() {
       groups.get(jobId)?.push(doc);
     }
 
-    return Array.from(groups.entries()).map(
+    const jobDateById =
+      new Map<string, string>();
+
+    for (const job of readyData?.jobs || []) {
+      const jobId =
+        String(
+          job.source_job_id ||
+          ""
+        ).trim();
+
+      if (jobId) {
+        jobDateById.set(
+          jobId,
+          String(
+            job.completed_at ||
+            ""
+          ).trim()
+        );
+      }
+    }
+
+    return Array.from(
+      groups.entries()
+    ).map(
       ([sourceJobId, docs]) => ({
         sourceJobId,
         docs,
+        jobDate:
+          jobDateById.get(
+            sourceJobId
+          ) || "",
       })
     );
-  }, [readyDocs]);
+  }, [
+    readyDocs,
+    readyData?.jobs,
+  ]);
 
   const filteredCompletedProjectDocs = useMemo(() => {
-    const docs = Array.isArray(projectImpact?.documents)
-      ? projectImpact.documents
-      : [];
+    const docs: any[] =
+      Array.isArray(projectImpact?.documents)
+        ? projectImpact.documents
+        : [];
 
     const contains = (
       value: unknown,
@@ -209,7 +280,7 @@ function DataElementDetectionPageContent() {
         .includes(filter.trim().toLowerCase());
     };
 
-    return docs.filter((doc: any) => {
+    const filtered = docs.filter((doc) => {
       const hits = Array.isArray(doc?.hits)
         ? doc.hits
         : [];
@@ -286,9 +357,145 @@ function DataElementDetectionPageContent() {
         )
       );
     });
+
+  const getSortValue = (
+    doc: any
+  ) => {
+    const hits =
+      Array.isArray(doc.hits)
+        ? doc.hits
+        : [];
+
+    const elementTypes =
+      Array.from(
+        new Set(
+          hits
+            .map(
+              (hit: any) =>
+                String(
+                  hit.entity_type ||
+                  hit.category ||
+                  hit.type ||
+                  ""
+                ).trim()
+            )
+            .filter(Boolean)
+        )
+      ).join(", ");
+
+    const originalFile =
+      doc.original_filename ||
+      doc.original_workbook_name ||
+      "";
+
+    const detectionJob =
+      doc.latest_detection_job_id ||
+      doc.detection_job_id ||
+      "";
+
+    const detectionDate =
+      doc.detected_at ||
+      doc.document_index_last_modified ||
+      "";
+
+    switch (
+      completedProjectSort.key
+    ) {
+      case "doc_id":
+        return String(
+          doc.doc_id || ""
+        );
+
+      case "original_file":
+        return String(
+          originalFile
+        );
+
+      case "workbook":
+        return String(
+          doc.original_workbook_name ||
+          ""
+        );
+
+      case "sheet":
+        return String(
+          doc.sheet_name ||
+          ""
+        );
+
+      case "classification":
+        return String(
+          doc.classification ||
+          ""
+        );
+
+      case "entities":
+        return hits.length;
+
+      case "elements":
+        return elementTypes;
+
+      case "detection_job":
+        return String(
+          detectionJob
+        );
+
+      case "detection_date":
+        return String(
+          detectionDate
+        );
+
+      case "source_job":
+        return String(
+          doc.source_job_id ||
+          ""
+        );
+
+      default:
+        return "";
+    }
+  };
+
+  return [
+    ...filtered,
+  ].sort(
+    (a, b) => {
+      const aValue =
+        getSortValue(a);
+      const bValue =
+        getSortValue(b);
+
+      let comparison = 0;
+
+      if (
+        typeof aValue === "number" &&
+        typeof bValue === "number"
+      ) {
+        comparison =
+          aValue - bValue;
+      } else {
+        comparison =
+          String(aValue)
+            .localeCompare(
+              String(bValue),
+              undefined,
+              {
+                numeric: true,
+                sensitivity: "base",
+              }
+            );
+      }
+
+      return completedProjectSort
+        .direction === "asc"
+        ? comparison
+        : -comparison;
+    }
+  );
   }, [
-    projectImpact,
-    completedProjectFilters,
+  projectImpact,
+  completedProjectFilters,
+  completedProjectSort,
   ]);
 
   async function loadDetectionReady(
@@ -857,7 +1064,11 @@ function DataElementDetectionPageContent() {
             ) : (
               <div className="space-y-5">
                 {groupedReadyJobs.map(
-                  ({ sourceJobId, docs }) => (
+                  ({
+                    sourceJobId,
+                    docs,
+                    jobDate,
+                  }) => (
                     <div
                       key={sourceJobId}
                       className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/40"
@@ -877,6 +1088,16 @@ function DataElementDetectionPageContent() {
                               • {docs.length.toLocaleString()}{" "}
                               {docs.length === 1 ? "doc" : "docs"}
                             </span>
+
+                            {jobDate ? (
+                              <span className="text-xs text-slate-500">
+                                •{" "}
+                                {new Date(
+                                  jobDate
+                                ).toLocaleString()}
+                              </span>
+                            ) : null}
+
                           </div>
                         </div>
 
@@ -1357,43 +1578,213 @@ function DataElementDetectionPageContent() {
                   <thead className="sticky top-0 z-10 bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-4 py-3">
-                        Doc ID
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "doc_id"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Doc ID{" "}
+                          {completedProjectSort.key ===
+                          "doc_id"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3">
-                        Original File
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "original_file"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Original File{" "}
+                          {completedProjectSort.key ===
+                          "original_file"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3">
-                        Workbook
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "workbook"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Workbook{" "}
+                          {completedProjectSort.key ===
+                          "workbook"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3">
-                        Sheet
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "sheet"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Sheet{" "}
+                          {completedProjectSort.key ===
+                          "sheet"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3">
-                        Classification
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "classification"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Classification{" "}
+                          {completedProjectSort.key ===
+                          "classification"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3 text-right">
-                        Entities
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "entities"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Entities{" "}
+                          {completedProjectSort.key ===
+                          "entities"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3">
-                        Detected Data Elements
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "elements"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Detected Data Elements{" "}
+                          {completedProjectSort.key ===
+                          "elements"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3">
-                        Detection Job
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "detection_job"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Detection Job{" "}
+                          {completedProjectSort.key ===
+                          "detection_job"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3">
-                        Detection Date
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "detection_date"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Detection Date{" "}
+                          {completedProjectSort.key ===
+                          "detection_date"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
 
                       <th className="px-4 py-3">
-                        Source Job
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleCompletedProjectSort(
+                              "source_job"
+                            )
+                          }
+                          className="whitespace-nowrap hover:text-slate-200"
+                        >
+                          Source Job{" "}
+                          {completedProjectSort.key ===
+                          "source_job"
+                            ? completedProjectSort.direction ===
+                              "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </button>
                       </th>
                       </tr>
 
