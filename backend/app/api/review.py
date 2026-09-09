@@ -9,10 +9,14 @@ from pydantic import BaseModel
 from app.services.batch_service import get_container_client
 from app.services.protocol_service import load_protocol_fields
 from app.services.project_store import CAPTURED_ENTITIES
-from app.services.batch_service import get_container_client
+
 from app.services.summary_outline_service import parse_summary_outline
 from app.services.pdf_text_service import get_text_blob_path
 from app.services.storage_paths import build_project_base_path, build_project_path
+
+from app.api.processing_center_azure import (
+    _processing_container_client,
+)
 
 
 from datetime import datetime, timedelta, timezone
@@ -186,6 +190,61 @@ def get_review_blob_url(
         get_review_container_client(
             workspace
         )
+    )
+
+    blob_client = (
+        container.get_blob_client(
+            blob_path
+        )
+    )
+
+    account_name = (
+        container.account_name
+    )
+
+    account_key = (
+        container.credential.account_key
+        if hasattr(
+            container.credential,
+            "account_key",
+        )
+        else None
+    )
+
+    if account_key:
+        sas_token = generate_blob_sas(
+            account_name=account_name,
+            container_name=(
+                container.container_name
+            ),
+            blob_name=blob_path,
+            account_key=account_key,
+            permission=BlobSasPermissions(
+                read=True
+            ),
+            expiry=(
+                datetime.now(
+                    timezone.utc
+                )
+                + timedelta(hours=4)
+            ),
+        )
+
+        return (
+            f"{blob_client.url}"
+            f"?{sas_token}"
+        )
+
+    return blob_client.url
+
+def get_processing_blob_url(
+    blob_path: str,
+):
+    if not blob_path:
+        return ""
+
+    container = (
+        _processing_container_client()
     )
 
     blob_client = (
@@ -562,8 +621,46 @@ def resolve_text_blob_path(native_blob: str) -> str:
 def normalize_doc_lookup(value: str) -> str:
     clean = str(value or "").strip()
     clean = clean.split("/")[-1]
-    clean = clean.rsplit(".", 1)[0]
-    return clean.replace("_", " ").lower()
+
+    known_extensions = (
+        ".csv",
+        ".txt",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".xlsm",
+        ".xlsb",
+        ".ods",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".msg",
+        ".eml",
+        ".rtf",
+        ".html",
+        ".htm",
+        ".xml",
+        ".json",
+    )
+
+    lower_clean = clean.lower()
+
+    for extension in known_extensions:
+        if lower_clean.endswith(extension):
+            clean = clean[
+                : -len(extension)
+            ]
+            break
+
+    return (
+        clean
+        .replace("_", " ")
+        .lower()
+    )
 
 
 def project_base_path(
@@ -595,10 +692,57 @@ def get_document_review_blob_name(
         client,
         project_id,
     )
-    clean_doc_id = str(doc_id or "").strip().split("/")[-1]
+    clean_doc_id = (
+        str(
+            doc_id
+            or ""
+        )
+        .strip()
+        .split("/")[-1]
+    )
 
-    if "." in clean_doc_id:
-        clean_doc_id = clean_doc_id.rsplit(".", 1)[0]
+    known_extensions = (
+        ".csv",
+        ".txt",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".xlsm",
+        ".xlsb",
+        ".ods",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".msg",
+        ".eml",
+        ".rtf",
+        ".html",
+        ".htm",
+        ".xml",
+        ".json",
+    )
+
+    lower_clean_doc_id = (
+        clean_doc_id.lower()
+    )
+
+    for extension in known_extensions:
+        if lower_clean_doc_id.endswith(
+            extension
+        ):
+            clean_doc_id = clean_doc_id[
+                : -len(extension)
+            ]
+            break
+
+    return (
+        f"{base_path}/Review/documents/"
+        f"{clean_doc_id}.json"
+    )
 
     return f"{base_path}/Review/documents/{clean_doc_id}.json"
 
@@ -777,11 +921,51 @@ def load_review_document_by_doc_id(
 
     matched_native = ""
     matched_doc_id = (
-        str(doc_id or "")
+        str(
+            doc_id
+            or ""
+        )
         .strip()
         .split("/")[-1]
-        .rsplit(".", 1)[0]
     )
+
+    known_extensions = (
+        ".csv",
+        ".txt",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".xlsm",
+        ".xlsb",
+        ".ods",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".msg",
+        ".eml",
+        ".rtf",
+        ".html",
+        ".htm",
+        ".xml",
+        ".json",
+    )
+
+    lower_matched_doc_id = (
+        matched_doc_id.lower()
+    )
+
+    for extension in known_extensions:
+        if lower_matched_doc_id.endswith(
+            extension
+        ):
+            matched_doc_id = matched_doc_id[
+                : -len(extension)
+            ]
+            break
 
     clean_native_blob = unquote(
         str(native_blob or "")
@@ -880,6 +1064,40 @@ def load_review_document_by_doc_id(
                     native_storage_source = (
                         "review_storage"
                     )
+                    
+        # -------------------------------------------------
+        # Cyber² mapped outputs / Processing Storage:
+        # Accept an existing project-scoped working file
+        # generated by the Cyber² mapping workflow.
+        # -------------------------------------------------
+
+        if not matched_native:
+            processing_container = (
+                _processing_container_client()
+            )
+
+            allowed_processing_path = any(
+                clean_native_blob.startswith(
+                    f"{base_path}/"
+                )
+                for base_path in base_paths
+            )
+
+            if allowed_processing_path:
+                processing_blob_client = (
+                    processing_container
+                    .get_blob_client(
+                        clean_native_blob
+                    )
+                )
+
+                if processing_blob_client.exists():
+                    matched_native = (
+                        clean_native_blob
+                    )
+                    native_storage_source = (
+                        "processing_storage"
+                    )
 
     if not matched_native:
         for native_prefix in native_prefixes:
@@ -914,14 +1132,28 @@ def load_review_document_by_doc_id(
             ),
         )
 
-    native_container = (
-        get_review_container_client(
-            workspace
-        )
-        if native_storage_source
+    if (
+        native_storage_source
         == "review_storage"
-        else source_container
-    )
+    ):
+        native_container = (
+            get_review_container_client(
+                workspace
+            )
+        )
+
+    elif (
+        native_storage_source
+        == "processing_storage"
+    ):
+        native_container = (
+            _processing_container_client()
+        )
+
+    else:
+        native_container = (
+            source_container
+        )
 
     matched_text = ""
 
@@ -1028,18 +1260,34 @@ def load_review_document_by_doc_id(
         except Exception:
             outline_items = []
 
-    native_url = (
-        get_review_blob_url(
-            workspace,
-            matched_native,
-        )
-        if native_storage_source
+    if (
+        native_storage_source
         == "review_storage"
-        else get_source_blob_url(
-            workspace,
-            matched_native,
+    ):
+        native_url = (
+            get_review_blob_url(
+                workspace,
+                matched_native,
+            )
         )
-    )
+
+    elif (
+        native_storage_source
+        == "processing_storage"
+    ):
+        native_url = (
+            get_processing_blob_url(
+                matched_native
+            )
+        )
+
+    else:
+        native_url = (
+            get_source_blob_url(
+                workspace,
+                matched_native,
+            )
+        )
 
     review_state = load_document_review_state(
         workspace=workspace,
