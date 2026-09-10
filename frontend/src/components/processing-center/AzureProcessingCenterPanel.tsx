@@ -713,9 +713,73 @@ export default function AzureProcessingCenterPanel({
         jobs?: JobHistoryItem[];
       };
 
-      setJobHistory(data.jobs || []);
+      const jobs = data.jobs || [];
+
+      setJobHistory(jobs);
+
+      //
+      // Browser refresh/reopen recovery:
+      // automatically reconnect to the newest active APC job.
+      //
+      const activeHistoryJob = jobs.find((historyJob) =>
+        [
+          "queued",
+          "running",
+          "cancel_requested",
+        ].includes(
+          String(historyJob?.status || "")
+            .trim()
+            .toLowerCase()
+        )
+      );
+
+      if (
+        activeHistoryJob?.job_id &&
+        !pollingJob
+      ) {
+        const statusUrl = buildTrackedStatusUrl(
+          activeHistoryJob.job_id
+        );
+
+        try {
+          const status = (await apiGet(statusUrl)) as any;
+
+          setTrackedJob(status);
+          setJob(status);
+
+          const normalizedStatus = String(
+            status?.status || ""
+          )
+            .trim()
+            .toLowerCase();
+
+          if (
+            ![
+              "completed",
+              "completed_with_exceptions",
+              "failed",
+              "cancelled",
+              "no_uploads",
+            ].includes(normalizedStatus)
+          ) {
+            void pollTrackedJobStatus(
+              activeHistoryJob.job_id
+            );
+          }
+        } catch (statusErr) {
+          console.error(
+            "Unable to reconnect to active APC job.",
+            statusErr
+          );
+        }
+      }
     } catch (err: any) {
-      setError(cleanError(err?.message || "Unable to load processing history."));
+      setError(
+        cleanError(
+          err?.message ||
+            "Unable to load processing history."
+        )
+      );
     } finally {
       setLoadingJobHistory(false);
     }
