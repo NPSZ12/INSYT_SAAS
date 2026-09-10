@@ -737,15 +737,23 @@ export default function AzureProcessingCenterPanel({
     try {
       const statusUrl = buildTrackedStatusUrl(jobId);
 
-      for (let attempt = 0; attempt < 240; attempt += 1) {
+      while (true) {
         const status = (await apiGet(statusUrl)) as any;
 
         setTrackedJob(status);
 
+        const normalizedStatus = String(
+          status?.status || ""
+        ).toLowerCase();
+
         if (
-          ["completed", "failed", "cancelled", "no_uploads"].includes(
-            String(status?.status || "").toLowerCase()
-          )
+          [
+            "completed",
+            "completed_with_exceptions",
+            "failed",
+            "cancelled",
+            "no_uploads",
+          ].includes(normalizedStatus)
         ) {
           setJob(status);
           await refreshUploads();
@@ -753,10 +761,10 @@ export default function AzureProcessingCenterPanel({
           return;
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await new Promise(
+          (resolve) => setTimeout(resolve, 3000)
+        );
       }
-
-      setError("Tracked APC job is still running. Refresh status again shortly.");
     } catch (err: any) {
       setError(cleanError(err?.message || "Unable to poll tracked APC job."));
     } finally {
