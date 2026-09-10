@@ -128,6 +128,93 @@ def finalize_job(db: LedgerDB, job_id: str) -> None:
         ),
     )
 
+def _emit_pipeline_progress(
+    progress_callback,
+    *,
+    db: LedgerDB,
+    job_id: str,
+    stage: str,
+    current_step: str,
+    stage_processed_files: int | None = None,
+    stage_total_files: int | None = None,
+    stage_failed_files: int | None = None,
+    current_file: str | None = None,
+) -> None:
+    if not progress_callback:
+        return
+
+    job = db.query_one(
+        """
+        SELECT
+            coalesce(source_file_count, 0) AS source_file_count,
+            coalesce(expanded_file_count, 0) AS expanded_file_count,
+            coalesce(unique_doc_count, 0) AS unique_doc_count,
+            coalesce(duplicate_doc_count, 0) AS duplicate_doc_count,
+            coalesce(denist_suppressed_count, 0) AS denist_suppressed_count,
+            coalesce(ocr_page_count, 0) AS ocr_page_count,
+            coalesce(exception_count, 0) AS exception_count
+        FROM processing_job
+        WHERE job_id=?
+        """,
+        (job_id,),
+    )
+
+    values = dict(job) if job else {}
+
+    processed = (
+        int(stage_processed_files)
+        if stage_processed_files is not None
+        else 0
+    )
+
+    total = (
+        int(stage_total_files)
+        if stage_total_files is not None
+        else 0
+    )
+
+    failed = (
+        int(stage_failed_files)
+        if stage_failed_files is not None
+        else 0
+    )
+
+    progress_callback(
+        {
+            "stage": stage,
+            "current_stage": stage,
+            "current_step": current_step,
+            "current_file": current_file or "",
+            "source_file_count": int(
+                values.get("source_file_count") or 0
+            ),
+            "expanded_file_count": int(
+                values.get("expanded_file_count") or 0
+            ),
+            "unique_doc_count": int(
+                values.get("unique_doc_count") or 0
+            ),
+            "duplicate_doc_count": int(
+                values.get("duplicate_doc_count") or 0
+            ),
+            "denist_suppressed_count": int(
+                values.get("denist_suppressed_count") or 0
+            ),
+            "ocr_page_count": int(
+                values.get("ocr_page_count") or 0
+            ),
+            "exception_count": int(
+                values.get("exception_count") or 0
+            ),
+            "stage_processed_files": processed,
+            "stage_total_files": total,
+            "stage_failed_files": failed,
+            "stage_remaining_files": max(
+                total - processed,
+                0,
+            ),
+        }
+    )
 
 def run_local_pipeline(
     db: LedgerDB,
@@ -144,7 +231,8 @@ def run_local_pipeline(
     promote_review_ready: bool = False,
     output_root: str | None = None,
     prior_processed_index: dict | None = None,
-) -> str:
+    progress_callback=None,
+    ) -> str:
     db.init_schema()
     job_id = create_job(
         db,
@@ -173,11 +261,107 @@ def run_local_pipeline(
     if denist_hash_file:
         load_denist_hashes(db, denist_hash_file, source_name="user-provided")
 
-    run_inventory(db, settings, job_id, matter_id, input_dir=input_dir, custodian_id=custodian_id)
-    run_container_expansion(db, settings, job_id, matter_id, input_dir=input_dir)
-    run_hashing(db, settings, job_id, matter_id)
-    run_denist(db, settings, job_id, matter_id)
-    run_dedupe(db, settings, job_id, matter_id)
+        _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="inventory",
+        current_step="Inventorying source uploads.",
+    )
+
+    run_inventory(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        input_dir=input_dir,
+        custodian_id=custodian_id,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="container_expansion",
+        current_step="Expanding archives and workbook containers.",
+    )
+
+    run_container_expansion(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        input_dir=input_dir,
+    )
+
+    expanded_total = int(
+        db.scalar(
+            """
+            SELECT coalesce(expanded_file_count, 0)
+            FROM processing_job
+            WHERE job_id=?
+            """,
+            (job_id,),
+        )
+        or 0
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="hashing",
+        current_step="Hashing expanded leaf files.",
+        stage_total_files=expanded_total,
+    )
+
+    run_hashing(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="denist",
+        current_step="Applying deNIST suppression.",
+        stage_total_files=expanded_total,
+    )
+
+    run_denist(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="dedupe",
+        current_step="Checking duplicate documents.",
+        stage_total_files=expanded_total,
+    )
+
+    run_dedupe(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="prior_processed",
+        current_step="Checking previously processed documents.",
+    )
+
     run_prior_processed_duplicate_suppression(
         db,
         settings,
@@ -185,13 +369,35 @@ def run_local_pipeline(
         matter_id,
         prior_processed_index=prior_processed_index,
     )
-    run_family_detection(db, settings, job_id, matter_id)
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="family_detection",
+        current_step="Identifying document families.",
+    )
+
+    run_family_detection(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
 
     routing = AzureRoutingConfig.from_args(
         workspace=workspace,
         client=client_id,
         project=matter_id,
         azure_write=True,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="doc_id_assignment",
+        current_step="Assigning INSYT document IDs.",
     )
 
     run_doc_id_assignment(
@@ -203,14 +409,37 @@ def run_local_pipeline(
         prefix=doc_prefix,
     )
 
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="text_extraction",
+        current_step="Preparing native text extraction.",
+    )
+
     run_text_extraction(
         db,
         settings,
         job_id,
         matter_id,
         workspace=workspace,
+        progress_callback=progress_callback,
     )
-    run_ocr_preflight(db, settings, job_id, matter_id)
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="ocr_preflight",
+        current_step="Evaluating OCR requirements.",
+    )
+
+    run_ocr_preflight(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
 
     if enable_live_ocr:
         if not settings.enable_live_ocr:

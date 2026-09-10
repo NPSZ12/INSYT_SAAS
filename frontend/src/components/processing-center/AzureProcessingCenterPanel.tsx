@@ -320,6 +320,107 @@ export default function AzureProcessingCenterPanel({
 
     return 0;
   }
+
+  function formatElapsedTime(
+    startedAt: any,
+    finishedAt?: any
+  ) {
+    if (!startedAt) return "—";
+
+    const startMs = new Date(startedAt).getTime();
+
+    if (!Number.isFinite(startMs)) return "—";
+
+    const endMs = finishedAt
+      ? new Date(finishedAt).getTime()
+      : Date.now();
+
+    if (!Number.isFinite(endMs)) return "—";
+
+    const totalSeconds = Math.max(
+      0,
+      Math.floor((endMs - startMs) / 1000)
+    );
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor(
+      (totalSeconds % 3600) / 60
+    );
+    const seconds = totalSeconds % 60;
+
+    return [
+      hours,
+      minutes,
+      seconds,
+    ]
+      .map((value) => String(value).padStart(2, "0"))
+      .join(":");
+  }
+
+  const processingStartedAt =
+    activeJobStatus?.started_at ||
+    activeJobStatus?.worker_started_at ||
+    activeJobStatus?.created_at ||
+    "";
+
+  const processingStatus = String(
+    activeJobStatus?.status || ""
+  ).toLowerCase();
+
+  const processingIsTerminal = [
+    "completed",
+    "completed_with_exceptions",
+    "failed",
+    "cancelled",
+    "no_uploads",
+  ].includes(processingStatus);
+
+  const processingFinishedAt =
+    processingIsTerminal
+      ? activeJobStatus?.completed_at ||
+        activeJobStatus?.failed_at ||
+        activeJobStatus?.cancelled_at ||
+        processingUpdatedAt
+      : "";
+
+  const stageTotalFiles = getStatusNumber(
+    activeJobStatus?.stage_total_files
+  );
+
+  const stageProcessedFiles = getStatusNumber(
+    activeJobStatus?.stage_processed_files
+  );
+
+  const stageFailedFiles = getStatusNumber(
+    activeJobStatus?.stage_failed_files
+  );
+
+  const stageSucceededFiles = Math.max(
+    stageProcessedFiles - stageFailedFiles,
+    0
+  );
+
+  const stageRemainingFiles =
+    activeJobStatus?.stage_remaining_files !== undefined
+      ? getStatusNumber(
+          activeJobStatus?.stage_remaining_files
+        )
+      : Math.max(
+          stageTotalFiles - stageProcessedFiles,
+          0
+        );
+
+  const processingExceptionCount =
+    getStatusNumber(
+      activeJobStatus?.exception_count,
+      activeJobStatus?.container_exception_count,
+      activeJobStatus?.exceptions?.length
+    );
+
+  const denistSuppressedCount =
+    getStatusNumber(
+      activeJobStatus?.denist_suppressed_count
+    );
   
   const reportSummary =
     jobReport?.report ||
@@ -953,7 +1054,7 @@ export default function AzureProcessingCenterPanel({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-6">
                 <div className="insyt-metric">
                   <div className="text-xs insyt-text-muted">
                     APC Job ID
@@ -965,24 +1066,27 @@ export default function AzureProcessingCenterPanel({
                       "—"}
                   </div>
                 </div>
-                
+
                 <div className="insyt-metric">
                   <div className="text-xs insyt-text-muted">
-                    Current step
+                    Started
                   </div>
 
                   <div className="mt-1 text-sm font-semibold insyt-text-primary">
-                    {processingStep}
+                    {formatDateTime(processingStartedAt)}
                   </div>
                 </div>
 
                 <div className="insyt-metric">
                   <div className="text-xs insyt-text-muted">
-                    Current file
+                    Elapsed
                   </div>
 
-                  <div className="mt-1 break-all text-sm font-semibold insyt-text-primary">
-                    {processingCurrentFile}
+                  <div className="mt-1 font-mono text-sm font-semibold insyt-text-primary">
+                    {formatElapsedTime(
+                      processingStartedAt,
+                      processingFinishedAt
+                    )}
                   </div>
                 </div>
 
@@ -998,6 +1102,16 @@ export default function AzureProcessingCenterPanel({
 
                 <div className="insyt-metric">
                   <div className="text-xs insyt-text-muted">
+                    Current Stage
+                  </div>
+
+                  <div className="mt-1 text-sm font-semibold insyt-text-primary">
+                    {processingStage}
+                  </div>
+                </div>
+
+                <div className="insyt-metric">
+                  <div className="text-xs insyt-text-muted">
                     Updated
                   </div>
 
@@ -1005,87 +1119,202 @@ export default function AzureProcessingCenterPanel({
                     {formatDateTime(processingUpdatedAt)}
                   </div>
                 </div>
-                </div>
+              </div>
 
-              <div className="mt-3 grid gap-3 md:grid-cols-8">
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div className="insyt-metric">
-                  <div className="text-xs insyt-text-muted">Source</div>
-                  <div className="font-semibold insyt-text-primary">
-                    {getStatusNumber(
-                      activeJobStatus?.source_file_count,
-                      activeJobStatus?.source_files,
-                      activeJobStatus?.downloads?.length
-                    )}
+                  <div className="text-xs insyt-text-muted">
+                    Current Step
+                  </div>
+
+                  <div className="mt-1 text-sm font-semibold insyt-text-primary">
+                    {processingStep}
                   </div>
                 </div>
 
                 <div className="insyt-metric">
-                  <div className="text-xs insyt-text-muted">Expanded</div>
-                  <div className="font-semibold insyt-text-primary">
-                    {getStatusNumber(
-                      activeJobStatus?.expanded_file_count,
-                      activeJobStatus?.expanded_files
-                    )}
+                  <div className="text-xs insyt-text-muted">
+                    Current File
+                  </div>
+
+                  <div className="mt-1 break-all text-sm font-semibold insyt-text-primary">
+                    {processingCurrentFile}
                   </div>
                 </div>
+              </div>
 
-                <div className="insyt-metric">
-                  <div className="text-xs insyt-text-muted">Unique</div>
-                  <div className="font-semibold text-emerald-100">
-                    {getStatusNumber(
-                      activeJobStatus?.unique_doc_count,
-                      activeJobStatus?.unique_docs
-                    )}
-                  </div>
+              <div className="mt-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
+                  Current Stage Progress
                 </div>
 
-                <div className="insyt-metric">
-                  <div className="text-xs insyt-text-muted">Duplicates</div>
-                  <div className="font-semibold text-amber-100">
-                    {getStatusNumber(
-                      activeJobStatus?.duplicate_doc_count,
-                      activeJobStatus?.duplicate_docs
-                    )}
+                <div className="grid gap-3 md:grid-cols-5">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Stage Total
+                    </div>
+                    <div className="font-semibold insyt-text-primary">
+                      {stageTotalFiles.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Processed
+                    </div>
+                    <div className="font-semibold insyt-text-primary">
+                      {stageProcessedFiles.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Succeeded
+                    </div>
+                    <div className="font-semibold text-emerald-100">
+                      {stageSucceededFiles.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Failed
+                    </div>
+                    <div className="font-semibold text-red-300">
+                      {stageFailedFiles.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Remaining
+                    </div>
+                    <div className="font-semibold text-amber-100">
+                      {stageRemainingFiles.toLocaleString()}
+                    </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="insyt-metric">
-                  <div className="text-xs insyt-text-muted">OCR pages</div>
-                  <div className="font-semibold insyt-text-primary">
-                    {getStatusNumber(
-                      activeJobStatus?.ocr_page_count,
-                      activeJobStatus?.ocr_estimated_pages
-                    )}
-                  </div>
+              <div className="mt-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
+                  Ingestion Totals
                 </div>
 
-                <div className="insyt-metric">
-                  <div className="text-xs insyt-text-muted">Uploaded</div>
-                  <div className="font-semibold insyt-text-primary">
-                    {getStatusNumber(
-                      activeJobStatus?.native_text_upload_count,
-                      activeJobStatus?.review_upload?.uploads?.length
-                    )}
+                <div className="grid gap-3 md:grid-cols-5">
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Source Uploads
+                    </div>
+                    <div className="font-semibold insyt-text-primary">
+                      {getStatusNumber(
+                        activeJobStatus?.source_file_count,
+                        activeJobStatus?.source_files,
+                        activeJobStatus?.downloads?.length
+                      ).toLocaleString()}
+                    </div>
                   </div>
-                </div>
 
-                <div className="insyt-metric">
-                  <div className="text-xs insyt-text-muted">Reports</div>
-                  <div className="font-semibold insyt-text-primary">
-                    {getStatusNumber(
-                      activeJobStatus?.report_upload_count,
-                      activeJobStatus?.report_upload?.uploaded_reports?.length
-                    )}
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Expanded Leaf Files
+                    </div>
+                    <div className="font-semibold insyt-text-primary">
+                      {getStatusNumber(
+                        activeJobStatus?.expanded_file_count,
+                        activeJobStatus?.expanded_files
+                      ).toLocaleString()}
+                    </div>
                   </div>
-                </div>
 
-                <div className="insyt-metric">
-                  <div className="text-xs insyt-text-muted">Warnings</div>
-                  <div className="font-semibold insyt-text-primary">
-                    {getStatusNumber(
-                      activeJobStatus?.warning_count,
-                      activeJobStatus?.warnings?.length
-                    )}
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Unique Docs
+                    </div>
+                    <div className="font-semibold text-emerald-100">
+                      {getStatusNumber(
+                        activeJobStatus?.unique_doc_count,
+                        activeJobStatus?.unique_docs
+                      ).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Duplicates
+                    </div>
+                    <div className="font-semibold text-amber-100">
+                      {getStatusNumber(
+                        activeJobStatus?.duplicate_doc_count,
+                        activeJobStatus?.duplicate_docs
+                      ).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      deNIST
+                    </div>
+                    <div className="font-semibold insyt-text-primary">
+                      {denistSuppressedCount.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      OCR Pages
+                    </div>
+                    <div className="font-semibold insyt-text-primary">
+                      {getStatusNumber(
+                        activeJobStatus?.ocr_page_count,
+                        activeJobStatus?.ocr_estimated_pages
+                      ).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Exceptions
+                    </div>
+                    <div className="font-semibold text-red-300">
+                      {processingExceptionCount.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Uploaded
+                    </div>
+                    <div className="font-semibold insyt-text-primary">
+                      {getStatusNumber(
+                        activeJobStatus?.native_text_upload_count,
+                        activeJobStatus?.review_upload?.uploads?.length
+                      ).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Reports
+                    </div>
+                    <div className="font-semibold insyt-text-primary">
+                      {getStatusNumber(
+                        activeJobStatus?.report_upload_count,
+                        activeJobStatus?.report_upload?.uploaded_reports?.length
+                      ).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Warnings
+                    </div>
+                    <div className="font-semibold text-amber-100">
+                      {getStatusNumber(
+                        activeJobStatus?.warning_count,
+                        activeJobStatus?.warnings?.length
+                      ).toLocaleString()}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -196,6 +196,7 @@ def run_text_extraction(
     job_id: str,
     matter_id: str,
     workspace: str = "capture",
+    progress_callback=None,
 ) -> None:
     rows = db.query(
         """
@@ -212,7 +213,10 @@ def run_text_extraction(
         encrypted_pdfs = 0
         exceptions = []
         signal_counts: dict[str, int] = {}
-        for row in rows:
+        stage_processed_files = 0
+        stage_failed_files = 0
+        stage_total_files = len(rows)
+        for row_index, row in enumerate(rows, start=1):
             try:
                 path = Path(row["original_path"])
                 ext = row["extension"] or ""
@@ -259,7 +263,53 @@ def run_text_extraction(
                     ),
                 )
             except Exception as exc:  # noqa: BLE001
-                exceptions.append({"file_id": row["file_id"], "error": repr(exc)})
+                stage_failed_files += 1
+
+                exceptions.append(
+                    {
+                        "file_id": row["file_id"],
+                        "original_path": row["original_path"],
+                        "extension": row["extension"] or "",
+                        "stage": "text_extraction",
+                        "status": "failed",
+                        "error_type": type(exc).__name__,
+                        "error": repr(exc),
+                        "failed_at": utc_now(),
+                    }
+                )
+
+            finally:
+                stage_processed_files = row_index
+
+                should_publish = (
+                    row_index == 1
+                    or row_index == stage_total_files
+                    or row_index % 25 == 0
+                )
+
+                if progress_callback and should_publish:
+                    progress_callback(
+                        {
+                            "stage": "text_extraction",
+                            "current_stage": "text_extraction",
+                            "current_step": (
+                                f"Extracting text "
+                                f"{stage_processed_files:,} of "
+                                f"{stage_total_files:,}"
+                            ),
+                            "current_file": str(
+                                row["original_path"]
+                            ),
+                            "stage_processed_files": stage_processed_files,
+                            "stage_total_files": stage_total_files,
+                            "stage_failed_files": stage_failed_files,
+                            "stage_remaining_files": max(
+                                stage_total_files
+                                - stage_processed_files,
+                                0,
+                            ),
+                        }
+                    )
         stage.metrics.files_in = len(rows)
         stage.metrics.files_out = len(rows)
         stage.metrics.documents_in = len(rows)

@@ -604,7 +604,7 @@ def process_job_message(message_content: str):
     request_blob_path = payload.get("request_blob_path")
 
     routing = _routing_from_payload(payload)
-    
+
     import apc.azure_layout as azure_layout_module
 
     routing_debug = {
@@ -689,6 +689,53 @@ def process_job_message(message_content: str):
 
         export_dir = os.getenv("APC_EXPORT_DIR", "/tmp/apc_worker_reports")
 
+        def ingestion_progress(progress: dict[str, Any]) -> None:
+            stage_name = str(
+                progress.get("stage")
+                or progress.get("current_stage")
+                or "processing"
+            )
+
+            stage_processed = int(
+                progress.get("stage_processed_files") or 0
+            )
+
+            stage_total = int(
+                progress.get("stage_total_files") or 0
+            )
+
+            if stage_total > 0:
+                stage_ratio = min(
+                    max(stage_processed / stage_total, 0),
+                    1,
+                )
+            else:
+                stage_ratio = 0
+
+            #
+            # Keep overall processing within 15%-89%.
+            # The remaining worker lifecycle owns 90%-100%.
+            #
+            progress_pct = min(
+                89,
+                max(
+                    15,
+                    int(15 + (stage_ratio * 74)),
+                ),
+            )
+
+            _update_status(
+                status_blob_path=status_blob_path,
+                status="running",
+                stage=stage_name,
+                progress_pct=progress_pct,
+                message=str(
+                    progress.get("current_step")
+                    or "APC processing in progress."
+                ),
+                extra=progress,
+            )
+
         result = run_azure_processing_job(
             db=db,
             routing=routing,
@@ -706,6 +753,7 @@ def process_job_message(message_content: str):
             export_dir=export_dir,
             clean_staging=bool(payload.get("clean_staging", False)),
             upload_status=False,
+            progress_callback=ingestion_progress,
         )
 
         if hasattr(result, "to_dict"):
@@ -714,7 +762,7 @@ def process_job_message(message_content: str):
             result_dict = result
         else:
             result_dict = {"result": str(result)}
-            
+
         result_summary = _summarize_result_for_status(result_dict)
 
         _update_status(

@@ -89,7 +89,8 @@ def run_azure_processing_job(
     export_dir: str | None = "reports",
     clean_staging: bool = False,
     upload_status: bool = True,
-) -> AzureRunResult:
+    progress_callback=None,
+    ) -> AzureRunResult:
     """Run the proven v0.8 Azure intake -> processing -> review promotion flow.
 
     This function is intentionally synchronous. API deployments can call it from a
@@ -152,6 +153,7 @@ def run_azure_processing_job(
             promote_review_ready=True,
             output_root=str(review_root),
             prior_processed_index=prior_processed_index,
+            progress_callback=progress_callback,
         )
         local_review_root = review_root / job_id
 
