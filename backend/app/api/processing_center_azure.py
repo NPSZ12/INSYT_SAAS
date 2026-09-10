@@ -1337,6 +1337,53 @@ def cancel_tracked_azure_processing_job(
         "job_status": status_payload,
     }
 
+@router.post("/{workspace}/processing-center/tracked-jobs/{job_id}/mark-cancelled")
+def mark_tracked_azure_processing_job_cancelled(
+    workspace: Literal["capture", "discovery", "summaries"],
+    job_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    status_blob_path = _job_status_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+        job_id=job_id,
+    )
+
+    status_payload = _read_processing_json_blob(status_blob_path)
+
+    now = _utc_now()
+
+    status_payload["status"] = "cancelled"
+    status_payload["stage"] = "cancelled"
+    status_payload["current_stage"] = "cancelled"
+    status_payload["current_step"] = "Job manually marked cancelled after worker termination."
+    status_payload["cancel_requested"] = True
+    status_payload["cancelled_at"] = now
+    status_payload["updated_at"] = now
+    status_payload["last_updated_at"] = now
+    status_payload["message"] = (
+        "Job marked cancelled by INSYT Admin after worker termination."
+    )
+    status_payload["cancelled_by"] = (
+        getattr(admin, "username", None)
+        or getattr(admin, "email", None)
+        or "INSYT Admin"
+    )
+
+    status_upload = _write_processing_json_blob(
+        blob_path=status_blob_path,
+        payload=status_payload,
+        overwrite=True,
+    )
+
+    return {
+        "status": "cancelled",
+        "status_upload": status_upload,
+        "job_status": status_payload,
+    }
 
 @router.post(
     "/{workspace}/processing-center/azure-run/start",
