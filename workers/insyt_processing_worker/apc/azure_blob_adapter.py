@@ -97,12 +97,32 @@ class DualStorageBlobAdapter:
             )
         return rows
 
-    def download_processing_uploads(self, destination_root: str, prefix: str | None = None, overwrite: bool = False) -> list[dict[str, object]]:
+    def download_processing_uploads(
+        self,
+        destination_root: str,
+        prefix: str | None = None,
+        overwrite: bool = False,
+        blob_names: list[str] | None = None,
+    ) -> list[dict[str, object]]:
         dest = Path(destination_root)
         dest.mkdir(parents=True, exist_ok=True)
         upload_prefix = (prefix or self.routing.processing_paths()["uploads"]).rstrip("/") + "/"
         downloaded: list[dict[str, object]] = []
-        for item in self.list_processing_uploads(prefix=upload_prefix.rstrip("/")):
+
+        selected_names = {
+            str(name or "").strip()
+            for name in (blob_names or [])
+            if str(name or "").strip()
+        }
+
+        for item in self.list_processing_uploads(
+            prefix=upload_prefix.rstrip("/")
+        ):
+            if (
+                selected_names
+                and item.name not in selected_names
+            ):
+                continue
             rel = item.name[len(upload_prefix):] if item.name.startswith(upload_prefix) else Path(item.name).name
             local_path = dest / rel.replace("/", os.sep)
             local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -361,9 +381,20 @@ def azure_list_uploads(routing: AzureRoutingConfig, export_dir: str | None = Non
     return rows
 
 
-def azure_download_uploads(routing: AzureRoutingConfig, destination_root: str, overwrite: bool = False, export_dir: str | None = None) -> list[dict[str, object]]:
+def azure_download_uploads(
+    routing: AzureRoutingConfig,
+    destination_root: str,
+    overwrite: bool = False,
+    export_dir: str | None = None,
+    blob_names: list[str] | None = None,
+) -> list[dict[str, object]]:
     adapter = DualStorageBlobAdapter(routing)
-    rows = adapter.download_processing_uploads(destination_root, overwrite=overwrite)
+
+    rows = adapter.download_processing_uploads(
+        destination_root,
+        overwrite=overwrite,
+        blob_names=blob_names,
+    )
     if export_dir:
         export_json(Path(export_dir) / "azure_processing_downloads.json", {"generated_at": utc_now(), "downloads": rows})
     return rows

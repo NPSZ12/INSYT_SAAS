@@ -424,7 +424,13 @@ def _update_metric_after_ocr(
         )
 
 
-def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
+def run_live_ocr_placeholder(
+    db,
+    settings,
+    job_id: str,
+    matter_id: str,
+    cancellation_callback=None,
+) -> dict:
     """
     Live OCR implementation for APC.
 
@@ -513,6 +519,11 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
         stage.metrics.documents_in = len(rows)
 
         for row in rows:
+            if cancellation_callback:
+                cancellation_callback(
+                    "ocr_live"
+                )
+
             doc_id = _find_doc_id(row)
             source_path = _find_source_path(row)
             metric_id = _row_get(row, "id")
@@ -540,6 +551,11 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
                     content,
                     content_type,
                 )
+
+                if cancellation_callback:
+                    cancellation_callback(
+                        "ocr_live"
+                    )
 
                 text, page_count = _ocr_bytes(
                     content,

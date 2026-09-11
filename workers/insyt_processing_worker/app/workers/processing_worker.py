@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -185,7 +185,7 @@ def _update_status(
             "message": message,
             "updated_at": now,
             "last_updated_at": now,
-            "events": [*existing_events, event][-25:],
+            "events": [*existing_events, event],
         }
     )
 
@@ -529,7 +529,7 @@ def _process_data_element_detection_message(
             "events": [
                 *existing_events,
                 completed_event,
-            ][-25:],
+            ],
         }
 
         _write_json_blob(
@@ -636,7 +636,7 @@ def process_job_message(message_content: str):
                 "workspace": payload.get("workspace", ""),
                 "matter_id": payload.get("matter_id", ""),
 
-                # Routing debug fields — these tell us exactly where the worker is looking.
+                # Routing debug fields â€” these tell us exactly where the worker is looking.
                 "routing_prefix": routing.prefix,
                 "uploads_prefix": routing.processing_paths().get("uploads", ""),
                 "work_prefix": routing.processing_paths().get("work", ""),
@@ -648,7 +648,7 @@ def process_job_message(message_content: str):
                     "",
                 ),
 
-                # Review output prefixes — these tell us where Native/Text outputs will land.
+                # Review output prefixes â€” these tell us where Native/Text outputs will land.
                 "review_native_prefix": routing.review_paths().get("native", ""),
                 "review_text_prefix": routing.review_paths().get("text", ""),
                 "review_preview_prefix": routing.review_paths().get("preview", ""),
@@ -689,11 +689,24 @@ def process_job_message(message_content: str):
 
         export_dir = os.getenv("APC_EXPORT_DIR", "/tmp/apc_worker_reports")
 
+        def cancellation_checkpoint(
+            stage: str = "processing",
+        ) -> None:
+            _cancel_if_requested(
+                cancel_blob_path=cancel_blob_path,
+                status_blob_path=status_blob_path,
+                stage=stage,
+            )
+
         def ingestion_progress(progress: dict[str, Any]) -> None:
             stage_name = str(
                 progress.get("stage")
                 or progress.get("current_stage")
                 or "processing"
+            )
+
+            cancellation_checkpoint(
+                stage_name
             )
 
             stage_processed = int(
@@ -736,6 +749,23 @@ def process_job_message(message_content: str):
                 extra=progress,
             )
 
+        selected_uploads = [
+            str(name or "").strip()
+            for name in (
+                payload.get(
+                    "selected_uploads"
+                )
+                or []
+            )
+            if str(name or "").strip()
+        ]
+
+        if not selected_uploads:
+            raise RuntimeError(
+                "Tracked APC job has no selected_uploads manifest. "
+                "Refusing to process every pending upload."
+            )
+
         result = run_azure_processing_job(
             db=db,
             routing=routing,
@@ -744,6 +774,9 @@ def process_job_message(message_content: str):
             enable_ocr_dry_run=bool(payload.get("enable_ocr_dry_run", True)),
             enable_live_ocr=bool(payload.get("enable_live_ocr", False)),
             azure_write=bool(payload.get("azure_write", True)),
+            processing_set_size=int(
+                payload.get("processing_set_size") or 500
+            ),
             overwrite=bool(payload.get("overwrite", True)),
             staging_root=os.getenv("APC_STAGING_ROOT", "/tmp/apc_worker_runs"),
             output_root=os.getenv(
@@ -754,6 +787,8 @@ def process_job_message(message_content: str):
             clean_staging=bool(payload.get("clean_staging", False)),
             upload_status=False,
             progress_callback=ingestion_progress,
+            cancellation_callback=cancellation_checkpoint,
+            selected_uploads=selected_uploads,
         )
 
         if hasattr(result, "to_dict"):
@@ -784,6 +819,12 @@ def process_job_message(message_content: str):
         )
 
         archive_upload = None
+
+        _cancel_if_requested(
+            cancel_blob_path=cancel_blob_path,
+            status_blob_path=status_blob_path,
+            stage="before_archiving_uploads",
+        )
 
         if bool(payload.get("auto_archive_uploads", True)):
             _update_status(
@@ -860,7 +901,7 @@ def process_job_message(message_content: str):
             "updated_at": utc_now(),
             "last_updated_at": utc_now(),
             "cancel_requested": False,
-            "events": [*final_status_events, completed_event][-25:],
+            "events": [*final_status_events, completed_event],
         }
 
         _write_json_blob(status_blob_path, final_status)

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass, asdict
@@ -91,7 +91,9 @@ def run_azure_processing_job(
     clean_staging: bool = False,
     upload_status: bool = True,
     progress_callback=None,
-    ) -> AzureRunResult:
+    cancellation_callback=None,
+    selected_uploads: list[str] | None = None,
+) -> AzureRunResult:
     """Run the proven v0.8 Azure intake -> processing -> review promotion flow.
 
     This function is intentionally synchronous. API deployments can call it from a
@@ -105,7 +107,13 @@ def run_azure_processing_job(
     job_id: str | None = None
     status_upload: dict[str, Any] | None = None
 
+
     try:
+        if cancellation_callback:
+            cancellation_callback(
+                "azure_download_start"
+            )
+
         # Important: each Azure run must start from only the blobs currently
         # pending in source/processing_center/uploads. Without clearing this
         # local folder, stale files from prior runs can be processed again even
@@ -119,7 +127,14 @@ def run_azure_processing_job(
             str(staging_dir),
             overwrite=True,
             export_dir=export_dir,
+            blob_names=selected_uploads,
         )
+
+        if cancellation_callback:
+            cancellation_callback(
+                "azure_download_complete"
+            )
+
         real_downloads = [r for r in downloads if r.get("status") in {"downloaded", "skipped_exists"}]
         if not real_downloads:
             result = AzureRunResult(
@@ -138,7 +153,7 @@ def run_azure_processing_job(
                 warnings=warnings,
             )
             return result
-        
+
         prior_processed_index = azure_read_processed_hash_index(routing)
 
         job_id = run_local_pipeline(
@@ -156,17 +171,38 @@ def run_azure_processing_job(
             output_root=str(review_root),
             prior_processed_index=prior_processed_index,
             progress_callback=progress_callback,
+            cancellation_callback=cancellation_callback,
         )
         local_review_root = review_root / job_id
 
+        if cancellation_callback:
+            cancellation_callback(
+                "post_processing"
+            )
+
+        if cancellation_callback:
+            cancellation_callback(
+                "report_generation"
+            )
+
         report_files: dict[str, str] = {}
+
         if export_dir:
-            report_files = export_job_report(db, job_id, export_dir)
+            report_files = export_job_report(
+                db,
+                job_id,
+                export_dir,
+            )
 
         review_upload = None
         report_upload = None
         hash_index_upload = None
         xl_files_upload = None
+
+        if cancellation_callback:
+            cancellation_callback(
+                "azure_review_upload"
+            )
 
         if azure_write:
             review_upload = azure_upload_review_outputs(

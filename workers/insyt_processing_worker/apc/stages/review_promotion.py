@@ -904,6 +904,7 @@ def run_review_promotion(
     job_id: str,
     matter_id: str,
     output_root: str,
+    cancellation_callback=None,
 ) -> None:
     """Promote final reviewable set into source/native and source/text style folders.
 
@@ -975,6 +976,11 @@ def run_review_promotion(
         text_bytes = 0
         manifest_rows = []
         for row in rows:
+            if cancellation_callback:
+                cancellation_callback(
+                    "review_promotion"
+                )
+
             ext = _safe_ext(row["extension"])
             doc_id = row["doc_id"]
             native_output = native_dir / f"{doc_id}.{ext}"
@@ -984,6 +990,11 @@ def run_review_promotion(
             text_source = "none"
 
             try:
+                if cancellation_callback:
+                    cancellation_callback(
+                        "review_promotion"
+                    )
+
                 #
                 # Preserve the native document even when text
                 # extraction later requires remediation.
@@ -1028,6 +1039,11 @@ def run_review_promotion(
                                 or "text_remediation_required"
                             ),
                         )
+                    )
+
+                if cancellation_callback:
+                    cancellation_callback(
+                        "review_promotion"
                     )
 
                 text_output.write_text(

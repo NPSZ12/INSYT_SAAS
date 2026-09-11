@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from .azure_layout import AzureRoutingConfig
 from .config import Settings
@@ -233,8 +233,17 @@ def run_local_pipeline(
     output_root: str | None = None,
     prior_processed_index: dict | None = None,
     progress_callback=None,
+    cancellation_callback=None,
     processing_set_size: int = 500,
-    ) -> str:
+) -> str:
+    def check_cancel(
+        stage: str,
+    ) -> None:
+        if cancellation_callback:
+            cancellation_callback(
+                stage
+            )
+
     db.init_schema()
     job_id = create_job(
         db,
@@ -261,9 +270,13 @@ def run_local_pipeline(
     db.execute("UPDATE processing_job SET status=? WHERE job_id=?", ("running", job_id))
 
     if denist_hash_file:
-        load_denist_hashes(db, denist_hash_file, source_name="user-provided")
+        load_denist_hashes(
+            db,
+            denist_hash_file,
+            source_name="user-provided",
+        )
 
-        _emit_pipeline_progress(
+    _emit_pipeline_progress(
         progress_callback,
         db=db,
         job_id=job_id,
@@ -271,6 +284,7 @@ def run_local_pipeline(
         current_step="Inventorying source uploads.",
     )
 
+    check_cancel("inventory")
     run_inventory(
         db,
         settings,
@@ -288,6 +302,7 @@ def run_local_pipeline(
         current_step="Expanding archives and workbook containers.",
     )
 
+    check_cancel("container_expansion")
     run_container_expansion(
         db,
         settings,
@@ -317,6 +332,7 @@ def run_local_pipeline(
         stage_total_files=expanded_total,
     )
 
+    check_cancel("hashing")
     run_hashing(
         db,
         settings,
@@ -333,6 +349,7 @@ def run_local_pipeline(
         stage_total_files=expanded_total,
     )
 
+    check_cancel("denist")
     run_denist(
         db,
         settings,
@@ -349,6 +366,7 @@ def run_local_pipeline(
         stage_total_files=expanded_total,
     )
 
+    check_cancel("dedupe")
     run_dedupe(
         db,
         settings,
@@ -364,6 +382,7 @@ def run_local_pipeline(
         current_step="Checking previously processed documents.",
     )
 
+    check_cancel("prior_processed")
     run_prior_processed_duplicate_suppression(
         db,
         settings,
@@ -380,6 +399,7 @@ def run_local_pipeline(
         current_step="Identifying document families.",
     )
 
+    check_cancel("family_detection")
     run_family_detection(
         db,
         settings,
@@ -387,6 +407,7 @@ def run_local_pipeline(
         matter_id,
     )
 
+    check_cancel("processing_sets")
     processing_sets = build_processing_sets(
         db=db,
         job_id=job_id,
@@ -460,6 +481,7 @@ def run_local_pipeline(
         current_step="Assigning INSYT document IDs.",
     )
 
+    check_cancel("doc_id_assignment")
     run_doc_id_assignment(
         db,
         settings,
@@ -477,6 +499,7 @@ def run_local_pipeline(
         current_step="Preparing native text extraction.",
     )
 
+    check_cancel("text_extraction")
     run_text_extraction(
         db,
         settings,
@@ -494,6 +517,7 @@ def run_local_pipeline(
         current_step="Evaluating OCR requirements.",
     )
 
+    check_cancel("ocr_preflight")
     run_ocr_preflight(
         db,
         settings,
@@ -508,11 +532,14 @@ def run_local_pipeline(
                 "APC_API_ALLOW_LIVE_OCR is true."
             )
 
+        check_cancel("ocr_live")
+
         live_ocr_result = run_live_ocr_placeholder(
             db,
             settings,
             job_id,
             matter_id,
+            cancellation_callback=cancellation_callback,
         )
 
         if int(live_ocr_result.get("exception_count") or 0) > 0:
@@ -539,12 +566,32 @@ def run_local_pipeline(
             )
 
     elif enable_ocr_dry_run:
+        check_cancel("ocr_dry_run")
         run_ocr_dry_run(db, settings, job_id, matter_id)
 
     if promote_review_ready:
         from pathlib import Path
-        resolved_output_root = output_root or str(Path(input_dir).resolve().parent / ".apc_review_output")
-        run_review_promotion(db, settings, job_id, matter_id, output_root=resolved_output_root)
+
+        resolved_output_root = (
+            output_root
+            or str(
+                Path(input_dir)
+                .resolve()
+                .parent
+                / ".apc_review_output"
+            )
+        )
+
+        check_cancel("review_promotion")
+
+        run_review_promotion(
+            db,
+            settings,
+            job_id,
+            matter_id,
+            output_root=resolved_output_root,
+            cancellation_callback=cancellation_callback,
+        )
 
     finalize_job(db, job_id)
     return job_id

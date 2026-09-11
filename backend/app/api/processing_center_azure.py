@@ -1,4 +1,4 @@
-"""INSYT FastAPI router wrapper for Azure Processing Center v1.0.
+﻿"""INSYT FastAPI router wrapper for Azure Processing Center v1.0.
 
 Copy this file into the INSYT backend at:
     app/api/processing_center_azure.py
@@ -79,6 +79,7 @@ class AzureRunStartRequest(BaseModel):
     overwrite: bool = False
     clean_staging: bool = False
     auto_archive_uploads: bool = True
+    selected_uploads: list[str] = []
 
 class RemoveProcessingUploadsRequest(BaseModel):
     client: str
@@ -143,9 +144,9 @@ class PromoteXLFilesRequest(BaseModel):
 class SendCyber2PopulationRequest(BaseModel):
     """
     Project-wide Promotion Center request for responsive
-    spreadsheet / CSV documents routed to Cyber².
+    spreadsheet / CSV documents routed to CyberÂ².
 
-    Cyber² Intake references the existing staged CSV.
+    CyberÂ² Intake references the existing staged CSV.
     It does not copy the source CSV.
     """
 
@@ -532,7 +533,7 @@ def _archive_uploads_for_job(
         "archived": archived,
         "errors": errors,
     }
-    
+
 def _remove_processing_uploads(
     *,
     workspace: str,
@@ -674,7 +675,7 @@ def _remove_processing_uploads(
         "removed": removed,
         "errors": errors,
     }
-    
+
 def _list_processing_job_history(
     *,
     workspace: str,
@@ -1169,6 +1170,21 @@ def start_tracked_azure_processing_job(
             detail="Live OCR is disabled for this API.",
         )
 
+    selected_uploads = [
+        str(name or "").strip()
+        for name in request.selected_uploads
+        if str(name or "").strip()
+    ]
+
+    if not selected_uploads:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Select at least one Processing Center upload "
+                "before starting the APC job."
+            ),
+        )
+
     job_id = _new_job_id()
 
     request_payload = {
@@ -1184,6 +1200,7 @@ def start_tracked_azure_processing_job(
         "overwrite": request.overwrite,
         "clean_staging": request.clean_staging,
         "auto_archive_uploads": request.auto_archive_uploads,
+        "selected_uploads": selected_uploads,
         "requested_by": getattr(admin, "username", None)
         or getattr(admin, "email", None)
         or "INSYT Admin",
@@ -1763,7 +1780,7 @@ def get_processing_job_history(
 
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    
+
 @router.get("/{workspace}/processing-center/jobs/{job_id}")
 def get_processing_job(
     workspace: Literal["capture", "discovery", "summaries"],
@@ -2223,7 +2240,7 @@ def _build_staged_results_payload(
 
         text_blob = text_by_doc_id.get(doc_id)
         report_file = file_by_doc_id.get(doc_id) or {}
-        
+
         workbook_sheet = (
             report_file.get("workbook_sheet")
             or {}
@@ -2263,7 +2280,7 @@ def _build_staged_results_payload(
             f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
             f"source/text/{doc_id}.txt"
         )
-        
+
         final_summary_extract_blob_path = (
             f"{_project_base_path(workspace=workspace, client=client, project=project)}/"
             f"source/summary_extracts/{doc_id}.json"
@@ -2278,7 +2295,7 @@ def _build_staged_results_payload(
             workspace=workspace,
             blob_path=final_text_blob_path,
         )
-        
+
         final_summary_extract_exists = (
             _live_source_blob_exists(
                 workspace=workspace,
@@ -2820,7 +2837,7 @@ def start_data_element_detection(
             or getattr(admin, "email", None)
             or "INSYT Admin"
         )
-        
+
         def resolve_detection_mode(
             doc: dict[str, Any],
         ) -> str:
@@ -3307,7 +3324,7 @@ def get_data_element_detection_summary(
             ).upper()
             == "EXCEPTION"
         ]
-        
+
         impact_assessment = (
             _build_detection_impact_assessment(
                 documents=documents,
@@ -3658,7 +3675,7 @@ def export_data_element_detection_impact_assessment(
                 f"{exc}"
             ),
         ) from exc
-        
+
 @router.get(
     "/{workspace}/processing-center/data-element-detection/"
     "{detection_job_id}/impact-assessment.xlsx"
@@ -4070,7 +4087,7 @@ def export_data_element_detection_impact_assessment_xlsx(
                         "ods",
                     }
                 ):
-                    return "Cyber²"
+                    return "CyberÂ²"
 
                 return "Review"
 
@@ -5505,7 +5522,7 @@ def get_data_element_detection_document_hits(
         client=client,
         project=project,
     )
-    
+
     document_index_blob_path = (
         f"{base_path}/processing_center/detection/"
         f"documents/{requested_doc_id}.json"
@@ -7892,7 +7909,7 @@ def get_processing_center_promotion_population(
     Routing:
 
       workbook-sheet / CSV HIT
-          -> Cyber²
+          -> CyberÂ²
 
       ordinary document HIT
           -> Review
@@ -8161,7 +8178,7 @@ def get_processing_center_promotion_population(
 
             else:
                 destination = "exception"
-                
+
             cyber2_intake_path = None
             cyber2_intake_record = None
 
@@ -8226,7 +8243,7 @@ def get_processing_center_promotion_population(
                 ),
 
                 "promotion_status": (
-                    "Sent to Cyber²"
+                    "Sent to CyberÂ²"
                     if (
                         destination == "cyber2"
                         and cyber2_sent
@@ -8578,7 +8595,7 @@ def get_processing_center_promotion_population(
                 f"{exc}"
             ),
         ) from exc
-        
+
 
 @router.post("/{workspace}/processing-center/promote")
 def promote_processing_center_staged_results(
@@ -9422,7 +9439,7 @@ def promote_processing_center_review_population(
           -> return one consolidated response
 
     Spreadsheet / worksheet-derived HITs are explicitly refused
-    here because their destination is Cyber², not Review.
+    here because their destination is CyberÂ², not Review.
     """
 
     requested_doc_ids = {
@@ -9969,7 +9986,7 @@ def send_processing_center_cyber2_population(
             detail={
                 "message": (
                     "None of the selected documents "
-                    "are currently eligible for Cyber²."
+                    "are currently eligible for CyberÂ²."
                 ),
                 "requested_doc_ids": sorted(
                     requested_doc_ids

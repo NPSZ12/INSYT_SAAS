@@ -149,6 +149,7 @@ export default function AzureProcessingCenterPanel({
   const [removeMessage, setRemoveMessage] = useState("");
   const [trackedJob, setTrackedJob] = useState<any>(null);
   const [pollingJob, setPollingJob] = useState(false);
+  const [cancellingJob, setCancellingJob] = useState(false);
   const [enableLiveOcr, setEnableLiveOcr] = useState(false);
 
   function resolveApiBase() {
@@ -255,11 +256,9 @@ export default function AzureProcessingCenterPanel({
   const hasPendingUploads = uploads.length > 0;
 
   const activeJobStatus =
-    starting || pollingJob
-      ? trackedJob || job
-      : hasPendingUploads
-        ? null
-        : trackedJob || job;
+    trackedJob ||
+    job ||
+    null;
 
   const processingProgressPct =
     typeof activeJobStatus?.progress_pct === "number"
@@ -366,6 +365,19 @@ export default function AzureProcessingCenterPanel({
   const processingStatus = String(
     activeJobStatus?.status || ""
   ).toLowerCase();
+
+  const processingCanBeCancelled =
+    isInsytAdmin() &&
+    Boolean(
+      trackedJob?.job_id ||
+      activeJobStatus?.job_id ||
+      job?.job_id
+    ) &&
+    [
+      "queued",
+      "running",
+      "cancel_requested",
+    ].includes(processingStatus);
 
   const processingIsTerminal = [
     "completed",
@@ -598,6 +610,16 @@ export default function AzureProcessingCenterPanel({
       `/api/${workspace}/processing-center/tracked-jobs/${encodeURIComponent(
         jobId
       )}/status` +
+      `?client=${encodeURIComponent(clientId)}` +
+      `&project=${encodeURIComponent(projectId)}`
+    );
+  }
+
+  function buildTrackedCancelUrl(jobId: string) {
+    return (
+      `/api/${workspace}/processing-center/tracked-jobs/${encodeURIComponent(
+        jobId
+      )}/cancel` +
       `?client=${encodeURIComponent(clientId)}` +
       `&project=${encodeURIComponent(projectId)}`
     );
@@ -836,6 +858,81 @@ export default function AzureProcessingCenterPanel({
     }
   }
 
+  async function cancelProcessing() {
+    const jobId =
+      trackedJob?.job_id ||
+      activeJobStatus?.job_id ||
+      job?.job_id ||
+      "";
+
+    if (!jobId) {
+      setError("No active APC job is available to cancel.");
+      return;
+    }
+
+    if (!isInsytAdmin()) {
+      setError("Only INSYT Admin users can cancel Azure processing.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Cancel this processing job?\n\n" +
+        "INSYT will stop at the next safe processing checkpoint. " +
+        "A request already submitted to Azure OCR may finish, but no new OCR " +
+        "or promotion work will begin after cancellation is detected."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCancellingJob(true);
+    setError("");
+
+    try {
+      const result = await postJsonToApi<any>(
+        buildTrackedCancelUrl(jobId),
+        {},
+        "Cancel Processing request timed out.",
+        30000
+      );
+
+      const status =
+        result?.job_status ||
+        {
+          ...(trackedJob || activeJobStatus || job || {}),
+          status: "cancel_requested",
+          stage: "cancel_requested",
+          current_stage: "cancel_requested",
+          current_step:
+            "Cancellation requested. Waiting for worker acknowledgement.",
+          cancel_requested: true,
+          cancel_requested_at: new Date().toISOString(),
+        };
+
+      setTrackedJob(status);
+      setJob(status);
+
+      //
+      // Keep polling. The job is not truly cancelled until
+      // the worker acknowledges the request and reports
+      // status="cancelled".
+      //
+      if (!pollingJob) {
+        void pollTrackedJobStatus(jobId);
+      }
+    } catch (err: any) {
+      setError(
+        cleanError(
+          err?.message ||
+            "Unable to request cancellation of the APC job."
+        )
+      );
+    } finally {
+      setCancellingJob(false);
+    }
+  }
+
   async function uploadToAzureProcessingCenter() {
     if (!clientId || !projectId || !selectedFile) {
       setError("Client, project, and file are required before uploading.");
@@ -977,6 +1074,13 @@ export default function AzureProcessingCenterPanel({
       return;
     }
 
+    if (selectedUploadNames.length === 0) {
+      setError(
+        "Select at least one Processing Center upload before starting processing."
+      );
+      return;
+    }
+
     setStarting(true);
     setError("");
     setJobReport(null);
@@ -996,6 +1100,7 @@ export default function AzureProcessingCenterPanel({
           overwrite: true,
           clean_staging: false,
           auto_archive_uploads: true,
+          selected_uploads: selectedUploadNames,
         },
         "Start Azure Processing request timed out.",
         60000
@@ -1064,7 +1169,12 @@ export default function AzureProcessingCenterPanel({
               setCostThresholdAcknowledged(false);
               setShowStartConfirm(true);
             }}
-            disabled={starting || pollingJob || uploads.length === 0 || !isInsytAdmin()}
+            disabled={
+              starting ||
+              pollingJob ||
+              selectedUploadNames.length === 0 ||
+              !isInsytAdmin()
+            }
             className="inline-flex min-h-10 min-w-[190px] items-center justify-center rounded-xl border border-violet-600 bg-violet-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-violet-500 hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {starting || pollingJob ? "Processing..." : "Start Azure Processing"}
@@ -1086,18 +1196,38 @@ export default function AzureProcessingCenterPanel({
 
       {starting || pollingJob || activeJobStatus ? (
         <div className="insyt-pane">
-          <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-semibold insyt-text-primary">
                 Azure Processing Status
               </div>
+
               <div className="mt-1 text-xs insyt-text-muted">
                 {processingStatusLabel}
               </div>
             </div>
 
-            <div className="text-xs font-semibold insyt-text-secondary">
-              {processingProgressPct}%
+            <div className="flex items-center gap-3">
+              {processingCanBeCancelled ? (
+                <button
+                  type="button"
+                  onClick={cancelProcessing}
+                  disabled={
+                    cancellingJob ||
+                    processingStatus === "cancel_requested"
+                  }
+                  className="inline-flex min-h-9 items-center justify-center rounded-xl border border-red-600 bg-red-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {cancellingJob ||
+                  processingStatus === "cancel_requested"
+                    ? "Canceling..."
+                    : "Cancel Processing"}
+                </button>
+              ) : null}
+
+              <div className="text-xs font-semibold insyt-text-secondary">
+                {processingProgressPct}%
+              </div>
             </div>
           </div>
 
@@ -1399,12 +1529,18 @@ export default function AzureProcessingCenterPanel({
 
               {Array.isArray(processingEvents) && processingEvents.length > 0 ? (
                 <div className="mt-4">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
-                    Recent events
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide insyt-text-muted">
+                      Job Event History
+                    </div>
+
+                    <div className="text-xs insyt-text-subtle">
+                      {processingEvents.length.toLocaleString()} event(s)
+                    </div>
                   </div>
 
-                  <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
-                    {processingEvents.slice(-8).map((event: any, index: number) => (
+                  <div className="max-h-96 space-y-2 overflow-y-auto pr-2">
+                    {processingEvents.map((event: any, index: number) => (
                       <div
                         key={`${event?.at || event?.timestamp || index}-${index}`}
                         className="insyt-metric text-xs"
@@ -2152,11 +2288,11 @@ export default function AzureProcessingCenterPanel({
 
             <div className="mt-3 space-y-3 text-sm leading-6 insyt-text-secondary">
               <p>
-                This will process all files currently in{" "}
+                This will process only the{" "}
                 <span className="font-semibold insyt-text-primary">
-                  source/processing_center/uploads
+                  {selectedUploadNames.length}
                 </span>{" "}
-                for this project.
+                selected Processing Center upload(s).
               </p>
 
               <p>
