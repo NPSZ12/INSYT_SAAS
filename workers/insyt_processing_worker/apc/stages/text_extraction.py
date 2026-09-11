@@ -200,9 +200,34 @@ def run_text_extraction(
 ) -> None:
     rows = db.query(
         """
-        SELECT file_id, original_path, extension, source_bytes
-        FROM file_processing_metrics
-        WHERE job_id=? AND is_container=0 AND is_denisted=0 AND is_duplicate=0
+        SELECT
+            fpm.file_id,
+            fpm.original_path,
+            fpm.extension,
+            fpm.source_bytes,
+            fpm.doc_id,
+            psf.set_id,
+            psf.ordinal AS processing_set_ordinal,
+            psf.membership_role,
+            psf.counts_toward_set_size,
+            ps.set_number
+        FROM processing_set_file psf
+        JOIN processing_set ps
+          ON ps.set_id=psf.set_id
+         AND ps.job_id=psf.job_id
+        JOIN file_processing_metrics fpm
+          ON fpm.file_id=psf.file_id
+         AND fpm.job_id=psf.job_id
+        WHERE psf.job_id=?
+          AND psf.membership_role='primary'
+          AND fpm.is_container=0
+          AND fpm.is_denisted=0
+          AND fpm.is_duplicate=0
+        ORDER BY
+            ps.set_number,
+            psf.ordinal,
+            fpm.normalized_path,
+            fpm.file_id
         """,
         (job_id,),
     )
@@ -320,6 +345,37 @@ def run_text_extraction(
         stage.metrics.exceptions = len(exceptions)
         stage.metrics.extra.update(
             {
+                "processing_set_count": len(
+                    {
+                        str(
+                            row[
+                                "set_id"
+                            ]
+                        )
+                        for row in rows
+                        if row[
+                            "set_id"
+                        ]
+                    }
+                ),
+                "processing_set_members_in": (
+                    len(
+                        rows
+                    )
+                ),
+                "processing_set_primary_members": (
+                    sum(
+                        1
+                        for row in rows
+                        if str(
+                            row[
+                                "membership_role"
+                            ]
+                            or ""
+                        )
+                        == "primary"
+                    )
+                ),
                 "text_docs": text_docs,
                 "text_bytes_total": text_bytes_total,
                 "pdf_pages_total": pdf_pages_total,

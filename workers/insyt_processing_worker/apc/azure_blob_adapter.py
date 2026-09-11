@@ -758,6 +758,8 @@ def azure_update_processed_hash_index(
     else:
         items = {}
 
+    count_before = len(items)
+
     rows = db.query(
         """
         SELECT
@@ -825,6 +827,8 @@ def azure_update_processed_hash_index(
         else:
             added += 1
 
+    count_after = len(items)
+
     payload = {
         "generated_at": utc_now(),
         "workspace": routing.workspace,
@@ -833,7 +837,11 @@ def azure_update_processed_hash_index(
         "storage_account": routing.processing_account,
         "container": routing.processing_container,
         "blob_path": blob_path,
-        "count": len(items),
+        "count": count_after,
+        "count_before": count_before,
+        "count": count_after,
+        "count_before": count_before,
+        "count_after": count_after,
         "added_count": added,
         "updated_count": updated,
         "job_id": job_id,

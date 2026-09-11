@@ -435,28 +435,62 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
 
     stage_name = "ocr_live"
 
-    columns = _table_columns(db, "file_processing_metrics")
+    columns = _table_columns(
+        db,
+        "file_processing_metrics",
+    )
 
-    where_parts = ["job_id=?"]
-    params: list[Any] = [job_id]
+    where_parts = [
+        "psf.job_id=?",
+        "psf.membership_role='primary'",
+    ]
+
+    params: list[Any] = [
+        job_id,
+    ]
 
     if "is_container" in columns:
-        where_parts.append("coalesce(is_container,0)=0")
+        where_parts.append(
+            "coalesce(fpm.is_container,0)=0"
+        )
 
     if "is_denisted" in columns:
-        where_parts.append("coalesce(is_denisted,0)=0")
+        where_parts.append(
+            "coalesce(fpm.is_denisted,0)=0"
+        )
 
     if "is_duplicate" in columns:
-        where_parts.append("coalesce(is_duplicate,0)=0")
+        where_parts.append(
+            "coalesce(fpm.is_duplicate,0)=0"
+        )
 
     if "requires_ocr" in columns:
-        where_parts.append("coalesce(requires_ocr,0)=1")
+        where_parts.append(
+            "coalesce(fpm.requires_ocr,0)=1"
+        )
 
     rows = db.query(
         f"""
-        SELECT *
-        FROM file_processing_metrics
+        SELECT
+            fpm.*,
+            psf.set_id AS processing_set_id,
+            psf.ordinal AS processing_set_ordinal,
+            psf.membership_role,
+            psf.counts_toward_set_size,
+            ps.set_number
+        FROM processing_set_file psf
+        JOIN processing_set ps
+          ON ps.set_id=psf.set_id
+         AND ps.job_id=psf.job_id
+        JOIN file_processing_metrics fpm
+          ON fpm.file_id=psf.file_id
+         AND fpm.job_id=psf.job_id
         WHERE {" AND ".join(where_parts)}
+        ORDER BY
+            ps.set_number,
+            psf.ordinal,
+            fpm.normalized_path,
+            fpm.file_id
         """,
         tuple(params),
     )
@@ -568,9 +602,31 @@ def run_live_ocr_placeholder(db, settings, job_id: str, matter_id: str) -> dict:
         stage.metrics.documents_out = processed_count
         stage.metrics.pages_out = actual_ocr_pages
         stage.metrics.exceptions = exception_count
-
         stage.metrics.extra.update(
             {
+                "processing_set_count": len(
+                    {
+                        str(
+                            row[
+                                "processing_set_id"
+                            ]
+                        )
+                        for row in rows
+                        if row[
+                            "processing_set_id"
+                        ]
+                    }
+                ),
+                "processing_set_members_in": (
+                    len(
+                        rows
+                    )
+                ),
+                "processing_set_primary_members": (
+                    len(
+                        rows
+                    )
+                ),
                 "ocr_engine": "azure_document_intelligence_read",
                 "model_id": "prebuilt-read",
                 "processed_count": processed_count,

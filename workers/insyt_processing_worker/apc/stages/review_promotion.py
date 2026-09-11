@@ -918,10 +918,30 @@ def run_review_promotion(
     """
     rows = db.query(
         """
-        SELECT *
-        FROM file_processing_metrics
-        WHERE job_id=? AND is_container=0 AND is_denisted=0 AND is_duplicate=0 AND doc_id IS NOT NULL
-        ORDER BY doc_id
+        SELECT
+            fpm.*,
+            psf.set_id AS processing_set_id,
+            psf.ordinal AS processing_set_ordinal,
+            psf.membership_role,
+            psf.counts_toward_set_size,
+            ps.set_number
+        FROM processing_set_file psf
+        JOIN processing_set ps
+          ON ps.set_id=psf.set_id
+         AND ps.job_id=psf.job_id
+        JOIN file_processing_metrics fpm
+          ON fpm.file_id=psf.file_id
+         AND fpm.job_id=psf.job_id
+        WHERE psf.job_id=?
+          AND psf.membership_role='primary'
+          AND fpm.is_container=0
+          AND fpm.is_denisted=0
+          AND fpm.is_duplicate=0
+          AND fpm.doc_id IS NOT NULL
+        ORDER BY
+            ps.set_number,
+            psf.ordinal,
+            fpm.doc_id
         """,
         (job_id,),
     )
@@ -1161,6 +1181,34 @@ def run_review_promotion(
             manifest_rows.append(
                 {
                     "doc_id": doc_id,
+                    "processing_set_id": (
+                        row[
+                            "processing_set_id"
+                        ]
+                        or ""
+                    ),
+                    "processing_set_number": (
+                        int(
+                            row[
+                                "set_number"
+                            ]
+                            or 0
+                        )
+                    ),
+                    "processing_set_ordinal": (
+                        int(
+                            row[
+                                "processing_set_ordinal"
+                            ]
+                            or 0
+                        )
+                    ),
+                    "membership_role": (
+                        row[
+                            "membership_role"
+                        ]
+                        or ""
+                    ),
                     "original_path": row["normalized_path"],
                     "original_filename": Path(row["normalized_path"]).name,
                     "native_path": str(native_output),
@@ -1208,6 +1256,29 @@ def run_review_promotion(
         stage.metrics.exceptions = len(exceptions)
         stage.metrics.extra.update(
             {
+                "processing_set_count": len(
+                    {
+                        str(
+                            row[
+                                "processing_set_id"
+                            ]
+                        )
+                        for row in rows
+                        if row[
+                            "processing_set_id"
+                        ]
+                    }
+                ),
+                "processing_set_members_in": (
+                    len(
+                        rows
+                    )
+                ),
+                "processing_set_primary_members": (
+                    len(
+                        rows
+                    )
+                ),
                 "workspace": workspace,
                 "output_root": str(root),
                 "native_dir": str(native_dir),

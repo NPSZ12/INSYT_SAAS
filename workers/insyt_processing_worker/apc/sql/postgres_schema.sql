@@ -26,6 +26,45 @@ CREATE TABLE IF NOT EXISTS processing_job (
     metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
+CREATE TABLE IF NOT EXISTS processing_set (
+    set_id text PRIMARY KEY,
+    job_id text NOT NULL REFERENCES processing_job(job_id),
+    matter_id text NOT NULL,
+    set_number integer NOT NULL,
+    configured_set_size integer NOT NULL,
+    status text NOT NULL DEFAULT 'pending',
+
+    file_count bigint NOT NULL DEFAULT 0,
+    processed_count bigint NOT NULL DEFAULT 0,
+    success_count bigint NOT NULL DEFAULT 0,
+    failed_count bigint NOT NULL DEFAULT 0,
+    duplicate_count bigint NOT NULL DEFAULT 0,
+    prior_duplicate_count bigint NOT NULL DEFAULT 0,
+    denist_count bigint NOT NULL DEFAULT 0,
+
+    hash_index_loaded_at timestamptz,
+    hash_index_count_before bigint NOT NULL DEFAULT 0,
+    hash_index_committed_at timestamptz,
+    hash_index_count_after bigint NOT NULL DEFAULT 0,
+
+    detection_status text NOT NULL DEFAULT 'not_ready',
+
+    created_at timestamptz NOT NULL,
+    started_at timestamptz,
+    completed_at timestamptz,
+    updated_at timestamptz NOT NULL,
+
+    metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+    UNIQUE(job_id, set_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_job
+ON processing_set(job_id, set_number);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_status
+ON processing_set(job_id, status);
+
 CREATE TABLE IF NOT EXISTS processing_stage_run (
     stage_run_id text PRIMARY KEY,
     job_id text NOT NULL REFERENCES processing_job(job_id),
@@ -97,6 +136,31 @@ CREATE INDEX IF NOT EXISTS idx_file_metrics_hash ON file_processing_metrics(job_
 CREATE INDEX IF NOT EXISTS idx_file_metrics_doc_id ON file_processing_metrics(job_id, doc_id);
 CREATE INDEX IF NOT EXISTS idx_file_metrics_family ON file_processing_metrics(job_id, family_id);
 CREATE INDEX IF NOT EXISTS idx_file_metrics_container ON file_processing_metrics(job_id, is_container, is_extracted, source_container_file_id);
+
+CREATE TABLE IF NOT EXISTS processing_set_file (
+    set_id text NOT NULL REFERENCES processing_set(set_id),
+    file_id text NOT NULL REFERENCES file_processing_metrics(file_id),
+    job_id text NOT NULL REFERENCES processing_job(job_id),
+    ordinal integer NOT NULL,
+    membership_role text NOT NULL DEFAULT 'primary',
+    counts_toward_set_size boolean NOT NULL DEFAULT true,
+    status text NOT NULL DEFAULT 'pending',
+    attempts integer NOT NULL DEFAULT 0,
+    last_error text,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+
+    PRIMARY KEY(set_id, file_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_file_set
+ON processing_set_file(set_id, ordinal);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_file_job
+ON processing_set_file(job_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_file_file
+ON processing_set_file(file_id);
 
 CREATE TABLE IF NOT EXISTS container_expansion_event (
     event_id TEXT PRIMARY KEY,

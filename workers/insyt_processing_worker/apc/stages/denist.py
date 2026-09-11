@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from ..processing_sets import refresh_job_population_counts
 
 from ..config import Settings
 from ..db import LedgerDB
@@ -34,30 +35,104 @@ def load_denist_hashes(db: LedgerDB, hash_file: str, source_name: str = "externa
     return len(rows)
 
 
-def run_denist(db: LedgerDB, settings: Settings, job_id: str, matter_id: str) -> None:
-    rows = db.query("SELECT file_id, md5, sha1, sha256 FROM file_processing_metrics WHERE job_id=? AND is_container=0", (job_id,))
-    with StageRunner(db, settings, job_id, matter_id, "denist", "hashset-denist") as stage:
+def run_denist(
+    db: LedgerDB,
+    settings: Settings,
+    job_id: str,
+    matter_id: str,
+    set_id: str | None = None,
+) -> None:
+    rows = db.query(
+        """
+        SELECT
+            f.file_id,
+            f.md5,
+            f.sha1,
+            f.sha256
+        FROM file_processing_metrics f
+        WHERE f.job_id=?
+          AND f.is_container=0
+          AND (
+                ? IS NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM processing_set_file psf
+                    WHERE psf.file_id=f.file_id
+                      AND psf.set_id=?
+                )
+          )
+        ORDER BY f.normalized_path, f.file_id
+        """,
+        (
+            job_id,
+            set_id,
+            set_id,
+        ),
+    )
+
+    with StageRunner(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        "denist",
+        "hashset-denist",
+    ) as stage:
         stage.metrics.files_in = len(rows)
         stage.metrics.documents_in = len(rows)
+
         hits = 0
+
         for row in rows:
             matches = False
-            for hash_value in (row["md5"], row["sha1"], row["sha256"]):
+
+            for hash_value in (
+                row["md5"],
+                row["sha1"],
+                row["sha256"],
+            ):
                 if not hash_value:
                     continue
-                if db.scalar("SELECT 1 FROM denist_hash WHERE hash_value=? LIMIT 1", (hash_value.lower(),)):
+
+                if db.scalar(
+                    """
+                    SELECT 1
+                    FROM denist_hash
+                    WHERE hash_value=?
+                    LIMIT 1
+                    """,
+                    (hash_value.lower(),),
+                ):
                     matches = True
                     break
+
             if matches:
                 db.execute(
-                    "UPDATE file_processing_metrics SET is_denisted=1, updated_at=? WHERE file_id=?",
-                    (utc_now(), row["file_id"]),
+                    """
+                    UPDATE file_processing_metrics
+                    SET is_denisted=1,
+                        updated_at=?
+                    WHERE file_id=?
+                    """,
+                    (
+                        utc_now(),
+                        row["file_id"],
+                    ),
                 )
+
                 hits += 1
+
         stage.metrics.files_out = len(rows) - hits
         stage.metrics.documents_out = len(rows) - hits
-        stage.metrics.extra.update({"denist_hits": hits})
-        db.execute(
-            "UPDATE processing_job SET denist_suppressed_count=? WHERE job_id=?",
-            (hits, job_id),
+
+        stage.metrics.extra.update(
+            {
+                "processing_set_id": set_id,
+                "denist_hits": hits,
+            }
+        )
+
+        refresh_job_population_counts(
+            db=db,
+            job_id=job_id,
         )

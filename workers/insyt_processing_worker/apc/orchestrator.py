@@ -16,6 +16,7 @@ from .stages.ocr_preflight import run_ocr_preflight
 from .stages.prior_processed import run_prior_processed_duplicate_suppression
 from .stages.review_promotion import run_review_promotion
 from .stages.text_extraction import run_text_extraction
+from .processing_sets import build_processing_sets
 from .util import bytes_to_gb, json_dumps, new_id, utc_now
 
 
@@ -232,6 +233,7 @@ def run_local_pipeline(
     output_root: str | None = None,
     prior_processed_index: dict | None = None,
     progress_callback=None,
+    processing_set_size: int = 500,
     ) -> str:
     db.init_schema()
     job_id = create_job(
@@ -383,6 +385,64 @@ def run_local_pipeline(
         settings,
         job_id,
         matter_id,
+    )
+
+    processing_sets = build_processing_sets(
+        db=db,
+        job_id=job_id,
+        matter_id=matter_id,
+        set_size=processing_set_size,
+    )
+
+    db.execute(
+        """
+        UPDATE processing_job
+        SET metadata_json=json_patch(
+            coalesce(metadata_json, '{}'),
+            ?
+        )
+        WHERE job_id=?
+        """,
+        (
+            json_dumps(
+                {
+                    "processing_sets": {
+                        "enabled": True,
+                        "configured_set_size": (
+                            processing_set_size
+                        ),
+                        "set_count": (
+                            processing_sets["set_count"]
+                        ),
+                        "eligible_file_count": (
+                            processing_sets[
+                                "eligible_file_count"
+                            ]
+                        ),
+                        "sets": processing_sets["sets"],
+                    }
+                }
+            ),
+            job_id,
+        ),
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="processing_sets",
+        current_step=(
+            f"Created "
+            f"{processing_sets['set_count']:,} "
+            f"processing set(s) from "
+            f"{processing_sets['eligible_file_count']:,} "
+            f"expanded leaf files."
+        ),
+        stage_processed_files=0,
+        stage_total_files=(
+            processing_sets["eligible_file_count"]
+        ),
     )
 
     routing = AzureRoutingConfig.from_args(

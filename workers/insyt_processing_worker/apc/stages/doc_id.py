@@ -437,8 +437,11 @@ def run_doc_id_assignment(
     suppress_duplicates: bool = True,
 ) -> None:
     where = (
-        "job_id=? "
-        "AND is_denisted=0"
+        "fpm.job_id=? "
+        "AND fpm.is_denisted=0 "
+        "AND psf.membership_role IN ("
+        "'primary', 'workbook_parent'"
+        ")"
     )
 
     params: tuple = (
@@ -446,30 +449,51 @@ def run_doc_id_assignment(
     )
 
     if suppress_duplicates:
+        #
+        # Primary documents that were deduplicated do not
+        # receive new Doc IDs.
+        #
+        # Workbook parents are support/lineage records and
+        # must remain available so their surviving worksheet
+        # children can inherit the parent's base Doc ID.
+        #
         where += (
-            " AND is_duplicate=0"
+            " AND ("
+            "psf.membership_role='workbook_parent' "
+            "OR fpm.is_duplicate=0"
+            ")"
         )
 
     candidate_rows = db.query(
         f"""
         SELECT
-            file_id,
-            family_id,
-            parent_file_id,
-            source_container_file_id,
-            original_path,
-            normalized_path,
-            extension,
-            stage_status_json,
-            is_container
-        FROM file_processing_metrics
+            fpm.file_id,
+            fpm.family_id,
+            fpm.parent_file_id,
+            fpm.source_container_file_id,
+            fpm.original_path,
+            fpm.normalized_path,
+            fpm.extension,
+            fpm.stage_status_json,
+            fpm.is_container,
+            psf.set_id,
+            psf.ordinal AS processing_set_ordinal,
+            psf.membership_role,
+            psf.counts_toward_set_size,
+            ps.set_number
+        FROM processing_set_file psf
+        JOIN processing_set ps
+          ON ps.set_id=psf.set_id
+         AND ps.job_id=psf.job_id
+        JOIN file_processing_metrics fpm
+          ON fpm.file_id=psf.file_id
+         AND fpm.job_id=psf.job_id
         WHERE {where}
         ORDER BY
-            coalesce(
-                family_id,
-                file_id
-            ),
-            normalized_path
+            ps.set_number,
+            psf.ordinal,
+            fpm.normalized_path,
+            fpm.file_id
         """,
         params,
     )
@@ -478,13 +502,31 @@ def run_doc_id_assignment(
         row
         for row in candidate_rows
         if (
-            not bool(
-                row[
-                    "is_container"
-                ]
+            (
+                str(
+                    row[
+                        "membership_role"
+                    ]
+                    or ""
+                )
+                == "primary"
+                and not bool(
+                    row[
+                        "is_container"
+                    ]
+                )
             )
-            or _is_workbook_parent(
-                row
+            or (
+                str(
+                    row[
+                        "membership_role"
+                    ]
+                    or ""
+                )
+                == "workbook_parent"
+                and _is_workbook_parent(
+                    row
+                )
             )
         )
     ]
@@ -926,6 +968,50 @@ def run_doc_id_assignment(
 
         stage.metrics.extra.update(
             {
+                "processing_set_count": len(
+                    {
+                        str(
+                            row[
+                                "set_id"
+                            ]
+                        )
+                        for row in rows
+                        if row[
+                            "set_id"
+                        ]
+                    }
+                ),
+                "processing_set_members_in": (
+                    len(
+                        rows
+                    )
+                ),
+                "processing_set_primary_members": (
+                    sum(
+                        1
+                        for row in rows
+                        if str(
+                            row[
+                                "membership_role"
+                            ]
+                            or ""
+                        )
+                        == "primary"
+                    )
+                ),
+                "processing_set_support_members": (
+                    sum(
+                        1
+                        for row in rows
+                        if str(
+                            row[
+                                "membership_role"
+                            ]
+                            or ""
+                        )
+                        == "workbook_parent"
+                    )
+                ),
                 "prefix": prefix,
                 "requested_start_number": (
                     start_number

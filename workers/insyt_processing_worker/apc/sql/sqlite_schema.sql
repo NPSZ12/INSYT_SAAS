@@ -32,6 +32,46 @@ CREATE TABLE IF NOT EXISTS processing_job (
     metadata_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS processing_set (
+    set_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    matter_id TEXT NOT NULL,
+    set_number INTEGER NOT NULL,
+    configured_set_size INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+
+    file_count INTEGER NOT NULL DEFAULT 0,
+    processed_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    duplicate_count INTEGER NOT NULL DEFAULT 0,
+    prior_duplicate_count INTEGER NOT NULL DEFAULT 0,
+    denist_count INTEGER NOT NULL DEFAULT 0,
+
+    hash_index_loaded_at TEXT,
+    hash_index_count_before INTEGER NOT NULL DEFAULT 0,
+    hash_index_committed_at TEXT,
+    hash_index_count_after INTEGER NOT NULL DEFAULT 0,
+
+    detection_status TEXT NOT NULL DEFAULT 'not_ready',
+
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL,
+
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+
+    UNIQUE(job_id, set_number),
+    FOREIGN KEY(job_id) REFERENCES processing_job(job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_job
+ON processing_set(job_id, set_number);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_status
+ON processing_set(job_id, status);
+
 CREATE TABLE IF NOT EXISTS processing_stage_run (
     stage_run_id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
@@ -107,6 +147,40 @@ CREATE INDEX IF NOT EXISTS idx_file_metrics_hash ON file_processing_metrics(job_
 CREATE INDEX IF NOT EXISTS idx_file_metrics_doc_id ON file_processing_metrics(job_id, doc_id);
 CREATE INDEX IF NOT EXISTS idx_file_metrics_family ON file_processing_metrics(job_id, family_id);
 CREATE INDEX IF NOT EXISTS idx_file_metrics_container ON file_processing_metrics(job_id, is_container, is_extracted, source_container_file_id);
+
+CREATE TABLE IF NOT EXISTS processing_set_file (
+    set_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    membership_role TEXT NOT NULL DEFAULT 'primary',
+    counts_toward_set_size INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+
+    PRIMARY KEY(set_id, file_id),
+
+    FOREIGN KEY(set_id)
+        REFERENCES processing_set(set_id),
+
+    FOREIGN KEY(file_id)
+        REFERENCES file_processing_metrics(file_id),
+
+    FOREIGN KEY(job_id)
+        REFERENCES processing_job(job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_file_set
+ON processing_set_file(set_id, ordinal);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_file_job
+ON processing_set_file(job_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_processing_set_file_file
+ON processing_set_file(file_id);
 
 CREATE TABLE IF NOT EXISTS container_expansion_event (
     event_id TEXT PRIMARY KEY,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..processing_sets import refresh_job_population_counts
+
 from ..config import Settings
 from ..db import LedgerDB
 from ..telemetry import StageRunner
@@ -45,6 +47,7 @@ def run_prior_processed_duplicate_suppression(
     job_id: str,
     matter_id: str,
     prior_processed_index: dict[str, Any] | None = None,
+    set_id: str | None = None,
 ) -> None:
     """Suppress files already promoted in prior jobs for the same project.
 
@@ -57,17 +60,34 @@ def run_prior_processed_duplicate_suppression(
 
     current_rows = db.query(
         """
-        SELECT file_id, normalized_path, sha256, stage_status_json
-        FROM file_processing_metrics
-        WHERE job_id=?
-          AND is_container=0
-          AND is_denisted=0
-          AND is_duplicate=0
-          AND sha256 IS NOT NULL
-          AND sha256 <> ''
-        ORDER BY normalized_path
+        SELECT
+            f.file_id,
+            f.normalized_path,
+            f.sha256,
+            f.stage_status_json
+        FROM file_processing_metrics f
+        WHERE f.job_id=?
+          AND f.is_container=0
+          AND f.is_denisted=0
+          AND f.is_duplicate=0
+          AND f.sha256 IS NOT NULL
+          AND f.sha256 <> ''
+          AND (
+                ? IS NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM processing_set_file psf
+                    WHERE psf.file_id=f.file_id
+                      AND psf.set_id=?
+                )
+          )
+        ORDER BY f.normalized_path, f.file_id
         """,
-        (job_id,),
+        (
+            job_id,
+            set_id,
+            set_id,
+        ),
     )
 
     prior_by_sha256 = _normalize_prior_hash_index(prior_processed_index)
@@ -146,7 +166,13 @@ def run_prior_processed_duplicate_suppression(
             {
                 "checked_current_files": checked,
                 "prior_index_size": len(prior_by_sha256),
+                "processing_set_id": set_id,
                 "suppressed_prior_processed_duplicates": suppressed,
                 "examples": examples,
             }
         )
+
+    refresh_job_population_counts(
+        db=db,
+        job_id=job_id,
+    )
