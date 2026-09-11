@@ -234,6 +234,7 @@ def run_local_pipeline(
     prior_processed_index: dict | None = None,
     progress_callback=None,
     cancellation_callback=None,
+    after_ocr_preflight_callback=None,
     processing_set_size: int = 500,
 ) -> str:
     def check_cancel(
@@ -524,6 +525,42 @@ def run_local_pipeline(
         job_id,
         matter_id,
     )
+
+    #
+    # Structured-data fast lane.
+    #
+    # At this point:
+    #   - containers/workbooks have been expanded
+    #   - hashes/dedupe/deNIST/families are complete
+    #   - Processing Sets and Doc IDs exist
+    #   - native text extraction has run
+    #   - OCR requirements are known
+    #
+    # Release non-OCR structured documents for staging/detection
+    # before live OCR begins.
+    #
+    if after_ocr_preflight_callback:
+        check_cancel(
+            "structured_fast_lane"
+        )
+
+        _emit_pipeline_progress(
+            progress_callback,
+            db=db,
+            job_id=job_id,
+            stage="structured_fast_lane",
+            current_step=(
+                "Releasing non-OCR structured documents "
+                "for Data Element Detection."
+            ),
+        )
+
+        after_ocr_preflight_callback(
+            db=db,
+            job_id=job_id,
+            matter_id=matter_id,
+            workspace=workspace,
+        )
 
     if enable_live_ocr:
         if not settings.enable_live_ocr:

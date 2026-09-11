@@ -1,9 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 try:
     from dotenv import load_dotenv
@@ -20,6 +21,7 @@ from apc.azure_blob_adapter import (
     azure_upload_review_outputs,
     azure_update_processed_hash_index,
     azure_archive_processing_uploads,
+    azure_upload_xl_files_outputs,
 )
 from apc.azure_job_runner import run_azure_processing_job
 from apc.detection_job_runner import run_data_element_detection_job
@@ -101,6 +103,60 @@ def _write_json_blob(blob_path: str, payload: dict[str, Any]) -> dict[str, Any]:
         "bytes": len(data),
     }
 
+def _send_detection_queue_message(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from azure.storage.queue import QueueClient
+
+    queue_name = os.getenv(
+        "APC_DETECTION_QUEUE_NAME",
+        "apc-detection-jobs",
+    )
+
+    processing_account = _processing_account()
+
+    queue_conn = os.getenv(
+        "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
+    )
+
+    if queue_conn:
+        queue = QueueClient.from_connection_string(
+            queue_conn,
+            queue_name=queue_name,
+        )
+    else:
+        queue = QueueClient(
+            account_url=(
+                f"https://{processing_account}"
+                ".queue.core.windows.net"
+            ),
+            queue_name=queue_name,
+            credential=DefaultAzureCredential(),
+        )
+
+    try:
+        queue.create_queue()
+    except Exception:
+        pass
+
+    result = queue.send_message(
+        json.dumps(
+            payload,
+            default=str,
+        )
+    )
+
+    return {
+        "status": "queued",
+        "queue_name": queue_name,
+        "message_id": result.id,
+        "inserted_on": str(
+            result.inserted_on
+        ),
+        "expires_on": str(
+            result.expires_on
+        ),
+    }
 
 def _cancel_requested(cancel_blob_path: str | None) -> bool:
     if not cancel_blob_path:
@@ -636,7 +692,7 @@ def process_job_message(message_content: str):
                 "workspace": payload.get("workspace", ""),
                 "matter_id": payload.get("matter_id", ""),
 
-                # Routing debug fields â€” these tell us exactly where the worker is looking.
+                # Routing debug fields — these tell us exactly where the worker is looking.
                 "routing_prefix": routing.prefix,
                 "uploads_prefix": routing.processing_paths().get("uploads", ""),
                 "work_prefix": routing.processing_paths().get("work", ""),
@@ -648,7 +704,7 @@ def process_job_message(message_content: str):
                     "",
                 ),
 
-                # Review output prefixes â€” these tell us where Native/Text outputs will land.
+                # Review output prefixes — these tell us where Native/Text outputs will land.
                 "review_native_prefix": routing.review_paths().get("native", ""),
                 "review_text_prefix": routing.review_paths().get("text", ""),
                 "review_preview_prefix": routing.review_paths().get("preview", ""),
@@ -696,6 +752,277 @@ def process_job_message(message_content: str):
                 cancel_blob_path=cancel_blob_path,
                 status_blob_path=status_blob_path,
                 stage=stage,
+            )
+
+        def structured_fast_lane(
+            *,
+            db: LedgerDB,
+            job_id: str,
+            matter_id: str,
+            workspace: str,
+        ) -> None:
+            cancellation_checkpoint(
+                "structured_fast_lane"
+            )
+
+            xl_upload = (
+                azure_upload_xl_files_outputs(
+                    db=db,
+                    routing=routing,
+                    job_id=job_id,
+                    azure_write=True,
+                    overwrite=True,
+                )
+            )
+
+            uploaded_rows = (
+                xl_upload.get("uploaded")
+                or []
+            )
+
+            detection_docs = [
+                row
+                for row in uploaded_rows
+                if (
+                    isinstance(row, dict)
+                    and bool(
+                        row.get(
+                            "is_workbook_child"
+                        )
+                    )
+                    and str(
+                        row.get(
+                            "text_staged_blob_path"
+                        )
+                        or ""
+                    ).strip()
+                )
+            ]
+
+            if not detection_docs:
+                _update_status(
+                    status_blob_path=status_blob_path,
+                    status="running",
+                    stage="structured_fast_lane",
+                    progress_pct=60,
+                    message=(
+                        "Structured fast lane completed; "
+                        "no worksheet documents required Detection."
+                    ),
+                    extra={
+                        "current_step": (
+                            "No workbook worksheet children "
+                            "were queued for Detection."
+                        ),
+                        "xl_fast_lane_uploaded_count": (
+                            len(uploaded_rows)
+                        ),
+                        "xl_detection_queued_count": 0,
+                    },
+                )
+                return
+
+            detection_job_id = (
+                f"DET-{uuid4().hex[:16].upper()}"
+            )
+
+            detection_base = (
+                f"{routing.prefix}/"
+                "processing_center/detection/jobs/"
+                f"{detection_job_id}"
+            )
+
+            detection_request_blob_path = (
+                f"{detection_base}/request.json"
+            )
+
+            detection_status_blob_path = (
+                f"{detection_base}/status.json"
+            )
+
+            requested_at = utc_now()
+
+            documents = []
+
+            for row in detection_docs:
+                documents.append(
+                    {
+                        "doc_id": str(
+                            row.get("doc_id")
+                            or ""
+                        ),
+                        "file_id": (
+                            row.get("file_id")
+                        ),
+                        "text_staged_blob_path": (
+                            row.get(
+                                "text_staged_blob_path"
+                            )
+                        ),
+                        "native_staged_blob_path": (
+                            row.get(
+                                "native_staged_blob_path"
+                            )
+                        ),
+                        "source_type": (
+                            "worksheet_csv"
+                        ),
+                        "detection_mode": (
+                            "worksheet_triage"
+                        ),
+                        "is_workbook_sheet": True,
+                        "parent_file_id": (
+                            row.get(
+                                "parent_file_id"
+                            )
+                        ),
+                        "original_workbook_file_id": (
+                            row.get(
+                                "parent_file_id"
+                            )
+                        ),
+                    }
+                )
+
+            request_payload = {
+                "job_type": (
+                    "data_element_detection"
+                ),
+                "detection_job_id": (
+                    detection_job_id
+                ),
+                "workspace": workspace,
+                "client": payload.get(
+                    "client"
+                ),
+                "project": payload.get(
+                    "project"
+                ),
+                "source_job_id": job_id,
+                "doc_ids": [
+                    str(
+                        row.get("doc_id")
+                        or ""
+                    )
+                    for row in detection_docs
+                ],
+                "detection_mode": (
+                    "worksheet_triage"
+                ),
+                "documents": documents,
+                "protocol_name": payload.get(
+                    "protocol_name"
+                ),
+                "protocol_version": payload.get(
+                    "protocol_version"
+                ),
+                "include_phi": bool(
+                    payload.get(
+                        "include_phi",
+                        True,
+                    )
+                ),
+                "requested_by": payload.get(
+                    "requested_by"
+                )
+                or "APC Worker",
+                "requested_at": requested_at,
+                "request_blob_path": (
+                    detection_request_blob_path
+                ),
+                "status_blob_path": (
+                    detection_status_blob_path
+                ),
+            }
+
+            detection_status_payload = {
+                "job_type": (
+                    "data_element_detection"
+                ),
+                "detection_job_id": (
+                    detection_job_id
+                ),
+                "workspace": workspace,
+                "client": payload.get(
+                    "client"
+                ),
+                "project": payload.get(
+                    "project"
+                ),
+                "source_job_id": job_id,
+                "status": "queued",
+                "stage": "queued",
+                "progress_pct": 0,
+                "selected_doc_count": (
+                    len(documents)
+                ),
+                "documents_scanned": 0,
+                "documents_with_hits": 0,
+                "documents_no_hits": 0,
+                "documents_nfr": 0,
+                "documents_exception": 0,
+                "entity_hit_count": 0,
+                "message": (
+                    "Structured-data Detection "
+                    "job queued."
+                ),
+                "requested_at": requested_at,
+                "created_at": utc_now(),
+                "updated_at": utc_now(),
+                "request_blob_path": (
+                    detection_request_blob_path
+                ),
+                "status_blob_path": (
+                    detection_status_blob_path
+                ),
+            }
+
+            _write_json_blob(
+                detection_request_blob_path,
+                request_payload,
+            )
+
+            _write_json_blob(
+                detection_status_blob_path,
+                detection_status_payload,
+            )
+
+            queue_result = (
+                _send_detection_queue_message(
+                    request_payload
+                )
+            )
+
+            _update_status(
+                status_blob_path=status_blob_path,
+                status="running",
+                stage="structured_fast_lane",
+                progress_pct=60,
+                message=(
+                    "Structured worksheet population "
+                    "released to Data Element Detection."
+                ),
+                extra={
+                    "current_step": (
+                        f"Queued {len(documents):,} "
+                        "worksheet document(s) for "
+                        "Detection while OCR continues."
+                    ),
+                    "xl_fast_lane_uploaded_count": (
+                        len(uploaded_rows)
+                    ),
+                    "xl_detection_queued_count": (
+                        len(documents)
+                    ),
+                    "xl_detection_job_id": (
+                        detection_job_id
+                    ),
+                    "xl_detection_queue": (
+                        queue_result.get(
+                            "queue_name"
+                        )
+                    ),
+                },
             )
 
         def ingestion_progress(progress: dict[str, Any]) -> None:
@@ -788,6 +1115,7 @@ def process_job_message(message_content: str):
             upload_status=False,
             progress_callback=ingestion_progress,
             cancellation_callback=cancellation_checkpoint,
+            after_ocr_preflight_callback=structured_fast_lane,
             selected_uploads=selected_uploads,
         )
 

@@ -287,9 +287,14 @@ def build_xl_files_staging_plan(
 
     plan: list[dict[str, object]] = []
 
-    staged_prefix = (
+    native_staged_prefix = (
         f"{routing.prefix}/processing_center/"
         f"staged/{job_id}/xl/native"
+    )
+
+    text_staged_prefix = (
+        f"{routing.prefix}/processing_center/"
+        f"staged/{job_id}/xl/text"
     )
 
     for row in rows:
@@ -330,9 +335,16 @@ def build_xl_files_staging_plan(
         if not doc_id:
             continue
 
-        staged_blob_path = (
-            f"{staged_prefix}/"
+        native_staged_blob_path = (
+            f"{native_staged_prefix}/"
             f"{doc_id}.{ext}"
+        )
+
+        text_staged_blob_path = (
+            f"{text_staged_prefix}/"
+            f"{doc_id}.txt"
+            if is_workbook_child
+            else ""
         )
 
         plan.append(
@@ -357,7 +369,13 @@ def build_xl_files_staging_plan(
                     is_workbook_child
                 ),
                 "staged_blob_path": (
-                    staged_blob_path
+                    native_staged_blob_path
+                ),
+                "native_staged_blob_path": (
+                    native_staged_blob_path
+                ),
+                "text_staged_blob_path": (
+                    text_staged_blob_path
                 ),
                 "write_enabled": (
                     routing.azure_write

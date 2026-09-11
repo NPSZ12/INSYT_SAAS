@@ -233,6 +233,12 @@ def _utc_now() -> str:
 def _queue_name() -> str:
     return os.getenv("APC_PROCESSING_QUEUE_NAME", "apc-processing-jobs")
 
+def _detection_queue_name() -> str:
+    return os.getenv(
+        "APC_DETECTION_QUEUE_NAME",
+        "apc-detection-jobs",
+    )
+
 
 def _new_job_id() -> str:
     return f"JOB-{uuid4().hex[:16].upper()}"
@@ -354,27 +360,42 @@ def _read_processing_json_blob(blob_path: str) -> dict[str, Any]:
     return json.loads(data.decode("utf-8"))
 
 
-def _queue_client() -> QueueClient:
+def _queue_client(
+    queue_name: str | None = None,
+) -> QueueClient:
     processing_account = _processing_account()
 
     if processing_account != "insytprodstorage":
         raise HTTPException(
             status_code=400,
-            detail="Queue refused: processing account must be insytprodstorage.",
+            detail=(
+                "Queue refused: processing account "
+                "must be insytprodstorage."
+            ),
         )
 
     try:
         credential = DefaultAzureCredential()
 
         return QueueClient(
-            account_url=f"https://{processing_account}.queue.core.windows.net",
-            queue_name=_queue_name(),
+            account_url=(
+                f"https://{processing_account}"
+                ".queue.core.windows.net"
+            ),
+            queue_name=(
+                queue_name
+                or _queue_name()
+            ),
             credential=credential,
         )
+
     except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Unable to create APC queue client: {exc}",
+            detail=(
+                "Unable to create APC queue client: "
+                f"{exc}"
+            ),
         ) from exc
 
 
@@ -404,6 +425,56 @@ def _send_apc_queue_message(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(
             status_code=502,
             detail=f"Unable to enqueue APC processing job: {exc}",
+        ) from exc
+
+def _send_detection_queue_message(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    queue_name = _detection_queue_name()
+
+    try:
+        queue = _queue_client(
+            queue_name=queue_name,
+        )
+
+        try:
+            queue.create_queue()
+        except Exception:
+            #
+            # Queue may already exist, or creation may
+            # be blocked while send is allowed.
+            #
+            pass
+
+        result = queue.send_message(
+            json.dumps(
+                payload,
+                default=str,
+            )
+        )
+
+        return {
+            "status": "queued",
+            "queue_name": queue_name,
+            "message_id": result.id,
+            "inserted_on": str(
+                result.inserted_on
+            ),
+            "expires_on": str(
+                result.expires_on
+            ),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Unable to enqueue Data Element "
+                f"Detection job: {exc}"
+            ),
         ) from exc
 
 def _routing(
@@ -3054,7 +3125,9 @@ def start_data_element_detection(
             "status_blob_path": status_blob_path,
         }
 
-        queue_result = _send_apc_queue_message(queue_payload)
+        queue_result = _send_detection_queue_message(
+            queue_payload
+        )
 
         return {
             **status_payload,

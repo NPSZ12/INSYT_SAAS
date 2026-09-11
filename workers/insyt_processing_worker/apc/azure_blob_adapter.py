@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -139,7 +139,7 @@ class DualStorageBlobAdapter:
                 "status": status,
             })
         return downloaded
-    
+
     def archive_processing_uploads(
         self,
         job_id: str,
@@ -541,6 +541,13 @@ def azure_upload_xl_files_outputs(
             or ""
         )
 
+        text_blob_path = str(
+            row.get(
+                "text_staged_blob_path"
+            )
+            or ""
+        )
+
         doc_id = str(
             row.get(
                 "doc_id"
@@ -586,12 +593,58 @@ def azure_upload_xl_files_outputs(
                     ),
                 )
 
+            if (
+                bool(
+                    row.get(
+                        "is_workbook_child"
+                    )
+                )
+                and text_blob_path
+            ):
+                text_blob_client = (
+                    adapter
+                    .review_container
+                    .get_blob_client(
+                        text_blob_path
+                    )
+                )
+
+                text_content = local_path.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
+
+                text_blob_client.upload_blob(
+                    text_content.encode("utf-8"),
+                    overwrite=overwrite,
+                    content_settings=(
+                        adapter
+                        ._content_settings_cls(
+                            content_type=(
+                                "text/plain; charset=utf-8"
+                            )
+                        )
+                    ),
+                )
+
             uploaded.append(
                 {
                     **row,
                     "status": "uploaded",
                     "bytes": (
                         local_path.stat().st_size
+                    ),
+                    "native_staged_blob_path": (
+                        blob_path
+                    ),
+                    "text_staged_blob_path": (
+                        text_blob_path
+                    ),
+                    "detection_ready": bool(
+                        row.get(
+                            "is_workbook_child"
+                        )
+                        and text_blob_path
                     ),
                 }
             )
