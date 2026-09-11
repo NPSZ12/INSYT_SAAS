@@ -73,6 +73,7 @@ class AzureRunStartRequest(BaseModel):
     project: str = Field(..., description="INSYT project folder/id")
     matter_id: str = Field(..., description="Matter/job label")
     doc_prefix: str = "INSYT"
+    processing_set_size: int = 500
     enable_ocr_dry_run: bool = True
     enable_live_ocr: bool = False
     azure_write: bool = False
@@ -1194,6 +1195,7 @@ def start_tracked_azure_processing_job(
         "project": request.project,
         "matter_id": request.matter_id,
         "doc_prefix": request.doc_prefix,
+        "processing_set_size": request.processing_set_size,
         "enable_ocr_dry_run": request.enable_ocr_dry_run,
         "enable_live_ocr": request.enable_live_ocr,
         "azure_write": request.azure_write,

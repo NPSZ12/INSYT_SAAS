@@ -151,6 +151,7 @@ export default function AzureProcessingCenterPanel({
   const [pollingJob, setPollingJob] = useState(false);
   const [cancellingJob, setCancellingJob] = useState(false);
   const [enableLiveOcr, setEnableLiveOcr] = useState(false);
+  const [processingSetSize, setProcessingSetSize] = useState(500);
 
   function resolveApiBase() {
     return (
@@ -1094,6 +1095,7 @@ export default function AzureProcessingCenterPanel({
           project: projectId,
           matter_id: `${projectId}-AZURE-RUN`,
           doc_prefix: "INSYT",
+          processing_set_size: processingSetSize,
           enable_ocr_dry_run: !enableLiveOcr,
           enable_live_ocr: enableLiveOcr,
           azure_write: true,
@@ -1161,6 +1163,28 @@ export default function AzureProcessingCenterPanel({
               className="h-4 w-4 rounded border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-1)] accent-sky-500"
             />
             <span>Enable OCR</span>
+          </label>
+
+          <label className="inline-flex min-h-10 items-center gap-3 rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 text-sm font-semibold text-[var(--insyt-text-secondary)]">
+            <span className="whitespace-nowrap">
+              Select Set Size
+            </span>
+
+            <select
+              value={processingSetSize}
+              onChange={(event) =>
+                setProcessingSetSize(Number(event.target.value))
+              }
+              disabled={starting || pollingJob || !isInsytAdmin()}
+              className="rounded-lg border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-1)] px-3 py-2 text-sm text-[var(--insyt-text-primary)] outline-none"
+            >
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={250}>250</option>
+              <option value={500}>500</option>
+              <option value={750}>750</option>
+              <option value={1000}>1,000</option>
+            </select>
           </label>
 
           <button
@@ -2296,6 +2320,15 @@ export default function AzureProcessingCenterPanel({
               </p>
 
               <p>
+                Processing Set target size:{" "}
+                <span className="font-semibold insyt-text-primary">
+                  {processingSetSize.toLocaleString()} primary document(s)
+                </span>
+                . Workbook families will remain together even if that causes
+                a Processing Set to close early or exceed the target size.
+              </p>
+
+              <p>
                 INSYT will assign Doc IDs, promote review-ready Native/Text outputs to
                 review storage, and generate processing reports and cost telemetry.
               </p>
@@ -2365,6 +2398,7 @@ export default function AzureProcessingCenterPanel({
                 className="insyt-btn insyt-btn-info"
               >
                 {starting ? "Starting..." : "Start Processing"}
+
               </button>
             </div>
           </div>

@@ -212,8 +212,18 @@ def _prepare_image_for_ocr(
 
         return prepared, "image/jpeg"
 
-def _ocr_bytes(content: bytes, content_type: str) -> tuple[str, int]:
+def _ocr_bytes(
+    content: bytes,
+    content_type: str,
+) -> tuple[str, int]:
     client = _get_document_intelligence_client()
+
+    timeout_seconds = int(
+        os.getenv(
+            "APC_OCR_TIMEOUT_SECONDS",
+            "120",
+        )
+    )
 
     poller = client.begin_analyze_document(
         model_id="prebuilt-read",
@@ -221,7 +231,15 @@ def _ocr_bytes(content: bytes, content_type: str) -> tuple[str, int]:
         content_type=content_type,
     )
 
-    result = poller.result()
+    try:
+        result = poller.result(
+            timeout=timeout_seconds
+        )
+    except TimeoutError as exc:
+        raise RuntimeError(
+            "Azure Document Intelligence OCR timed out "
+            f"after {timeout_seconds} seconds."
+        ) from exc
 
     text = getattr(result, "content", "") or ""
     pages = getattr(result, "pages", []) or []
