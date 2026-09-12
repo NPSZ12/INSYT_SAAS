@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -157,6 +157,56 @@ def _send_detection_queue_message(
             result.expires_on
         ),
     }
+
+def _hard_cancel_blob_path(
+    *,
+    client: str,
+    workspace: str,
+    project: str,
+    job_id: str,
+) -> str:
+    return (
+        f"{client}/{workspace}/{project}/"
+        "processing_center/"
+        f"hard_cancelled_jobs/{job_id}.json"
+    )
+
+
+def _hard_cancelled(
+    *,
+    client: str,
+    workspace: str,
+    project: str,
+    job_id: str,
+) -> bool:
+    if not (
+        client
+        and workspace
+        and project
+        and job_id
+    ):
+        return False
+
+    blob_path = _hard_cancel_blob_path(
+        client=client,
+        workspace=workspace,
+        project=project,
+        job_id=job_id,
+    )
+
+    try:
+        payload = _read_json_blob(
+            blob_path,
+            default={},
+        )
+
+        return bool(
+            payload.get("hard_cancel")
+            or payload.get("status") == "purged"
+        )
+
+    except Exception:
+        return False
 
 def _cancel_requested(cancel_blob_path: str | None) -> bool:
     if not cancel_blob_path:
@@ -628,6 +678,38 @@ def process_job_message(message_content: str):
     ).strip().lower()
 
     if job_type == "data_element_detection":
+        source_job_id = str(
+            payload.get("source_job_id") or ""
+        ).strip()
+
+        detection_workspace = str(
+            payload.get("workspace") or "capture"
+        ).strip()
+
+        detection_client = str(
+            payload.get("client") or ""
+        ).strip()
+
+        detection_project = str(
+            payload.get("project") or ""
+        ).strip()
+
+        if (
+            source_job_id
+            and _hard_cancelled(
+                client=detection_client,
+                workspace=detection_workspace,
+                project=detection_project,
+                job_id=source_job_id,
+            )
+        ):
+            print(
+                "Ignoring Detection job for "
+                "permanently purged APC job "
+                f"{source_job_id}."
+            )
+            return
+
         _process_data_element_detection_message(
             payload
         )
@@ -646,6 +728,25 @@ def process_job_message(message_content: str):
 
     if not project:
         raise ValueError("APC queue message missing project")
+
+    #
+    # Permanent hard-cancel barrier.
+    #
+    # A queue message may be redelivered after its visibility
+    # timeout. A purged job must return normally so run_once()
+    # acknowledges/deletes that stale queue message.
+    #
+    if _hard_cancelled(
+        client=str(client),
+        workspace=str(workspace),
+        project=str(project),
+        job_id=str(job_id),
+    ):
+        print(
+            "Ignoring permanently purged APC job "
+            f"{job_id}."
+        )
+        return
 
     request_blob_path = payload.get(
         "request_blob_path",
@@ -748,6 +849,16 @@ def process_job_message(message_content: str):
         def cancellation_checkpoint(
             stage: str = "processing",
         ) -> None:
+            if _hard_cancelled(
+                client=str(client),
+                workspace=str(workspace),
+                project=str(project),
+                job_id=str(job_id),
+            ):
+                raise RuntimeError(
+                    "APC job hard-cancelled and purged."
+                )
+
             _cancel_if_requested(
                 cancel_blob_path=cancel_blob_path,
                 status_blob_path=status_blob_path,

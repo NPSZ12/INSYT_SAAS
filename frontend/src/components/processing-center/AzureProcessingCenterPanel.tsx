@@ -150,6 +150,7 @@ export default function AzureProcessingCenterPanel({
   const [trackedJob, setTrackedJob] = useState<any>(null);
   const [pollingJob, setPollingJob] = useState(false);
   const [cancellingJob, setCancellingJob] = useState(false);
+  const [hardCancellingJob, setHardCancellingJob] = useState(false);
   const [enableLiveOcr, setEnableLiveOcr] = useState(false);
   const [processingSetSize, setProcessingSetSize] = useState(500);
 
@@ -385,6 +386,8 @@ export default function AzureProcessingCenterPanel({
     "completed_with_exceptions",
     "failed",
     "cancelled",
+    "purged",
+    "purged_with_errors",
     "no_uploads",
   ].includes(processingStatus);
 
@@ -392,6 +395,7 @@ export default function AzureProcessingCenterPanel({
     processingIsTerminal
       ? activeJobStatus?.completed_at ||
         activeJobStatus?.failed_at ||
+        activeJobStatus?.purged_at ||
         activeJobStatus?.cancelled_at ||
         processingUpdatedAt
       : "";
@@ -626,6 +630,16 @@ export default function AzureProcessingCenterPanel({
     );
   }
 
+  function buildTrackedHardCancelUrl(jobId: string) {
+    return (
+      `/api/${workspace}/processing-center/tracked-jobs/${encodeURIComponent(
+        jobId
+      )}/hard-cancel` +
+      `?client=${encodeURIComponent(clientId)}` +
+      `&project=${encodeURIComponent(projectId)}`
+    );
+  }
+
   function clearSelectedUploads() {
     setSelectedUploadNames([]);
   }
@@ -782,6 +796,8 @@ export default function AzureProcessingCenterPanel({
               "completed_with_exceptions",
               "failed",
               "cancelled",
+              "purged",
+              "purged_with_errors",
               "no_uploads",
             ].includes(normalizedStatus)
           ) {
@@ -839,6 +855,8 @@ export default function AzureProcessingCenterPanel({
             "completed_with_exceptions",
             "failed",
             "cancelled",
+            "purged",
+            "purged_with_errors",
             "no_uploads",
           ].includes(normalizedStatus)
         ) {
@@ -931,6 +949,83 @@ export default function AzureProcessingCenterPanel({
       );
     } finally {
       setCancellingJob(false);
+    }
+  }
+
+  async function hardCancelProcessing() {
+    const jobId =
+      trackedJob?.job_id ||
+      activeJobStatus?.job_id ||
+      job?.job_id ||
+      "";
+
+    if (!jobId) {
+      setError(
+        "No active APC job is available to purge."
+      );
+      return;
+    }
+
+    if (!isInsytAdmin()) {
+      setError(
+        "Only INSYT Admin users can forcibly cancel and purge processing."
+      );
+      return;
+    }
+
+    const confirmation = window.prompt(
+      "CANCEL NOW & DELETE JOB DATA\n\n" +
+        "This permanently invalidates the APC job and deletes " +
+        "job-created processing, staging, OCR/detection staging, " +
+        "and Detection-job artifacts.\n\n" +
+        "Original source uploads are preserved.\n\n" +
+        'Type "DELETE JOB" to continue.'
+    );
+
+    if (confirmation !== "DELETE JOB") {
+      return;
+    }
+
+    setHardCancellingJob(true);
+    setError("");
+
+    try {
+      const result = await postJsonToApi<any>(
+        buildTrackedHardCancelUrl(jobId),
+        {},
+        "Cancel Now & Delete Job Data request timed out.",
+        60000
+      );
+
+      const status =
+        result?.job_status ||
+        {
+          ...(trackedJob || activeJobStatus || job || {}),
+          status: "purged",
+          stage: "purged",
+          current_stage: "purged",
+          current_step:
+            "Processing forcibly cancelled and job data purged.",
+          hard_cancel: true,
+          cancel_requested: true,
+          purged_at: new Date().toISOString(),
+        };
+
+      setTrackedJob(status);
+      setJob(status);
+
+      await refreshUploads();
+      await refreshJobHistory();
+
+    } catch (err: any) {
+      setError(
+        cleanError(
+          err?.message ||
+            "Unable to forcibly cancel and purge the APC job."
+        )
+      );
+    } finally {
+      setHardCancellingJob(false);
     }
   }
 
@@ -1233,20 +1328,37 @@ export default function AzureProcessingCenterPanel({
 
             <div className="flex items-center gap-3">
               {processingCanBeCancelled ? (
-                <button
-                  type="button"
-                  onClick={cancelProcessing}
-                  disabled={
-                    cancellingJob ||
+                <>
+                  <button
+                    type="button"
+                    onClick={cancelProcessing}
+                    disabled={
+                      cancellingJob ||
+                      hardCancellingJob ||
+                      processingStatus === "cancel_requested"
+                    }
+                    className="inline-flex min-h-9 items-center justify-center rounded-xl border border-red-600 bg-red-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {cancellingJob ||
                     processingStatus === "cancel_requested"
-                  }
-                  className="inline-flex min-h-9 items-center justify-center rounded-xl border border-red-600 bg-red-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {cancellingJob ||
-                  processingStatus === "cancel_requested"
-                    ? "Canceling..."
-                    : "Cancel Processing"}
-                </button>
+                      ? "Cancellation Requested"
+                      : "Cancel Processing"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={hardCancelProcessing}
+                    disabled={
+                      hardCancellingJob ||
+                      cancellingJob
+                    }
+                    className="inline-flex min-h-9 items-center justify-center rounded-xl border border-red-800 bg-red-950 px-4 text-xs font-semibold text-red-100 transition-colors hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {hardCancellingJob
+                      ? "Purging..."
+                      : "Cancel Now & Delete Job Data"}
+                  </button>
+                </>
               ) : null}
 
               <div className="text-xs font-semibold insyt-text-secondary">

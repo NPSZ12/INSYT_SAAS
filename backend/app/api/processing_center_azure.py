@@ -319,6 +319,66 @@ def _job_cancel_path(
 ) -> str:
     return f"{_job_base_path(workspace=workspace, client=client, project=project, job_id=job_id)}/cancel_request.json"
 
+def _job_hard_cancel_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+) -> str:
+    project_base = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    return (
+        f"{project_base}/processing_center/"
+        f"hard_cancelled_jobs/{job_id}.json"
+    )
+
+
+def _delete_blob_prefix(
+    *,
+    container_client,
+    prefix: str,
+) -> dict[str, Any]:
+    deleted: list[str] = []
+    errors: list[dict[str, str]] = []
+
+    for blob in list(
+        container_client.list_blobs(
+            name_starts_with=prefix
+        )
+    ):
+        blob_name = str(blob.name or "")
+
+        if not blob_name or blob_name.endswith("/"):
+            continue
+
+        try:
+            container_client.get_blob_client(
+                blob_name
+            ).delete_blob(
+                delete_snapshots="include"
+            )
+
+            deleted.append(blob_name)
+
+        except Exception as exc:
+            errors.append(
+                {
+                    "blob_path": blob_name,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    return {
+        "prefix": prefix,
+        "deleted_count": len(deleted),
+        "deleted": deleted,
+        "errors": errors,
+    }
 
 def _processing_container_client():
     blob_service = _processing_blob_service()
@@ -1425,6 +1485,298 @@ def cancel_tracked_azure_processing_job(
         "status": "cancel_requested",
         "cancel_upload": cancel_upload,
         "job_status": status_payload,
+    }
+
+@router.post(
+    "/{workspace}/processing-center/tracked-jobs/{job_id}/hard-cancel"
+)
+def hard_cancel_tracked_azure_processing_job(
+    workspace: Literal["capture", "discovery", "summaries"],
+    job_id: str,
+    client: str = Query(...),
+    project: str = Query(...),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    now = _utc_now()
+
+    requested_by = (
+        getattr(admin, "username", None)
+        or getattr(admin, "email", None)
+        or "INSYT Admin"
+    )
+
+    project_base = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    status_blob_path = _job_status_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+        job_id=job_id,
+    )
+
+    hard_cancel_blob_path = _job_hard_cancel_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+        job_id=job_id,
+    )
+
+    #
+    # Preserve only audit/status metadata before deleting the
+    # job's processing artifacts.
+    #
+    try:
+        existing_status = _read_processing_json_blob(
+            status_blob_path
+        )
+    except Exception:
+        existing_status = {}
+
+    existing_events = list(
+        existing_status.get("events") or []
+    )
+
+    purge_event = {
+        "at": now,
+        "status": "purged",
+        "stage": "purged",
+        "progress_pct": 100,
+        "message": (
+            "Job forcibly cancelled and job-created "
+            "processing data purged."
+        ),
+    }
+
+    #
+    # IMPORTANT:
+    # Write the permanent tombstone FIRST.
+    # It lives outside processing_center/jobs/{job_id},
+    # so deleting the job folder cannot remove it.
+    #
+    hard_cancel_payload = {
+        "job_id": job_id,
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "status": "purged",
+        "hard_cancel": True,
+        "allow_processing": False,
+        "allow_writes": False,
+        "allow_promotion": False,
+        "requested_by": requested_by,
+        "requested_at": now,
+        "purged_at": now,
+        "message": (
+            "Processing forcibly cancelled. "
+            "This job may not resume or be retried."
+        ),
+    }
+
+    hard_cancel_upload = _write_processing_json_blob(
+        blob_path=hard_cancel_blob_path,
+        payload=hard_cancel_payload,
+        overwrite=True,
+    )
+
+    processing_container = _processing_container_client()
+
+    job_prefix = (
+        f"{project_base}/processing_center/"
+        f"jobs/{job_id}/"
+    )
+
+    processing_staged_prefix = (
+        f"{project_base}/processing_center/"
+        f"staged/{job_id}/"
+    )
+
+    #
+    # Find Detection jobs belonging specifically to this
+    # source APC job before deleting them.
+    #
+    detection_root = (
+        f"{project_base}/processing_center/"
+        "detection/jobs/"
+    )
+
+    detection_prefixes: set[str] = set()
+    detection_scan_errors: list[dict[str, str]] = []
+
+    for blob in list(
+        processing_container.list_blobs(
+            name_starts_with=detection_root
+        )
+    ):
+        blob_name = str(blob.name or "")
+
+        if not blob_name.endswith("/request.json"):
+            continue
+
+        try:
+            raw = (
+                processing_container
+                .get_blob_client(blob_name)
+                .download_blob()
+                .readall()
+            )
+
+            request_payload = json.loads(
+                raw.decode("utf-8")
+            )
+
+            if str(
+                request_payload.get("source_job_id") or ""
+            ) != str(job_id):
+                continue
+
+            detection_prefixes.add(
+                blob_name.rsplit(
+                    "/request.json",
+                    1,
+                )[0] + "/"
+            )
+
+        except Exception as exc:
+            detection_scan_errors.append(
+                {
+                    "blob_path": blob_name,
+                    "error": (
+                        f"{type(exc).__name__}: {exc}"
+                    ),
+                }
+            )
+
+    #
+    # Purge processing-storage data.
+    #
+    processing_job_purge = _delete_blob_prefix(
+        container_client=processing_container,
+        prefix=job_prefix,
+    )
+
+    processing_staged_purge = _delete_blob_prefix(
+        container_client=processing_container,
+        prefix=processing_staged_prefix,
+    )
+
+    detection_purges = []
+
+    for detection_prefix in sorted(
+        detection_prefixes
+    ):
+        detection_purges.append(
+            _delete_blob_prefix(
+                container_client=processing_container,
+                prefix=detection_prefix,
+            )
+        )
+
+    #
+    # Purge review-storage staging created by this job.
+    # This includes the structured XL staging underneath
+    # staged/{job_id}/xl/... as well.
+    #
+    review_blob_service = (
+        _get_review_blob_service_client()
+    )
+
+    review_container = (
+        review_blob_service
+        .get_container_client(
+            _review_container(workspace)
+        )
+    )
+
+    review_staged_prefix = (
+        f"{project_base}/processing_center/"
+        f"staged/{job_id}/"
+    )
+
+    review_staged_purge = _delete_blob_prefix(
+        container_client=review_container,
+        prefix=review_staged_prefix,
+    )
+
+    all_errors: list[dict[str, Any]] = [
+        *processing_job_purge.get("errors", []),
+        *processing_staged_purge.get("errors", []),
+        *review_staged_purge.get("errors", []),
+        *detection_scan_errors,
+    ]
+
+    for detection_purge in detection_purges:
+        all_errors.extend(
+            detection_purge.get("errors", [])
+        )
+
+    purge_status = (
+        "purged"
+        if not all_errors
+        else "purged_with_errors"
+    )
+
+    #
+    # Recreate ONLY the minimal audit/status record.
+    # All former job data underneath the folder has already
+    # been removed.
+    #
+    final_status = {
+        "job_id": job_id,
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "status": purge_status,
+        "stage": "purged",
+        "current_stage": "purged",
+        "current_step": (
+            "Processing forcibly cancelled. "
+            "Job-created processing data was purged."
+        ),
+        "progress_pct": 100,
+        "hard_cancel": True,
+        "cancel_requested": True,
+        "cancelled_at": now,
+        "purged_at": now,
+        "updated_at": now,
+        "last_updated_at": now,
+        "cancelled_by": requested_by,
+        "message": (
+            "Job permanently invalidated and purged."
+            if not all_errors
+            else
+            "Job permanently invalidated. "
+            "Some purge operations reported errors."
+        ),
+        "events": [
+            *existing_events,
+            purge_event,
+        ],
+        "purge_errors": all_errors,
+    }
+
+    status_upload = _write_processing_json_blob(
+        blob_path=status_blob_path,
+        payload=final_status,
+        overwrite=True,
+    )
+
+    return {
+        "status": purge_status,
+        "hard_cancel": True,
+        "hard_cancel_upload": hard_cancel_upload,
+        "status_upload": status_upload,
+        "job_status": final_status,
+        "purge": {
+            "processing_job": processing_job_purge,
+            "processing_staged": processing_staged_purge,
+            "review_staged": review_staged_purge,
+            "detection_jobs": detection_purges,
+            "errors": all_errors,
+        },
     }
 
 @router.post("/{workspace}/processing-center/tracked-jobs/{job_id}/mark-cancelled")
