@@ -17,6 +17,8 @@
   "extensions": {
     "queues": {
       "messageEncoding": "none",
+      "batchSize": 1,
+      "newBatchThreshold": 0,
       "maxDequeueCount": 3,
       "visibilityTimeout": "00:10:00"
     }

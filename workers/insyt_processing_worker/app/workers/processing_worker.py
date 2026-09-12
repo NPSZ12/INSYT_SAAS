@@ -2,9 +2,12 @@
 
 import json
 import os
+import threading
+
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
 
 try:
     from dotenv import load_dotenv
@@ -14,7 +17,16 @@ except Exception:
     pass
 
 from azure.identity import DefaultAzureCredential
-from azure.storage.blob import BlobServiceClient, ContentSettings
+
+from azure.storage.blob import (
+    BlobServiceClient,
+    ContentSettings,
+    BlobLeaseClient,
+)
+from azure.core.exceptions import (
+    ResourceExistsError,
+    HttpResponseError,
+)
 
 from apc.azure_blob_adapter import (
     azure_upload_report_files,
@@ -207,6 +219,7 @@ def _hard_cancelled(
 
     except Exception:
         return False
+    
 
 def _cancel_requested(cancel_blob_path: str | None) -> bool:
     if not cancel_blob_path:
@@ -254,6 +267,83 @@ def _status_event(
             event["current_step"] = current_step
 
     return event
+
+def _job_lease_blob_path(
+    *,
+    client: str,
+    workspace: str,
+    project: str,
+    job_id: str,
+) -> str:
+    return (
+        f"{client}/{workspace}/{project}/"
+        f"processing_center/job_leases/{job_id}.lock"
+    )
+
+
+def _acquire_job_lease(
+    *,
+    client: str,
+    workspace: str,
+    project: str,
+    job_id: str,
+) -> tuple[BlobLeaseClient | None, str]:
+    blob_path = _job_lease_blob_path(
+        client=client,
+        workspace=workspace,
+        project=project,
+        job_id=job_id,
+    )
+
+    blob_client = (
+        _container_client()
+        .get_blob_client(blob_path)
+    )
+
+    try:
+        blob_client.upload_blob(
+            b"",
+            overwrite=False,
+            content_settings=ContentSettings(
+                content_type="application/octet-stream"
+            ),
+        )
+    except ResourceExistsError:
+        pass
+
+    try:
+        lease = blob_client.acquire_lease(
+            lease_duration=60,
+        )
+    except HttpResponseError as exc:
+        if getattr(exc, "status_code", None) == 409:
+            return None, blob_path
+        raise
+
+    return lease, blob_path
+
+
+def _renew_job_lease(
+    lease: BlobLeaseClient,
+) -> bool:
+    try:
+        lease.renew()
+        return True
+    except Exception:
+        return False
+
+
+def _release_job_lease(
+    lease: BlobLeaseClient | None,
+) -> None:
+    if lease is None:
+        return
+
+    try:
+        lease.release()
+    except Exception:
+        pass
+
 
 def _update_status(
     *,
@@ -748,35 +838,79 @@ def process_job_message(message_content: str):
         )
         return
 
-    request_blob_path = payload.get(
-        "request_blob_path",
-        f"{client}/{workspace}/{project}/processing_center/jobs/{job_id}/request.json",
+
+    job_lease, lease_blob_path = (
+        _acquire_job_lease(
+            client=str(client),
+            workspace=str(workspace),
+            project=str(project),
+            job_id=str(job_id),
+        )
     )
 
-    status_blob_path = payload.get(
-        "status_blob_path",
-        f"{client}/{workspace}/{project}/processing_center/jobs/{job_id}/status.json",
+    if job_lease is None:
+        print(
+            "Ignoring duplicate APC delivery for active job "
+            f"{job_id}."
+        )
+        return
+    
+    lease_stop = threading.Event()
+
+
+    def lease_heartbeat() -> None:
+        while not lease_stop.wait(20):
+            renewed = _renew_job_lease(
+                job_lease
+            )
+
+            if not renewed:
+                print(
+                    "APC job lease renewal failed for "
+                    f"{job_id}."
+                )
+                return
+
+
+    lease_thread = threading.Thread(
+        target=lease_heartbeat,
+        daemon=True,
     )
-    cancel_blob_path = payload.get("cancel_blob_path")
-    request_blob_path = payload.get("request_blob_path")
 
-    routing = _routing_from_payload(payload)
-
-    import apc.azure_layout as azure_layout_module
-
-    routing_debug = {
-        "azure_layout_file": getattr(azure_layout_module, "__file__", ""),
-        "routing_prefix": routing.prefix,
-        "routing_processing_uploads": routing.processing_paths().get("uploads", ""),
-        "routing_processing_jobs": routing.processing_paths().get("jobs", ""),
-        "routing_review_native": routing.review_paths().get("native", ""),
-        "routing_review_text": routing.review_paths().get("text", ""),
-        "routing_review_reports": routing.review_paths().get("reports", ""),
-    }
-
-    db = LedgerDB(_db_path(job_id))
-
+    lease_thread.start()
+    
+    db = None
+    
     try:
+
+        request_blob_path = payload.get(
+            "request_blob_path",
+            f"{client}/{workspace}/{project}/processing_center/jobs/{job_id}/request.json",
+        )
+
+        status_blob_path = payload.get(
+            "status_blob_path",
+            f"{client}/{workspace}/{project}/processing_center/jobs/{job_id}/status.json",
+        )
+        cancel_blob_path = payload.get("cancel_blob_path")
+
+        routing = _routing_from_payload(payload)
+
+        import apc.azure_layout as azure_layout_module
+
+        routing_debug = {
+            "azure_layout_file": getattr(azure_layout_module, "__file__", ""),
+            "routing_prefix": routing.prefix,
+            "routing_processing_uploads": routing.processing_paths().get("uploads", ""),
+            "routing_processing_jobs": routing.processing_paths().get("jobs", ""),
+            "routing_review_native": routing.review_paths().get("native", ""),
+            "routing_review_text": routing.review_paths().get("text", ""),
+            "routing_review_reports": routing.review_paths().get("reports", ""),
+        }
+    
+        db = LedgerDB(
+            _db_path(job_id)
+        )
         _update_status(
             status_blob_path=status_blob_path,
             status="running",
@@ -1344,6 +1478,7 @@ def process_job_message(message_content: str):
         }
 
         _write_json_blob(status_blob_path, final_status)
+        
 
     except RuntimeError as exc:
         message = str(exc)
@@ -1383,7 +1518,25 @@ def process_job_message(message_content: str):
         raise
 
     finally:
-        db.close()
+        lease_stop.set()
+
+        try:
+            lease_thread.join(timeout=5)
+        except Exception:
+            pass
+
+        try:
+            _release_job_lease(
+                job_lease
+            )
+        except Exception as exc:
+            print(
+                "Failed to release APC job lease: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+        if db is not None:
+            db.close()
 
 
 def run_once():
