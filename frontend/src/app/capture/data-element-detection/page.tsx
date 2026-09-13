@@ -1084,6 +1084,50 @@ function DataElementDetectionPageContent() {
   const completedDetection =
     documentsScanned + documentsException;
 
+  const hasCurrentDetectionRun = Boolean(
+    detectionJobId ||
+      detectionStatus?.detection_job_id ||
+      detectionSummary
+  );
+
+  const projectCounts =
+    projectImpact?.counts || {};
+
+  const dashboardDocumentsScanned =
+    hasCurrentDetectionRun
+      ? documentsScanned
+      : Number(
+          projectCounts.documents_completed || 0
+        );
+
+  const dashboardDocumentsWithHits =
+    hasCurrentDetectionRun
+      ? documentsWithHits
+      : Number(
+          projectCounts.documents_with_hits || 0
+        );
+
+  const dashboardDocumentsNoHits =
+    hasCurrentDetectionRun
+      ? documentsNoHits
+      : Number(
+          projectCounts.documents_no_hits || 0
+        );
+
+  const dashboardDocumentsNfr =
+    hasCurrentDetectionRun
+      ? documentsNfr
+      : Number(
+          projectCounts.documents_nfr || 0
+        );
+
+  const dashboardDocumentsException =
+    hasCurrentDetectionRun
+      ? documentsException
+      : Number(
+          projectCounts.documents_exception || 0
+        );
+
   const entityTypeCounts =
     detectionSummary?.entity_type_counts ||
     detectionStatus?.entity_type_counts ||
@@ -1209,27 +1253,37 @@ function DataElementDetectionPageContent() {
 
           <MetricCard
             label="Documents Scanned"
-            value={String(documentsScanned)}
+            value={String(
+              dashboardDocumentsScanned
+            )}
           />
 
           <MetricCard
             label="Documents With Hits"
-            value={String(documentsWithHits)}
+            value={String(
+              dashboardDocumentsWithHits
+            )}
           />
 
           <MetricCard
             label="No Hits"
-            value={String(documentsNoHits)}
+            value={String(
+              dashboardDocumentsNoHits
+            )}
           />
 
           <MetricCard
             label="NFR"
-            value={String(documentsNfr)}
+            value={String(
+              dashboardDocumentsNfr
+            )}
           />
 
           <MetricCard
             label="Exceptions"
-            value={String(documentsException)}
+            value={String(
+              dashboardDocumentsException
+            )}
           />
         </div>
 
