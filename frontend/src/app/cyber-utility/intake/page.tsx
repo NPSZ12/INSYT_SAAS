@@ -170,6 +170,13 @@ function Cyber2IntakeContent() {
   >({});
 
   const [
+    jsonSlackSelectedDocIds,
+    setJsonSlackSelectedDocIds,
+  ] = useState<
+    Record<string, boolean>
+  >({});
+
+  const [
     classificationFilter,
     setClassificationFilter,
   ] = useState<"all" | "hit" | "no_hit">("all");
@@ -407,6 +414,46 @@ function Cyber2IntakeContent() {
       (doc) =>
         jsonProfile(doc) ===
         "slack"
+    );
+
+  const jsonSlackAvailableDocuments =
+    jsonSlackDocuments.filter(
+      (doc) =>
+        !String(
+          doc.header_set_id ||
+          ""
+        ).trim()
+    );
+
+
+  const jsonSlackDatasets =
+    jsonSlackAvailableDocuments.map(
+      (doc) => ({
+        docId:
+          doc.doc_id,
+
+        label:
+          String(
+            doc.original_json_filename ||
+            doc.normalized_source_filename ||
+            doc.original_filename ||
+            doc.doc_id
+          ).trim(),
+
+        recordCount:
+          Math.max(
+            0,
+            Number(
+              doc.json_record_count ||
+              0
+            )
+          ),
+
+        secondaryLabel:
+          doc.json_package_id
+            ? `Package: ${doc.json_package_id}`
+            : undefined,
+      })
     );
 
 
@@ -967,6 +1014,47 @@ function Cyber2IntakeContent() {
     );
   }
 
+  function toggleJsonSlackDocument(
+    docId: string,
+    selected: boolean
+  ) {
+    setJsonSlackSelectedDocIds(
+      (current) => ({
+        ...current,
+        [docId]: selected,
+      })
+    );
+  }
+
+
+  function selectAllJsonSlack() {
+    setJsonSlackSelectedDocIds(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        for (
+          const doc
+          of jsonSlackAvailableDocuments
+        ) {
+          next[
+            doc.doc_id
+          ] = true;
+        }
+
+        return next;
+      }
+    );
+  }
+
+
+  function clearJsonSlackSelection() {
+    setJsonSlackSelectedDocIds(
+      {}
+    );
+  }
+
   async function createHeaderSetFromDocuments(
     selectedDocuments:
       Cyber2IntakeDocument[],
@@ -1091,6 +1179,30 @@ function Cyber2IntakeContent() {
 
 
     setJsonPlainSelectedDocIds(
+      {}
+    );
+  }
+
+  async function createJsonSlackHeaderSet() {
+
+    const selectedDocuments =
+      jsonSlackAvailableDocuments.filter(
+        (doc) =>
+          Boolean(
+            jsonSlackSelectedDocIds[
+              doc.doc_id
+            ]
+          )
+      );
+
+
+    await createHeaderSetFromDocuments(
+      selectedDocuments,
+      "Select at least one Slack-derived CSV."
+    );
+
+
+    setJsonSlackSelectedDocIds(
       {}
     );
   }
@@ -1226,6 +1338,25 @@ function Cyber2IntakeContent() {
   ) {
     const doc =
       jsonPlainDocuments.find(
+        (item) =>
+          item.doc_id ===
+          docId
+      );
+
+    if (!doc) {
+      return;
+    }
+
+    openDocument(
+      doc
+    );
+  }
+
+  function openJsonSlackDocument(
+    docId: string
+  ) {
+    const doc =
+      jsonSlackDocuments.find(
         (item) =>
           item.doc_id ===
           docId
@@ -1884,36 +2015,37 @@ function Cyber2IntakeContent() {
 
         <div className="mb-6 space-y-4">
 
-          <JsonPlainPane
+          <JsonSlackPane
             recordCount={jsonRecordCount(
-              jsonPlainDocuments
+              jsonSlackDocuments
             )}
             packageCount={jsonPackageCount(
-              jsonPlainDocuments
+              jsonSlackDocuments
             )}
             datasets={
-              jsonPlainDatasets
+              jsonSlackDatasets
             }
+            channels={[]}
             selectedDocIds={
-              jsonPlainSelectedDocIds
+              jsonSlackSelectedDocIds
             }
             creatingHeaderSet={
               creatingHeaderSet
             }
             onToggleDocument={
-              toggleJsonPlainDocument
+              toggleJsonSlackDocument
             }
             onSelectAll={
-              selectAllJsonPlain
+              selectAllJsonSlack
             }
             onClearSelection={
-              clearJsonPlainSelection
+              clearJsonSlackSelection
             }
             onCreateHeaderSet={
-              createJsonPlainHeaderSet
+              createJsonSlackHeaderSet
             }
             onOpenDocument={
-              openJsonPlainDocument
+              openJsonSlackDocument
             }
           />
 
