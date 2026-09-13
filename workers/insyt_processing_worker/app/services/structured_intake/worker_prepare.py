@@ -10,6 +10,12 @@ from .adapters.json_plain import (
     normalize_plain_json_to_csv,
 )
 
+from .adapters.json_slack import (
+    is_slack_export_zip,
+    normalize_slack_json_to_csv,
+    normalize_slack_zip_to_csv,
+)
+
 from .json_router import (
     detect_json_source_profile,
     is_json_structured_source,
@@ -26,7 +32,9 @@ def prepare_json_structured_sources(
     IMPORTANT:
     - Existing CSV files are never inspected or modified here.
     - Existing XL files are never inspected or modified here.
-    - Only .json, .jsonl, and .ndjson are handled.
+    - JSON structured sources and confirmed Slack export ZIPs
+      are handled here.
+    - Ordinary ZIP files are not intercepted.
     - Original JSON files are preserved outside the APC input
       directory.
     - Normalized CSV working artifacts are placed into the APC
@@ -61,19 +69,24 @@ def prepare_json_structured_sources(
     )
 
 
-    json_sources = [
+    structured_sources = [
         path
         for path in staging_dir.iterdir()
         if (
             path.is_file()
-            and is_json_structured_source(
-                path
+            and (
+                is_json_structured_source(
+                    path
+                )
+                or is_slack_export_zip(
+                    path
+                )
             )
         )
     ]
 
 
-    if not json_sources:
+    if not structured_sources:
         return {
             "json_package_count": 0,
             "json_record_count": 0,
@@ -92,18 +105,24 @@ def prepare_json_structured_sources(
 
     for package_index, source_path in enumerate(
         sorted(
-            json_sources,
+            structured_sources,
             key=lambda value:
                 value.name.lower(),
         ),
         start=1,
     ):
 
-        profile = (
-            detect_json_source_profile(
-                source_path
+        if is_slack_export_zip(
+            source_path
+        ):
+            profile = "slack"
+
+        else:
+            profile = (
+                detect_json_source_profile(
+                    source_path
+                )
             )
-        )
 
 
         preserved_source_path = (
@@ -127,18 +146,24 @@ def prepare_json_structured_sources(
         # dedicated adapter scripts. Until those adapters are
         # enabled, do not silently flatten them as Plain JSON.
         #
-        if profile != "plain":
+        if profile not in {
+            "plain",
+            "slack",
+        }:
 
             packages.append(
                 {
                     "package_index":
                         package_index,
-                        
+
                     "package_id":
                         f"JSON-PKG-{package_index:06d}",
 
                     "source_filename":
                         preserved_source_path.name,
+
+                    "source_format":
+                        "json",
 
                     "source_profile":
                         profile,
@@ -154,6 +179,12 @@ def prepare_json_structured_sources(
                     "record_count":
                         0,
 
+                    "package_count":
+                        1,
+
+                    "group_counts":
+                        {},
+
                     "normalized_csv_path":
                         None,
                 }
@@ -162,32 +193,84 @@ def prepare_json_structured_sources(
             continue
 
 
-        normalized_name = (
-            f"{source_path.stem}"
-            f".INSYT_JSON_PLAIN.csv"
+        package_id = (
+            f"JSON-PKG-"
+            f"{package_index:06d}"
         )
 
 
-        normalized_csv_path = (
-            staging_dir
-            / normalized_name
-        )
+        if profile == "slack":
 
-
-        result = (
-            normalize_plain_json_to_csv(
-                source_path=(
-                    preserved_source_path
-                ),
-                output_path=(
-                    normalized_csv_path
-                ),
-                package_id=(
-                    f"JSON-PKG-"
-                    f"{package_index:06d}"
-                ),
+            normalized_name = (
+                f"{source_path.stem}"
+                f".INSYT_JSON_SLACK.csv"
             )
-        )
+
+            normalized_csv_path = (
+                staging_dir
+                / normalized_name
+            )
+
+            if (
+                preserved_source_path
+                .suffix
+                .lower()
+                == ".zip"
+            ):
+                result = (
+                    normalize_slack_zip_to_csv(
+                        source_path=(
+                            preserved_source_path
+                        ),
+                        output_path=(
+                            normalized_csv_path
+                        ),
+                        package_id=(
+                            package_id
+                        ),
+                    )
+                )
+
+            else:
+                result = (
+                    normalize_slack_json_to_csv(
+                        source_path=(
+                            preserved_source_path
+                        ),
+                        output_path=(
+                            normalized_csv_path
+                        ),
+                        package_id=(
+                            package_id
+                        ),
+                    )
+                )
+
+        else:
+
+            normalized_name = (
+                f"{source_path.stem}"
+                f".INSYT_JSON_PLAIN.csv"
+            )
+
+            normalized_csv_path = (
+                staging_dir
+                / normalized_name
+            )
+
+            result = (
+                normalize_plain_json_to_csv(
+                    source_path=(
+                        preserved_source_path
+                    ),
+                    output_path=(
+                        normalized_csv_path
+                    ),
+                    package_id=(
+                        package_id
+                    ),
+                )
+            )
 
 
         record_count = int(
@@ -205,6 +288,21 @@ def prepare_json_structured_sources(
             {
                 "package_index":
                     package_index,
+                
+                "package_id":
+                    package_id,
+
+                "group_counts":
+                    result.group_counts,
+
+                "adapter":
+                    (
+                        result.package
+                        .metadata
+                        .get(
+                            "adapter"
+                        )
+                    ),
 
                 "source_filename":
                     preserved_source_path.name,
@@ -248,7 +346,7 @@ def prepare_json_structured_sources(
 
         "json_package_count":
             len(
-                json_sources
+                structured_sources
             ),
 
         "json_record_count":
