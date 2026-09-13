@@ -8872,6 +8872,106 @@ def get_processing_center_promotion_population(
                     source_type
                 ),
 
+                #
+                # Structured-source provenance.
+                #
+                # Preserve JSON origin metadata from
+                # staged APC results into Promotion
+                # Center rows so Cyber² Intake can
+                # distinguish JSON-normalized CSVs
+                # from ordinary CSV files.
+                #
+                "source_family": (
+                    document.get(
+                        "source_family"
+                    )
+                    or staged_doc.get(
+                        "source_family"
+                    )
+                ),
+
+                "source_format": (
+                    document.get(
+                        "source_format"
+                    )
+                    or staged_doc.get(
+                        "source_format"
+                    )
+                ),
+
+                "source_profile": (
+                    document.get(
+                        "source_profile"
+                    )
+                    or staged_doc.get(
+                        "source_profile"
+                    )
+                ),
+
+                "structured_source": (
+                    document.get(
+                        "structured_source"
+                    )
+                    or staged_doc.get(
+                        "structured_source"
+                    )
+                    or {}
+                ),
+
+                "original_json_filename": (
+                    document.get(
+                        "original_json_filename"
+                    )
+                    or staged_doc.get(
+                        "original_json_filename"
+                    )
+                ),
+
+                "json_package_id": (
+                    document.get(
+                        "json_package_id"
+                    )
+                    or staged_doc.get(
+                        "json_package_id"
+                    )
+                ),
+
+                "json_package_count": (
+                    document.get(
+                        "json_package_count"
+                    )
+                    or staged_doc.get(
+                        "json_package_count"
+                    )
+                ),
+
+                "json_record_count": (
+                    document.get(
+                        "json_record_count"
+                    )
+                    or staged_doc.get(
+                        "json_record_count"
+                    )
+                ),
+
+                "normalized_source_format": (
+                    document.get(
+                        "normalized_source_format"
+                    )
+                    or staged_doc.get(
+                        "normalized_source_format"
+                    )
+                ),
+
+                "normalized_source_filename": (
+                    document.get(
+                        "normalized_source_filename"
+                    )
+                    or staged_doc.get(
+                        "normalized_source_filename"
+                    )
+                ),
+
                 "is_workbook_sheet": (
                     is_workbook_sheet
                 ),
