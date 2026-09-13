@@ -2015,6 +2015,40 @@ function Cyber2IntakeContent() {
 
         <div className="mb-6 space-y-4">
 
+          <JsonPlainPane
+            recordCount={jsonRecordCount(
+              jsonPlainDocuments
+            )}
+            packageCount={jsonPackageCount(
+              jsonPlainDocuments
+            )}
+            datasets={
+              jsonPlainDatasets
+            }
+            selectedDocIds={
+              jsonPlainSelectedDocIds
+            }
+            creatingHeaderSet={
+              creatingHeaderSet
+            }
+            onToggleDocument={
+              toggleJsonPlainDocument
+            }
+            onSelectAll={
+              selectAllJsonPlain
+            }
+            onClearSelection={
+              clearJsonPlainSelection
+            }
+            onCreateHeaderSet={
+              createJsonPlainHeaderSet
+            }
+            onOpenDocument={
+              openJsonPlainDocument
+            }
+          />
+
+
           <JsonSlackPane
             recordCount={jsonRecordCount(
               jsonSlackDocuments
@@ -2047,16 +2081,6 @@ function Cyber2IntakeContent() {
             onOpenDocument={
               openJsonSlackDocument
             }
-          />
-
-
-          <JsonSlackPane
-            recordCount={jsonRecordCount(
-              jsonSlackDocuments
-            )}
-            packageCount={jsonPackageCount(
-              jsonSlackDocuments
-            )}
           />
 
 
