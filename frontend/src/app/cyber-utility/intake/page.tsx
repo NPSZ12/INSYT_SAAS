@@ -163,6 +163,13 @@ function Cyber2IntakeContent() {
   ] = useState<Record<string, boolean>>({});
 
   const [
+    jsonPlainSelectedDocIds,
+    setJsonPlainSelectedDocIds,
+  ] = useState<
+    Record<string, boolean>
+  >({});
+
+  const [
     classificationFilter,
     setClassificationFilter,
   ] = useState<"all" | "hit" | "no_hit">("all");
@@ -352,6 +359,46 @@ function Cyber2IntakeContent() {
       (doc) =>
         jsonProfile(doc) ===
         "plain"
+    );
+
+  const jsonPlainAvailableDocuments =
+    jsonPlainDocuments.filter(
+      (doc) =>
+        !String(
+          doc.header_set_id ||
+          ""
+        ).trim()
+    );
+
+
+  const jsonPlainDatasets =
+    jsonPlainAvailableDocuments.map(
+      (doc) => ({
+        docId:
+          doc.doc_id,
+
+        label:
+          String(
+            doc.original_json_filename ||
+            doc.normalized_source_filename ||
+            doc.original_filename ||
+            doc.doc_id
+          ).trim(),
+
+        recordCount:
+          Math.max(
+            0,
+            Number(
+              doc.json_record_count ||
+              0
+            )
+          ),
+
+        secondaryLabel:
+          doc.json_package_id
+            ? `Package: ${doc.json_package_id}`
+            : undefined,
+      })
     );
 
 
@@ -879,32 +926,77 @@ function Cyber2IntakeContent() {
     setSelectedDocIds({});
   }
 
-  async function createHeaderSet() {
-    const selectedDocuments =
-      availableDocuments.filter(
-        (doc) =>
-          Boolean(
-            selectedDocIds[
-              doc.doc_id
-            ]
-          )
-      );
+  function toggleJsonPlainDocument(
+    docId: string,
+    selected: boolean
+  ) {
+    setJsonPlainSelectedDocIds(
+      (current) => ({
+        ...current,
+        [docId]: selected,
+      })
+    );
+  }
+
+
+  function selectAllJsonPlain() {
+    setJsonPlainSelectedDocIds(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        for (
+          const doc
+          of jsonPlainAvailableDocuments
+        ) {
+          next[
+            doc.doc_id
+          ] = true;
+        }
+
+        return next;
+      }
+    );
+  }
+
+
+  function clearJsonPlainSelection() {
+    setJsonPlainSelectedDocIds(
+      {}
+    );
+  }
+
+  async function createHeaderSetFromDocuments(
+    selectedDocuments:
+      Cyber2IntakeDocument[],
+    emptyMessage: string
+  ) {
 
     if (
       selectedDocuments.length === 0
     ) {
       setHeaderSetMessage(
-        "Select at least one CSV."
+        emptyMessage
       );
 
       return;
     }
 
-    setCreatingHeaderSet(true);
-    setHeaderSetMessage("");
-    setError("");
+    setCreatingHeaderSet(
+      true
+    );
+
+    setHeaderSetMessage(
+      ""
+    );
+
+    setError(
+      ""
+    );
 
     try {
+
       const result =
         await apiPost(
           `/api/${encodeURIComponent(
@@ -924,16 +1016,17 @@ function Cyber2IntakeContent() {
           }
         );
 
+
       setHeaderSetMessage(
         result?.message ||
-          "Header Set created."
+        "Header Set created."
       );
 
-      setSelectedDocIds({});
 
       await loadIntake();
 
     } catch (err: any) {
+
       console.error(
         "Failed to create Header Set:",
         err
@@ -941,14 +1034,65 @@ function Cyber2IntakeContent() {
 
       setError(
         err?.message ||
-          "Unable to create Header Set."
+        "Unable to create Header Set."
       );
 
     } finally {
+
       setCreatingHeaderSet(
         false
       );
+
     }
+  }
+
+  async function createHeaderSet() {
+
+    const selectedDocuments =
+      availableDocuments.filter(
+        (doc) =>
+          Boolean(
+            selectedDocIds[
+              doc.doc_id
+            ]
+          )
+      );
+
+
+    await createHeaderSetFromDocuments(
+      selectedDocuments,
+      "Select at least one CSV."
+    );
+
+
+    setSelectedDocIds(
+      {}
+    );
+  }
+
+
+  async function createJsonPlainHeaderSet() {
+
+    const selectedDocuments =
+      jsonPlainAvailableDocuments.filter(
+        (doc) =>
+          Boolean(
+            jsonPlainSelectedDocIds[
+              doc.doc_id
+            ]
+          )
+      );
+
+
+    await createHeaderSetFromDocuments(
+      selectedDocuments,
+      "Select at least one JSON-derived CSV."
+    );
+
+
+    setJsonPlainSelectedDocIds(
+      {}
+    );
   }
 
   const cyber2LandingParams =
@@ -1074,6 +1218,25 @@ function Cyber2IntakeContent() {
 
     router.push(
       `/capture/review/doc?${params.toString()}`
+    );
+  }
+
+  function openJsonPlainDocument(
+    docId: string
+  ) {
+    const doc =
+      jsonPlainDocuments.find(
+        (item) =>
+          item.doc_id ===
+          docId
+      );
+
+    if (!doc) {
+      return;
+    }
+
+    openDocument(
+      doc
     );
   }
 
@@ -1728,9 +1891,30 @@ function Cyber2IntakeContent() {
             packageCount={jsonPackageCount(
               jsonPlainDocuments
             )}
-            groups={jsonPackageGroups(
-              jsonPlainDocuments
-            )}
+            datasets={
+              jsonPlainDatasets
+            }
+            selectedDocIds={
+              jsonPlainSelectedDocIds
+            }
+            creatingHeaderSet={
+              creatingHeaderSet
+            }
+            onToggleDocument={
+              toggleJsonPlainDocument
+            }
+            onSelectAll={
+              selectAllJsonPlain
+            }
+            onClearSelection={
+              clearJsonPlainSelection
+            }
+            onCreateHeaderSet={
+              createJsonPlainHeaderSet
+            }
+            onOpenDocument={
+              openJsonPlainDocument
+            }
           />
 
 
