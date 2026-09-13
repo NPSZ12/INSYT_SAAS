@@ -1167,6 +1167,49 @@ def recommend_protocol_header(
     ],
 ) -> dict[str, Any]:
 
+    clean_source_header = str(
+        source_header
+        or ""
+    ).strip()
+
+    #
+    # INSYT-owned fields are structural / lineage metadata.
+    # They are never candidates for Project Protocol mapping.
+    #
+    if (
+        clean_source_header
+        .upper()
+        .startswith(
+            "INSYT_"
+        )
+    ):
+        return {
+            "source_header": (
+                clean_source_header
+            ),
+            "recommended_protocol_header": "",
+            "mapping_confidence": 1.0,
+            "matched": False,
+            "match_method": (
+                "insyt_system_field"
+            ),
+            "semantic_type": (
+                "insyt_system_field"
+            ),
+            "semantic_confidence": 1.0,
+            "sample_count": len(
+                values
+                or []
+            ),
+            "is_insyt_system_field": True,
+            "system_disposition": (
+                "keep"
+            ),
+            "system_final_header": (
+                clean_source_header
+            ),
+        }
+
     profile = (
         profile_column_values(
             values

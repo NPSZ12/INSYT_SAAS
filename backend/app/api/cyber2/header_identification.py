@@ -644,6 +644,59 @@ def identify_cyber2_header_set(
             ):
                 continue
 
+            source_header = str(
+                column.get(
+                    "source_header"
+                )
+                or ""
+            ).strip()
+
+            #
+            # INSYT-owned system / lineage fields are structural
+            # metadata created by INSYT itself.
+            #
+            # They must never be mapped to a Project Protocol
+            # field and must never be sent through AI-assisted
+            # header resolution.
+            #
+            if (
+                source_header
+                .upper()
+                .startswith(
+                    "INSYT_"
+                )
+            ):
+                column.update(
+                    {
+                        "recommended_protocol_header": "",
+                        "mapping_confidence": 1.0,
+                        "matched": False,
+                        "match_method": (
+                            "insyt_system_field"
+                        ),
+                        "semantic_type": (
+                            "insyt_system_field"
+                        ),
+                        "semantic_confidence": 1.0,
+                        "ai_review_required": False,
+                        "ai_invoked": False,
+                        "ai_status": (
+                            "not_required"
+                        ),
+                        "ai_recommendation": "",
+                        "ai_confidence": None,
+                        "is_insyt_system_field": True,
+                        "system_disposition": (
+                            "keep"
+                        ),
+                        "system_final_header": (
+                            source_header
+                        ),
+                    }
+                )
+
+                continue
+
             mapping_confidence = float(
                 column.get(
                     "mapping_confidence"

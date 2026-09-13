@@ -53,7 +53,32 @@ type HeaderColumn = {
   sample_values?: string[];
 
   default_disposition?: string;
+
+  is_insyt_system_field?: boolean;
+
+  system_disposition?: string;
+
+  system_final_header?: string;
 };
+
+function isInsytSystemColumn(
+  column: HeaderColumn
+) {
+  return (
+    Boolean(
+      column.is_insyt_system_field
+    ) ||
+    String(
+      column.source_header ||
+      ""
+    )
+      .trim()
+      .toUpperCase()
+      .startsWith(
+        "INSYT_"
+      )
+  );
+}
 
 
 type IdentificationDocument = {
@@ -726,6 +751,26 @@ function SchemaMappingSetContent() {
           ).trim();
 
         if (
+          isInsytSystemColumn(
+            column
+          )
+        ) {
+          next[key] = {
+            disposition:
+              "keep",
+
+            final_header:
+              String(
+                column.system_final_header ||
+                column.source_header ||
+                `Column ${
+                  column.column_index +
+                  1
+                }`
+              ),
+          };
+
+        } else if (
           column.matched &&
           recommended
         ) {
@@ -999,7 +1044,12 @@ function SchemaMappingSetContent() {
   ) {
     const columns = [
       ...(document.columns || []),
-    ];
+    ].filter(
+      (column) =>
+        !isInsytSystemColumn(
+          column
+        )
+    );
 
     columns.sort(
       (a, b) => {
@@ -1076,6 +1126,15 @@ function SchemaMappingSetContent() {
           const column
           of document.columns || []
         ) {
+
+          if (
+            isInsytSystemColumn(
+              column
+            )
+          ) {
+            continue;
+          }
+
           const recommended =
             String(
               column
