@@ -2676,6 +2676,60 @@ def _build_staged_results_payload(
             dict,
         ):
             workbook_sheet = {}
+            
+        structured_source = (
+            report_file.get(
+                "structured_source"
+            )
+            or {}
+        )
+
+        if not isinstance(
+            structured_source,
+            dict,
+        ):
+            structured_source = {}
+
+        source_family = str(
+            report_file.get(
+                "source_family"
+            )
+            or structured_source.get(
+                "source_family"
+            )
+            or ""
+        ).strip()
+
+        source_format = str(
+            report_file.get(
+                "source_format"
+            )
+            or structured_source.get(
+                "source_format"
+            )
+            or ""
+        ).strip()
+
+        source_profile = str(
+            report_file.get(
+                "source_profile"
+            )
+            or structured_source.get(
+                "source_profile"
+            )
+            or ""
+        ).strip()
+
+        is_json_structured = bool(
+            source_format == "json"
+            or str(
+                report_file.get(
+                    "source_type"
+                )
+                or ""
+            ).strip()
+            == "json_structured"
+        )
 
         source_type = str(
             workbook_sheet.get(
@@ -2769,7 +2823,84 @@ def _build_staged_results_payload(
                 "source_type": (
                     "workbook_sheet"
                     if is_workbook_sheet
-                    else "document"
+                    else (
+                        "json_structured"
+                        if is_json_structured
+                        else "document"
+                    )
+                ),
+
+                "source_family": (
+                    source_family
+                    or None
+                ),
+
+                "source_format": (
+                    source_format
+                    or None
+                ),
+
+                "source_profile": (
+                    source_profile
+                    or None
+                ),
+
+                "structured_source": (
+                    structured_source
+                ),
+
+                "original_json_filename": (
+                    report_file.get(
+                        "original_json_filename"
+                    )
+                    or structured_source.get(
+                        "original_json_filename"
+                    )
+                ),
+
+                "json_package_id": (
+                    report_file.get(
+                        "json_package_id"
+                    )
+                    or structured_source.get(
+                        "package_id"
+                    )
+                ),
+
+                "json_package_count": (
+                    report_file.get(
+                        "json_package_count"
+                    )
+                    or structured_source.get(
+                        "package_count"
+                    )
+                ),
+
+                "json_record_count": (
+                    report_file.get(
+                        "json_record_count"
+                    )
+                    or structured_source.get(
+                        "record_count"
+                    )
+                ),
+
+                "normalized_source_format": (
+                    report_file.get(
+                        "normalized_source_format"
+                    )
+                    or structured_source.get(
+                        "normalized_format"
+                    )
+                ),
+
+                "normalized_source_filename": (
+                    report_file.get(
+                        "normalized_source_filename"
+                    )
+                    or structured_source.get(
+                        "normalized_filename"
+                    )
                 ),
 
                 "is_workbook_sheet": (
@@ -4502,6 +4633,23 @@ def export_data_element_detection_impact_assessment_xlsx(
             )
 
             if classification == "HIT":
+                is_json_structured = bool(
+                    str(
+                        doc.get(
+                            "source_type"
+                        )
+                        or ""
+                    ).strip()
+                    == "json_structured"
+                    or str(
+                        doc.get(
+                            "source_format"
+                        )
+                        or ""
+                    ).strip().lower()
+                    == "json"
+                )
+
                 if (
                     is_sheet
                     or extension
@@ -4513,8 +4661,9 @@ def export_data_element_detection_impact_assessment_xlsx(
                         "xlsb",
                         "ods",
                     }
+                    or is_json_structured
                 ):
-                    return "CyberÂ²"
+                    return "Cyber²"
 
                 return "Review"
 
@@ -8588,9 +8737,27 @@ def get_processing_center_promotion_population(
                 or extension == "csv"
             )
 
+            is_json_structured_data = bool(
+                source_type
+                == "json_structured"
+                or str(
+                    document.get(
+                        "source_format"
+                    )
+                    or staged_doc.get(
+                        "source_format"
+                    )
+                    or ""
+                ).strip().lower()
+                == "json"
+            )
+
             if (
                 classification == "HIT"
-                and is_spreadsheet_data
+                and (
+                    is_spreadsheet_data
+                    or is_json_structured_data
+                )
             ):
                 destination = "cyber2"
 
@@ -10537,6 +10704,61 @@ def send_processing_center_cyber2_population(
 
             "source_type": row.get(
                 "source_type"
+            ),
+            
+            "source_family": row.get(
+                "source_family"
+            ),
+
+            "source_format": row.get(
+                "source_format"
+            ),
+
+            "source_profile": row.get(
+                "source_profile"
+            ),
+
+            "structured_source": (
+                row.get(
+                    "structured_source"
+                )
+                or {}
+            ),
+
+            "original_json_filename": (
+                row.get(
+                    "original_json_filename"
+                )
+            ),
+
+            "json_package_id": (
+                row.get(
+                    "json_package_id"
+                )
+            ),
+
+            "json_package_count": (
+                row.get(
+                    "json_package_count"
+                )
+            ),
+
+            "json_record_count": (
+                row.get(
+                    "json_record_count"
+                )
+            ),
+
+            "normalized_source_format": (
+                row.get(
+                    "normalized_source_format"
+                )
+            ),
+
+            "normalized_source_filename": (
+                row.get(
+                    "normalized_source_filename"
+                )
             ),
 
             "source_csv_path": (

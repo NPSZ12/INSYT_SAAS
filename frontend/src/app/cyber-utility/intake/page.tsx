@@ -24,6 +24,12 @@ import PageContainer from "../../../components/PageContainer";
 import PageHeader from "../../../components/PageHeader";
 import { apiGet, apiPost } from "../../../lib/api";
 import CyberUtilityWorkflowNav from "../../../components/CyberUtilityWorkflowNav";
+import JsonPlainPane from "./components/JsonPlainPane";
+import JsonSlackPane from "./components/JsonSlackPane";
+import JsonSalesforcePane from "./components/JsonSalesforcePane";
+import JsonTeamsPane from "./components/JsonTeamsPane";
+import JsonGooglePane from "./components/JsonGooglePane";
+import JsonCustomApiPane from "./components/JsonCustomApiPane";
 
 type Cyber2IntakeDocument = {
   doc_id: string;
@@ -37,6 +43,21 @@ type Cyber2IntakeDocument = {
 
   classification?: string;
   source_type?: string;
+
+  source_family?: string;
+  source_format?: string;
+  source_profile?: string;
+
+  structured_source?: Record<string, any>;
+
+  original_json_filename?: string;
+
+  json_package_id?: string;
+  json_package_count?: number;
+  json_record_count?: number;
+
+  normalized_source_format?: string;
+  normalized_source_filename?: string;
 
   source_csv_path?: string;
 
@@ -257,9 +278,246 @@ function Cyber2IntakeContent() {
     project,
   ]);
 
-  const documents =
+  const allDocuments =
     intakeData?.documents ||
     [];
+
+
+  function isJsonStructuredDocument(
+    doc: Cyber2IntakeDocument
+  ) {
+    return (
+      String(
+        doc.source_format ||
+        ""
+      )
+        .trim()
+        .toLowerCase()
+      === "json"
+      ||
+      String(
+        doc.source_type ||
+        ""
+      )
+        .trim()
+        .toLowerCase()
+      === "json_structured"
+    );
+  }
+
+
+  //
+  // Existing CSV population.
+  //
+  // IMPORTANT:
+  // JSON-normalized CSV working artifacts are excluded here
+  // so all existing CSV filters, Header Sets, selection,
+  // and downstream behavior remain unchanged.
+  //
+  const documents =
+    allDocuments.filter(
+      (doc) =>
+        !isJsonStructuredDocument(
+          doc
+        )
+    );
+
+
+  //
+  // JSON structured populations.
+  //
+  const jsonDocuments =
+    allDocuments.filter(
+      (doc) =>
+        isJsonStructuredDocument(
+          doc
+        )
+    );
+
+
+  function jsonProfile(
+    doc: Cyber2IntakeDocument
+  ) {
+    return String(
+      doc.source_profile ||
+      "plain"
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+
+  const jsonPlainDocuments =
+    jsonDocuments.filter(
+      (doc) =>
+        jsonProfile(doc) ===
+        "plain"
+    );
+
+
+  const jsonSlackDocuments =
+    jsonDocuments.filter(
+      (doc) =>
+        jsonProfile(doc) ===
+        "slack"
+    );
+
+
+  const jsonSalesforceDocuments =
+    jsonDocuments.filter(
+      (doc) =>
+        jsonProfile(doc) ===
+        "salesforce"
+    );
+
+
+  const jsonTeamsDocuments =
+    jsonDocuments.filter(
+      (doc) =>
+        jsonProfile(doc) ===
+        "teams"
+    );
+
+
+  const jsonGoogleDocuments =
+    jsonDocuments.filter(
+      (doc) =>
+        jsonProfile(doc) ===
+        "google"
+    );
+
+
+  const jsonCustomApiDocuments =
+    jsonDocuments.filter(
+      (doc) =>
+        jsonProfile(doc) ===
+        "custom_api"
+    );
+
+  function jsonRecordCount(
+    docs: Cyber2IntakeDocument[]
+  ) {
+    return docs.reduce(
+      (
+        total,
+        doc
+      ) =>
+        total +
+        Math.max(
+          0,
+          Number(
+            doc.json_record_count ||
+            0
+          )
+        ),
+      0
+    );
+  }
+
+
+  function jsonPackageCount(
+    docs: Cyber2IntakeDocument[]
+  ) {
+    const packages =
+      new Set<string>();
+
+    for (const doc of docs) {
+      const packageKey =
+        String(
+          doc.json_package_id ||
+          doc.original_json_filename ||
+          ""
+        ).trim();
+
+      if (packageKey) {
+        packages.add(
+          packageKey
+        );
+      }
+    }
+
+    return packages.size;
+  }
+
+
+  function jsonPackageGroups(
+    docs: Cyber2IntakeDocument[]
+  ) {
+    const grouped =
+      new Map<
+        string,
+        {
+          id: string;
+          label: string;
+          recordCount: number;
+          packageCount: number;
+          secondaryLabel?: string;
+        }
+      >();
+
+
+    for (const doc of docs) {
+
+      const id =
+        String(
+          doc.json_package_id ||
+          doc.original_json_filename ||
+          doc.doc_id
+        ).trim();
+
+
+      const label =
+        String(
+          doc.original_json_filename ||
+          doc.normalized_source_filename ||
+          doc.original_filename ||
+          id
+        ).trim();
+
+
+      const recordCount =
+        Math.max(
+          0,
+          Number(
+            doc.json_record_count ||
+            0
+          )
+        );
+
+
+      const existing =
+        grouped.get(id);
+
+
+      if (existing) {
+        existing.recordCount +=
+          recordCount;
+
+        continue;
+      }
+
+
+      grouped.set(
+        id,
+        {
+          id,
+          label,
+          recordCount,
+          packageCount: 1,
+          secondaryLabel:
+            doc.doc_id
+              ? `INSYT Doc ID: ${doc.doc_id}`
+              : undefined,
+        }
+      );
+    }
+
+
+    return Array.from(
+      grouped.values()
+    );
+  }
+
 
   const availableDocuments =
     documents.filter(
@@ -1458,6 +1716,72 @@ function Cyber2IntakeContent() {
             </div>
 
           ) : null}
+
+        </div>
+
+        <div className="mb-6 space-y-4">
+
+          <JsonPlainPane
+            recordCount={jsonRecordCount(
+              jsonPlainDocuments
+            )}
+            packageCount={jsonPackageCount(
+              jsonPlainDocuments
+            )}
+            groups={jsonPackageGroups(
+              jsonPlainDocuments
+            )}
+          />
+
+
+          <JsonSlackPane
+            recordCount={jsonRecordCount(
+              jsonSlackDocuments
+            )}
+            packageCount={jsonPackageCount(
+              jsonSlackDocuments
+            )}
+          />
+
+
+          <JsonSalesforcePane
+            recordCount={jsonRecordCount(
+              jsonSalesforceDocuments
+            )}
+            packageCount={jsonPackageCount(
+              jsonSalesforceDocuments
+            )}
+          />
+
+
+          <JsonTeamsPane
+            recordCount={jsonRecordCount(
+              jsonTeamsDocuments
+            )}
+            packageCount={jsonPackageCount(
+              jsonTeamsDocuments
+            )}
+          />
+
+
+          <JsonGooglePane
+            recordCount={jsonRecordCount(
+              jsonGoogleDocuments
+            )}
+            packageCount={jsonPackageCount(
+              jsonGoogleDocuments
+            )}
+          />
+
+
+          <JsonCustomApiPane
+            recordCount={jsonRecordCount(
+              jsonCustomApiDocuments
+            )}
+            packageCount={jsonPackageCount(
+              jsonCustomApiDocuments
+            )}
+          />
 
         </div>
 

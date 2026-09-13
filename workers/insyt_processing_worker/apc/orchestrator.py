@@ -234,6 +234,7 @@ def run_local_pipeline(
     prior_processed_index: dict | None = None,
     progress_callback=None,
     cancellation_callback=None,
+    after_inventory_callback=None,
     after_ocr_preflight_callback=None,
     processing_set_size: int = 500,
 ) -> str:
@@ -294,6 +295,13 @@ def run_local_pipeline(
         input_dir=input_dir,
         custodian_id=custodian_id,
     )
+    
+    if after_inventory_callback:
+        after_inventory_callback(
+            db=db,
+            job_id=job_id,
+            input_dir=input_dir,
+        )
 
     _emit_pipeline_progress(
         progress_callback,

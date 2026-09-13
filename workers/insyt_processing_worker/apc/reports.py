@@ -176,10 +176,100 @@ def job_report_data(db: LedgerDB, job_id: str) -> dict[str, Any]:
             is_workbook_sheet
         )
 
-        f["source_type"] = (
-            "workbook_sheet"
-            if is_workbook_sheet
-            else "document"
+        #
+        # Structured-source provenance.
+        #
+        structured_source = (
+            status.get(
+                "structured_source"
+            )
+            or {}
+        )
+
+        if not isinstance(
+            structured_source,
+            dict,
+        ):
+            structured_source = {}
+
+        f["structured_source"] = (
+            structured_source
+        )
+
+        is_json_structured = bool(
+            structured_source.get(
+                "source_format"
+            )
+            == "json"
+        )
+
+        if is_workbook_sheet:
+            f["source_type"] = (
+                "workbook_sheet"
+            )
+
+        elif is_json_structured:
+            f["source_type"] = (
+                "json_structured"
+            )
+
+        else:
+            f["source_type"] = (
+                "document"
+            )
+
+        f["source_family"] = (
+            structured_source.get(
+                "source_family"
+            )
+        )
+
+        f["source_format"] = (
+            structured_source.get(
+                "source_format"
+            )
+        )
+
+        f["source_profile"] = (
+            structured_source.get(
+                "source_profile"
+            )
+        )
+
+        f["original_json_filename"] = (
+            structured_source.get(
+                "original_json_filename"
+            )
+        )
+
+        f["json_package_id"] = (
+            structured_source.get(
+                "package_id"
+            )
+        )
+
+        f["json_package_count"] = (
+            structured_source.get(
+                "package_count"
+            )
+        )
+
+        f["json_record_count"] = (
+            structured_source.get(
+                "record_count"
+            )
+        )
+
+        f["normalized_source_format"] = (
+            structured_source.get(
+                "normalized_format"
+            )
+        )
+
+        f["normalized_source_filename"] = (
+            structured_source.get(
+                "normalized_filename"
+            )
         )
 
         f["original_workbook_file_id"] = (
