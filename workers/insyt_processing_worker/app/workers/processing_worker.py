@@ -34,7 +34,9 @@ from apc.azure_blob_adapter import (
     azure_update_processed_hash_index,
     azure_archive_processing_uploads,
     azure_upload_xl_files_outputs,
+    azure_upload_json_structured_outputs,
 )
+
 from apc.azure_job_runner import run_azure_processing_job
 from apc.detection_job_runner import run_data_element_detection_job
 from apc.azure_layout import AzureRoutingConfig
@@ -1010,6 +1012,11 @@ def process_job_message(message_content: str):
                 "structured_fast_lane"
             )
 
+            #
+            # Existing XL workflow.
+            #
+            # Keep this branch unchanged.
+            #
             xl_upload = (
                 azure_upload_xl_files_outputs(
                     db=db,
@@ -1020,16 +1027,21 @@ def process_job_message(message_content: str):
                 )
             )
 
-            uploaded_rows = (
-                xl_upload.get("uploaded")
+            xl_uploaded_rows = (
+                xl_upload.get(
+                    "uploaded"
+                )
                 or []
             )
 
-            detection_docs = [
+            xl_detection_docs = [
                 row
-                for row in uploaded_rows
+                for row in xl_uploaded_rows
                 if (
-                    isinstance(row, dict)
+                    isinstance(
+                        row,
+                        dict,
+                    )
                     and bool(
                         row.get(
                             "is_workbook_child"
@@ -1044,183 +1056,454 @@ def process_job_message(message_content: str):
                 )
             ]
 
-            if not detection_docs:
+
+            #
+            # JSON structured workflow.
+            #
+            # This is intentionally separate
+            # from the existing XL/CSV path.
+            #
+            json_upload = (
+                azure_upload_json_structured_outputs(
+                    db=db,
+                    routing=routing,
+                    job_id=job_id,
+                    azure_write=True,
+                    overwrite=True,
+                )
+            )
+
+            json_uploaded_rows = (
+                json_upload.get(
+                    "uploaded"
+                )
+                or []
+            )
+
+            json_detection_docs = [
+                row
+                for row in json_uploaded_rows
+                if (
+                    isinstance(
+                        row,
+                        dict,
+                    )
+                    and str(
+                        row.get(
+                            "source_format"
+                        )
+                        or ""
+                    )
+                    .strip()
+                    .lower()
+                    == "json"
+                    and str(
+                        row.get(
+                            "text_staged_blob_path"
+                        )
+                        or ""
+                    ).strip()
+                )
+            ]
+
+
+            if (
+                not xl_detection_docs
+                and not json_detection_docs
+            ):
                 _update_status(
-                    status_blob_path=status_blob_path,
+                    status_blob_path=(
+                        status_blob_path
+                    ),
                     status="running",
-                    stage="structured_fast_lane",
+                    stage=(
+                        "structured_fast_lane"
+                    ),
                     progress_pct=60,
                     message=(
-                        "Structured fast lane completed; "
-                        "no worksheet documents required Detection."
+                        "Structured fast lane "
+                        "completed; no structured "
+                        "documents required Detection."
                     ),
                     extra={
                         "current_step": (
-                            "No workbook worksheet children "
+                            "No workbook worksheet "
+                            "children or JSON "
+                            "structured documents "
                             "were queued for Detection."
                         ),
-                        "xl_fast_lane_uploaded_count": (
-                            len(uploaded_rows)
-                        ),
-                        "xl_detection_queued_count": 0,
+
+                        "xl_fast_lane_uploaded_count":
+                            len(
+                                xl_uploaded_rows
+                            ),
+
+                        "xl_detection_queued_count":
+                            0,
+
+                        "json_fast_lane_uploaded_count":
+                            len(
+                                json_uploaded_rows
+                            ),
+
+                        "json_detection_queued_count":
+                            0,
                     },
                 )
                 return
 
+
             detection_job_id = (
-                f"DET-{uuid4().hex[:16].upper()}"
+                f"DET-"
+                f"{uuid4().hex[:16].upper()}"
             )
 
             detection_base = (
                 f"{routing.prefix}/"
-                "processing_center/detection/jobs/"
+                "processing_center/"
+                "detection/jobs/"
                 f"{detection_job_id}"
             )
 
             detection_request_blob_path = (
-                f"{detection_base}/request.json"
+                f"{detection_base}/"
+                "request.json"
             )
 
             detection_status_blob_path = (
-                f"{detection_base}/status.json"
+                f"{detection_base}/"
+                "status.json"
             )
 
             requested_at = utc_now()
 
-            documents = []
+            documents: list[
+                dict[str, Any]
+            ] = []
 
-            for row in detection_docs:
+
+            #
+            # Existing XL Detection documents.
+            #
+            for row in xl_detection_docs:
                 documents.append(
                     {
                         "doc_id": str(
-                            row.get("doc_id")
+                            row.get(
+                                "doc_id"
+                            )
                             or ""
                         ),
+
                         "file_id": (
-                            row.get("file_id")
+                            row.get(
+                                "file_id"
+                            )
                         ),
+
                         "text_staged_blob_path": (
                             row.get(
                                 "text_staged_blob_path"
                             )
                         ),
+
                         "native_staged_blob_path": (
                             row.get(
                                 "native_staged_blob_path"
                             )
                         ),
-                        "source_type": (
-                            "worksheet_csv"
-                        ),
-                        "detection_mode": (
-                            "worksheet_triage"
-                        ),
-                        "is_workbook_sheet": True,
+
+                        "source_type":
+                            "worksheet_csv",
+
+                        "detection_mode":
+                            "worksheet_triage",
+
+                        "is_workbook_sheet":
+                            True,
+
                         "parent_file_id": (
                             row.get(
                                 "parent_file_id"
                             )
                         ),
-                        "original_workbook_file_id": (
+
+                        "original_workbook_file_id":
                             row.get(
                                 "parent_file_id"
+                            ),
+                    }
+                )
+
+
+            #
+            # JSON Detection documents.
+            #
+            for row in json_detection_docs:
+                documents.append(
+                    {
+                        "doc_id": str(
+                            row.get(
+                                "doc_id"
+                            )
+                            or ""
+                        ),
+
+                        "file_id": (
+                            row.get(
+                                "file_id"
+                            )
+                        ),
+
+                        "text_staged_blob_path": (
+                            row.get(
+                                "text_staged_blob_path"
+                            )
+                        ),
+
+                        "native_staged_blob_path": (
+                            row.get(
+                                "native_staged_blob_path"
+                            )
+                        ),
+
+                        "source_type":
+                            "json_structured",
+
+                        "detection_mode":
+                            "structured_json",
+
+                        "is_workbook_sheet":
+                            False,
+
+                        "source_family": (
+                            row.get(
+                                "source_family"
+                            )
+                        ),
+
+                        "source_format": (
+                            row.get(
+                                "source_format"
+                            )
+                        ),
+
+                        "source_profile": (
+                            row.get(
+                                "source_profile"
+                            )
+                        ),
+
+                        "original_json_filename": (
+                            row.get(
+                                "original_json_filename"
+                            )
+                        ),
+
+                        "json_package_id": (
+                            row.get(
+                                "package_id"
+                            )
+                        ),
+
+                        "json_package_count": (
+                            row.get(
+                                "package_count"
+                            )
+                        ),
+
+                        "json_record_count": (
+                            row.get(
+                                "record_count"
+                            )
+                        ),
+
+                        "normalized_source_format": (
+                            row.get(
+                                "normalized_format"
+                            )
+                        ),
+
+                        "normalized_source_filename": (
+                            row.get(
+                                "normalized_filename"
                             )
                         ),
                     }
                 )
 
+
+            if (
+                xl_detection_docs
+                and json_detection_docs
+            ):
+                request_detection_mode = (
+                    "structured_mixed"
+                )
+
+            elif json_detection_docs:
+                request_detection_mode = (
+                    "structured_json"
+                )
+
+            else:
+                request_detection_mode = (
+                    "worksheet_triage"
+                )
+
+
             request_payload = {
-                "job_type": (
-                    "data_element_detection"
-                ),
-                "detection_job_id": (
-                    detection_job_id
-                ),
-                "workspace": workspace,
-                "client": payload.get(
-                    "client"
-                ),
-                "project": payload.get(
-                    "project"
-                ),
-                "source_job_id": job_id,
+                "job_type":
+                    "data_element_detection",
+
+                "detection_job_id":
+                    detection_job_id,
+
+                "workspace":
+                    workspace,
+
+                "client":
+                    payload.get(
+                        "client"
+                    ),
+
+                "project":
+                    payload.get(
+                        "project"
+                    ),
+
+                "source_job_id":
+                    job_id,
+
                 "doc_ids": [
                     str(
-                        row.get("doc_id")
+                        document.get(
+                            "doc_id"
+                        )
                         or ""
                     )
-                    for row in detection_docs
+                    for document
+                    in documents
                 ],
-                "detection_mode": (
-                    "worksheet_triage"
-                ),
-                "documents": documents,
-                "protocol_name": payload.get(
-                    "protocol_name"
-                ),
-                "protocol_version": payload.get(
-                    "protocol_version"
-                ),
-                "include_phi": bool(
+
+                "detection_mode":
+                    request_detection_mode,
+
+                "documents":
+                    documents,
+
+                "protocol_name":
                     payload.get(
-                        "include_phi",
-                        True,
+                        "protocol_name"
+                    ),
+
+                "protocol_version":
+                    payload.get(
+                        "protocol_version"
+                    ),
+
+                "include_phi":
+                    bool(
+                        payload.get(
+                            "include_phi",
+                            True,
+                        )
+                    ),
+
+                "requested_by": (
+                    payload.get(
+                        "requested_by"
                     )
+                    or "APC Worker"
                 ),
-                "requested_by": payload.get(
-                    "requested_by"
-                )
-                or "APC Worker",
-                "requested_at": requested_at,
-                "request_blob_path": (
-                    detection_request_blob_path
-                ),
-                "status_blob_path": (
-                    detection_status_blob_path
-                ),
+
+                "requested_at":
+                    requested_at,
+
+                "request_blob_path":
+                    detection_request_blob_path,
+
+                "status_blob_path":
+                    detection_status_blob_path,
             }
 
+
             detection_status_payload = {
-                "job_type": (
-                    "data_element_detection"
-                ),
-                "detection_job_id": (
-                    detection_job_id
-                ),
-                "workspace": workspace,
-                "client": payload.get(
-                    "client"
-                ),
-                "project": payload.get(
-                    "project"
-                ),
-                "source_job_id": job_id,
-                "status": "queued",
-                "stage": "queued",
-                "progress_pct": 0,
-                "selected_doc_count": (
-                    len(documents)
-                ),
-                "documents_scanned": 0,
-                "documents_with_hits": 0,
-                "documents_no_hits": 0,
-                "documents_nfr": 0,
-                "documents_exception": 0,
-                "entity_hit_count": 0,
+                "job_type":
+                    "data_element_detection",
+
+                "detection_job_id":
+                    detection_job_id,
+
+                "workspace":
+                    workspace,
+
+                "client":
+                    payload.get(
+                        "client"
+                    ),
+
+                "project":
+                    payload.get(
+                        "project"
+                    ),
+
+                "source_job_id":
+                    job_id,
+
+                "status":
+                    "queued",
+
+                "stage":
+                    "queued",
+
+                "progress_pct":
+                    0,
+
+                "selected_doc_count":
+                    len(
+                        documents
+                    ),
+
+                "documents_scanned":
+                    0,
+
+                "documents_with_hits":
+                    0,
+
+                "documents_no_hits":
+                    0,
+
+                "documents_nfr":
+                    0,
+
+                "documents_exception":
+                    0,
+
+                "entity_hit_count":
+                    0,
+
                 "message": (
-                    "Structured-data Detection "
-                    "job queued."
+                    "Structured-data "
+                    "Detection job queued."
                 ),
-                "requested_at": requested_at,
-                "created_at": utc_now(),
-                "updated_at": utc_now(),
-                "request_blob_path": (
-                    detection_request_blob_path
-                ),
-                "status_blob_path": (
-                    detection_status_blob_path
-                ),
+
+                "requested_at":
+                    requested_at,
+
+                "created_at":
+                    utc_now(),
+
+                "updated_at":
+                    utc_now(),
+
+                "request_blob_path":
+                    detection_request_blob_path,
+
+                "status_blob_path":
+                    detection_status_blob_path,
             }
+
 
             _write_json_blob(
                 detection_request_blob_path,
@@ -1238,31 +1521,54 @@ def process_job_message(message_content: str):
                 )
             )
 
+
             _update_status(
-                status_blob_path=status_blob_path,
+                status_blob_path=(
+                    status_blob_path
+                ),
                 status="running",
-                stage="structured_fast_lane",
+                stage=(
+                    "structured_fast_lane"
+                ),
                 progress_pct=60,
                 message=(
-                    "Structured worksheet population "
-                    "released to Data Element Detection."
+                    "Structured population "
+                    "released to Data Element "
+                    "Detection."
                 ),
                 extra={
                     "current_step": (
-                        f"Queued {len(documents):,} "
-                        "worksheet document(s) for "
-                        "Detection while OCR continues."
+                        f"Queued "
+                        f"{len(documents):,} "
+                        "structured document(s) "
+                        "for Detection while "
+                        "OCR continues."
                     ),
-                    "xl_fast_lane_uploaded_count": (
-                        len(uploaded_rows)
-                    ),
-                    "xl_detection_queued_count": (
-                        len(documents)
-                    ),
-                    "xl_detection_job_id": (
-                        detection_job_id
-                    ),
-                    "xl_detection_queue": (
+
+                    "xl_fast_lane_uploaded_count":
+                        len(
+                            xl_uploaded_rows
+                        ),
+
+                    "xl_detection_queued_count":
+                        len(
+                            xl_detection_docs
+                        ),
+
+                    "json_fast_lane_uploaded_count":
+                        len(
+                            json_uploaded_rows
+                        ),
+
+                    "json_detection_queued_count":
+                        len(
+                            json_detection_docs
+                        ),
+
+                    "structured_detection_job_id":
+                        detection_job_id,
+
+                    "structured_detection_queue": (
                         queue_result.get(
                             "queue_name"
                         )

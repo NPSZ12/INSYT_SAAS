@@ -12,6 +12,7 @@ from .azure_layout import (
     build_azure_routing_summary,
     build_review_promotion_blob_plan,
     build_xl_files_staging_plan,
+    build_json_structured_staging_plan,
 )
 
 from .db import LedgerDB
@@ -672,6 +673,191 @@ def azure_upload_xl_files_outputs(
         ),
         "uploaded": uploaded,
         "failed": failed,
+    }
+
+def azure_upload_json_structured_outputs(
+    db: LedgerDB,
+    routing: AzureRoutingConfig,
+    job_id: str,
+    azure_write: bool,
+    overwrite: bool = False,
+) -> dict[str, object]:
+    if not azure_write:
+        raise ValueError(
+            "Refusing to write JSON structured "
+            "outputs to Azure because "
+            "--azure-write was not passed."
+        )
+
+    plan = (
+        build_json_structured_staging_plan(
+            db,
+            job_id,
+            routing,
+        )
+    )
+
+    adapter = DualStorageBlobAdapter(
+        routing
+    )
+
+    uploaded: list[
+        dict[str, object]
+    ] = []
+
+    failed: list[
+        dict[str, object]
+    ] = []
+
+    for row in plan:
+        local_path = Path(
+            str(
+                row.get(
+                    "original_path"
+                )
+                or ""
+            )
+        )
+
+        native_blob_path = str(
+            row.get(
+                "native_staged_blob_path"
+            )
+            or ""
+        )
+
+        text_blob_path = str(
+            row.get(
+                "text_staged_blob_path"
+            )
+            or ""
+        )
+
+        doc_id = str(
+            row.get(
+                "doc_id"
+            )
+            or ""
+        )
+
+        if not local_path.exists():
+            failed.append(
+                {
+                    **row,
+                    "status":
+                        "missing_local_file",
+                    "local_path":
+                        str(local_path),
+                }
+            )
+            continue
+
+        try:
+            native_blob_client = (
+                adapter
+                .review_container
+                .get_blob_client(
+                    native_blob_path
+                )
+            )
+
+            with local_path.open(
+                "rb"
+            ) as fh:
+                native_blob_client.upload_blob(
+                    fh,
+                    overwrite=overwrite,
+                    content_settings=(
+                        adapter
+                        ._content_settings_cls(
+                            content_type=(
+                                "text/csv"
+                            )
+                        )
+                    ),
+                )
+
+            text_content = (
+                local_path.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            )
+
+            text_blob_client = (
+                adapter
+                .review_container
+                .get_blob_client(
+                    text_blob_path
+                )
+            )
+
+            text_blob_client.upload_blob(
+                text_content.encode(
+                    "utf-8"
+                ),
+                overwrite=overwrite,
+                content_settings=(
+                    adapter
+                    ._content_settings_cls(
+                        content_type=(
+                            "text/plain; "
+                            "charset=utf-8"
+                        )
+                    )
+                ),
+            )
+
+            uploaded.append(
+                {
+                    **row,
+                    "status": "uploaded",
+
+                    "bytes": (
+                        local_path
+                        .stat()
+                        .st_size
+                    ),
+
+                    "native_staged_blob_path":
+                        native_blob_path,
+
+                    "text_staged_blob_path":
+                        text_blob_path,
+
+                    "detection_ready": True,
+                }
+            )
+
+        except Exception as exc:
+            failed.append(
+                {
+                    **row,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "job_id": job_id,
+
+        "destination_mode":
+            "json_structured_staged",
+
+        "planned_count":
+            len(plan),
+
+        "uploaded_count":
+            len(uploaded),
+
+        "failed_count":
+            len(failed),
+
+        "uploaded":
+            uploaded,
+
+        "failed":
+            failed,
     }
 
 def azure_upload_report_files(
