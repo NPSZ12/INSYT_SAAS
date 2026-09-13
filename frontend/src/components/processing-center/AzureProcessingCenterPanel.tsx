@@ -49,6 +49,15 @@ type JobHistoryItem = {
   warning_count?: number;
   status_blob_path?: string;
   last_modified?: string;
+
+  started_at?: string;
+  updated_at?: string;
+  last_updated_at?: string;
+  apc_job_id?: string;
+  stage?: string;
+  current_stage?: string;
+  current_step?: string;
+  events?: any[];
 };
 
 type Props = {
@@ -84,6 +93,92 @@ function formatDateTime(value?: string) {
   } catch {
     return value;
   }
+}
+
+function formatDurationMs(value: number) {
+  const ms = Math.max(0, Number(value || 0));
+
+  const totalSeconds = Math.floor(ms / 1000);
+  const seconds = totalSeconds % 60;
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+
+  const days = Math.floor(totalHours / 24);
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  }
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+
+  return `${seconds}s`;
+}
+
+
+function historyEventTime(event: any) {
+  const value = event?.at || event?.timestamp || event?.created_at;
+
+  if (!value) {
+    return null;
+  }
+
+  const ms = new Date(value).getTime();
+
+  return Number.isFinite(ms) ? ms : null;
+}
+
+
+function buildHistoryTimeline(job: any) {
+  const events = Array.isArray(job?.events)
+    ? job.events
+        .filter((event: any) => historyEventTime(event) !== null)
+        .sort(
+          (a: any, b: any) =>
+            Number(historyEventTime(a)) -
+            Number(historyEventTime(b))
+        )
+    : [];
+
+  return events.map((event: any, index: number) => {
+    const startedMs = historyEventTime(event);
+
+    const nextEvent =
+      index < events.length - 1
+        ? events[index + 1]
+        : null;
+
+    const nextMs = nextEvent
+      ? historyEventTime(nextEvent)
+      : null;
+
+    const completedMs =
+      !nextMs && job?.completed_at
+        ? new Date(job.completed_at).getTime()
+        : nextMs;
+
+    const durationMs =
+      startedMs !== null &&
+      completedMs !== null &&
+      Number.isFinite(completedMs)
+        ? Math.max(0, completedMs - startedMs)
+        : null;
+
+    return {
+      ...event,
+      startedMs,
+      durationMs,
+    };
+  });
 }
 
 function cleanError(message: string) {
@@ -144,6 +239,12 @@ export default function AzureProcessingCenterPanel({
   const [archiveMessage, setArchiveMessage] = useState("");
   const [jobHistory, setJobHistory] = useState<JobHistoryItem[]>([]);
   const [loadingJobHistory, setLoadingJobHistory] = useState(false);
+  const [selectedHistoryJob, setSelectedHistoryJob] =
+    useState<any>(null);
+  const [loadingHistoryDetail, setLoadingHistoryDetail] =
+    useState(false);
+  const [historyDetailError, setHistoryDetailError] =
+    useState("");
   const [selectedUploadNames, setSelectedUploadNames] = useState<string[]>([]);
   const [removingUploads, setRemovingUploads] = useState(false);
   const [removeMessage, setRemoveMessage] = useState("");
@@ -822,6 +923,54 @@ export default function AzureProcessingCenterPanel({
     } finally {
       setLoadingJobHistory(false);
     }
+  }
+
+  async function openJobHistory(
+    historyJob: JobHistoryItem
+  ) {
+    const jobId = String(
+      historyJob?.job_id || ""
+    ).trim();
+
+    if (!jobId) {
+      setHistoryDetailError(
+        "This processing history entry does not contain a tracked job ID."
+      );
+      return;
+    }
+
+    setLoadingHistoryDetail(true);
+    setHistoryDetailError("");
+
+    try {
+      const statusUrl =
+        buildTrackedStatusUrl(jobId);
+
+      const status = (await withTimeout(
+        apiGet(statusUrl),
+        "Processing job history detail request timed out."
+      )) as any;
+
+      setSelectedHistoryJob({
+        ...historyJob,
+        ...status,
+      });
+    } catch (err: any) {
+      setHistoryDetailError(
+        cleanError(
+          err?.message ||
+            "Unable to load processing job history."
+        )
+      );
+    } finally {
+      setLoadingHistoryDetail(false);
+    }
+  }
+
+
+  function closeJobHistory() {
+    setSelectedHistoryJob(null);
+    setHistoryDetailError("");
   }
 
   async function refreshAll() {
@@ -2203,14 +2352,369 @@ export default function AzureProcessingCenterPanel({
                   </div>
                 </div>
 
-                <div className="mt-2 break-all text-xs insyt-text-subtle">
-                  {historyJob.status_blob_path}
+                <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+                  <div className="break-all text-xs insyt-text-subtle">
+                    {historyJob.status_blob_path}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openJobHistory(historyJob)}
+                    disabled={loadingHistoryDetail}
+                    className="insyt-btn insyt-btn-secondary insyt-btn-sm"
+                  >
+                    {loadingHistoryDetail
+                      ? "Loading..."
+                      : "View History"}
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {historyDetailError ? (
+        <div className="insyt-pane border border-red-700/60">
+          <div className="text-sm font-semibold text-red-300">
+            Unable to Load Processing History
+          </div>
+
+          <div className="mt-2 text-sm insyt-text-secondary">
+            {historyDetailError}
+          </div>
+
+          <button
+            type="button"
+            onClick={closeJobHistory}
+            className="insyt-btn insyt-btn-secondary insyt-btn-sm mt-3"
+          >
+            Close
+          </button>
+        </div>
+      ) : null}
+
+
+      {selectedHistoryJob ? (
+        <div className="insyt-pane">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-base font-semibold insyt-text-primary">
+                APC Job History
+              </div>
+
+              <div className="mt-1 font-mono text-sm font-semibold text-sky-400">
+                {selectedHistoryJob.job_id || "Unknown Job"}
+              </div>
+
+              {selectedHistoryJob.apc_job_id &&
+              selectedHistoryJob.apc_job_id !==
+                selectedHistoryJob.job_id ? (
+                <div className="mt-1 text-xs insyt-text-muted">
+                  Processing Engine Job:{" "}
+                  <span className="font-mono">
+                    {selectedHistoryJob.apc_job_id}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div
+                className={
+                  String(selectedHistoryJob.status || "")
+                    .toLowerCase()
+                    .includes("completed")
+                    ? "insyt-status insyt-status-success"
+                    : "insyt-status insyt-status-neutral"
+                }
+              >
+                {selectedHistoryJob.status || "unknown"}
+              </div>
+
+              <button
+                type="button"
+                onClick={closeJobHistory}
+                className="insyt-btn insyt-btn-secondary insyt-btn-sm"
+              >
+                Close History
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-5">
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Started
+              </div>
+
+              <div className="mt-1 text-sm font-semibold insyt-text-primary">
+                {formatDateTime(
+                  selectedHistoryJob.started_at ||
+                    selectedHistoryJob.created_at
+                )}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Completed
+              </div>
+
+              <div className="mt-1 text-sm font-semibold insyt-text-primary">
+                {formatDateTime(
+                  selectedHistoryJob.completed_at ||
+                    selectedHistoryJob.generated_at
+                )}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Total Duration
+              </div>
+
+              <div className="mt-1 font-mono text-sm font-semibold insyt-text-primary">
+                {formatElapsedTime(
+                  selectedHistoryJob.started_at ||
+                    selectedHistoryJob.created_at,
+                  selectedHistoryJob.completed_at ||
+                    selectedHistoryJob.generated_at
+                )}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Final Stage
+              </div>
+
+              <div className="mt-1 text-sm font-semibold insyt-text-primary">
+                {selectedHistoryJob.current_stage ||
+                  selectedHistoryJob.stage ||
+                  "—"}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Updated
+              </div>
+
+              <div className="mt-1 text-sm font-semibold insyt-text-primary">
+                {formatDateTime(
+                  selectedHistoryJob.updated_at ||
+                    selectedHistoryJob.last_updated_at ||
+                    selectedHistoryJob.last_modified
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-6">
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Source Files
+              </div>
+              <div className="font-semibold insyt-text-primary">
+                {selectedHistoryJob.source_file_count ?? "—"}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Expanded
+              </div>
+              <div className="font-semibold insyt-text-primary">
+                {selectedHistoryJob.expanded_file_count ?? "—"}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Unique Docs
+              </div>
+              <div className="font-semibold text-[var(--insyt-success)]">
+                {selectedHistoryJob.unique_doc_count ?? "—"}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Duplicates
+              </div>
+              <div className="font-semibold text-[var(--insyt-warning)]">
+                {selectedHistoryJob.duplicate_doc_count ?? "—"}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                OCR Pages
+              </div>
+              <div className="font-semibold insyt-text-primary">
+                {selectedHistoryJob.ocr_page_count ?? "—"}
+              </div>
+            </div>
+
+            <div className="insyt-metric">
+              <div className="text-xs insyt-text-muted">
+                Azure Quote
+              </div>
+              <div className="font-semibold insyt-text-primary">
+                {typeof selectedHistoryJob.estimated_azure_cost_usd ===
+                "number"
+                  ? `$${selectedHistoryJob.estimated_azure_cost_usd.toFixed(
+                      6
+                    )}`
+                  : "—"}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
+              Stage Timeline
+            </div>
+
+            {buildHistoryTimeline(selectedHistoryJob).length === 0 ? (
+              <div className="insyt-subpanel p-4 text-sm insyt-text-muted">
+                No timestamped stage events were stored for this job.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--insyt-border)] text-xs uppercase tracking-wide insyt-text-muted">
+                      <th className="px-3 py-2">Stage</th>
+                      <th className="px-3 py-2">Started</th>
+                      <th className="px-3 py-2">Duration</th>
+                      <th className="px-3 py-2">Details</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {buildHistoryTimeline(
+                      selectedHistoryJob
+                    ).map((event: any, index: number) => (
+                      <tr
+                        key={`${event?.stage || "event"}-${event?.startedMs || index}-${index}`}
+                        className="border-b border-[var(--insyt-border)]/60"
+                      >
+                        <td className="px-3 py-3 font-semibold insyt-text-primary">
+                          {event?.stage ||
+                            event?.status ||
+                            "event"}
+                        </td>
+
+                        <td className="px-3 py-3 whitespace-nowrap insyt-text-secondary">
+                          {formatDateTime(
+                            event?.at ||
+                              event?.timestamp ||
+                              event?.created_at
+                          )}
+                        </td>
+
+                        <td className="px-3 py-3 whitespace-nowrap font-mono insyt-text-primary">
+                          {typeof event?.durationMs ===
+                          "number"
+                            ? formatDurationMs(
+                                event.durationMs
+                              )
+                            : "—"}
+                        </td>
+
+                        <td className="px-3 py-3 insyt-text-secondary">
+                          <div>
+                            {event?.message ||
+                              event?.current_step ||
+                              "—"}
+                          </div>
+
+                          {event?.current_file ? (
+                            <div className="mt-1 break-all text-xs insyt-text-subtle">
+                              File: {event.current_file}
+                            </div>
+                          ) : null}
+
+                          {typeof event?.stage_processed_files ===
+                          "number" ? (
+                            <div className="mt-1 text-xs insyt-text-subtle">
+                              Processed:{" "}
+                              {event.stage_processed_files.toLocaleString()}
+                              {typeof event?.stage_total_files ===
+                              "number"
+                                ? ` / ${event.stage_total_files.toLocaleString()}`
+                                : ""}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
+              Detailed Event History
+            </div>
+
+            <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+              {(selectedHistoryJob.events || []).map(
+                (event: any, index: number) => (
+                  <div
+                    key={`${event?.at || event?.timestamp || index}-${index}`}
+                    className="insyt-subpanel px-4 py-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold insyt-text-primary">
+                          {event?.stage ||
+                            event?.status ||
+                            "Processing Event"}
+                        </div>
+
+                        <div className="mt-1 text-sm insyt-text-secondary">
+                          {event?.message ||
+                            event?.current_step ||
+                            "—"}
+                        </div>
+
+                        {event?.current_file ? (
+                          <div className="mt-1 break-all text-xs insyt-text-subtle">
+                            {event.current_file}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="whitespace-nowrap text-xs insyt-text-muted">
+                        {formatDateTime(
+                          event?.at ||
+                            event?.timestamp ||
+                            event?.created_at
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={closeJobHistory}
+              className="insyt-btn insyt-btn-secondary"
+            >
+              Return to Processing Center
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {job ? (
         <div className="insyt-pane text-sm">
