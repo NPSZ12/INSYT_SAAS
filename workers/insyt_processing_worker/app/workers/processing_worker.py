@@ -33,6 +33,7 @@ from apc.azure_blob_adapter import (
     azure_upload_review_outputs,
     azure_update_processed_hash_index,
     azure_archive_processing_uploads,
+    azure_upload_processing_set_manifests,
     azure_upload_xl_files_outputs,
     azure_upload_json_structured_outputs,
 )
@@ -1010,6 +1011,25 @@ def process_job_message(message_content: str):
         ) -> None:
             cancellation_checkpoint(
                 "structured_fast_lane"
+            )
+
+            #
+            # Persist canonical Processing Set membership
+            # after Doc ID assignment.
+            #
+            # This creates the durable:
+            #
+            #   Processing Set -> file_id -> Doc ID
+            #
+            # bridge required by AI Extraction.
+            #
+            processing_set_manifest_upload = (
+                azure_upload_processing_set_manifests(
+                    db=db,
+                    routing=routing,
+                    job_id=job_id,
+                    overwrite=True,
+                )
             )
 
             #
