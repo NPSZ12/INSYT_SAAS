@@ -674,10 +674,6 @@ def identify_cyber2_header_set(
                         "match_method": (
                             "insyt_system_field"
                         ),
-                        "semantic_type": (
-                            "insyt_system_field"
-                        ),
-                        "semantic_confidence": 1.0,
                         "ai_review_required": False,
                         "ai_invoked": False,
                         "ai_status": (

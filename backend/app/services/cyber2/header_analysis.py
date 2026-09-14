@@ -1173,9 +1173,18 @@ def recommend_protocol_header(
     ).strip()
 
     #
-    # INSYT-owned fields are structural / lineage metadata.
-    # They are never candidates for Project Protocol mapping.
+    # Always profile the underlying column values.
     #
+    # INSYT-owned headers are protected from automatic
+    # Project Protocol mapping, but their data still needs
+    # semantic analysis for reviewer visibility.
+    #
+    profile = (
+        profile_column_values(
+            values
+        )
+    )
+
     if (
         clean_source_header
         .upper()
@@ -1194,12 +1203,22 @@ def recommend_protocol_header(
                 "insyt_system_field"
             ),
             "semantic_type": (
-                "insyt_system_field"
+                profile.get(
+                    "semantic_type"
+                )
+                or ""
             ),
-            "semantic_confidence": 1.0,
-            "sample_count": len(
-                values
-                or []
+            "semantic_confidence": (
+                profile.get(
+                    "semantic_confidence"
+                )
+                or 0.0
+            ),
+            "sample_count": (
+                profile.get(
+                    "sample_count"
+                )
+                or 0
             ),
             "is_insyt_system_field": True,
             "system_disposition": (

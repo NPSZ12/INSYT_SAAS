@@ -1044,12 +1044,7 @@ function SchemaMappingSetContent() {
   ) {
     const columns = [
       ...(document.columns || []),
-    ].filter(
-      (column) =>
-        !isInsytSystemColumn(
-          column
-        )
-    );
+    ];
 
     columns.sort(
       (a, b) => {
@@ -1127,13 +1122,6 @@ function SchemaMappingSetContent() {
           of document.columns || []
         ) {
 
-          if (
-            isInsytSystemColumn(
-              column
-            )
-          ) {
-            continue;
-          }
 
           const recommended =
             String(
@@ -1244,8 +1232,14 @@ function SchemaMappingSetContent() {
           ).trim();
 
         const groupKey =
-          recommended ||
-          "__UNMATCHED__";
+          isInsytSystemColumn(
+            row.column
+          )
+            ? "__INSYT_SYSTEM__"
+            : (
+                recommended ||
+                "__UNMATCHED__"
+              );
 
         if (!byKey.has(groupKey)) {
           byKey.set(
@@ -1282,6 +1276,29 @@ function SchemaMappingSetContent() {
           protocolHeader,
 
           rows,
+
+          unmatched:
+            false,
+        });
+      }
+
+      const systemRows =
+        byKey.get(
+          "__INSYT_SYSTEM__"
+        ) || [];
+
+      if (
+        systemRows.length > 0
+      ) {
+        groups.push({
+          groupKey:
+            "__INSYT_SYSTEM__",
+
+          protocolHeader:
+            "INSYT System / Source Fields",
+
+          rows:
+            systemRows,
 
           unmatched:
             false,
@@ -3768,8 +3785,14 @@ function MappingModal({
                         }`,
                     };
 
+                  const isSystemField =
+                    isInsytSystemColumn(
+                      column
+                    );
+
                   const isUnmatched =
-                    !column.matched;
+                    !column.matched &&
+                    !isSystemField;
 
                   const needsProtocolDropdown =
                     decision.disposition ===
@@ -3896,7 +3919,21 @@ function MappingModal({
 
                       <td className="px-4 py-4">
 
-                        {column
+                        {isSystemField ? (
+
+                          <div>
+
+                            <div className="font-semibold text-sky-300">
+                              Keep As-Is
+                            </div>
+
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              INSYT system / source field
+                            </div>
+
+                          </div>
+
+                        ) : column
                           .recommended_protocol_header ? (
 
                           <div>
