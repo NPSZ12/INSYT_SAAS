@@ -976,6 +976,119 @@ def list_document_entities(
 ):
     normalized_doc = normalize_doc_lookup(doc)
 
+    requested_view = str(
+        view or ""
+    ).strip().lower()
+
+    if requested_view == "ai":
+
+        matching_ai_entities = []
+
+        for record in (
+            load_cyber2_ai_capture_records(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+        ):
+            record_doc_id = str(
+                record.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+
+            if (
+                normalize_doc_lookup(
+                    record_doc_id
+                )
+                != normalized_doc
+            ):
+                continue
+
+            provenance = (
+                record.get(
+                    "provenance"
+                )
+                or {}
+            )
+
+            matching_ai_entities.append(
+                {
+                    "id": (
+                        record.get(
+                            "ai_entity_id"
+                        )
+                        or ""
+                    ),
+
+                    "ai_entity_id": (
+                        record.get(
+                            "ai_entity_id"
+                        )
+                        or ""
+                    ),
+
+                    "doc_id":
+                        record_doc_id,
+
+                    "status": (
+                        record.get(
+                            "status"
+                        )
+                        or "pending"
+                    ),
+
+                    "confidence":
+                        record.get(
+                            "confidence"
+                        ),
+
+                    "values": (
+                        record.get(
+                            "values"
+                        )
+                        or {}
+                    ),
+
+                    "source_text": (
+                        record.get(
+                            "source_text"
+                        )
+                        or ""
+                    ),
+
+                    "source_page": (
+                        record.get(
+                            "source_page"
+                        )
+                        or ""
+                    ),
+
+                    "source_record_id": (
+                        record.get(
+                            "source_record_id"
+                        )
+                        or ""
+                    ),
+
+                    "source_field": (
+                        record.get(
+                            "source_field"
+                        )
+                        or ""
+                    ),
+
+                    "provenance":
+                        provenance,
+
+                    "source":
+                        "ai_extraction",
+                }
+            )
+
+        return matching_ai_entities
+
     review_state = load_document_review_state(
         workspace=workspace,
         client=client,

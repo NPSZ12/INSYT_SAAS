@@ -132,6 +132,11 @@ function ReviewPageContent() {
   const [savedDocumentCoding, setSavedDocumentCoding] = useState("");
   const [detectionHits, setDetectionHits] = useState<any[]>([]);
 
+  const [
+    aiEntities,
+    setAiEntities,
+  ] = useState<any[]>([]);
+
     useEffect(() => {
     if (!projectId || (!batchId && !docId)) {
       return;
@@ -349,10 +354,108 @@ function ReviewPageContent() {
       .catch(console.error);
   }
 
+  function loadAiEntities() {
+    if (
+      !projectId ||
+      !reviewDoc?.doc_id
+    ) {
+      setAiEntities(
+        []
+      );
+
+      return;
+    }
+
+    apiGet(
+      `/api/entities/document?client=${encodeURIComponent(
+        clientId
+      )}&workspace=capture&project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(
+        batchId
+      )}&doc=${encodeURIComponent(
+        reviewDoc.doc_id
+      )}&view=ai`
+    )
+      .then(
+        (
+          entities: any[]
+        ) => {
+          setAiEntities(
+            Array.isArray(
+              entities
+            )
+              ? entities.map(
+                  (
+                    entity: any,
+                    index: number
+                  ) => ({
+                    id:
+                      entity.ai_entity_id ||
+                      entity.id ||
+                      `AI-ENTITY-${index + 1}`,
+
+                    status:
+                      entity.status ||
+                      "pending",
+
+                    confidence:
+                      entity.confidence ??
+                      null,
+
+                    values:
+                      entity.values ||
+                      {},
+
+                    source_text:
+                      entity.source_text ||
+                      "",
+
+                    source_page:
+                      entity.source_page ||
+                      "",
+
+                    source_field:
+                      entity.source_field ||
+                      "",
+
+                    source_record_id:
+                      entity.source_record_id ||
+                      "",
+                  })
+                )
+              : []
+          );
+        }
+      )
+      .catch(
+        (
+          error
+        ) => {
+          console.error(
+            "Unable to load AI Entities:",
+            error
+          );
+
+          setAiEntities(
+            []
+          );
+        }
+      );
+  }
+
   useEffect(() => {
     loadLinkedEntities();
   }, [clientId, projectId, batchId, reviewDoc?.doc_id]);
 
+  useEffect(() => {
+    loadAiEntities();
+  }, [
+    clientId,
+    projectId,
+    batchId,
+    reviewDoc?.doc_id,
+  ]);
 
   useEffect(() => {
     if (!projectId) {
@@ -978,6 +1081,56 @@ function ReviewPageContent() {
                 batchId={batchId}
                 docId={reviewDoc.doc_id}
                 fields={fieldsForCapture}
+                aiEntities={
+                  aiEntities
+                }
+                onApproveAiEntity={({
+                  candidateId,
+                  values,
+                }) => {
+                  setAiEntities(
+                    (
+                      current
+                    ) =>
+                      current.map(
+                        (
+                          candidate
+                        ) =>
+                          candidate.id ===
+                          candidateId
+                            ? {
+                                ...candidate,
+                                status:
+                                  "approved",
+                                values,
+                              }
+                            : candidate
+                      )
+                  );
+                }}
+
+                onRejectAiEntity={(
+                  candidateId
+                ) => {
+                  setAiEntities(
+                    (
+                      current
+                    ) =>
+                      current.map(
+                        (
+                          candidate
+                        ) =>
+                          candidate.id ===
+                          candidateId
+                            ? {
+                                ...candidate,
+                                status:
+                                  "rejected",
+                              }
+                            : candidate
+                      )
+                  );
+                }}
                 isFirstDoc={effectiveIsFirstDoc}
                 isLastDoc={effectiveIsLastDoc}
                 hasLinkedEntities={linkedEntities.some((entity) => entity.linked !== false)}
