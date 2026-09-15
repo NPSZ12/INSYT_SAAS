@@ -11164,9 +11164,84 @@ def build_ai_extraction_set(
             )
         )
 
+        #
+        # Stage the same AI Extraction CSV into review storage
+        # so the existing Cyber² Header Identification and
+        # Schema Mapping workflow can read it without any
+        # special AI-specific mapping path.
+        #
+        review_container_name = (
+            _review_container(
+                workspace
+            )
+        )
+
+        review_csv_blob_path = (
+            f"{base_path}/"
+            "processing_center/staged/"
+            f"{job_id}/ai_extractions/"
+            f"{csv_filename}"
+        )
+
+        review_csv_upload = (
+            _write_review_blob_bytes(
+                container_name=(
+                    review_container_name
+                ),
+                blob_path=(
+                    review_csv_blob_path
+                ),
+                data=result["csv_bytes"],
+                overwrite=(
+                    request.overwrite
+                ),
+                content_type=(
+                    "text/csv; charset=utf-8"
+                ),
+            )
+        )
+
         documents = (
             result.get("documents")
             or []
+        )
+
+        extraction_rows = (
+            result.get("rows")
+            or []
+        )
+
+        entity_types = sorted(
+            {
+                str(entity_type).strip()
+                for row in extraction_rows
+                for entity_type in (
+                    getattr(
+                        row,
+                        "extracted_values",
+                        {},
+                    )
+                    or {}
+                ).keys()
+                if str(
+                    entity_type
+                    or ""
+                ).strip()
+            }
+        )
+
+        detection_job_ids = sorted(
+            {
+                str(
+                    document.detection_job_id
+                    or ""
+                ).strip()
+                for document in documents
+                if str(
+                    document.detection_job_id
+                    or ""
+                ).strip()
+            }
         )
 
         manifest_documents = []
@@ -11249,6 +11324,12 @@ def build_ai_extraction_set(
             ),
             "csv_filename": csv_filename,
             "csv_blob_path": csv_blob_path,
+            "review_csv_blob_path": (
+                review_csv_blob_path
+            ),
+            "source_profile": (
+                "AI-Extractions"
+            ),
             "documents": (
                 manifest_documents
             ),
@@ -11259,6 +11340,155 @@ def build_ai_extraction_set(
                 blob_path=manifest_blob_path,
                 payload=manifest_payload,
                 overwrite=request.overwrite,
+            )
+        )
+
+        #
+        # Register this AI Extraction Processing Set in the
+        # existing Cyber² Intake contract.
+        #
+        # The Processing Set ID is intentionally reused as the
+        # Cyber² Intake workflow ID. We do not invent another
+        # AI-specific set identifier.
+        #
+        intake_doc_id = set_id
+
+        intake_index_path = (
+            _cyber2_intake_document_path(
+                workspace=workspace,
+                client=request.client,
+                project=request.project,
+                doc_id=intake_doc_id,
+            )
+        )
+
+        existing_intake_payload = {}
+
+        try:
+            existing_intake_payload = (
+                _read_processing_json_blob(
+                    intake_index_path
+                )
+                or {}
+            )
+        except Exception:
+            existing_intake_payload = {}
+
+        if not isinstance(
+            existing_intake_payload,
+            dict,
+        ):
+            existing_intake_payload = {}
+
+        intake_payload = {
+            **existing_intake_payload,
+
+            "schema_version": 1,
+
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+
+            "doc_id": intake_doc_id,
+
+            "status": "ready",
+
+            "source_type": (
+                "ai_extraction"
+            ),
+            "source_family": (
+                "ai_extraction"
+            ),
+            "source_format": "csv",
+            "source_profile": (
+                "AI-Extractions"
+            ),
+
+            "processing_set_id": (
+                set_id
+            ),
+            "source_job_id": (
+                job_id
+            ),
+
+            "detection_job_id": (
+                detection_job_ids[0]
+                if len(
+                    detection_job_ids
+                ) == 1
+                else ""
+            ),
+            "detection_job_ids": (
+                detection_job_ids
+            ),
+
+            "source_csv_path": (
+                review_csv_blob_path
+            ),
+
+            "original_filename": (
+                csv_filename
+            ),
+            "normalized_source_filename": (
+                csv_filename
+            ),
+
+            "entity_types": (
+                entity_types
+            ),
+            "profiled_entity_count": (
+                len(entity_types)
+            ),
+
+            "source_document_count": (
+                result.get(
+                    "document_count"
+                )
+                or 0
+            ),
+            "ai_entity_count": (
+                result.get(
+                    "ai_entity_count"
+                )
+                or 0
+            ),
+
+            "cyber2_stage": (
+                existing_intake_payload.get(
+                    "cyber2_stage"
+                )
+                or "intake"
+            ),
+            "header_set_status": (
+                existing_intake_payload.get(
+                    "header_set_status"
+                )
+                or "ready"
+            ),
+
+            "intake_index_path": (
+                intake_index_path
+            ),
+
+            "ai_extraction_manifest_path": (
+                manifest_blob_path
+            ),
+            "ai_extraction_processing_path": (
+                csv_blob_path
+            ),
+
+            "created_at": _utc_now(),
+        }
+
+        intake_upload = (
+            _write_processing_json_blob(
+                blob_path=(
+                    intake_index_path
+                ),
+                payload=intake_payload,
+                overwrite=(
+                    request.overwrite
+                ),
             )
         )
 
@@ -11307,9 +11537,24 @@ def build_ai_extraction_set(
             "manifest_blob_path": (
                 manifest_blob_path
             ),
+            "review_csv_blob_path": (
+                review_csv_blob_path
+            ),
+            "intake_doc_id": (
+                intake_doc_id
+            ),
+            "intake_index_path": (
+                intake_index_path
+            ),
             "csv_upload": csv_upload,
             "manifest_upload": (
                 manifest_upload
+            ),
+            "review_csv_upload": (
+                review_csv_upload
+            ),
+            "intake_upload": (
+                intake_upload
             ),
             "requested_by": (
                 requested_by
