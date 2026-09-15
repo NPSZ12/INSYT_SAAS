@@ -225,40 +225,112 @@ def _ocr_bytes(
         )
     )
 
-    poller = client.begin_analyze_document(
-        model_id="prebuilt-read",
-        body=content,
-        content_type=content_type,
+    connect_timeout_seconds = int(
+        os.getenv(
+            "APC_OCR_CONNECT_TIMEOUT_SECONDS",
+            "20",
+        )
     )
+
+    read_timeout_seconds = int(
+        os.getenv(
+            "APC_OCR_READ_TIMEOUT_SECONDS",
+            "30",
+        )
+    )
+
+    #
+    # IMPORTANT:
+    #
+    # The long-running-operation timeout below does not protect
+    # begin_analyze_document() itself. Bound the initial HTTP
+    # connection/read operation separately so a network/service
+    # stall cannot hold the APC worker indefinitely.
+    #
+    try:
+        poller = client.begin_analyze_document(
+            model_id="prebuilt-read",
+            body=content,
+            content_type=content_type,
+            connection_timeout=connect_timeout_seconds,
+            read_timeout=read_timeout_seconds,
+        )
+
+    except Exception as exc:
+        raise RuntimeError(
+            "Azure Document Intelligence OCR request could not "
+            "be started: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
 
     try:
         result = poller.result(
             timeout=timeout_seconds
         )
+
     except TimeoutError as exc:
+        try:
+            poller.cancel()
+        except Exception:
+            pass
+
         raise RuntimeError(
             "Azure Document Intelligence OCR timed out "
             f"after {timeout_seconds} seconds."
         ) from exc
 
-    text = getattr(result, "content", "") or ""
-    pages = getattr(result, "pages", []) or []
+    except Exception as exc:
+        raise RuntimeError(
+            "Azure Document Intelligence OCR failed while "
+            "waiting for the result: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    text = getattr(
+        result,
+        "content",
+        "",
+    ) or ""
+
+    pages = getattr(
+        result,
+        "pages",
+        [],
+    ) or []
 
     if text:
         return text, len(pages)
 
     page_texts: list[str] = []
+
     for page in pages:
         lines = []
-        for line in getattr(page, "lines", []) or []:
-            line_text = getattr(line, "content", "") or ""
+
+        for line in getattr(
+            page,
+            "lines",
+            [],
+        ) or []:
+            line_text = getattr(
+                line,
+                "content",
+                "",
+            ) or ""
+
             if line_text:
-                lines.append(line_text)
+                lines.append(
+                    line_text
+                )
 
         if lines:
-            page_texts.append("\n".join(lines))
+            page_texts.append(
+                "\n".join(lines)
+            )
 
-    return "\n\n".join(page_texts), len(pages)
+    return (
+        "\n\n".join(page_texts),
+        len(pages),
+    )
 
 
 def _write_ocr_text(row: Any, source_path: str, doc_id: str, text: str) -> str:
