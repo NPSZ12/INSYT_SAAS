@@ -15,6 +15,10 @@ def build_processing_set_ai_extraction(
     set_id: str,
     project_base_path: str,
     read_json_blob: Callable[[str], Any],
+    read_text_blob: Callable[
+        [str],
+        str | None,
+    ],
 ) -> dict[str, Any]:
     """
     Build the AI Extraction artifact for one persisted APC
@@ -41,6 +45,12 @@ def build_processing_set_ai_extraction(
         documents=documents,
         project_base_path=project_base_path,
         read_json_blob=read_json_blob,
+    )
+
+    documents = attach_source_text(
+        documents=documents,
+        project_base_path=project_base_path,
+        read_text_blob=read_text_blob,
     )
 
     extraction_rows = (

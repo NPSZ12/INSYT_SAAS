@@ -18,6 +18,8 @@ class AiExtractionSourceDocument:
     detection_job_id: str = ""
     text_path: str = ""
     text_source: str = ""
+    text_blob_path: str = ""
+    source_text: str = ""
 
     hits: list[dict[str, Any]] = field(
         default_factory=list

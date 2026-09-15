@@ -11120,6 +11120,16 @@ def build_ai_extraction_set(
                 read_json_blob=(
                     _read_processing_json_blob
                 ),
+                read_text_blob=lambda blob_path: (
+                    _read_review_text_blob(
+                        container_name=(
+                            _review_container(
+                                workspace
+                            )
+                        ),
+                        blob_path=blob_path,
+                    )
+                ),
             )
         )
 
@@ -11193,6 +11203,16 @@ def build_ai_extraction_set(
                     ),
                     "text_source": (
                         document.text_source
+                    ),
+                    "text_blob_path": (
+                        document.text_blob_path
+                    ),
+                    "source_text_available": bool(
+                        document.source_text
+                    ),
+                    "source_text_characters": len(
+                        document.source_text
+                        or ""
                     ),
                     "detection_hit_count": len(
                         document.hits
