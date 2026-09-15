@@ -18,6 +18,22 @@ type CaptureField = {
   notes?: string;
 };
 
+type AiEntityCandidate = {
+  id: string;
+  status?: "pending" | "approved" | "rejected";
+  confidence?: number | null;
+  values: Record<string, string | boolean>;
+  source_text?: string;
+  source_page?: number | null;
+  source_field?: string;
+  source_record_id?: string;
+};
+
+type AiEntityApprovalResult = {
+  candidateId: string;
+  values: Record<string, string | boolean>;
+};
+
 type ReviewCapturePanelProps = {
   projectId: string;
   batchId: string;
@@ -37,6 +53,12 @@ type ReviewCapturePanelProps = {
   editingEntity?: any | null;
   onEditComplete?: () => void;
   onEditCancel?: () => void;
+
+  aiEntities?: AiEntityCandidate[];
+  onApproveAiEntity?: (
+    result: AiEntityApprovalResult
+  ) => void;
+  onRejectAiEntity?: (candidateId: string) => void;
 };
 
 export default function ReviewCapturePanel({
@@ -57,8 +79,20 @@ export default function ReviewCapturePanel({
   editingEntity = null,
   onEditComplete,
   onEditCancel,
+  aiEntities = [],
+  onApproveAiEntity,
+  onRejectAiEntity,
 }: ReviewCapturePanelProps) {
   const [values, setValues] = useState<Record<string, string | boolean>>({});
+
+  const [selectedAiEntityId, setSelectedAiEntityId] =
+    useState<string>("");
+
+  const selectedAiEntity =
+    aiEntities.find(
+      (candidate) =>
+        candidate.id === selectedAiEntityId
+    ) || null;
 
   const [message, setMessage] = useState("");
   const [localLinkedEntityAttached, setLocalLinkedEntityAttached] = useState(false);
@@ -101,6 +135,19 @@ export default function ReviewCapturePanel({
   }, [docId]);
 
   useEffect(() => {
+    const firstPending =
+      aiEntities.find(
+        (candidate) =>
+          candidate.status !== "approved" &&
+          candidate.status !== "rejected"
+      ) || aiEntities[0];
+
+    setSelectedAiEntityId(
+      firstPending?.id || ""
+    );
+  }, [docId, aiEntities]);
+
+  useEffect(() => {
     if (forceResponsive) {
       setDocumentCoding("Responsive");
     }
@@ -126,6 +173,72 @@ export default function ReviewCapturePanel({
     setValues(cleanValues as Record<string, string | boolean>);
     setMessage(`Editing ${editingEntity.ucid || editingEntity.UCID || "linked entity"}.`);
   }, [editingEntity]);
+
+  useEffect(() => {
+    if (!selectedAiEntity) {
+      return;
+    }
+
+    const incomingValues =
+      selectedAiEntity.values || {};
+
+    const cleanValues =
+      Object.fromEntries(
+        Object.entries(incomingValues).filter(
+          ([key]) =>
+            key.toUpperCase() !== "UCID"
+        )
+      );
+
+    setValues(
+      cleanValues as Record<
+        string,
+        string | boolean
+      >
+    );
+
+    setMessage(
+      `AI Entity ${Math.max(
+        1,
+        aiEntities.findIndex(
+          (candidate) =>
+            candidate.id ===
+            selectedAiEntity.id
+        ) + 1
+      )} loaded for review.`
+    );
+
+    //
+    // Expand any Capture sections containing
+    // AI-populated values so the reviewer can
+    // immediately see what AI extracted.
+    //
+    setOpenSections((current) => {
+      const next = { ...current };
+
+      for (const field of fields) {
+        const value =
+          cleanValues[field.label];
+
+        const hasValue =
+          typeof value === "boolean"
+            ? value
+            : String(value ?? "").trim() !== "";
+
+        if (hasValue) {
+          next[
+            field.section || "General"
+          ] = true;
+        }
+      }
+
+      return next;
+    });
+  }, [
+    selectedAiEntity,
+    aiEntities,
+    fields,
+  ]);
 
   function normalizeFieldType(field: CaptureField) {
     const typeText =
@@ -443,9 +556,76 @@ export default function ReviewCapturePanel({
           </div>
         )}
 
-        <h2 className="insyt-section-title text-lg text-[var(--insyt-text-primary)]">
-          Capture Panel
-        </h2>
+        <div>
+          <h2 className="insyt-section-title text-lg text-[var(--insyt-text-primary)]">
+            Capture Panel
+          </h2>
+
+          {aiEntities.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-sm font-semibold text-[var(--insyt-text-secondary)]">
+                AI - Entities:
+              </span>
+
+              {aiEntities.map(
+                (candidate, index) => {
+                  const selected =
+                    candidate.id ===
+                    selectedAiEntityId;
+
+                  const approved =
+                    candidate.status ===
+                    "approved";
+
+                  const rejected =
+                    candidate.status ===
+                    "rejected";
+
+                  return (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAiEntityId(
+                          candidate.id
+                        );
+                      }}
+                      title={
+                        candidate.confidence != null
+                          ? `AI Entity ${
+                              index + 1
+                            } - ${Math.round(
+                              candidate.confidence *
+                                100
+                            )}% confidence`
+                          : `AI Entity ${
+                              index + 1
+                            }`
+                      }
+                      className={[
+                        "min-w-7 rounded-md border px-2 py-1 text-xs font-bold transition",
+                        selected
+                          ? "border-sky-400 bg-sky-500 text-white"
+                          : approved
+                            ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-300"
+                            : rejected
+                              ? "border-red-500/60 bg-red-500/10 text-red-300"
+                              : "border-slate-600 bg-slate-900 text-sky-300 hover:border-sky-500 hover:bg-slate-800",
+                      ].join(" ")}
+                    >
+                      {index + 1}
+                      {approved
+                        ? " ✓"
+                        : rejected
+                          ? " ×"
+                          : ""}
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -641,6 +821,185 @@ export default function ReviewCapturePanel({
       </div>
 
       <div className="shrink-0 space-y-3 border-t border-[var(--insyt-border)] p-6">
+        
+        {selectedAiEntity &&
+          selectedAiEntity.status !==
+            "approved" &&
+          selectedAiEntity.status !==
+            "rejected" && (
+            <div className="space-y-2">
+              <Button
+                fullWidth
+                onClick={() => {
+                  const candidateId =
+                    selectedAiEntity.id;
+
+                  const currentValues = {
+                    ...values,
+                  };
+
+                  const hasAnyValue =
+                    Object.values(
+                      currentValues
+                    ).some((value) => {
+                      if (
+                        typeof value ===
+                        "boolean"
+                      ) {
+                        return value;
+                      }
+
+                      return (
+                        String(
+                          value ?? ""
+                        ).trim() !== ""
+                      );
+                    });
+
+                  if (!hasAnyValue) {
+                    setMessage(
+                      "AI Entity contains no Capture values to approve."
+                    );
+                    return;
+                  }
+
+                  //
+                  // Use the same existing entity-link
+                  // workflow. The backend AI provenance
+                  // flag will be added in the next step.
+                  //
+                  apiPost("/api/review/save", {
+                    workspace,
+                    client_id: clientId,
+                    project_id: projectId,
+                    batch_id: batchId,
+                    doc_id: docId,
+                    values: currentValues,
+                  })
+                    .then(() => {
+                      setMessage(
+                        "AI Entity approved and added to Linked Entities."
+                      );
+
+                      setLocalLinkedEntityAttached(
+                        true
+                      );
+
+                      setDocumentCoding(
+                        "Responsive"
+                      );
+
+                      onApproveAiEntity?.({
+                        candidateId,
+                        values: currentValues,
+                      });
+
+                      onLinkedEntitySaved?.();
+
+                      //
+                      // Move automatically to the next
+                      // pending AI Entity.
+                      //
+                      const currentIndex =
+                        aiEntities.findIndex(
+                          (candidate) =>
+                            candidate.id ===
+                            candidateId
+                        );
+
+                      const nextCandidate =
+                        aiEntities
+                          .slice(
+                            currentIndex + 1
+                          )
+                          .find(
+                            (candidate) =>
+                              candidate.status !==
+                                "approved" &&
+                              candidate.status !==
+                                "rejected"
+                          ) ||
+                        aiEntities.find(
+                          (candidate) =>
+                            candidate.id !==
+                              candidateId &&
+                            candidate.status !==
+                              "approved" &&
+                            candidate.status !==
+                              "rejected"
+                        );
+
+                      if (nextCandidate) {
+                        setSelectedAiEntityId(
+                          nextCandidate.id
+                        );
+                      } else {
+                        clearValues();
+                        setSelectedAiEntityId(
+                          ""
+                        );
+                      }
+                    })
+                    .catch(() => {
+                      setMessage(
+                        "AI Entity approval failed."
+                      );
+                    });
+                }}
+              >
+                Approve AI
+              </Button>
+
+              <Button
+                fullWidth
+                variant="secondary"
+                onClick={() => {
+                  const candidateId =
+                    selectedAiEntity.id;
+
+                  onRejectAiEntity?.(
+                    candidateId
+                  );
+
+                  setMessage(
+                    "AI Entity rejected."
+                  );
+
+                  const currentIndex =
+                    aiEntities.findIndex(
+                      (candidate) =>
+                        candidate.id ===
+                        candidateId
+                    );
+
+                  const nextCandidate =
+                    aiEntities
+                      .slice(currentIndex + 1)
+                      .find(
+                        (candidate) =>
+                          candidate.status !==
+                            "approved" &&
+                          candidate.status !==
+                            "rejected"
+                      );
+
+                  if (nextCandidate) {
+                    setSelectedAiEntityId(
+                      nextCandidate.id
+                    );
+                  } else {
+                    clearValues();
+                    setSelectedAiEntityId(
+                      ""
+                    );
+                  }
+                }}
+              >
+                Reject AI
+              </Button>
+            </div>
+          )}
+        
         <Button
           fullWidth
           onClick={editingEntity ? handleUpdateLinkedEntity : handleLinkEntity}
