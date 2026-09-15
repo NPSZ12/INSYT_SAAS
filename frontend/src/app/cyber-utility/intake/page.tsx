@@ -30,6 +30,8 @@ import JsonSalesforcePane from "./components/JsonSalesforcePane";
 import JsonTeamsPane from "./components/JsonTeamsPane";
 import JsonGooglePane from "./components/JsonGooglePane";
 import JsonCustomApiPane from "./components/JsonCustomApiPane";
+import AIExtractionsPane from "./components/AIExtractionsPane";
+
 
 type Cyber2IntakeDocument = {
   doc_id: string;
@@ -90,6 +92,10 @@ type Cyber2IntakeDocument = {
   header_set_status?: string;
   sent_to_header_mapping_at?: string;
   sent_to_header_mapping_by?: string;
+
+  processing_set_id?: string;
+  source_document_count?: number;
+  ai_entity_count?: number;
 };
 
 type Cyber2IntakeResponse = {
@@ -175,6 +181,14 @@ function Cyber2IntakeContent() {
   ] = useState<
     Record<string, boolean>
   >({});
+
+  const [
+    aiExtractionSelectedDocIds,
+    setAiExtractionSelectedDocIds,
+  ] = useState<
+    Record<string, boolean>
+  >({});
+
 
   const [
     classificationFilter,
@@ -319,6 +333,36 @@ function Cyber2IntakeContent() {
     );
   }
 
+  function isAiExtractionDocument(
+    doc: Cyber2IntakeDocument
+  ) {
+    return (
+      String(
+        doc.source_type ||
+        ""
+      )
+        .trim()
+        .toLowerCase()
+      === "ai_extraction"
+      ||
+      String(
+        doc.source_family ||
+        ""
+      )
+        .trim()
+        .toLowerCase()
+      === "ai_extraction"
+      ||
+      String(
+        doc.source_profile ||
+        ""
+      )
+        .trim()
+        .toLowerCase()
+      === "ai-extractions"
+    );
+  }
+
 
   //
   // Existing CSV population.
@@ -332,6 +376,10 @@ function Cyber2IntakeContent() {
     allDocuments.filter(
       (doc) =>
         !isJsonStructuredDocument(
+          doc
+        )
+        &&
+        !isAiExtractionDocument(
           doc
         )
     );
@@ -486,6 +534,80 @@ function Cyber2IntakeContent() {
       (doc) =>
         jsonProfile(doc) ===
         "custom_api"
+    );
+
+  const aiExtractionDocuments =
+    allDocuments.filter(
+      (doc) =>
+        isAiExtractionDocument(
+          doc
+        )
+    );
+
+  const aiExtractionAvailableDocuments =
+    aiExtractionDocuments.filter(
+      (doc) =>
+        !String(
+          doc.header_set_id ||
+          ""
+        ).trim()
+    );
+
+  const aiExtractionDatasets =
+    aiExtractionDocuments.map(
+      (doc) => ({
+        docId:
+          doc.doc_id,
+
+        processingSetId:
+          String(
+            doc.processing_set_id ||
+            doc.doc_id
+          ).trim(),
+
+        sourceJobId:
+          String(
+            doc.source_job_id ||
+            ""
+          ).trim(),
+
+        sourceDocumentCount:
+          Math.max(
+            0,
+            Number(
+              doc.source_document_count ||
+              0
+            )
+          ),
+
+        aiEntityCount:
+          Math.max(
+            0,
+            Number(
+              doc.ai_entity_count ||
+              0
+            )
+          ),
+
+        entityTypes:
+          doc.entity_types ||
+          [],
+
+        filename:
+          String(
+            doc.normalized_source_filename ||
+            doc.original_filename ||
+            ""
+          ).trim(),
+
+        assigned:
+          Boolean(
+            String(
+              doc.header_set_id ||
+              ""
+            ).trim()
+          ),
+      })
     );
 
   function jsonRecordCount(
@@ -1055,6 +1177,45 @@ function Cyber2IntakeContent() {
     );
   }
 
+  function toggleAiExtractionDocument(
+    docId: string,
+    selected: boolean
+  ) {
+    setAiExtractionSelectedDocIds(
+      (current) => ({
+        ...current,
+        [docId]: selected,
+      })
+    );
+  }
+
+  function selectAllAiExtractions() {
+    setAiExtractionSelectedDocIds(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        for (
+          const doc
+          of aiExtractionAvailableDocuments
+        ) {
+          next[
+            doc.doc_id
+          ] = true;
+        }
+
+        return next;
+      }
+    );
+  }
+
+  function clearAiExtractionSelection() {
+    setAiExtractionSelectedDocIds(
+      {}
+    );
+  }
+
   async function createHeaderSetFromDocuments(
     selectedDocuments:
       Cyber2IntakeDocument[],
@@ -1203,6 +1364,28 @@ function Cyber2IntakeContent() {
 
 
     setJsonSlackSelectedDocIds(
+      {}
+    );
+  }
+
+  async function createAiExtractionHeaderSet() {
+
+    const selectedDocuments =
+      aiExtractionAvailableDocuments.filter(
+        (doc) =>
+          Boolean(
+            aiExtractionSelectedDocIds[
+              doc.doc_id
+            ]
+          )
+      );
+
+    await createHeaderSetFromDocuments(
+      selectedDocuments,
+      "Select at least one AI Extraction set."
+    );
+
+    setAiExtractionSelectedDocIds(
       {}
     );
   }
@@ -1357,6 +1540,25 @@ function Cyber2IntakeContent() {
   ) {
     const doc =
       jsonSlackDocuments.find(
+        (item) =>
+          item.doc_id ===
+          docId
+      );
+
+    if (!doc) {
+      return;
+    }
+
+    openDocument(
+      doc
+    );
+  }
+
+  function openAiExtractionDocument(
+    docId: string
+  ) {
+    const doc =
+      aiExtractionDocuments.find(
         (item) =>
           item.doc_id ===
           docId
@@ -2010,6 +2212,37 @@ function Cyber2IntakeContent() {
             </div>
 
           ) : null}
+
+        </div>
+
+        <div className="mb-6">
+
+          <AIExtractionsPane
+            datasets={
+              aiExtractionDatasets
+            }
+            selectedDocIds={
+              aiExtractionSelectedDocIds
+            }
+            creatingHeaderSet={
+              creatingHeaderSet
+            }
+            onToggleDocument={
+              toggleAiExtractionDocument
+            }
+            onSelectAll={
+              selectAllAiExtractions
+            }
+            onClearSelection={
+              clearAiExtractionSelection
+            }
+            onCreateHeaderSet={
+              createAiExtractionHeaderSet
+            }
+            onOpenDocument={
+              openAiExtractionDocument
+            }
+          />
 
         </div>
 
