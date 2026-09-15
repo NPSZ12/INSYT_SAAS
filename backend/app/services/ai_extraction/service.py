@@ -7,6 +7,7 @@ from .csv_writer import build_ai_extraction_csv
 from .detection_loader import attach_detection_results
 from .extractor import build_detection_projection_rows
 from .set_builder import load_processing_set_documents
+from .source_text_loader import attach_source_text
 
 
 def build_processing_set_ai_extraction(
