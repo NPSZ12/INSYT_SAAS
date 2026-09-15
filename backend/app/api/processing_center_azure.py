@@ -63,7 +63,12 @@ from app.services.storage_paths import (
     build_project_path,
     build_project_prefix,
 )
+
 from app.services.summary_outline_service import build_summary_extract_payload
+
+from app.services.ai_extraction.service import (
+    build_processing_set_ai_extraction,
+)
 
 router = APIRouter(prefix="/api", tags=["processing-center-azure"])
 
@@ -188,6 +193,13 @@ class StartDataElementDetectionRequest(BaseModel):
         "worksheet_triage",
         "iar_full",
     ] = "auto"
+
+class BuildAiExtractionSetRequest(BaseModel):
+    client: str
+    project: str
+    job_id: str
+    set_id: str
+    overwrite: bool = True
 
 def _bool_env(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {
@@ -400,6 +412,35 @@ def _write_processing_json_blob(
         data,
         overwrite=overwrite,
         content_settings=ContentSettings(content_type="application/json"),
+    )
+
+    return {
+        "status": "uploaded",
+        "storage_account": _processing_account(),
+        "container": _processing_container(),
+        "blob_path": blob_path,
+        "bytes": len(data),
+    }
+
+
+def _write_processing_bytes_blob(
+    *,
+    blob_path: str,
+    data: bytes,
+    content_type: str,
+    overwrite: bool = True,
+) -> dict[str, Any]:
+    container_client = _processing_container_client()
+    blob_client = container_client.get_blob_client(
+        blob_path
+    )
+
+    blob_client.upload_blob(
+        data,
+        overwrite=overwrite,
+        content_settings=ContentSettings(
+            content_type=content_type
+        ),
     )
 
     return {
@@ -11012,6 +11053,260 @@ def send_processing_center_cyber2_population(
 
         "status": "completed",
     }
+
+@router.post(
+    "/{workspace}/processing-center/"
+    "ai-extraction/build-set"
+)
+def build_ai_extraction_set(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    request: BuildAiExtractionSetRequest,
+    current_user: User = Depends(
+        require_admin
+    ),
+) -> dict[str, Any]:
+    """
+    Build one AI Extraction artifact from an existing
+    persisted APC Processing Set.
+
+    This is downstream-only processing.
+
+    It does not modify or rerun:
+      - ingestion
+      - Processing Set creation
+      - Doc ID assignment
+      - text extraction
+      - OCR
+      - Data Element Detection
+      - promotion
+    """
+
+    job_id = str(
+        request.job_id or ""
+    ).strip()
+
+    set_id = str(
+        request.set_id or ""
+    ).strip()
+
+    if not job_id:
+        raise HTTPException(
+            status_code=400,
+            detail="job_id is required.",
+        )
+
+    if not set_id:
+        raise HTTPException(
+            status_code=400,
+            detail="set_id is required.",
+        )
+
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=request.client,
+        project=request.project,
+    )
+
+    try:
+        result = (
+            build_processing_set_ai_extraction(
+                job_id=job_id,
+                set_id=set_id,
+                project_base_path=base_path,
+                read_json_blob=(
+                    _read_processing_json_blob
+                ),
+            )
+        )
+
+        output_prefix = (
+            f"{base_path}/"
+            "processing_center/"
+            "ai_extraction/sets/"
+            f"{set_id}"
+        )
+
+        csv_filename = (
+            f"{set_id}.AI_EXTRACTION.csv"
+        )
+
+        csv_blob_path = (
+            f"{output_prefix}/"
+            f"{csv_filename}"
+        )
+
+        manifest_blob_path = (
+            f"{output_prefix}/manifest.json"
+        )
+
+        csv_upload = (
+            _write_processing_bytes_blob(
+                blob_path=csv_blob_path,
+                data=result["csv_bytes"],
+                content_type=(
+                    "text/csv; charset=utf-8"
+                ),
+                overwrite=request.overwrite,
+            )
+        )
+
+        documents = (
+            result.get("documents")
+            or []
+        )
+
+        manifest_documents = []
+
+        for document in documents:
+            manifest_documents.append(
+                {
+                    "processing_set_id": (
+                        document.processing_set_id
+                    ),
+                    "processing_set_number": (
+                        document.processing_set_number
+                    ),
+                    "processing_set_ordinal": (
+                        document.processing_set_ordinal
+                    ),
+                    "source_job_id": (
+                        document.source_job_id
+                    ),
+                    "source_file_id": (
+                        document.source_file_id
+                    ),
+                    "source_doc_id": (
+                        document.source_doc_id
+                    ),
+                    "source_filename": (
+                        document.source_filename
+                    ),
+                    "detection_job_id": (
+                        document.detection_job_id
+                    ),
+                    "text_path": (
+                        document.text_path
+                    ),
+                    "text_source": (
+                        document.text_source
+                    ),
+                    "detection_hit_count": len(
+                        document.hits
+                        or []
+                    ),
+                }
+            )
+
+        manifest_payload = {
+            "schema_version": 1,
+            "generated_at": _utc_now(),
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+            "job_id": job_id,
+            "set_id": set_id,
+            "document_count": (
+                result.get(
+                    "document_count"
+                )
+                or 0
+            ),
+            "documents_with_hits": (
+                result.get(
+                    "documents_with_hits"
+                )
+                or 0
+            ),
+            "ai_entity_count": (
+                result.get(
+                    "ai_entity_count"
+                )
+                or 0
+            ),
+            "csv_filename": csv_filename,
+            "csv_blob_path": csv_blob_path,
+            "documents": (
+                manifest_documents
+            ),
+        }
+
+        manifest_upload = (
+            _write_processing_json_blob(
+                blob_path=manifest_blob_path,
+                payload=manifest_payload,
+                overwrite=request.overwrite,
+            )
+        )
+
+        requested_by = str(
+            getattr(
+                current_user,
+                "email",
+                None,
+            )
+            or getattr(
+                current_user,
+                "username",
+                None,
+            )
+            or ""
+        )
+
+        return {
+            "status": "completed",
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+            "job_id": job_id,
+            "set_id": set_id,
+            "document_count": (
+                result.get(
+                    "document_count"
+                )
+                or 0
+            ),
+            "documents_with_hits": (
+                result.get(
+                    "documents_with_hits"
+                )
+                or 0
+            ),
+            "ai_entity_count": (
+                result.get(
+                    "ai_entity_count"
+                )
+                or 0
+            ),
+            "csv_blob_path": (
+                csv_blob_path
+            ),
+            "manifest_blob_path": (
+                manifest_blob_path
+            ),
+            "csv_upload": csv_upload,
+            "manifest_upload": (
+                manifest_upload
+            ),
+            "requested_by": (
+                requested_by
+            ),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to build AI Extraction "
+                f"set: {exc}"
+            ),
+        ) from exc
 
 @router.get(
     "/{workspace}/cyber2/intake"
