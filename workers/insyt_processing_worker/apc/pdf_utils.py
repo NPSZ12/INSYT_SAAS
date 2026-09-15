@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
@@ -32,78 +31,32 @@ def count_pdf_pages(path: Path) -> tuple[int, str]:
 
 def pdf_is_encrypted(path: Path) -> bool:
     try:
-        with path.open("rb") as fh:
-            data = fh.read(1024 * 1024)
+        data = path.read_bytes()[:1024 * 1024]
     except Exception:
         return False
-
-    return b"/Encrypt" in data
+    return bool(_ENCRYPT_RE.search(data))
 
 
 def estimate_pdf_native_text_bytes(path: Path) -> tuple[int, str]:
+    """Estimate whether a PDF has embedded/native text without external libs.
+
+    This is not full extraction. It is a signal for OCR candidate selection.
     """
-    Estimate whether a PDF contains native text operators.
-
-    This is only an OCR-selection signal. It deliberately avoids
-    regex parsing across arbitrary PDF binary streams because some
-    PDFs can cause extremely expensive backtracking.
-    """
-
     try:
-        max_scan_bytes = max(
-            1024 * 1024,
-            int(
-                os.getenv(
-                    "APC_PDF_TEXT_SIGNAL_MAX_BYTES",
-                    str(8 * 1024 * 1024),
-                )
-            ),
-        )
-    except Exception:
-        max_scan_bytes = 8 * 1024 * 1024
-
-    try:
-        with path.open("rb") as fh:
-            data = fh.read(max_scan_bytes)
+        data = path.read_bytes()
     except Exception:
         return 0, "failed"
-
     if not data.startswith(b"%PDF") and b"%PDF" not in data[:1024]:
         return 0, "not_pdf"
-
-    if b"/Encrypt" in data[:1024 * 1024]:
+    if _ENCRYPT_RE.search(data[:1024 * 1024]):
         return 0, "encrypted"
-
-    #
-    # Lightweight linear byte scanning only.
-    #
-    # BT/ET delimit PDF text objects.
-    # Tj/TJ are common text-showing operators.
-    #
-    bt_count = data.count(b"BT")
-    et_count = data.count(b"ET")
-
-    if bt_count == 0 or et_count == 0:
+    blocks = _TEXT_BLOCK_RE.findall(data)
+    if not blocks:
         return 0, "no_text_operators"
-
-    tj_count = data.count(b"Tj")
-    tj_array_count = data.count(b"TJ")
-    text_operator_count = tj_count + tj_array_count
-
-    if text_operator_count == 0:
-        return 0, "text_blocks_no_strings"
-
-    #
-    # This is intentionally an estimate, not extracted text length.
-    # Give each discovered text-show operator a conservative amount
-    # of signal weight while bounding the result.
-    #
-    estimated_text_bytes = min(
-        text_operator_count * 64,
-        1024 * 1024,
-    )
-
-    return (
-        max(estimated_text_bytes, 1),
-        "operator_signal",
-    )
+    textish = 0
+    for block in blocks[:500]:
+        for match in _TEXT_SHOW_RE.findall(block):
+            textish += len(match)
+    if textish > 0:
+        return textish, "operator_signal"
+    return 0, "text_blocks_no_strings"

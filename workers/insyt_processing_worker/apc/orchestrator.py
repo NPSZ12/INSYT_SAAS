@@ -579,38 +579,12 @@ def run_local_pipeline(
 
         check_cancel("ocr_live")
 
-        _emit_pipeline_progress(
-            progress_callback,
-            db=db,
-            job_id=job_id,
-            stage="ocr_live",
-            current_step=(
-                "Running live OCR with Azure "
-                "Document Intelligence."
-            ),
-        )
-
         live_ocr_result = run_live_ocr_placeholder(
             db,
             settings,
             job_id,
             matter_id,
             cancellation_callback=cancellation_callback,
-        )
-
-        _emit_pipeline_progress(
-            progress_callback,
-            db=db,
-            job_id=job_id,
-            stage="ocr_live",
-            current_step=(
-                "Live OCR completed. "
-                f"Processed "
-                f"{int(live_ocr_result.get('processed_count') or 0)} "
-                f"document(s); "
-                f"{int(live_ocr_result.get('exception_count') or 0)} "
-                "exception(s)."
-            ),
         )
 
         if int(live_ocr_result.get("exception_count") or 0) > 0:

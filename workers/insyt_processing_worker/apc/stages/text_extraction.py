@@ -245,35 +245,6 @@ def run_text_extraction(
             try:
                 path = Path(row["original_path"])
                 ext = row["extension"] or ""
-                if progress_callback:
-                    progress_callback(
-                        {
-                            "stage": "text_extraction",
-                            "current_stage": "text_extraction",
-                            "current_step": (
-                                f"Extracting text "
-                                f"{row_index:,} of "
-                                f"{stage_total_files:,}"
-                            ),
-                            "current_file": str(
-                                row["original_path"]
-                            ),
-                            "stage_processed_files": (
-                                row_index - 1
-                            ),
-                            "stage_total_files": (
-                                stage_total_files
-                            ),
-                            "stage_failed_files": (
-                                stage_failed_files
-                            ),
-                            "stage_remaining_files": (
-                                stage_total_files
-                                - row_index
-                                + 1
-                            ),
-                        }
-                    )
                 page_count, text_bytes, page_confidence, text_signal, encrypted, text_window = _native_text_signal(
                     path,
                     ext,
