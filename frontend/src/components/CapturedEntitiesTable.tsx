@@ -282,11 +282,27 @@ export default function CapturedEntitiesTable({
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
 
-  const initialView =
-    searchParams.get("view") === "final" ? "final" : "raw";
+  const requestedView =
+    String(
+      searchParams.get("view") || ""
+    )
+      .trim()
+      .toLowerCase();
 
-  const [entityView, setEntityView] =
-    useState<"raw" | "final">(initialView);
+  const initialView:
+    "raw" | "ai" | "final" =
+    requestedView === "final"
+      ? "final"
+      : requestedView === "ai"
+        ? "ai"
+        : "raw";
+
+  const [
+    entityView,
+    setEntityView,
+  ] = useState<
+    "raw" | "ai" | "final"
+  >(initialView);
 
   const [entityData, setEntityData] =
     useState<CapturedEntitiesResponse>({
@@ -378,7 +394,10 @@ export default function CapturedEntitiesTable({
 
     Promise.allSettled([
       apiGet(entitiesUrl),
-      apiGet(overlayUrl),
+
+      entityView === "ai"
+        ? Promise.resolve(null)
+        : apiGet(overlayUrl),
     ])
       .then(([entitiesResult, overlayResult]) => {
         let headers: string[] = [];
@@ -392,8 +411,13 @@ export default function CapturedEntitiesTable({
           rows = response.rows || [];
         }
 
-        if (overlayResult.status === "fulfilled") {
-          const overlay = overlayResult.value as any;
+        if (
+          entityView !== "ai" &&
+          overlayResult.status === "fulfilled" &&
+          overlayResult.value
+        ) {
+          const overlay =
+            overlayResult.value as any;
 
           const overlayHeaders =
             overlay.committed_headers ||
@@ -929,6 +953,22 @@ function openFinalSourceDocs(row: Record<string, any>) {
               }
             >
               Raw
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setEntityView(
+                  "ai"
+                )
+              }
+              className={
+                entityView === "ai"
+                  ? "rounded-xl border border-sky-500 bg-sky-500 px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
+              }
+            >
+              AI
             </button>
 
             <button

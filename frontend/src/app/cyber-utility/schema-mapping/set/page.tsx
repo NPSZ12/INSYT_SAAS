@@ -402,6 +402,12 @@ function SchemaMappingSetContent() {
     useState(false);
 
   const [
+    generatingAiCapture,
+    setGeneratingAiCapture,
+  ] =
+    useState(false);
+
+  const [
     decisions,
     setDecisions,
   ] =
@@ -715,6 +721,8 @@ function SchemaMappingSetContent() {
       identification?.documents ||
       [];
 
+
+
     const next: DecisionState =
       {};
 
@@ -879,6 +887,63 @@ function SchemaMappingSetContent() {
   const documents =
     identification?.documents ||
     [];
+
+
+  const isAiExtractionHeaderSet =
+    (
+      headerSetData
+        ?.manifest
+        ?.documents ||
+      []
+    ).some(
+      (document: any) => {
+        const sourceType =
+          String(
+            document?.source_type ||
+            ""
+          )
+            .trim()
+            .toLowerCase();
+
+        const sourceFamily =
+          String(
+            document?.source_family ||
+            ""
+          )
+            .trim()
+            .toLowerCase();
+
+        const sourceProfile =
+          String(
+            document?.source_profile ||
+            ""
+          )
+            .trim()
+            .toLowerCase();
+
+        const sourceFilename =
+          String(
+            document?.normalized_source_filename ||
+            document?.original_filename ||
+            document?.source_csv_path ||
+            ""
+          )
+            .trim()
+            .toLowerCase();
+
+        return (
+          sourceType ===
+            "ai_extraction" ||
+          sourceFamily ===
+            "ai_extraction" ||
+          sourceProfile ===
+            "ai-extractions" ||
+          sourceFilename.includes(
+            ".ai_extraction.csv"
+          )
+        );
+      }
+    );
 
 
   const protocolHeaders =
@@ -2048,6 +2113,71 @@ function SchemaMappingSetContent() {
     }
   }
 
+  async function generateAiCapture() {
+    if (
+      !client ||
+      !project ||
+      !headerSetId
+    ) {
+      return;
+    }
+
+    setGeneratingAiCapture(
+      true
+    );
+
+    setError(
+      ""
+    );
+
+    setMessage(
+      ""
+    );
+
+    try {
+      const result =
+        await apiPost(
+          `/api/${encodeURIComponent(
+            workspace
+          )}/cyber2/header-sets/${encodeURIComponent(
+            headerSetId
+          )}/mapping/generate-ai-capture`,
+          {
+            client,
+            project,
+            generated_by: "",
+            replace_header_set_rows:
+              true,
+          }
+        );
+
+      setMessage(
+        result?.message ||
+          "AI Capture generation completed."
+      );
+
+      await loadHeaderSet();
+
+      await loadMappedCsvs();
+
+    } catch (err: any) {
+      console.error(
+        "AI Capture generation failed:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "AI Capture generation failed."
+      );
+
+    } finally {
+      setGeneratingAiCapture(
+        false
+      );
+    }
+  }
+
 
   if (
     !client ||
@@ -3164,27 +3294,53 @@ function SchemaMappingSetContent() {
                                 : "Generate Mapped CSVs"}
                             </button>
 
-                            <button
+                            {isAiExtractionHeaderSet ? (
+                              <button
                                 type="button"
                                 onClick={
-                                generateRawCapture
+                                  generateAiCapture
                                 }
                                 disabled={
-                                generatingRawCapture ||
-                                !mappedCsvData?.mapped_csv_manifest_exists ||
-                                (
+                                  generatingAiCapture ||
+                                  !mappedCsvData
+                                    ?.mapped_csv_manifest_exists ||
+                                  (
                                     mappedCsvData
-                                    ?.mapped_csv_manifest
-                                    ?.generated_document_count ??
+                                      ?.mapped_csv_manifest
+                                      ?.generated_document_count ??
                                     0
-                                ) === 0
+                                  ) === 0
+                                }
+                                className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                {generatingAiCapture
+                                  ? "Generating AI Capture..."
+                                  : "Generate AI Capture & Add to File"}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={
+                                  generateRawCapture
+                                }
+                                disabled={
+                                  generatingRawCapture ||
+                                  !mappedCsvData
+                                    ?.mapped_csv_manifest_exists ||
+                                  (
+                                    mappedCsvData
+                                      ?.mapped_csv_manifest
+                                      ?.generated_document_count ??
+                                    0
+                                  ) === 0
                                 }
                                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
+                              >
                                 {generatingRawCapture
-                                ? "Generating Raw Capture..."
-                                : "Generate Raw Capture"}
-                            </button>
+                                  ? "Generating Raw Capture..."
+                                  : "Generate Raw Capture"}
+                              </button>
+                            )}
 
                         </div>
 

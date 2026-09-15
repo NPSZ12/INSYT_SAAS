@@ -368,6 +368,63 @@ def load_cyber2_raw_capture_records(
         )
     ]
 
+def load_cyber2_ai_capture_records(
+    workspace: str,
+    client: str | None,
+    project: str,
+) -> list[dict[str, Any]]:
+
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    ai_capture_path = (
+        f"{base_path}/cyber2/"
+        f"ai_capture/"
+        f"latest_ai_capture.json"
+    )
+
+    try:
+        payload = (
+            _read_processing_json_blob(
+                ai_capture_path
+            )
+        )
+
+    except Exception:
+        return []
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return []
+
+    records = (
+        payload.get(
+            "records"
+        )
+        or []
+    )
+
+    if not isinstance(
+        records,
+        list,
+    ):
+        return []
+
+    return [
+        record
+        for record
+        in records
+        if isinstance(
+            record,
+            dict,
+        )
+    ]
+
 def safe_export_name(value: str, fallback: str = "export") -> str:
     clean = "".join(
         character
@@ -569,7 +626,19 @@ def list_entities(
         if header and header.upper() != "UCID"
     ]
 
-    normalized_view = "final" if view == "final" else "raw"
+    requested_view = str(
+        view or ""
+    ).strip().lower()
+
+    normalized_view = (
+        "final"
+        if requested_view == "final"
+        else (
+            "ai"
+            if requested_view == "ai"
+            else "raw"
+        )
+    )
     
     if normalized_view == "final":
         final_records = load_latest_overlay_records(
@@ -611,6 +680,134 @@ def list_entities(
             "headers": ["Doc ID"] + final_headers,
             "rows": rows,
             "source": "final_overlay",
+        }
+
+    if normalized_view == "ai":
+
+        ai_records = (
+            load_cyber2_ai_capture_records(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+        )
+
+        ai_headers = [
+            "AI Entity ID",
+            "AI Status",
+            "AI Confidence",
+            "Source Filename",
+        ]
+
+        value_headers: list[str] = []
+
+        rows = []
+
+        for record in ai_records:
+
+            values = (
+                record.get(
+                    "values"
+                )
+                or {}
+            )
+
+            if not isinstance(
+                values,
+                dict,
+            ):
+                values = {}
+
+            for key in values.keys():
+                clean_key = str(
+                    key or ""
+                ).strip()
+
+                if (
+                    clean_key
+                    and clean_key
+                    not in value_headers
+                ):
+                    value_headers.append(
+                        clean_key
+                    )
+
+            provenance = (
+                record.get(
+                    "provenance"
+                )
+                or {}
+            )
+
+            confidence = (
+                record.get(
+                    "confidence"
+                )
+            )
+
+            confidence_display = ""
+
+            if confidence is not None:
+                try:
+                    confidence_display = (
+                        f"{float(confidence) * 100:.0f}%"
+                    )
+                except Exception:
+                    confidence_display = (
+                        str(
+                            confidence
+                        )
+                    )
+
+            row = {
+                "Doc ID": (
+                    record.get(
+                        "doc_id"
+                    )
+                    or ""
+                ),
+
+                "AI Entity ID": (
+                    record.get(
+                        "ai_entity_id"
+                    )
+                    or ""
+                ),
+
+                "AI Status": (
+                    record.get(
+                        "status"
+                    )
+                    or "pending"
+                ),
+
+                "AI Confidence":
+                    confidence_display,
+
+                "Source Filename": (
+                    provenance.get(
+                        "source_filename"
+                    )
+                    or ""
+                ),
+
+                **values,
+            }
+
+            rows.append(
+                row
+            )
+
+        return {
+            "headers": [
+                "Doc ID",
+                *ai_headers,
+                *value_headers,
+            ],
+            "rows":
+                rows,
+            "source":
+                "cyber2_ai_capture",
         }
 
     matching_entities = []

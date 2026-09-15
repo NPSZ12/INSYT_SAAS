@@ -261,6 +261,27 @@ def _raw_capture_path(
         f"latest_raw_capture.json"
     )
 
+def _ai_capture_path(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+) -> str:
+
+    base_path = (
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    )
+
+    return (
+        f"{base_path}/cyber2/"
+        f"ai_capture/"
+        f"latest_ai_capture.json"
+    )
+
 def _load_required_json(
     blob_path: str,
     *,
@@ -3239,6 +3260,559 @@ def generate_cyber2_raw_capture(
                 failed_documents
             )
         ),
+
+        "failed_documents":
+            failed_documents,
+    }
+
+@router.post(
+    "/{workspace}/cyber2/"
+    "header-sets/{header_set_id}/"
+    "mapping/generate-ai-capture"
+)
+def generate_cyber2_ai_capture(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    header_set_id: str,
+    request: GenerateRawCaptureRequest,
+) -> dict[str, Any]:
+
+    client = str(
+        request.client or ""
+    ).strip()
+
+    project = str(
+        request.project or ""
+    ).strip()
+
+    header_set_id = str(
+        header_set_id or ""
+    ).strip()
+
+    if not client:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required.",
+        )
+
+    if not project:
+        raise HTTPException(
+            status_code=400,
+            detail="Project is required.",
+        )
+
+    mapped_manifest_path = (
+        _mapped_csv_manifest_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        )
+    )
+
+    mapped_manifest = (
+        _load_required_json(
+            mapped_manifest_path,
+            description="Mapped CSV Manifest",
+        )
+    )
+
+    mapped_documents = (
+        mapped_manifest.get(
+            "documents"
+        )
+        or []
+    )
+
+    if not isinstance(
+        mapped_documents,
+        list,
+    ):
+        mapped_documents = []
+
+    if not mapped_documents:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Mapped CSV outputs must be "
+                "generated before AI Capture."
+            ),
+        )
+
+    ai_capture_path = (
+        _ai_capture_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    )
+
+    existing_payload: dict[
+        str,
+        Any,
+    ] = {}
+
+    try:
+        existing_payload = (
+            _read_processing_json_blob(
+                ai_capture_path
+            )
+        )
+
+        if not isinstance(
+            existing_payload,
+            dict,
+        ):
+            existing_payload = {}
+
+    except Exception:
+        existing_payload = {}
+
+    existing_records = (
+        existing_payload.get(
+            "records"
+        )
+        or []
+    )
+
+    if not isinstance(
+        existing_records,
+        list,
+    ):
+        existing_records = []
+
+    #
+    # Re-running the same Header Set replaces
+    # its prior AI candidates instead of
+    # creating duplicates.
+    #
+    if request.replace_header_set_rows:
+        existing_records = [
+            record
+            for record
+            in existing_records
+            if str(
+                (
+                    record.get(
+                        "provenance"
+                    )
+                    or {}
+                ).get(
+                    "header_set_id"
+                )
+                or ""
+            ).strip()
+            != header_set_id
+        ]
+
+    output_container = (
+        _processing_container_client()
+    )
+
+    generated_at = (
+        _utc_now()
+    )
+
+    new_records: list[
+        dict[str, Any]
+    ] = []
+
+    failed_documents: list[
+        dict[str, Any]
+    ] = []
+
+    for document in mapped_documents:
+
+        if not isinstance(
+            document,
+            dict,
+        ):
+            continue
+
+        processing_doc_id = str(
+            document.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+
+        mapped_csv_path = str(
+            document.get(
+                "mapped_csv_path"
+            )
+            or ""
+        ).strip()
+
+        if not mapped_csv_path:
+            failed_documents.append(
+                {
+                    "doc_id":
+                        processing_doc_id,
+
+                    "error":
+                        "Mapped CSV path is missing.",
+                }
+            )
+
+            continue
+
+        try:
+            (
+                mapped_rows,
+                _mapped_delimiter,
+            ) = (
+                _read_csv_blob_rows(
+                    container=(
+                        output_container
+                    ),
+                    blob_path=(
+                        mapped_csv_path
+                    ),
+                )
+            )
+
+            if not mapped_rows:
+                continue
+
+            mapped_headers = [
+                str(
+                    value or ""
+                ).strip()
+                for value
+                in mapped_rows[0]
+            ]
+
+            for data_index, row in enumerate(
+                mapped_rows[1:]
+            ):
+
+                metadata: dict[
+                    str,
+                    Any,
+                ] = {}
+
+                for column_index, header in enumerate(
+                    mapped_headers
+                ):
+
+                    if not header:
+                        continue
+
+                    metadata[
+                        header
+                    ] = (
+                        row[
+                            column_index
+                        ]
+                        if column_index
+                        < len(row)
+                        else ""
+                    )
+
+                #
+                # This is the critical linkage.
+                # Never use the Processing Set Doc ID
+                # as the review target.
+                #
+                source_doc_id = str(
+                    metadata.get(
+                        "INSYT_Source_Doc_ID"
+                    )
+                    or ""
+                ).strip()
+
+                if not source_doc_id:
+                    failed_documents.append(
+                        {
+                            "doc_id":
+                                processing_doc_id,
+
+                            "row":
+                                data_index + 1,
+
+                            "error": (
+                                "INSYT_Source_Doc_ID "
+                                "is missing."
+                            ),
+                        }
+                    )
+
+                    continue
+
+                ai_entity_id = str(
+                    metadata.get(
+                        "INSYT_AI_Entity_ID"
+                    )
+                    or ""
+                ).strip()
+
+                if not ai_entity_id:
+                    ai_entity_id = (
+                        f"{header_set_id}-"
+                        f"AI-{data_index + 1:06d}"
+                    )
+
+                confidence_raw = (
+                    metadata.get(
+                        "INSYT_Extraction_Confidence"
+                    )
+                )
+
+                try:
+                    confidence = (
+                        float(
+                            confidence_raw
+                        )
+                        if str(
+                            confidence_raw
+                            or ""
+                        ).strip()
+                        else None
+                    )
+                except Exception:
+                    confidence = None
+
+                #
+                # Only mapped business/protocol fields
+                # belong in values. INSYT_* remains
+                # immutable provenance.
+                #
+                values = {
+                    key: value
+                    for key, value
+                    in metadata.items()
+                    if key
+                    and not key.upper().startswith(
+                        "INSYT_"
+                    )
+                    and key.upper() != "UCID"
+                }
+
+                new_records.append(
+                    {
+                        "ai_entity_id":
+                            ai_entity_id,
+
+                        "doc_id":
+                            source_doc_id,
+
+                        "status":
+                            "pending",
+
+                        "confidence":
+                            confidence,
+
+                        "values":
+                            values,
+
+                        "source_text": (
+                            metadata.get(
+                                "INSYT_Source_Text"
+                            )
+                            or ""
+                        ),
+
+                        "source_page": (
+                            metadata.get(
+                                "INSYT_Source_Page"
+                            )
+                            or ""
+                        ),
+
+                        "source_record_id": (
+                            metadata.get(
+                                "INSYT_Source_Record_ID"
+                            )
+                            or ""
+                        ),
+
+                        "source_field": (
+                            metadata.get(
+                                "INSYT_Source_Field"
+                            )
+                            or ""
+                        ),
+
+                        "generated_at":
+                            generated_at,
+
+                        "provenance": {
+                            "capture_source":
+                                "ai_extraction",
+
+                            "source_type":
+                                "AI_EXTRACTION",
+
+                            "header_set_id":
+                                header_set_id,
+
+                            "processing_set_id": (
+                                metadata.get(
+                                    "INSYT_Processing_Set_ID"
+                                )
+                                or processing_doc_id
+                            ),
+
+                            "source_job_id": (
+                                metadata.get(
+                                    "INSYT_Source_Job_ID"
+                                )
+                                or ""
+                            ),
+
+                            "source_file_id": (
+                                metadata.get(
+                                    "INSYT_Source_File_ID"
+                                )
+                                or ""
+                            ),
+
+                            "source_doc_id":
+                                source_doc_id,
+
+                            "source_filename": (
+                                metadata.get(
+                                    "INSYT_Source_Filename"
+                                )
+                                or ""
+                            ),
+
+                            "detection_job_id": (
+                                metadata.get(
+                                    "INSYT_Detection_Job_ID"
+                                )
+                                or ""
+                            ),
+
+                            "mapped_csv_path":
+                                mapped_csv_path,
+                        },
+                    }
+                )
+
+        except Exception as exc:
+            failed_documents.append(
+                {
+                    "doc_id":
+                        processing_doc_id,
+
+                    "mapped_csv_path":
+                        mapped_csv_path,
+
+                    "error":
+                        str(exc),
+                }
+            )
+
+    combined_records = [
+        *existing_records,
+        *new_records,
+    ]
+
+    payload = {
+        "schema_version": 1,
+
+        "workspace":
+            workspace,
+
+        "client":
+            client,
+
+        "project":
+            project,
+
+        "status": (
+            "completed"
+            if not failed_documents
+            else (
+                "completed_with_errors"
+                if new_records
+                else "failed"
+            )
+        ),
+
+        "generated_at":
+            generated_at,
+
+        "generated_by": str(
+            request.generated_by
+            or ""
+        ).strip(),
+
+        "record_count":
+            len(
+                combined_records
+            ),
+
+        "header_set_record_count":
+            len(
+                new_records
+            ),
+
+        "failed_document_count":
+            len(
+                failed_documents
+            ),
+
+        "records":
+            combined_records,
+
+        "failed_documents":
+            failed_documents,
+    }
+
+    _write_processing_json_blob(
+        blob_path=(
+            ai_capture_path
+        ),
+        payload=payload,
+        overwrite=True,
+    )
+
+    return {
+        "status":
+            payload["status"],
+
+        "message": (
+            f"Generated "
+            f"{len(new_records)} "
+            f"AI Capture candidate(s); "
+            f"{len(failed_documents)} "
+            f"row(s) failed."
+        ),
+
+        "workspace":
+            workspace,
+
+        "client":
+            client,
+
+        "project":
+            project,
+
+        "header_set_id":
+            header_set_id,
+
+        "ai_capture_path":
+            ai_capture_path,
+
+        "header_set_record_count":
+            len(
+                new_records
+            ),
+
+        "project_ai_record_count":
+            len(
+                combined_records
+            ),
+
+        "failed_document_count":
+            len(
+                failed_documents
+            ),
 
         "failed_documents":
             failed_documents,
