@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -38,25 +39,82 @@ def pdf_is_encrypted(path: Path) -> bool:
 
 
 def estimate_pdf_native_text_bytes(path: Path) -> tuple[int, str]:
-    """Estimate whether a PDF has embedded/native text without external libs.
-
-    This is not full extraction. It is a signal for OCR candidate selection.
     """
+    Estimate whether a PDF has embedded/native text.
+
+    This is intentionally a lightweight OCR-selection signal,
+    not full PDF text extraction.
+
+    Avoid running a DOTALL regex across an arbitrarily large
+    binary PDF because malformed/compressed content can make
+    that scan extremely expensive.
+    """
+
     try:
-        data = path.read_bytes()
+        max_scan_bytes = max(
+            1024 * 1024,
+            int(
+                os.getenv(
+                    "APC_PDF_TEXT_SIGNAL_MAX_BYTES",
+                    str(8 * 1024 * 1024),
+                )
+            ),
+        )
+    except Exception:
+        max_scan_bytes = 8 * 1024 * 1024
+
+    try:
+        with path.open("rb") as fh:
+            data = fh.read(max_scan_bytes)
     except Exception:
         return 0, "failed"
+
     if not data.startswith(b"%PDF") and b"%PDF" not in data[:1024]:
         return 0, "not_pdf"
+
     if _ENCRYPT_RE.search(data[:1024 * 1024]):
         return 0, "encrypted"
-    blocks = _TEXT_BLOCK_RE.findall(data)
-    if not blocks:
-        return 0, "no_text_operators"
+
+    #
+    # Search only the bounded sample above.
+    # Stop once enough native-text evidence is found;
+    # this is an OCR eligibility signal, not an extraction pass.
+    #
     textish = 0
-    for block in blocks[:500]:
-        for match in _TEXT_SHOW_RE.findall(block):
-            textish += len(match)
+    block_count = 0
+
+    for block_match in _TEXT_BLOCK_RE.finditer(data):
+        block_count += 1
+
+        for match in _TEXT_SHOW_RE.finditer(
+            block_match.group(0)
+        ):
+            textish += len(
+                match.group(0)
+            )
+
+            if textish >= 4096:
+                return (
+                    textish,
+                    "operator_signal",
+                )
+
+        if block_count >= 250:
+            break
+
     if textish > 0:
-        return textish, "operator_signal"
-    return 0, "text_blocks_no_strings"
+        return (
+            textish,
+            "operator_signal",
+        )
+
+    if block_count > 0:
+        return (
+            0,
+            "text_blocks_no_strings",
+        )
+
+    return (
+        0,
+        "no_text_operators",
+    )
