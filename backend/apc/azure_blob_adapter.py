@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -7,14 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .azure_layout import (
-    AzureRoutingConfig,
-    build_azure_routing_summary,
-    build_review_promotion_blob_plan,
-    build_xl_files_staging_plan,
-    build_json_structured_staging_plan,
-)
-
+from .azure_layout import AzureRoutingConfig, build_review_promotion_blob_plan, build_azure_routing_summary
 from .db import LedgerDB
 from .reports import latest_job_id
 from .util import utc_now
@@ -98,32 +91,12 @@ class DualStorageBlobAdapter:
             )
         return rows
 
-    def download_processing_uploads(
-        self,
-        destination_root: str,
-        prefix: str | None = None,
-        overwrite: bool = False,
-        blob_names: list[str] | None = None,
-    ) -> list[dict[str, object]]:
+    def download_processing_uploads(self, destination_root: str, prefix: str | None = None, overwrite: bool = False) -> list[dict[str, object]]:
         dest = Path(destination_root)
         dest.mkdir(parents=True, exist_ok=True)
         upload_prefix = (prefix or self.routing.processing_paths()["uploads"]).rstrip("/") + "/"
         downloaded: list[dict[str, object]] = []
-
-        selected_names = {
-            str(name or "").strip()
-            for name in (blob_names or [])
-            if str(name or "").strip()
-        }
-
-        for item in self.list_processing_uploads(
-            prefix=upload_prefix.rstrip("/")
-        ):
-            if (
-                selected_names
-                and item.name not in selected_names
-            ):
-                continue
+        for item in self.list_processing_uploads(prefix=upload_prefix.rstrip("/")):
             rel = item.name[len(upload_prefix):] if item.name.startswith(upload_prefix) else Path(item.name).name
             local_path = dest / rel.replace("/", os.sep)
             local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,7 +113,7 @@ class DualStorageBlobAdapter:
                 "status": status,
             })
         return downloaded
-
+    
     def archive_processing_uploads(
         self,
         job_id: str,
@@ -151,10 +124,10 @@ class DualStorageBlobAdapter:
         """Archive pending Processing Center uploads after a successful worker run.
 
         Files are copied from:
-            {client}/{workspace}/{project}/processing_center/uploads/
+            {client}/{workspace}/{project_storage_key}/source/processing_center/uploads/
 
         to:
-            {client}/{workspace}/{project}/processing_center/archive/{job_id}/uploads/
+            {client}/{workspace}/{project_storage_key}/processing_center/archive/{job_id}/uploads/
 
         Then the original pending upload is deleted when delete_original=True.
         """
@@ -266,14 +239,14 @@ class DualStorageBlobAdapter:
 
         Default professional APC behavior is staged output:
 
-            {client}/{workspace}/{project}/processing_center/staged/{job_id}/native/
-            {client}/{workspace}/{project}/processing_center/staged/{job_id}/text/
+            {client}/{workspace}/{project_storage_key}/processing_center/staged/{job_id}/native/
+            {client}/{workspace}/{project_storage_key}/processing_center/staged/{job_id}/text/
 
         Final project source promotion happens later through an explicit admin
         promotion action, which copies selected staged pairs into:
 
-            {client}/{workspace}/{project}/source/native/
-            {client}/{workspace}/{project}/source/text/
+            {client}/{workspace}/{project_storage_key}/source/native/
+            {client}/{workspace}/{project_storage_key}/source/text/
         """
 
         root = Path(local_review_root)
@@ -382,20 +355,9 @@ def azure_list_uploads(routing: AzureRoutingConfig, export_dir: str | None = Non
     return rows
 
 
-def azure_download_uploads(
-    routing: AzureRoutingConfig,
-    destination_root: str,
-    overwrite: bool = False,
-    export_dir: str | None = None,
-    blob_names: list[str] | None = None,
-) -> list[dict[str, object]]:
+def azure_download_uploads(routing: AzureRoutingConfig, destination_root: str, overwrite: bool = False, export_dir: str | None = None) -> list[dict[str, object]]:
     adapter = DualStorageBlobAdapter(routing)
-
-    rows = adapter.download_processing_uploads(
-        destination_root,
-        overwrite=overwrite,
-        blob_names=blob_names,
-    )
+    rows = adapter.download_processing_uploads(destination_root, overwrite=overwrite)
     if export_dir:
         export_json(Path(export_dir) / "azure_processing_downloads.json", {"generated_at": utc_now(), "downloads": rows})
     return rows
@@ -494,371 +456,6 @@ def azure_upload_review_outputs(
         export_json(Path(export_dir) / f"{job_id}.azure_upload_results.json", payload)
     return payload
 
-def azure_upload_xl_files_outputs(
-    db: LedgerDB,
-    routing: AzureRoutingConfig,
-    job_id: str,
-    azure_write: bool,
-    overwrite: bool = False,
-) -> dict[str, object]:
-    if not azure_write:
-        raise ValueError(
-            "Refusing to write XL Files outputs to Azure "
-            "because --azure-write was not passed."
-        )
-
-    plan = build_xl_files_staging_plan(
-        db,
-        job_id,
-        routing,
-    )
-
-    adapter = DualStorageBlobAdapter(
-        routing
-    )
-
-    uploaded: list[
-        dict[str, object]
-    ] = []
-
-    failed: list[
-        dict[str, object]
-    ] = []
-
-    for row in plan:
-        local_path = Path(
-            str(
-                row.get(
-                    "original_path"
-                )
-                or ""
-            )
-        )
-
-        blob_path = str(
-            row.get(
-                "staged_blob_path"
-            )
-            or ""
-        )
-
-        text_blob_path = str(
-            row.get(
-                "text_staged_blob_path"
-            )
-            or ""
-        )
-
-        doc_id = str(
-            row.get(
-                "doc_id"
-            )
-            or ""
-        )
-
-        if not local_path.exists():
-            failed.append(
-                {
-                    "doc_id": doc_id,
-                    "local_path": str(
-                        local_path
-                    ),
-                    "blob_path": blob_path,
-                    "status": "missing_local_file",
-                }
-            )
-            continue
-
-        try:
-            blob_client = (
-                adapter
-                .review_container
-                .get_blob_client(
-                    blob_path
-                )
-            )
-
-            with local_path.open(
-                "rb"
-            ) as fh:
-                blob_client.upload_blob(
-                    fh,
-                    overwrite=overwrite,
-                    content_settings=(
-                        adapter
-                        ._content_settings_cls(
-                            content_type=(
-                                "application/octet-stream"
-                            )
-                        )
-                    ),
-                )
-
-            if (
-                bool(
-                    row.get(
-                        "is_workbook_child"
-                    )
-                )
-                and text_blob_path
-            ):
-                text_blob_client = (
-                    adapter
-                    .review_container
-                    .get_blob_client(
-                        text_blob_path
-                    )
-                )
-
-                text_content = local_path.read_text(
-                    encoding="utf-8",
-                    errors="replace",
-                )
-
-                text_blob_client.upload_blob(
-                    text_content.encode("utf-8"),
-                    overwrite=overwrite,
-                    content_settings=(
-                        adapter
-                        ._content_settings_cls(
-                            content_type=(
-                                "text/plain; charset=utf-8"
-                            )
-                        )
-                    ),
-                )
-
-            uploaded.append(
-                {
-                    **row,
-                    "status": "uploaded",
-                    "bytes": (
-                        local_path.stat().st_size
-                    ),
-                    "native_staged_blob_path": (
-                        blob_path
-                    ),
-                    "text_staged_blob_path": (
-                        text_blob_path
-                    ),
-                    "detection_ready": bool(
-                        row.get(
-                            "is_workbook_child"
-                        )
-                        and text_blob_path
-                    ),
-                }
-            )
-
-        except Exception as exc:
-            failed.append(
-                {
-                    **row,
-                    "status": "failed",
-                    "error": str(exc),
-                }
-            )
-
-    return {
-        "job_id": job_id,
-        "destination_mode": "xl_files_staged",
-        "planned_count": len(
-            plan
-        ),
-        "uploaded_count": len(
-            uploaded
-        ),
-        "failed_count": len(
-            failed
-        ),
-        "uploaded": uploaded,
-        "failed": failed,
-    }
-
-def azure_upload_json_structured_outputs(
-    db: LedgerDB,
-    routing: AzureRoutingConfig,
-    job_id: str,
-    azure_write: bool,
-    overwrite: bool = False,
-) -> dict[str, object]:
-    if not azure_write:
-        raise ValueError(
-            "Refusing to write JSON structured "
-            "outputs to Azure because "
-            "--azure-write was not passed."
-        )
-
-    plan = (
-        build_json_structured_staging_plan(
-            db,
-            job_id,
-            routing,
-        )
-    )
-
-    adapter = DualStorageBlobAdapter(
-        routing
-    )
-
-    uploaded: list[
-        dict[str, object]
-    ] = []
-
-    failed: list[
-        dict[str, object]
-    ] = []
-
-    for row in plan:
-        local_path = Path(
-            str(
-                row.get(
-                    "original_path"
-                )
-                or ""
-            )
-        )
-
-        native_blob_path = str(
-            row.get(
-                "native_staged_blob_path"
-            )
-            or ""
-        )
-
-        text_blob_path = str(
-            row.get(
-                "text_staged_blob_path"
-            )
-            or ""
-        )
-
-        doc_id = str(
-            row.get(
-                "doc_id"
-            )
-            or ""
-        )
-
-        if not local_path.exists():
-            failed.append(
-                {
-                    **row,
-                    "status":
-                        "missing_local_file",
-                    "local_path":
-                        str(local_path),
-                }
-            )
-            continue
-
-        try:
-            native_blob_client = (
-                adapter
-                .review_container
-                .get_blob_client(
-                    native_blob_path
-                )
-            )
-
-            with local_path.open(
-                "rb"
-            ) as fh:
-                native_blob_client.upload_blob(
-                    fh,
-                    overwrite=overwrite,
-                    content_settings=(
-                        adapter
-                        ._content_settings_cls(
-                            content_type=(
-                                "text/csv"
-                            )
-                        )
-                    ),
-                )
-
-            text_content = (
-                local_path.read_text(
-                    encoding="utf-8",
-                    errors="replace",
-                )
-            )
-
-            text_blob_client = (
-                adapter
-                .review_container
-                .get_blob_client(
-                    text_blob_path
-                )
-            )
-
-            text_blob_client.upload_blob(
-                text_content.encode(
-                    "utf-8"
-                ),
-                overwrite=overwrite,
-                content_settings=(
-                    adapter
-                    ._content_settings_cls(
-                        content_type=(
-                            "text/plain; "
-                            "charset=utf-8"
-                        )
-                    )
-                ),
-            )
-
-            uploaded.append(
-                {
-                    **row,
-                    "status": "uploaded",
-
-                    "bytes": (
-                        local_path
-                        .stat()
-                        .st_size
-                    ),
-
-                    "native_staged_blob_path":
-                        native_blob_path,
-
-                    "text_staged_blob_path":
-                        text_blob_path,
-
-                    "detection_ready": True,
-                }
-            )
-
-        except Exception as exc:
-            failed.append(
-                {
-                    **row,
-                    "status": "failed",
-                    "error": str(exc),
-                }
-            )
-
-    return {
-        "job_id": job_id,
-
-        "destination_mode":
-            "json_structured_staged",
-
-        "planned_count":
-            len(plan),
-
-        "uploaded_count":
-            len(uploaded),
-
-        "failed_count":
-            len(failed),
-
-        "uploaded":
-            uploaded,
-
-        "failed":
-            failed,
-    }
 
 def azure_upload_report_files(
     routing: AzureRoutingConfig,
@@ -956,402 +553,6 @@ def upload_processing_job_status(
         "bytes": len(data),
     }
 
-def azure_upload_processing_set_manifests(
-    *,
-    db: LedgerDB,
-    routing: AzureRoutingConfig,
-    job_id: str,
-    overwrite: bool = True,
-) -> dict[str, object]:
-    """
-    Persist the worker's canonical Processing Set membership
-    to processing storage after Doc ID assignment.
-
-    Processing Sets are originally built using file_id before
-    Doc IDs exist. By the time this function runs, the same
-    file_processing_metrics rows contain their assigned Doc IDs.
-
-    Azure layout:
-
-        processing_center/jobs/{job_id}/processing_sets/
-            manifest.json
-            {set_id}.json
-
-    These manifests provide the durable bridge:
-
-        Processing Set
-            -> file_id
-            -> Doc ID
-
-    used later by AI Extraction.
-    """
-
-    if routing.processing_account.lower() != "insytprodstorage":
-        raise ValueError(
-            "Refusing Processing Set manifest upload: "
-            "processing account must be insytprodstorage."
-        )
-
-    set_rows = db.query(
-        """
-        SELECT
-            ps.set_id,
-            ps.set_number,
-            ps.configured_set_size,
-            ps.status
-        FROM processing_set ps
-        WHERE ps.job_id=?
-        ORDER BY
-            ps.set_number,
-            ps.set_id
-        """,
-        (job_id,),
-    )
-
-    member_rows = db.query(
-        """
-        SELECT
-            psf.set_id,
-            psf.ordinal,
-            psf.membership_role,
-            psf.counts_toward_set_size,
-
-            fpm.file_id,
-            fpm.doc_id,
-            fpm.original_path,
-            fpm.normalized_path,
-            fpm.text_output_path,
-            fpm.is_container,
-            fpm.is_duplicate,
-            fpm.is_denisted
-
-        FROM processing_set_file psf
-
-        JOIN file_processing_metrics fpm
-          ON fpm.file_id=psf.file_id
-         AND fpm.job_id=psf.job_id
-
-        WHERE psf.job_id=?
-
-        ORDER BY
-            psf.set_id,
-            psf.ordinal,
-            fpm.normalized_path,
-            fpm.file_id
-        """,
-        (job_id,),
-    )
-
-    members_by_set: dict[
-        str,
-        list[dict[str, object]],
-    ] = {}
-
-    for row in member_rows:
-        set_id = str(
-            row["set_id"] or ""
-        ).strip()
-
-        if not set_id:
-            continue
-
-        member = {
-            "file_id": str(
-                row["file_id"] or ""
-            ).strip(),
-            "doc_id": str(
-                row["doc_id"] or ""
-            ).strip(),
-            "ordinal": int(
-                row["ordinal"] or 0
-            ),
-            "membership_role": str(
-                row["membership_role"] or ""
-            ).strip(),
-            "counts_toward_set_size": bool(
-                row["counts_toward_set_size"]
-            ),
-            "original_path": str(
-                row["original_path"] or ""
-            ),
-            "normalized_path": str(
-                row["normalized_path"] or ""
-            ),
-            "text_output_path": str(
-                row["text_output_path"] or ""
-            ),
-            "is_container": bool(
-                row["is_container"]
-            ),
-            "is_duplicate": bool(
-                row["is_duplicate"]
-            ),
-            "is_denisted": bool(
-                row["is_denisted"]
-            ),
-        }
-
-        members_by_set.setdefault(
-            set_id,
-            [],
-        ).append(member)
-
-    adapter = DualStorageBlobAdapter(
-        routing
-    )
-
-    jobs_prefix = (
-        routing
-        .processing_paths()["jobs"]
-        .rstrip("/")
-    )
-
-    output_prefix = (
-        f"{jobs_prefix}/"
-        f"{job_id}/"
-        "processing_sets"
-    )
-
-    generated_at = utc_now()
-
-    sets: list[
-        dict[str, object]
-    ] = []
-
-    set_uploads: list[
-        dict[str, object]
-    ] = []
-
-    for row in set_rows:
-        set_id = str(
-            row["set_id"] or ""
-        ).strip()
-
-        if not set_id:
-            continue
-
-        members = (
-            members_by_set.get(
-                set_id
-            )
-            or []
-        )
-
-        primary_members = [
-            member
-            for member in members
-            if (
-                str(
-                    member.get(
-                        "membership_role"
-                    )
-                    or ""
-                )
-                == "primary"
-            )
-        ]
-
-        primary_doc_ids = [
-            str(
-                member.get(
-                    "doc_id"
-                )
-                or ""
-            ).strip()
-            for member in primary_members
-            if str(
-                member.get(
-                    "doc_id"
-                )
-                or ""
-            ).strip()
-        ]
-
-        set_payload = {
-            "schema_version": 1,
-            "generated_at": generated_at,
-
-            "workspace": routing.workspace,
-            "client": routing.client,
-            "project": routing.project,
-
-            "job_id": job_id,
-            "set_id": set_id,
-
-            "set_number": int(
-                row["set_number"] or 0
-            ),
-
-            "configured_set_size": int(
-                row["configured_set_size"]
-                or 0
-            ),
-
-            "status": str(
-                row["status"] or ""
-            ),
-
-            "member_count": len(
-                members
-            ),
-
-            "primary_member_count": len(
-                primary_members
-            ),
-
-            "primary_doc_count": len(
-                primary_doc_ids
-            ),
-
-            "primary_doc_ids": (
-                primary_doc_ids
-            ),
-
-            "members": members,
-        }
-
-        set_blob_path = (
-            f"{output_prefix}/"
-            f"{set_id}.json"
-        )
-
-        data = json.dumps(
-            set_payload,
-            indent=2,
-            default=str,
-        ).encode(
-            "utf-8"
-        )
-
-        blob_client = (
-            adapter
-            .processing_container
-            .get_blob_client(
-                set_blob_path
-            )
-        )
-
-        blob_client.upload_blob(
-            data,
-            overwrite=overwrite,
-            content_settings=(
-                adapter
-                ._content_settings_cls(
-                    content_type=(
-                        "application/json"
-                    )
-                )
-            ),
-        )
-
-        set_uploads.append(
-            {
-                "set_id": set_id,
-                "blob_path": (
-                    set_blob_path
-                ),
-                "bytes": len(data),
-                "status": "uploaded",
-            }
-        )
-
-        sets.append(
-            {
-                "set_id": set_id,
-                "set_number": int(
-                    row["set_number"] or 0
-                ),
-                "configured_set_size": int(
-                    row[
-                        "configured_set_size"
-                    ]
-                    or 0
-                ),
-                "member_count": len(
-                    members
-                ),
-                "primary_member_count": len(
-                    primary_members
-                ),
-                "primary_doc_count": len(
-                    primary_doc_ids
-                ),
-                "manifest_blob_path": (
-                    set_blob_path
-                ),
-            }
-        )
-
-    manifest_payload = {
-        "schema_version": 1,
-        "generated_at": generated_at,
-
-        "workspace": routing.workspace,
-        "client": routing.client,
-        "project": routing.project,
-
-        "job_id": job_id,
-
-        "set_count": len(
-            sets
-        ),
-
-        "sets": sets,
-    }
-
-    manifest_blob_path = (
-        f"{output_prefix}/manifest.json"
-    )
-
-    manifest_data = json.dumps(
-        manifest_payload,
-        indent=2,
-        default=str,
-    ).encode(
-        "utf-8"
-    )
-
-    manifest_blob_client = (
-        adapter
-        .processing_container
-        .get_blob_client(
-            manifest_blob_path
-        )
-    )
-
-    manifest_blob_client.upload_blob(
-        manifest_data,
-        overwrite=overwrite,
-        content_settings=(
-            adapter
-            ._content_settings_cls(
-                content_type=(
-                    "application/json"
-                )
-            )
-        ),
-    )
-
-    return {
-        "status": "uploaded",
-        "storage_account": (
-            routing.processing_account
-        ),
-        "container": (
-            routing.processing_container
-        ),
-        "job_id": job_id,
-        "set_count": len(
-            sets
-        ),
-        "manifest_blob_path": (
-            manifest_blob_path
-        ),
-        "set_uploads": (
-            set_uploads
-        ),
-    }
-
 def _processed_hash_index_blob_path(routing: AzureRoutingConfig) -> str:
     return (
         f"{routing.prefix}/"
@@ -1424,8 +625,6 @@ def azure_update_processed_hash_index(
     else:
         items = {}
 
-    count_before = len(items)
-
     rows = db.query(
         """
         SELECT
@@ -1493,8 +692,6 @@ def azure_update_processed_hash_index(
         else:
             added += 1
 
-    count_after = len(items)
-
     payload = {
         "generated_at": utc_now(),
         "workspace": routing.workspace,
@@ -1503,11 +700,7 @@ def azure_update_processed_hash_index(
         "storage_account": routing.processing_account,
         "container": routing.processing_container,
         "blob_path": blob_path,
-        "count": count_after,
-        "count_before": count_before,
-        "count": count_after,
-        "count_before": count_before,
-        "count_after": count_after,
+        "count": len(items),
         "added_count": added,
         "updated_count": updated,
         "job_id": job_id,

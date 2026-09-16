@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass, asdict
@@ -12,17 +12,7 @@ from .azure_blob_adapter import (
     azure_upload_report_files,
     azure_upload_review_outputs,
     upload_processing_job_status,
-    azure_upload_xl_files_outputs,
 )
-
-from app.services.structured_intake.worker_prepare import (
-    prepare_json_structured_sources,
-)
-
-from app.services.structured_intake.provenance import (
-    apply_structured_json_provenance,
-)
-
 from .azure_layout import AzureRoutingConfig, build_azure_routing_summary
 from .config import DEFAULT_SETTINGS
 from .db import LedgerDB
@@ -42,7 +32,6 @@ class AzureRunResult:
     downloads: list[dict[str, Any]]
     report_files: dict[str, str]
     review_upload: dict[str, Any] | None
-    xl_files_upload: dict[str, Any] | None
     report_upload: dict[str, Any] | None
     status_upload: dict[str, Any] | None
     hash_index_upload: dict[str, Any] | None
@@ -92,18 +81,12 @@ def run_azure_processing_job(
     enable_ocr_dry_run: bool = True,
     enable_live_ocr: bool = False,
     azure_write: bool = False,
-    processing_set_size: int = 500,
     overwrite: bool = False,
     staging_root: str = ".apc_azure_runs",
     output_root: str = ".apc_azure_review_output",
     export_dir: str | None = "reports",
     clean_staging: bool = False,
     upload_status: bool = True,
-    progress_callback=None,
-    cancellation_callback=None,
-    after_ocr_preflight_callback=None,
-    ocr_dispatch_callback=None,
-    selected_uploads: list[str] | None = None,
 ) -> AzureRunResult:
     """Run the proven v0.8 Azure intake -> processing -> review promotion flow.
 
@@ -118,13 +101,7 @@ def run_azure_processing_job(
     job_id: str | None = None
     status_upload: dict[str, Any] | None = None
 
-
     try:
-        if cancellation_callback:
-            cancellation_callback(
-                "azure_download_start"
-            )
-
         # Important: each Azure run must start from only the blobs currently
         # pending in source/processing_center/uploads. Without clearing this
         # local folder, stale files from prior runs can be processed again even
@@ -138,14 +115,7 @@ def run_azure_processing_job(
             str(staging_dir),
             overwrite=True,
             export_dir=export_dir,
-            blob_names=selected_uploads,
         )
-
-        if cancellation_callback:
-            cancellation_callback(
-                "azure_download_complete"
-            )
-
         real_downloads = [r for r in downloads if r.get("status") in {"downloaded", "skipped_exists"}]
         if not real_downloads:
             result = AzureRunResult(
@@ -165,81 +135,6 @@ def run_azure_processing_job(
             )
             return result
         
-        json_preparation = (
-            prepare_json_structured_sources(
-                staging_dir=staging_dir,
-            )
-        )
-        
-        def apply_json_provenance_after_inventory(
-            *,
-            db,
-            job_id,
-            input_dir,
-        ):
-            manifest_path = (
-                json_preparation.get(
-                    "manifest_path"
-                )
-            )
-
-            if not manifest_path:
-                return
-
-            return apply_structured_json_provenance(
-                db=db,
-                job_id=job_id,
-                staging_dir=Path(
-                    input_dir
-                ),
-                manifest_path=Path(
-                    manifest_path
-                ),
-            )
-
-        if (
-            json_preparation.get(
-                "json_package_count",
-                0,
-            )
-            > 0
-        ):
-            warnings.append(
-                {
-                    "type":
-                        "json_structured_intake",
-
-                    "message":
-                        (
-                            "JSON structured intake "
-                            "preparation completed."
-                        ),
-
-                    "json_package_count":
-                        json_preparation.get(
-                            "json_package_count",
-                            0,
-                        ),
-
-                    "json_record_count":
-                        json_preparation.get(
-                            "json_record_count",
-                            0,
-                        ),
-
-                    "normalized_csv_count":
-                        json_preparation.get(
-                            "normalized_csv_count",
-                            0,
-                        ),
-
-                    "manifest_path":
-                        json_preparation.get(
-                            "manifest_path"
-                        ),
-                }
-            )
-
         prior_processed_index = azure_read_processed_hash_index(routing)
 
         job_id = run_local_pipeline(
@@ -248,52 +143,22 @@ def run_azure_processing_job(
             input_dir=str(staging_dir),
             matter_id=matter_id,
             client_id=routing.client,
-            workspace=routing.workspace,
             doc_prefix=doc_prefix,
             enable_ocr_dry_run=enable_ocr_dry_run,
             enable_live_ocr=enable_live_ocr,
-            processing_set_size=processing_set_size,
             promote_review_ready=True,
             output_root=str(review_root),
             prior_processed_index=prior_processed_index,
-            progress_callback=progress_callback,
-            cancellation_callback=cancellation_callback,
-            after_inventory_callback=(
-                apply_json_provenance_after_inventory
-            ),
-            after_ocr_preflight_callback=after_ocr_preflight_callback,
-            ocr_dispatch_callback=ocr_dispatch_callback,
         )
         local_review_root = review_root / job_id
 
-        if cancellation_callback:
-            cancellation_callback(
-                "post_processing"
-            )
-
-        if cancellation_callback:
-            cancellation_callback(
-                "report_generation"
-            )
-
         report_files: dict[str, str] = {}
-
         if export_dir:
-            report_files = export_job_report(
-                db,
-                job_id,
-                export_dir,
-            )
+            report_files = export_job_report(db, job_id, export_dir)
 
         review_upload = None
         report_upload = None
         hash_index_upload = None
-        xl_files_upload = None
-
-        if cancellation_callback:
-            cancellation_callback(
-                "azure_review_upload"
-            )
 
         if azure_write:
             review_upload = azure_upload_review_outputs(
@@ -304,15 +169,6 @@ def run_azure_processing_job(
                 azure_write=True,
                 overwrite=overwrite,
                 export_dir=export_dir,
-            )
-            xl_files_upload = (
-                azure_upload_xl_files_outputs(
-                    db=db,
-                    routing=routing,
-                    job_id=job_id,
-                    azure_write=True,
-                    overwrite=overwrite,
-                )
             )
             hash_index_upload = azure_update_processed_hash_index(
                 db=db,
@@ -364,7 +220,6 @@ def run_azure_processing_job(
             downloads=downloads,
             report_files=report_files,
             review_upload=review_upload,
-            xl_files_upload=xl_files_upload,
             report_upload=report_upload,
             status_upload=status_upload,
             hash_index_upload=hash_index_upload,
