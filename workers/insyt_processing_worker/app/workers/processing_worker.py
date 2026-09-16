@@ -2405,6 +2405,7 @@ def process_job_message(message_content: str):
             after_ocr_preflight_callback=structured_fast_lane,
             ocr_dispatch_callback=ocr_dispatch,
             selected_uploads=selected_uploads,
+            tracked_job_id=str(job_id),
         )
 
         if hasattr(result, "to_dict"):

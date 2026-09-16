@@ -20,16 +20,38 @@ from .processing_sets import build_processing_sets
 from .util import bytes_to_gb, json_dumps, new_id, utc_now
 
 
-def create_job(db: LedgerDB, matter_id: str, client_id: str, metadata: dict | None = None) -> str:
-    job_id = new_id("JOB")
+def create_job(
+    db: LedgerDB,
+    matter_id: str,
+    client_id: str,
+    metadata: dict | None = None,
+    job_id: str | None = None,
+) -> str:
+    resolved_job_id = str(job_id or "").strip() or new_id("JOB")
+
     db.execute(
         """
-        INSERT INTO processing_job (job_id, matter_id, client_id, created_at, status, metadata_json)
+        INSERT INTO processing_job (
+            job_id,
+            matter_id,
+            client_id,
+            created_at,
+            status,
+            metadata_json
+        )
         VALUES (?,?,?,?,?,?)
         """,
-        (job_id, matter_id, client_id, utc_now(), "created", json_dumps(metadata or {})),
+        (
+            resolved_job_id,
+            matter_id,
+            client_id,
+            utc_now(),
+            "created",
+            json_dumps(metadata or {}),
+        ),
     )
-    return job_id
+
+    return resolved_job_id
 
 
 def finalize_job(db: LedgerDB, job_id: str) -> None:
@@ -238,6 +260,7 @@ def run_local_pipeline(
     after_ocr_preflight_callback=None,
     ocr_dispatch_callback=None,
     processing_set_size: int = 500,
+    job_id: str | None = None,
 ) -> str:
     def check_cancel(
         stage: str,
@@ -252,6 +275,7 @@ def run_local_pipeline(
         db,
         matter_id=matter_id,
         client_id=client_id,
+        job_id=job_id,
         metadata={
             "input_dir": input_dir,
             "workspace": workspace,
