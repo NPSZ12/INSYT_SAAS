@@ -1089,13 +1089,9 @@ function ReviewPageContent() {
                   values,
                 }) => {
                   setAiEntities(
-                    (
-                      current
-                    ) =>
+                    (current) =>
                       current.map(
-                        (
-                          candidate
-                        ) =>
+                        (candidate) =>
                           candidate.id ===
                           candidateId
                             ? {
@@ -1107,19 +1103,48 @@ function ReviewPageContent() {
                             : candidate
                       )
                   );
+
+                  apiPost(
+                    "/api/entities/ai-candidate/review",
+                    {
+                      workspace:
+                        "capture",
+                      client:
+                        clientId,
+                      project:
+                        projectId,
+                      doc_id:
+                        reviewDoc.doc_id,
+                      ai_entity_id:
+                        candidateId,
+                      status:
+                        "approved",
+                      reviewed_values:
+                        values,
+                      reviewed_by:
+                        "",
+                    }
+                  )
+                    .then(() => {
+                      loadAiEntities();
+                    })
+                    .catch(
+                      (error) => {
+                        console.error(
+                          "Unable to persist AI approval:",
+                          error
+                        );
+                      }
+                    );
                 }}
 
                 onRejectAiEntity={(
                   candidateId
                 ) => {
                   setAiEntities(
-                    (
-                      current
-                    ) =>
+                    (current) =>
                       current.map(
-                        (
-                          candidate
-                        ) =>
+                        (candidate) =>
                           candidate.id ===
                           candidateId
                             ? {
@@ -1130,6 +1155,39 @@ function ReviewPageContent() {
                             : candidate
                       )
                   );
+
+                  apiPost(
+                    "/api/entities/ai-candidate/review",
+                    {
+                      workspace:
+                        "capture",
+                      client:
+                        clientId,
+                      project:
+                        projectId,
+                      doc_id:
+                        reviewDoc.doc_id,
+                      ai_entity_id:
+                        candidateId,
+                      status:
+                        "rejected",
+                      reviewed_values:
+                        null,
+                      reviewed_by:
+                        "",
+                    }
+                  )
+                    .then(() => {
+                      loadAiEntities();
+                    })
+                    .catch(
+                      (error) => {
+                        console.error(
+                          "Unable to persist AI rejection:",
+                          error
+                        );
+                      }
+                    );
                 }}
                 isFirstDoc={effectiveIsFirstDoc}
                 isLastDoc={effectiveIsLastDoc}

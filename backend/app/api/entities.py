@@ -17,7 +17,10 @@ from typing import Any
 
 from app.services.batch_service import get_container_client
 from app.services.storage_paths import build_project_base_path
-from app.api.processing_center_azure import _read_processing_json_blob
+from app.api.processing_center_azure import (
+    _read_processing_json_blob,
+    _write_processing_json_blob,
+)
 
 
 def clean_path(value: str | None) -> str:
@@ -585,6 +588,16 @@ class EntityDeleteRequest(BaseModel):
     doc_id: str
     ucid: str = ""
     entity_id: str | int = ""
+
+class AiEntityReviewRequest(BaseModel):
+    workspace: str = "capture"
+    client: str = ""
+    project: str
+    doc_id: str
+    ai_entity_id: str
+    status: str
+    reviewed_values: dict[str, Any] | None = None
+    reviewed_by: str = ""
 
 class EntitySourceDocsExportRequest(BaseModel):
     workspace: str = "capture"
@@ -1264,6 +1277,266 @@ def list_document_entities(
         + overlay_entities
         + cyber2_entities
     )
+
+@router.post("/ai-candidate/review")
+def review_ai_candidate(
+    payload: AiEntityReviewRequest,
+):
+    workspace = clean_path(
+        payload.workspace
+    ) or "capture"
+
+    client = clean_path(
+        payload.client
+    )
+
+    project = clean_path(
+        payload.project
+    )
+
+    doc_id = str(
+        payload.doc_id or ""
+    ).strip()
+
+    ai_entity_id = str(
+        payload.ai_entity_id or ""
+    ).strip()
+
+    status = str(
+        payload.status or ""
+    ).strip().lower()
+
+    if not client:
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required.",
+        )
+
+    if not project:
+        raise HTTPException(
+            status_code=400,
+            detail="Project is required.",
+        )
+
+    if not doc_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Doc ID is required.",
+        )
+
+    if not ai_entity_id:
+        raise HTTPException(
+            status_code=400,
+            detail="AI Entity ID is required.",
+        )
+
+    if status not in {
+        "approved",
+        "rejected",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "AI Entity status must be "
+                "approved or rejected."
+            ),
+        )
+
+    base_path = project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    ai_capture_path = (
+        f"{base_path}/cyber2/"
+        f"ai_capture/"
+        f"latest_ai_capture.json"
+    )
+
+    try:
+        ai_capture_payload = (
+            _read_processing_json_blob(
+                ai_capture_path
+            )
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "AI Capture data was not found."
+            ),
+        ) from exc
+
+    if not isinstance(
+        ai_capture_payload,
+        dict,
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail="AI Capture data is invalid.",
+        )
+
+    records = (
+        ai_capture_payload.get(
+            "records"
+        )
+        or []
+    )
+
+    if not isinstance(
+        records,
+        list,
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail="AI Capture records are invalid.",
+        )
+
+    matched_record = None
+
+    normalized_doc = (
+        normalize_doc_lookup(
+            doc_id
+        )
+    )
+
+    for record in records:
+        if not isinstance(
+            record,
+            dict,
+        ):
+            continue
+
+        record_ai_entity_id = str(
+            record.get(
+                "ai_entity_id"
+            )
+            or ""
+        ).strip()
+
+        record_doc_id = str(
+            record.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+
+        if (
+            record_ai_entity_id
+            != ai_entity_id
+        ):
+            continue
+
+        if (
+            normalize_doc_lookup(
+                record_doc_id
+            )
+            != normalized_doc
+        ):
+            continue
+
+        matched_record = record
+        break
+
+    if matched_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "AI Entity candidate was not found "
+                "for this document."
+            ),
+        )
+
+    reviewed_at = (
+        datetime.now(
+            timezone.utc
+        ).isoformat()
+    )
+
+    original_values = (
+        matched_record.get(
+            "values"
+        )
+        or {}
+    )
+
+    if not isinstance(
+        original_values,
+        dict,
+    ):
+        original_values = {}
+
+    reviewed_values = (
+        payload.reviewed_values
+        if isinstance(
+            payload.reviewed_values,
+            dict,
+        )
+        else {}
+    )
+
+    matched_record[
+        "status"
+    ] = status
+
+    matched_record[
+        "reviewed_at"
+    ] = reviewed_at
+
+    matched_record[
+        "reviewed_by"
+    ] = str(
+        payload.reviewed_by or ""
+    ).strip()
+
+    if status == "approved":
+        matched_record[
+            "reviewed_values"
+        ] = reviewed_values
+
+        matched_record[
+            "review_result"
+        ] = (
+            "approved"
+            if reviewed_values
+            == original_values
+            else "edited_approved"
+        )
+
+    else:
+        matched_record[
+            "reviewed_values"
+        ] = None
+
+        matched_record[
+            "review_result"
+        ] = "rejected"
+
+    ai_capture_payload[
+        "updated_at"
+    ] = reviewed_at
+
+    _write_processing_json_blob(
+        blob_path=ai_capture_path,
+        payload=ai_capture_payload,
+        overwrite=True,
+    )
+
+    return {
+        "status": status,
+        "ai_entity_id":
+            ai_entity_id,
+        "doc_id":
+            doc_id,
+        "review_result":
+            matched_record.get(
+                "review_result"
+            ),
+        "reviewed_at":
+            reviewed_at,
+    }
 
 @router.post("/export-source-docs")
 def export_source_docs(
