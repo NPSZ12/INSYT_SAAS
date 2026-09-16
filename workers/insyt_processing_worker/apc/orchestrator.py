@@ -236,6 +236,7 @@ def run_local_pipeline(
     cancellation_callback=None,
     after_inventory_callback=None,
     after_ocr_preflight_callback=None,
+    ocr_dispatch_callback=None,
     processing_set_size: int = 500,
 ) -> str:
     def check_cancel(
@@ -570,7 +571,39 @@ def run_local_pipeline(
             workspace=workspace,
         )
 
-    if enable_live_ocr:
+    #
+    # Durable OCR dispatch lane.
+    #
+    # OCR-required documents must be persisted to durable Azure storage
+    # and queued for the dedicated OCR worker here.
+    #
+    # The parent APC ingestion worker must not perform OCR itself once
+    # an OCR dispatcher is supplied.
+    #
+    if ocr_dispatch_callback:
+        check_cancel(
+            "ocr_dispatch"
+        )
+
+        _emit_pipeline_progress(
+            progress_callback,
+            db=db,
+            job_id=job_id,
+            stage="ocr_dispatch",
+            current_step=(
+                "Preparing OCR-required documents "
+                "for asynchronous OCR processing."
+            ),
+        )
+
+        ocr_dispatch_callback(
+            db=db,
+            job_id=job_id,
+            matter_id=matter_id,
+            workspace=workspace,
+        )
+
+    if enable_live_ocr and not ocr_dispatch_callback:
         if not settings.enable_live_ocr:
             raise RuntimeError(
                 "Live OCR requested but neither APC_ENABLE_LIVE_OCR nor "

@@ -173,6 +173,96 @@ def _send_detection_queue_message(
         ),
     }
 
+def _send_ocr_queue_message(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from azure.storage.queue import QueueClient
+
+    queue_name = os.getenv(
+        "APC_OCR_QUEUE_NAME",
+        "apc-ocr-set-jobs",
+    )
+
+    processing_account = _processing_account()
+
+    queue_conn = os.getenv(
+        "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
+    )
+
+    if queue_conn:
+        queue = QueueClient.from_connection_string(
+            queue_conn,
+            queue_name=queue_name,
+        )
+    else:
+        queue = QueueClient(
+            account_url=(
+                f"https://{processing_account}"
+                ".queue.core.windows.net"
+            ),
+            queue_name=queue_name,
+            credential=DefaultAzureCredential(),
+        )
+
+    try:
+        queue.create_queue()
+    except Exception:
+        pass
+
+    result = queue.send_message(
+        json.dumps(
+            payload,
+            default=str,
+        )
+    )
+
+    return {
+        "status": "queued",
+        "queue_name": queue_name,
+        "message_id": result.id,
+        "inserted_on": str(result.inserted_on),
+        "expires_on": str(result.expires_on),
+    }
+
+def _upload_processing_file_blob(
+    *,
+    local_path: str,
+    blob_path: str,
+) -> dict[str, Any]:
+    source = Path(local_path)
+
+    if not source.exists():
+        raise FileNotFoundError(
+            f"OCR source file does not exist: {source}"
+        )
+
+    if not source.is_file():
+        raise RuntimeError(
+            f"OCR source path is not a file: {source}"
+        )
+
+    blob_client = (
+        _container_client()
+        .get_blob_client(blob_path)
+    )
+
+    with source.open("rb") as handle:
+        blob_client.upload_blob(
+            handle,
+            overwrite=True,
+            content_settings=ContentSettings(
+                content_type="application/octet-stream"
+            ),
+        )
+
+    return {
+        "status": "uploaded",
+        "storage_account": _processing_account(),
+        "container": _processing_container(),
+        "blob_path": blob_path,
+        "bytes": source.stat().st_size,
+    }
+
 def _hard_cancel_blob_path(
     *,
     client: str,
@@ -1596,6 +1686,632 @@ def process_job_message(message_content: str):
                 },
             )
 
+        def ocr_dispatch(
+            *,
+            db: LedgerDB,
+            job_id: str,
+            matter_id: str,
+            workspace: str,
+        ) -> None:
+            cancellation_checkpoint(
+                "ocr_dispatch"
+            )
+
+            max_docs_per_set = max(
+                1,
+                int(
+                    os.getenv(
+                        "APC_OCR_SET_SIZE",
+                        "50",
+                    )
+                ),
+            )
+
+            max_pages_per_set = max(
+                1,
+                int(
+                    os.getenv(
+                        "APC_OCR_MAX_PAGES_PER_SET",
+                        "250",
+                    )
+                ),
+            )
+
+            ocr_base = (
+                f"{routing.prefix}/"
+                "processing_center/"
+                f"jobs/{job_id}/ocr"
+            )
+
+            manifest_blob_path = (
+                f"{ocr_base}/manifest.json"
+            )
+
+            #
+            # Idempotency barrier.
+            #
+            # If this ingestion job was redelivered after OCR sets were
+            # successfully dispatched, do not dispatch the same OCR
+            # population again.
+            #
+            existing_manifest = _read_json_blob(
+                manifest_blob_path,
+                default={},
+            )
+
+            if (
+                str(
+                    existing_manifest.get("status")
+                    or ""
+                ).lower()
+                == "dispatched"
+                and int(
+                    existing_manifest.get("set_count")
+                    or 0
+                )
+                > 0
+            ):
+                _update_status(
+                    status_blob_path=status_blob_path,
+                    status="running",
+                    stage="ocr_dispatch",
+                    progress_pct=70,
+                    message=(
+                        "OCR work was already dispatched; "
+                        "duplicate dispatch skipped."
+                    ),
+                    extra={
+                        "current_step": (
+                            "Existing durable OCR manifest found. "
+                            "No duplicate OCR sets were queued."
+                        ),
+                        "ocr_set_count": int(
+                            existing_manifest.get(
+                                "set_count"
+                            )
+                            or 0
+                        ),
+                        "ocr_document_count": int(
+                            existing_manifest.get(
+                                "document_count"
+                            )
+                            or 0
+                        ),
+                        "ocr_estimated_pages": int(
+                            existing_manifest.get(
+                                "estimated_pages"
+                            )
+                            or 0
+                        ),
+                    },
+                )
+                return
+
+            rows = db.query(
+                """
+                SELECT
+                    fpm.*,
+                    psf.set_id AS processing_set_id,
+                    psf.ordinal AS processing_set_ordinal,
+                    ps.set_number AS processing_set_number
+                FROM processing_set_file psf
+                JOIN processing_set ps
+                  ON ps.set_id=psf.set_id
+                 AND ps.job_id=psf.job_id
+                JOIN file_processing_metrics fpm
+                  ON fpm.file_id=psf.file_id
+                 AND fpm.job_id=psf.job_id
+                WHERE psf.job_id=?
+                  AND psf.membership_role='primary'
+                  AND coalesce(fpm.is_container,0)=0
+                  AND coalesce(fpm.is_denisted,0)=0
+                  AND coalesce(fpm.is_duplicate,0)=0
+                  AND coalesce(fpm.requires_ocr,0)=1
+                ORDER BY
+                    ps.set_number,
+                    psf.ordinal,
+                    fpm.normalized_path,
+                    fpm.file_id
+                """,
+                (job_id,),
+            )
+
+            if not rows:
+                empty_manifest = {
+                    "job_type": "ocr_dispatch",
+                    "source_job_id": job_id,
+                    "workspace": workspace,
+                    "client": str(client),
+                    "project": str(project),
+                    "status": "not_required",
+                    "set_count": 0,
+                    "document_count": 0,
+                    "estimated_pages": 0,
+                    "created_at": utc_now(),
+                    "updated_at": utc_now(),
+                }
+
+                _write_json_blob(
+                    manifest_blob_path,
+                    empty_manifest,
+                )
+
+                _update_status(
+                    status_blob_path=status_blob_path,
+                    status="running",
+                    stage="ocr_dispatch",
+                    progress_pct=70,
+                    message="No documents require OCR.",
+                    extra={
+                        "current_step": (
+                            "OCR preflight found no documents "
+                            "requiring asynchronous OCR."
+                        ),
+                        "ocr_set_count": 0,
+                        "ocr_document_count": 0,
+                        "ocr_estimated_pages": 0,
+                    },
+                )
+                return
+
+            def row_value(
+                row: Any,
+                *names: str,
+            ) -> Any:
+                for name in names:
+                    try:
+                        value = row[name]
+                    except Exception:
+                        value = None
+
+                    if value not in (
+                        None,
+                        "",
+                    ):
+                        return value
+
+                return None
+
+            documents: list[dict[str, Any]] = []
+
+            for row in rows:
+                cancellation_checkpoint(
+                    "ocr_dispatch"
+                )
+
+                doc_id = str(
+                    row_value(
+                        row,
+                        "doc_id",
+                        "assigned_doc_id",
+                    )
+                    or ""
+                ).strip()
+
+                file_id = row_value(
+                    row,
+                    "file_id",
+                    "id",
+                )
+
+                source_path = str(
+                    row_value(
+                        row,
+                        "source_path",
+                        "original_path",
+                        "file_path",
+                        "path",
+                        "normalized_path",
+                    )
+                    or ""
+                ).strip()
+
+                if not doc_id:
+                    raise RuntimeError(
+                        "OCR dispatch encountered an "
+                        "OCR-required document without a Doc ID."
+                    )
+
+                if not source_path:
+                    raise RuntimeError(
+                        f"{doc_id}: OCR-required document "
+                        "has no source path."
+                    )
+
+                source = Path(source_path)
+
+                if not source.exists():
+                    raise RuntimeError(
+                        f"{doc_id}: OCR source file does not "
+                        f"exist: {source_path}"
+                    )
+
+                estimated_pages = int(
+                    row_value(
+                        row,
+                        "ocr_page_count",
+                        "page_count",
+                    )
+                    or 1
+                )
+
+                estimated_pages = max(
+                    1,
+                    estimated_pages,
+                )
+
+                suffix = source.suffix.lower()
+
+                if not suffix:
+                    suffix = ".bin"
+
+                native_blob_path = (
+                    f"{ocr_base}/source/"
+                    f"{doc_id}{suffix}"
+                )
+
+                _upload_processing_file_blob(
+                    local_path=source_path,
+                    blob_path=native_blob_path,
+                )
+
+                documents.append(
+                    {
+                        "doc_id": doc_id,
+                        "file_id": file_id,
+                        "processing_set_id": row_value(
+                            row,
+                            "processing_set_id",
+                        ),
+                        "processing_set_number": row_value(
+                            row,
+                            "processing_set_number",
+                        ),
+                        "processing_set_ordinal": row_value(
+                            row,
+                            "processing_set_ordinal",
+                        ),
+                        "estimated_ocr_pages":
+                            estimated_pages,
+                        "native_blob_path":
+                            native_blob_path,
+                        "source_file_name":
+                            source.name,
+                        "source_extension":
+                            suffix,
+                    }
+                )
+
+            #
+            # Build bounded OCR work sets.
+            #
+            # A set closes when adding the next document would exceed
+            # either the configured document limit or page-weight limit.
+            #
+            ocr_sets: list[list[dict[str, Any]]] = []
+
+            current_set: list[dict[str, Any]] = []
+            current_pages = 0
+
+            for document in documents:
+                document_pages = max(
+                    1,
+                    int(
+                        document.get(
+                            "estimated_ocr_pages"
+                        )
+                        or 1
+                    ),
+                )
+
+                exceeds_doc_limit = (
+                    len(current_set)
+                    >= max_docs_per_set
+                )
+
+                exceeds_page_limit = (
+                    bool(current_set)
+                    and (
+                        current_pages
+                        + document_pages
+                        > max_pages_per_set
+                    )
+                )
+
+                if (
+                    exceeds_doc_limit
+                    or exceeds_page_limit
+                ):
+                    ocr_sets.append(
+                        current_set
+                    )
+
+                    current_set = []
+                    current_pages = 0
+
+                current_set.append(
+                    document
+                )
+
+                current_pages += (
+                    document_pages
+                )
+
+            if current_set:
+                ocr_sets.append(
+                    current_set
+                )
+
+            dispatch_sets: list[
+                dict[str, Any]
+            ] = []
+
+            total_estimated_pages = sum(
+                int(
+                    document.get(
+                        "estimated_ocr_pages"
+                    )
+                    or 1
+                )
+                for document in documents
+            )
+
+            #
+            # Persist the top-level manifest before queueing.
+            #
+            # Individual set records are added after each queue operation.
+            #
+            manifest_payload = {
+                "job_type": "ocr_dispatch",
+                "source_job_id": job_id,
+                "matter_id": matter_id,
+                "workspace": workspace,
+                "client": str(client),
+                "project": str(project),
+                "status": "dispatching",
+                "queue_name": os.getenv(
+                    "APC_OCR_QUEUE_NAME",
+                    "apc-ocr-set-jobs",
+                ),
+                "configured_max_docs_per_set":
+                    max_docs_per_set,
+                "configured_max_pages_per_set":
+                    max_pages_per_set,
+                "document_count":
+                    len(documents),
+                "estimated_pages":
+                    total_estimated_pages,
+                "set_count":
+                    len(ocr_sets),
+                "sets": [],
+                "created_at": utc_now(),
+                "updated_at": utc_now(),
+            }
+
+            _write_json_blob(
+                manifest_blob_path,
+                manifest_payload,
+            )
+
+            for index, set_documents in enumerate(
+                ocr_sets,
+                start=1,
+            ):
+                cancellation_checkpoint(
+                    "ocr_dispatch"
+                )
+
+                #
+                # Deterministic set IDs are intentional.
+                # If the parent message is ever redelivered,
+                # the same set number maps to the same durable path.
+                #
+                ocr_set_id = (
+                    f"OCRSET-{index:06d}"
+                )
+
+                set_base = (
+                    f"{ocr_base}/sets/"
+                    f"{ocr_set_id}"
+                )
+
+                request_blob_path = (
+                    f"{set_base}/request.json"
+                )
+
+                set_status_blob_path = (
+                    f"{set_base}/status.json"
+                )
+
+                set_estimated_pages = sum(
+                    int(
+                        document.get(
+                            "estimated_ocr_pages"
+                        )
+                        or 1
+                    )
+                    for document
+                    in set_documents
+                )
+
+                requested_at = utc_now()
+
+                request_payload = {
+                    "job_type": "ocr_set",
+                    "ocr_set_id": ocr_set_id,
+                    "source_job_id": job_id,
+                    "matter_id": matter_id,
+                    "workspace": workspace,
+                    "client": str(client),
+                    "project": str(project),
+                    "processing_account":
+                        _processing_account(),
+                    "processing_container":
+                        _processing_container(),
+                    "document_count":
+                        len(set_documents),
+                    "estimated_pages":
+                        set_estimated_pages,
+                    "documents":
+                        set_documents,
+                    "protocol_name":
+                        payload.get(
+                            "protocol_name"
+                        ),
+                    "protocol_version":
+                        payload.get(
+                            "protocol_version"
+                        ),
+                    "include_phi":
+                        bool(
+                            payload.get(
+                                "include_phi",
+                                True,
+                            )
+                        ),
+                    "requested_by": (
+                        payload.get(
+                            "requested_by"
+                        )
+                        or "APC Worker"
+                    ),
+                    "requested_at":
+                        requested_at,
+                    "request_blob_path":
+                        request_blob_path,
+                    "status_blob_path":
+                        set_status_blob_path,
+                }
+
+                set_status_payload = {
+                    "job_type": "ocr_set",
+                    "ocr_set_id": ocr_set_id,
+                    "source_job_id": job_id,
+                    "workspace": workspace,
+                    "client": str(client),
+                    "project": str(project),
+                    "status": "queued",
+                    "stage": "queued",
+                    "progress_pct": 0,
+                    "document_count":
+                        len(set_documents),
+                    "estimated_pages":
+                        set_estimated_pages,
+                    "documents_completed": 0,
+                    "documents_failed": 0,
+                    "pages_completed": 0,
+                    "message":
+                        "OCR set queued.",
+                    "requested_at":
+                        requested_at,
+                    "created_at":
+                        utc_now(),
+                    "updated_at":
+                        utc_now(),
+                    "request_blob_path":
+                        request_blob_path,
+                    "status_blob_path":
+                        set_status_blob_path,
+                }
+
+                #
+                # Persist BOTH blobs before the queue message.
+                #
+                _write_json_blob(
+                    request_blob_path,
+                    request_payload,
+                )
+
+                _write_json_blob(
+                    set_status_blob_path,
+                    set_status_payload,
+                )
+
+                queue_result = (
+                    _send_ocr_queue_message(
+                        request_payload
+                    )
+                )
+
+                dispatch_sets.append(
+                    {
+                        "ocr_set_id":
+                            ocr_set_id,
+                        "document_count":
+                            len(
+                                set_documents
+                            ),
+                        "estimated_pages":
+                            set_estimated_pages,
+                        "request_blob_path":
+                            request_blob_path,
+                        "status_blob_path":
+                            set_status_blob_path,
+                        "queue_name":
+                            queue_result.get(
+                                "queue_name"
+                            ),
+                        "queue_message_id":
+                            queue_result.get(
+                                "message_id"
+                            ),
+                    }
+                )
+
+            manifest_payload.update(
+                {
+                    "status":
+                        "dispatched",
+                    "sets":
+                        dispatch_sets,
+                    "dispatched_at":
+                        utc_now(),
+                    "updated_at":
+                        utc_now(),
+                }
+            )
+
+            _write_json_blob(
+                manifest_blob_path,
+                manifest_payload,
+            )
+
+            _update_status(
+                status_blob_path=status_blob_path,
+                status="running",
+                stage="ocr_dispatch",
+                progress_pct=70,
+                message=(
+                    f"Queued {len(documents):,} "
+                    "OCR-required document(s) in "
+                    f"{len(ocr_sets):,} OCR set(s)."
+                ),
+                extra={
+                    "current_step": (
+                        f"OCR dispatch completed: "
+                        f"{len(ocr_sets):,} set(s), "
+                        f"{len(documents):,} document(s), "
+                        f"{total_estimated_pages:,} "
+                        "estimated page(s)."
+                    ),
+                    "ocr_dispatch_status":
+                        "dispatched",
+                    "ocr_set_count":
+                        len(ocr_sets),
+                    "ocr_document_count":
+                        len(documents),
+                    "ocr_estimated_pages":
+                        total_estimated_pages,
+                    "ocr_manifest_blob_path":
+                        manifest_blob_path,
+                    "ocr_queue_name":
+                        os.getenv(
+                            "APC_OCR_QUEUE_NAME",
+                            "apc-ocr-set-jobs",
+                        ),
+                },
+            )
+
         def ingestion_progress(progress: dict[str, Any]) -> None:
             stage_name = str(
                 progress.get("stage")
@@ -1687,6 +2403,7 @@ def process_job_message(message_content: str):
             progress_callback=ingestion_progress,
             cancellation_callback=cancellation_checkpoint,
             after_ocr_preflight_callback=structured_fast_lane,
+            ocr_dispatch_callback=ocr_dispatch,
             selected_uploads=selected_uploads,
         )
 

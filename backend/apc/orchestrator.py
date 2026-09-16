@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from .azure_layout import AzureRoutingConfig
 from .config import Settings
@@ -16,6 +16,7 @@ from .stages.ocr_preflight import run_ocr_preflight
 from .stages.prior_processed import run_prior_processed_duplicate_suppression
 from .stages.review_promotion import run_review_promotion
 from .stages.text_extraction import run_text_extraction
+from .processing_sets import build_processing_sets
 from .util import bytes_to_gb, json_dumps, new_id, utc_now
 
 
@@ -128,6 +129,93 @@ def finalize_job(db: LedgerDB, job_id: str) -> None:
         ),
     )
 
+def _emit_pipeline_progress(
+    progress_callback,
+    *,
+    db: LedgerDB,
+    job_id: str,
+    stage: str,
+    current_step: str,
+    stage_processed_files: int | None = None,
+    stage_total_files: int | None = None,
+    stage_failed_files: int | None = None,
+    current_file: str | None = None,
+) -> None:
+    if not progress_callback:
+        return
+
+    job = db.query_one(
+        """
+        SELECT
+            coalesce(source_file_count, 0) AS source_file_count,
+            coalesce(expanded_file_count, 0) AS expanded_file_count,
+            coalesce(unique_doc_count, 0) AS unique_doc_count,
+            coalesce(duplicate_doc_count, 0) AS duplicate_doc_count,
+            coalesce(denist_suppressed_count, 0) AS denist_suppressed_count,
+            coalesce(ocr_page_count, 0) AS ocr_page_count,
+            coalesce(exception_count, 0) AS exception_count
+        FROM processing_job
+        WHERE job_id=?
+        """,
+        (job_id,),
+    )
+
+    values = dict(job) if job else {}
+
+    processed = (
+        int(stage_processed_files)
+        if stage_processed_files is not None
+        else 0
+    )
+
+    total = (
+        int(stage_total_files)
+        if stage_total_files is not None
+        else 0
+    )
+
+    failed = (
+        int(stage_failed_files)
+        if stage_failed_files is not None
+        else 0
+    )
+
+    progress_callback(
+        {
+            "stage": stage,
+            "current_stage": stage,
+            "current_step": current_step,
+            "current_file": current_file or "",
+            "source_file_count": int(
+                values.get("source_file_count") or 0
+            ),
+            "expanded_file_count": int(
+                values.get("expanded_file_count") or 0
+            ),
+            "unique_doc_count": int(
+                values.get("unique_doc_count") or 0
+            ),
+            "duplicate_doc_count": int(
+                values.get("duplicate_doc_count") or 0
+            ),
+            "denist_suppressed_count": int(
+                values.get("denist_suppressed_count") or 0
+            ),
+            "ocr_page_count": int(
+                values.get("ocr_page_count") or 0
+            ),
+            "exception_count": int(
+                values.get("exception_count") or 0
+            ),
+            "stage_processed_files": processed,
+            "stage_total_files": total,
+            "stage_failed_files": failed,
+            "stage_remaining_files": max(
+                total - processed,
+                0,
+            ),
+        }
+    )
 
 def run_local_pipeline(
     db: LedgerDB,
@@ -144,7 +232,21 @@ def run_local_pipeline(
     promote_review_ready: bool = False,
     output_root: str | None = None,
     prior_processed_index: dict | None = None,
+    progress_callback=None,
+    cancellation_callback=None,
+    after_inventory_callback=None,
+    after_ocr_preflight_callback=None,
+    ocr_dispatch_callback=None,
+    processing_set_size: int = 500,
 ) -> str:
+    def check_cancel(
+        stage: str,
+    ) -> None:
+        if cancellation_callback:
+            cancellation_callback(
+                stage
+            )
+
     db.init_schema()
     job_id = create_job(
         db,
@@ -171,13 +273,126 @@ def run_local_pipeline(
     db.execute("UPDATE processing_job SET status=? WHERE job_id=?", ("running", job_id))
 
     if denist_hash_file:
-        load_denist_hashes(db, denist_hash_file, source_name="user-provided")
+        load_denist_hashes(
+            db,
+            denist_hash_file,
+            source_name="user-provided",
+        )
 
-    run_inventory(db, settings, job_id, matter_id, input_dir=input_dir, custodian_id=custodian_id)
-    run_container_expansion(db, settings, job_id, matter_id, input_dir=input_dir)
-    run_hashing(db, settings, job_id, matter_id)
-    run_denist(db, settings, job_id, matter_id)
-    run_dedupe(db, settings, job_id, matter_id)
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="inventory",
+        current_step="Inventorying source uploads.",
+    )
+
+    check_cancel("inventory")
+    run_inventory(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        input_dir=input_dir,
+        custodian_id=custodian_id,
+    )
+    
+    if after_inventory_callback:
+        after_inventory_callback(
+            db=db,
+            job_id=job_id,
+            input_dir=input_dir,
+        )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="container_expansion",
+        current_step="Expanding archives and workbook containers.",
+    )
+
+    check_cancel("container_expansion")
+    run_container_expansion(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        input_dir=input_dir,
+    )
+
+    expanded_total = int(
+        db.scalar(
+            """
+            SELECT coalesce(expanded_file_count, 0)
+            FROM processing_job
+            WHERE job_id=?
+            """,
+            (job_id,),
+        )
+        or 0
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="hashing",
+        current_step="Hashing expanded leaf files.",
+        stage_total_files=expanded_total,
+    )
+
+    check_cancel("hashing")
+    run_hashing(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="denist",
+        current_step="Applying deNIST suppression.",
+        stage_total_files=expanded_total,
+    )
+
+    check_cancel("denist")
+    run_denist(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="dedupe",
+        current_step="Checking duplicate documents.",
+        stage_total_files=expanded_total,
+    )
+
+    check_cancel("dedupe")
+    run_dedupe(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="prior_processed",
+        current_step="Checking previously processed documents.",
+    )
+
+    check_cancel("prior_processed")
     run_prior_processed_duplicate_suppression(
         db,
         settings,
@@ -185,7 +400,81 @@ def run_local_pipeline(
         matter_id,
         prior_processed_index=prior_processed_index,
     )
-    run_family_detection(db, settings, job_id, matter_id)
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="family_detection",
+        current_step="Identifying document families.",
+    )
+
+    check_cancel("family_detection")
+    run_family_detection(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
+
+    check_cancel("processing_sets")
+    processing_sets = build_processing_sets(
+        db=db,
+        job_id=job_id,
+        matter_id=matter_id,
+        set_size=processing_set_size,
+    )
+
+    db.execute(
+        """
+        UPDATE processing_job
+        SET metadata_json=json_patch(
+            coalesce(metadata_json, '{}'),
+            ?
+        )
+        WHERE job_id=?
+        """,
+        (
+            json_dumps(
+                {
+                    "processing_sets": {
+                        "enabled": True,
+                        "configured_set_size": (
+                            processing_set_size
+                        ),
+                        "set_count": (
+                            processing_sets["set_count"]
+                        ),
+                        "eligible_file_count": (
+                            processing_sets[
+                                "eligible_file_count"
+                            ]
+                        ),
+                        "sets": processing_sets["sets"],
+                    }
+                }
+            ),
+            job_id,
+        ),
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="processing_sets",
+        current_step=(
+            f"Created "
+            f"{processing_sets['set_count']:,} "
+            f"processing set(s) from "
+            f"{processing_sets['eligible_file_count']:,} "
+            f"expanded leaf files."
+        ),
+        stage_processed_files=0,
+        stage_total_files=(
+            processing_sets["eligible_file_count"]
+        ),
+    )
 
     routing = AzureRoutingConfig.from_args(
         workspace=workspace,
@@ -194,6 +483,15 @@ def run_local_pipeline(
         azure_write=True,
     )
 
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="doc_id_assignment",
+        current_step="Assigning INSYT document IDs.",
+    )
+
+    check_cancel("doc_id_assignment")
     run_doc_id_assignment(
         db,
         settings,
@@ -203,27 +501,123 @@ def run_local_pipeline(
         prefix=doc_prefix,
     )
 
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="text_extraction",
+        current_step="Preparing native text extraction.",
+    )
+
+    check_cancel("text_extraction")
     run_text_extraction(
         db,
         settings,
         job_id,
         matter_id,
         workspace=workspace,
+        progress_callback=progress_callback,
     )
-    run_ocr_preflight(db, settings, job_id, matter_id)
 
-    if enable_live_ocr:
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="ocr_preflight",
+        current_step="Evaluating OCR requirements.",
+    )
+
+    check_cancel("ocr_preflight")
+    run_ocr_preflight(
+        db,
+        settings,
+        job_id,
+        matter_id,
+    )
+
+    #
+    # Structured-data fast lane.
+    #
+    # At this point:
+    #   - containers/workbooks have been expanded
+    #   - hashes/dedupe/deNIST/families are complete
+    #   - Processing Sets and Doc IDs exist
+    #   - native text extraction has run
+    #   - OCR requirements are known
+    #
+    # Release non-OCR structured documents for staging/detection
+    # before live OCR begins.
+    #
+    if after_ocr_preflight_callback:
+        check_cancel(
+            "structured_fast_lane"
+        )
+
+        _emit_pipeline_progress(
+            progress_callback,
+            db=db,
+            job_id=job_id,
+            stage="structured_fast_lane",
+            current_step=(
+                "Releasing non-OCR structured documents "
+                "for Data Element Detection."
+            ),
+        )
+
+        after_ocr_preflight_callback(
+            db=db,
+            job_id=job_id,
+            matter_id=matter_id,
+            workspace=workspace,
+        )
+
+    #
+    # Durable OCR dispatch lane.
+    #
+    # OCR-required documents must be persisted to durable Azure storage
+    # and queued for the dedicated OCR worker here.
+    #
+    # The parent APC ingestion worker must not perform OCR itself once
+    # an OCR dispatcher is supplied.
+    #
+    if ocr_dispatch_callback:
+        check_cancel(
+            "ocr_dispatch"
+        )
+
+        _emit_pipeline_progress(
+            progress_callback,
+            db=db,
+            job_id=job_id,
+            stage="ocr_dispatch",
+            current_step=(
+                "Preparing OCR-required documents "
+                "for asynchronous OCR processing."
+            ),
+        )
+
+        ocr_dispatch_callback(
+            db=db,
+            job_id=job_id,
+            matter_id=matter_id,
+            workspace=workspace,
+        )
+
+    if enable_live_ocr and not ocr_dispatch_callback:
         if not settings.enable_live_ocr:
             raise RuntimeError(
                 "Live OCR requested but neither APC_ENABLE_LIVE_OCR nor "
                 "APC_API_ALLOW_LIVE_OCR is true."
             )
 
+        check_cancel("ocr_live")
+
         live_ocr_result = run_live_ocr_placeholder(
             db,
             settings,
             job_id,
             matter_id,
+            cancellation_callback=cancellation_callback,
         )
 
         if int(live_ocr_result.get("exception_count") or 0) > 0:
@@ -250,12 +644,32 @@ def run_local_pipeline(
             )
 
     elif enable_ocr_dry_run:
+        check_cancel("ocr_dry_run")
         run_ocr_dry_run(db, settings, job_id, matter_id)
 
     if promote_review_ready:
         from pathlib import Path
-        resolved_output_root = output_root or str(Path(input_dir).resolve().parent / ".apc_review_output")
-        run_review_promotion(db, settings, job_id, matter_id, output_root=resolved_output_root)
+
+        resolved_output_root = (
+            output_root
+            or str(
+                Path(input_dir)
+                .resolve()
+                .parent
+                / ".apc_review_output"
+            )
+        )
+
+        check_cancel("review_promotion")
+
+        run_review_promotion(
+            db,
+            settings,
+            job_id,
+            matter_id,
+            output_root=resolved_output_root,
+            cancellation_callback=cancellation_callback,
+        )
 
     finalize_job(db, job_id)
     return job_id

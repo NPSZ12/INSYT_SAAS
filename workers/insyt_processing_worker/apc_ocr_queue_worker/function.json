@@ -1,12 +1,12 @@
-﻿{
+{
   "scriptFile": "__init__.py",
   "bindings": [
     {
       "name": "msg",
       "type": "queueTrigger",
       "direction": "in",
-      "queueName": "%APC_PROCESSING_QUEUE_NAME%",
-      "connection": "AzureWebJobsStorage"
+      "queueName": "%APC_OCR_QUEUE_NAME%",
+      "connection": "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
     }
   ]
 }

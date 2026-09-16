@@ -102,6 +102,7 @@ def run_azure_processing_job(
     progress_callback=None,
     cancellation_callback=None,
     after_ocr_preflight_callback=None,
+    ocr_dispatch_callback=None,
     selected_uploads: list[str] | None = None,
 ) -> AzureRunResult:
     """Run the proven v0.8 Azure intake -> processing -> review promotion flow.
@@ -261,6 +262,7 @@ def run_azure_processing_job(
                 apply_json_provenance_after_inventory
             ),
             after_ocr_preflight_callback=after_ocr_preflight_callback,
+            ocr_dispatch_callback=ocr_dispatch_callback,
         )
         local_review_root = review_root / job_id
 
