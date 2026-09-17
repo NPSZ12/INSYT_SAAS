@@ -404,8 +404,16 @@ export default function ReviewCapturePanel({
       return String(value).trim() !== "";
     });
 
+    const hasPendingAiEntity =
+      Boolean(selectedAiEntity) &&
+      selectedAiEntity?.status !== "approved" &&
+      selectedAiEntity?.status !== "rejected";
+
     const valuesToSave =
-      documentCoding === "Not Responsive" && !hasCapturedValues ? {} : values;
+      hasPendingAiEntity ||
+      (documentCoding === "Not Responsive" && !hasCapturedValues)
+        ? {}
+        : values;
 
     apiPost("/api/review/save-next", {
       workspace,
@@ -449,8 +457,16 @@ export default function ReviewCapturePanel({
       return String(value).trim() !== "";
     });
 
+    const hasPendingAiEntity =
+      Boolean(selectedAiEntity) &&
+      selectedAiEntity?.status !== "approved" &&
+      selectedAiEntity?.status !== "rejected";
+
     const valuesToSave =
-      documentCoding === "Not Responsive" && !hasCapturedValues ? {} : values;
+      hasPendingAiEntity ||
+      (documentCoding === "Not Responsive" && !hasCapturedValues)
+        ? {}
+        : values;
 
     apiPost("/api/review/save", {
       workspace,

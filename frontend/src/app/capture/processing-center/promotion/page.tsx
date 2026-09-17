@@ -1400,8 +1400,8 @@ async function promoteSelectedToReview() {
                     <FileCheck2 className="h-3.5 w-3.5" />
 
                     {promotingReview
-                      ? "Promoting..."
-                      : "Promote Selected to Review"}
+                      ? "Promoting to Files & AI Intake..."
+                      : "Promote to Files & AI Intake / Header Mapping"}
                   </button>
 
                 </div>
