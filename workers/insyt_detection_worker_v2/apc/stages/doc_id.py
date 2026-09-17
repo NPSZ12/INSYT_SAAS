@@ -1,0 +1,1066 @@
+from __future__ import annotations
+
+import json
+import re
+
+from pathlib import Path
+
+from ..azure_layout import AzureRoutingConfig
+from ..config import Settings
+from ..db import LedgerDB
+from ..doc_id_registry import reserve_doc_ids
+from ..telemetry import StageRunner
+from ..util import json_dumps, utc_now
+
+
+def _safe_filename_component(
+    value: str,
+    *,
+    max_length: int = 100,
+) -> str:
+    clean = str(
+        value
+        or ""
+    ).strip()
+
+    clean = re.sub(
+        r'[<>:"/\\|?*\x00-\x1f]',
+        "_",
+        clean,
+    )
+
+    clean = re.sub(
+        r"\s+",
+        "_",
+        clean,
+    )
+
+    clean = re.sub(
+        r"_+",
+        "_",
+        clean,
+    )
+
+    clean = clean.strip(
+        " ._"
+    )
+
+    if not clean:
+        clean = "Unknown"
+
+    return clean[
+        :max_length
+    ]
+
+
+def _stage_status(
+    row,
+) -> dict:
+    raw = None
+
+    try:
+        raw = row[
+            "stage_status_json"
+        ]
+    except Exception:
+        raw = None
+
+    if not raw:
+        return {}
+
+    try:
+        parsed = json.loads(
+            raw
+        )
+
+        return (
+            parsed
+            if isinstance(
+                parsed,
+                dict,
+            )
+            else {}
+        )
+
+    except Exception:
+        return {}
+
+
+def _workbook_sheet_metadata(
+    row,
+) -> dict:
+    status = _stage_status(
+        row
+    )
+
+    workbook_sheet = (
+        status.get(
+            "workbook_sheet"
+        )
+        or {}
+    )
+
+    if not isinstance(
+        workbook_sheet,
+        dict,
+    ):
+        return {}
+
+    return workbook_sheet
+
+def _workbook_parent_file_id(
+    row,
+) -> str:
+    workbook_sheet = (
+        _workbook_sheet_metadata(
+            row
+        )
+    )
+
+    if not workbook_sheet:
+        return ""
+
+    return str(
+        workbook_sheet.get(
+            "original_workbook_file_id"
+        )
+        or row[
+            "parent_file_id"
+        ]
+        or ""
+    ).strip()
+
+def _is_workbook_parent(
+    row,
+) -> bool:
+    extension = str(
+        row[
+            "extension"
+        ]
+        or ""
+    ).strip().lower()
+
+    extension = (
+        extension.lstrip(".")
+    )
+
+    return extension in {
+        "xls",
+        "xlsx",
+        "xlsm",
+        "xlsb",
+        "ods",
+    }
+
+def _derived_workbook_csv_filename(
+    *,
+    doc_id: str,
+    workbook_name: str,
+    sheet_index: int,
+    sheet_name: str,
+) -> str:
+    workbook_stem = (
+        Path(
+            str(
+                workbook_name
+                or "Workbook"
+            )
+        )
+        .stem
+    )
+
+    workbook_part = (
+        _safe_filename_component(
+            workbook_stem,
+            max_length=90,
+        )
+    )
+
+    sheet_part = (
+        _safe_filename_component(
+            sheet_name,
+            max_length=90,
+        )
+    )
+
+    return (
+        f"{doc_id}"
+        f"__{workbook_part}"
+        f"__Sheet_{sheet_index:04d}"
+        f"__{sheet_part}.csv"
+    )
+
+
+def _unique_path(
+    desired_path: Path,
+) -> Path:
+    if not desired_path.exists():
+        return desired_path
+
+    stem = desired_path.stem
+    suffix = desired_path.suffix
+    parent = desired_path.parent
+
+    number = 2
+
+    while True:
+        candidate = (
+            parent
+            / f"{stem}__{number}{suffix}"
+        )
+
+        if not candidate.exists():
+            return candidate
+
+        number += 1
+
+
+def _rename_workbook_sheet_csv(
+    *,
+    row,
+    doc_id: str,
+) -> dict:
+    """
+    Rename a worksheet-derived CSV after Doc ID assignment.
+
+    Example:
+
+        Sheet_0004__Claims.csv
+
+    becomes:
+
+        INSYT000000123__Client_Data__Sheet_0004__Claims.csv
+
+    Original workbook/sheet lineage remains stored in
+    stage_status_json.
+    """
+
+    workbook_sheet = (
+        _workbook_sheet_metadata(
+            row
+        )
+    )
+
+    if not workbook_sheet:
+        return {
+            "renamed": False,
+            "reason": (
+                "not_workbook_sheet"
+            ),
+        }
+
+    current_path_text = str(
+        row[
+            "original_path"
+        ]
+        or ""
+    ).strip()
+
+    if not current_path_text:
+        return {
+            "renamed": False,
+            "reason": (
+                "missing_original_path"
+            ),
+        }
+
+    current_path = Path(
+        current_path_text
+    )
+
+    if (
+        current_path.suffix
+        .lower()
+        != ".csv"
+    ):
+        return {
+            "renamed": False,
+            "reason": (
+                "workbook_child_not_csv"
+            ),
+        }
+
+    workbook_name = str(
+        workbook_sheet.get(
+            "original_workbook_name"
+        )
+        or "Workbook"
+    )
+
+    sheet_name = str(
+        workbook_sheet.get(
+            "sheet_name"
+        )
+        or "Sheet"
+    )
+
+    try:
+        sheet_index = int(
+            workbook_sheet.get(
+                "sheet_index"
+            )
+            or 0
+        )
+
+    except Exception:
+        sheet_index = 0
+
+    if sheet_index <= 0:
+        sheet_index = 1
+
+    derived_filename = (
+        _derived_workbook_csv_filename(
+            doc_id=doc_id,
+            workbook_name=(
+                workbook_name
+            ),
+            sheet_index=(
+                sheet_index
+            ),
+            sheet_name=(
+                sheet_name
+            ),
+        )
+    )
+
+    desired_path = (
+        current_path.parent
+        / derived_filename
+    )
+
+    if (
+        current_path.name
+        == desired_path.name
+    ):
+        final_path = (
+            current_path
+        )
+
+    else:
+        if not current_path.exists():
+            return {
+                "renamed": False,
+                "reason": (
+                    "source_csv_missing"
+                ),
+                "expected_path": (
+                    str(
+                        current_path
+                    )
+                ),
+            }
+
+        final_path = (
+            _unique_path(
+                desired_path
+            )
+        )
+
+        current_path.rename(
+            final_path
+        )
+
+    normalized_path = str(
+        row[
+            "normalized_path"
+        ]
+        or ""
+    )
+
+    if normalized_path:
+        if "/" in normalized_path:
+            normalized_parent = (
+                normalized_path
+                .rsplit(
+                    "/",
+                    1,
+                )[0]
+            )
+
+            new_normalized_path = (
+                f"{normalized_parent}/"
+                f"{final_path.name}"
+            )
+
+        else:
+            new_normalized_path = (
+                final_path.name
+            )
+
+    else:
+        new_normalized_path = (
+            final_path.name
+        )
+
+    return {
+        "renamed": True,
+        "previous_path": (
+            str(
+                current_path
+            )
+        ),
+        "new_path": (
+            str(
+                final_path
+            )
+        ),
+        "previous_normalized_path": (
+            normalized_path
+        ),
+        "new_normalized_path": (
+            new_normalized_path
+        ),
+        "derived_filename": (
+            final_path.name
+        ),
+        "workbook_name": (
+            workbook_name
+        ),
+        "sheet_name": (
+            sheet_name
+        ),
+        "sheet_index": (
+            sheet_index
+        ),
+    }
+
+
+def run_doc_id_assignment(
+    db: LedgerDB,
+    settings: Settings,
+    job_id: str,
+    matter_id: str,
+    routing: AzureRoutingConfig,
+    prefix: str = "INSYT",
+    start_number: int = 1,
+    width: int = 9,
+    suppress_duplicates: bool = True,
+) -> None:
+    where = (
+        "fpm.job_id=? "
+        "AND fpm.is_denisted=0 "
+        "AND psf.membership_role IN ("
+        "'primary', 'workbook_parent'"
+        ")"
+    )
+
+    params: tuple = (
+        job_id,
+    )
+
+    if suppress_duplicates:
+        #
+        # Primary documents that were deduplicated do not
+        # receive new Doc IDs.
+        #
+        # Workbook parents are support/lineage records and
+        # must remain available so their surviving worksheet
+        # children can inherit the parent's base Doc ID.
+        #
+        where += (
+            " AND ("
+            "psf.membership_role='workbook_parent' "
+            "OR fpm.is_duplicate=0"
+            ")"
+        )
+
+    candidate_rows = db.query(
+        f"""
+        SELECT
+            fpm.file_id,
+            fpm.family_id,
+            fpm.parent_file_id,
+            fpm.source_container_file_id,
+            fpm.original_path,
+            fpm.normalized_path,
+            fpm.extension,
+            fpm.stage_status_json,
+            fpm.is_container,
+            psf.set_id,
+            psf.ordinal AS processing_set_ordinal,
+            psf.membership_role,
+            psf.counts_toward_set_size,
+            ps.set_number
+        FROM processing_set_file psf
+        JOIN processing_set ps
+          ON ps.set_id=psf.set_id
+         AND ps.job_id=psf.job_id
+        JOIN file_processing_metrics fpm
+          ON fpm.file_id=psf.file_id
+         AND fpm.job_id=psf.job_id
+        WHERE {where}
+        ORDER BY
+            ps.set_number,
+            psf.ordinal,
+            fpm.normalized_path,
+            fpm.file_id
+        """,
+        params,
+    )
+
+    rows = [
+        row
+        for row in candidate_rows
+        if (
+            (
+                str(
+                    row[
+                        "membership_role"
+                    ]
+                    or ""
+                )
+                == "primary"
+                and not bool(
+                    row[
+                        "is_container"
+                    ]
+                )
+            )
+            or (
+                str(
+                    row[
+                        "membership_role"
+                    ]
+                    or ""
+                )
+                == "workbook_parent"
+                and _is_workbook_parent(
+                    row
+                )
+            )
+        )
+    ]
+
+    with StageRunner(
+        db,
+        settings,
+        job_id,
+        matter_id,
+        "doc_id_assignment",
+        "family-aware-doc-id",
+    ) as stage:
+        root_rows = []
+        workbook_child_rows = []
+
+        for row in rows:
+            workbook_metadata = (
+                _workbook_sheet_metadata(
+                    row
+                )
+            )
+
+            if workbook_metadata:
+                workbook_child_rows.append(
+                    row
+                )
+            else:
+                root_rows.append(
+                    row
+                )
+
+        #
+        # Only root documents consume normal registry
+        # sequence numbers.
+        #
+        # Example:
+        #
+        #   INSYT000000001      workbook parent
+        #   INSYT000000001.1    worksheet child
+        #   INSYT000000001.2    worksheet child
+        #   INSYT000000002      next root document
+        #
+        allocation = (
+            reserve_doc_ids(
+                routing=routing,
+                count=len(
+                    root_rows
+                ),
+                prefix=prefix,
+                width=width,
+            )
+        )
+
+        n = (
+            allocation.start_number
+        )
+
+        root_doc_ids: dict[
+            str,
+            str,
+        ] = {}
+
+        workbook_sheet_count = 0
+        workbook_sheet_rename_count = 0
+        workbook_sheet_rename_failures: list[
+            dict
+        ] = []
+
+        #
+        # First assign normal project Doc IDs to
+        # all root documents, including workbook
+        # parent objects.
+        #
+        for row in root_rows:
+            doc_id = (
+                f"{prefix}"
+                f"{n:0{width}d}"
+            )
+
+            file_id = str(
+                row[
+                    "file_id"
+                ]
+                or ""
+            ).strip()
+
+            db.execute(
+                """
+                UPDATE file_processing_metrics
+                SET
+                    doc_id=?,
+                    updated_at=?
+                WHERE file_id=?
+                """,
+                (
+                    doc_id,
+                    utc_now(),
+                    row[
+                        "file_id"
+                    ],
+                ),
+            )
+
+            if file_id:
+                root_doc_ids[
+                    file_id
+                ] = doc_id
+
+            n += 1
+
+        #
+        # Group worksheet-derived CSV children by
+        # their original workbook parent.
+        #
+        workbook_children_by_parent: dict[
+            str,
+            list,
+        ] = {}
+
+        for row in workbook_child_rows:
+            parent_file_id = (
+                _workbook_parent_file_id(
+                    row
+                )
+            )
+
+            workbook_children_by_parent.setdefault(
+                parent_file_id,
+                [],
+            ).append(
+                row
+            )
+
+        #
+        # Assign child Doc IDs underneath the
+        # workbook parent's normal Doc ID.
+        #
+        for (
+            parent_file_id,
+            child_rows,
+        ) in workbook_children_by_parent.items():
+            parent_doc_id = (
+                root_doc_ids.get(
+                    parent_file_id
+                )
+            )
+
+            if not parent_doc_id:
+                for row in child_rows:
+                    workbook_sheet_rename_failures.append(
+                        {
+                            "file_id": (
+                                row[
+                                    "file_id"
+                                ]
+                            ),
+                            "parent_file_id": (
+                                parent_file_id
+                            ),
+                            "error": (
+                                "Workbook parent did not "
+                                "receive a Doc ID."
+                            ),
+                        }
+                    )
+
+                continue
+
+            def _sheet_sort_key(
+                child_row,
+            ):
+                metadata = (
+                    _workbook_sheet_metadata(
+                        child_row
+                    )
+                )
+
+                try:
+                    sheet_index = int(
+                        metadata.get(
+                            "sheet_index"
+                        )
+                        or 0
+                    )
+                except Exception:
+                    sheet_index = 0
+
+                return (
+                    sheet_index,
+                    str(
+                        child_row[
+                            "normalized_path"
+                        ]
+                        or ""
+                    ),
+                )
+
+            ordered_children = sorted(
+                child_rows,
+                key=_sheet_sort_key,
+            )
+
+            for (
+                child_number,
+                row,
+            ) in enumerate(
+                ordered_children,
+                start=1,
+            ):
+                doc_id = (
+                    f"{parent_doc_id}"
+                    f".{child_number}"
+                )
+
+                workbook_sheet_count += 1
+
+                #
+                # Assign child Doc ID first.
+                #
+                db.execute(
+                    """
+                    UPDATE file_processing_metrics
+                    SET
+                        doc_id=?,
+                        updated_at=?,
+                        stage_status_json=json_patch(
+                            stage_status_json,
+                            ?
+                        )
+                    WHERE file_id=?
+                    """,
+                    (
+                        doc_id,
+                        utc_now(),
+                        json_dumps(
+                            {
+                                "workbook_sheet": {
+                                    "doc_id": (
+                                        doc_id
+                                    ),
+                                    "parent_doc_id": (
+                                        parent_doc_id
+                                    ),
+                                    "child_doc_number": (
+                                        child_number
+                                    ),
+                                }
+                            }
+                        ),
+                        row[
+                            "file_id"
+                        ],
+                    ),
+                )
+
+                try:
+                    rename_result = (
+                        _rename_workbook_sheet_csv(
+                            row=row,
+                            doc_id=doc_id,
+                        )
+                    )
+
+                    if rename_result.get(
+                        "renamed"
+                    ):
+                        workbook_sheet_rename_count += 1
+
+                        db.execute(
+                            """
+                            UPDATE file_processing_metrics
+                            SET
+                                original_path=?,
+                                normalized_path=?,
+                                updated_at=?,
+                                stage_status_json=json_patch(
+                                    stage_status_json,
+                                    ?
+                                )
+                            WHERE file_id=?
+                            """,
+                            (
+                                rename_result[
+                                    "new_path"
+                                ],
+                                rename_result[
+                                    "new_normalized_path"
+                                ],
+                                utc_now(),
+                                json_dumps(
+                                    {
+                                        "workbook_sheet": {
+                                            "doc_id": (
+                                                doc_id
+                                            ),
+                                            "parent_doc_id": (
+                                                parent_doc_id
+                                            ),
+                                            "child_doc_number": (
+                                                child_number
+                                            ),
+                                            "derived_filename": (
+                                                rename_result[
+                                                    "derived_filename"
+                                                ]
+                                            ),
+                                            "derived_csv_path": (
+                                                rename_result[
+                                                    "new_path"
+                                                ]
+                                            ),
+                                            "derived_normalized_path": (
+                                                rename_result[
+                                                    "new_normalized_path"
+                                                ]
+                                            ),
+                                        }
+                                    }
+                                ),
+                                row[
+                                    "file_id"
+                                ],
+                            ),
+                        )
+
+                    else:
+                        workbook_sheet_rename_failures.append(
+                            {
+                                "file_id": (
+                                    row[
+                                        "file_id"
+                                    ]
+                                ),
+                                "doc_id": (
+                                    doc_id
+                                ),
+                                "parent_doc_id": (
+                                    parent_doc_id
+                                ),
+                                **rename_result,
+                            }
+                        )
+
+                except Exception as exc:
+                    workbook_sheet_rename_failures.append(
+                        {
+                            "file_id": (
+                                row[
+                                    "file_id"
+                                ]
+                            ),
+                            "doc_id": (
+                                doc_id
+                            ),
+                            "parent_doc_id": (
+                                parent_doc_id
+                            ),
+                            "error": repr(
+                                exc
+                            ),
+                        }
+                    )
+
+                    #
+                    # Filename enhancement failure must not
+                    # invalidate the assigned child Doc ID.
+                    #
+                    db.execute(
+                        """
+                        UPDATE file_processing_metrics
+                        SET
+                            updated_at=?,
+                            stage_status_json=json_patch(
+                                stage_status_json,
+                                ?
+                            )
+                        WHERE file_id=?
+                        """,
+                        (
+                            utc_now(),
+                            json_dumps(
+                                {
+                                    "workbook_sheet": {
+                                        "doc_id": (
+                                            doc_id
+                                        ),
+                                        "parent_doc_id": (
+                                            parent_doc_id
+                                        ),
+                                        "child_doc_number": (
+                                            child_number
+                                        ),
+                                        "derived_filename_status": (
+                                            "rename_failed"
+                                        ),
+                                        "derived_filename_error": (
+                                            repr(
+                                                exc
+                                            )
+                                        ),
+                                    }
+                                }
+                            ),
+                            row[
+                                "file_id"
+                            ],
+                        ),
+                    )
+
+        stage.metrics.files_in = (
+            len(
+                rows
+            )
+        )
+
+        stage.metrics.files_out = (
+            len(
+                rows
+            )
+        )
+
+        stage.metrics.documents_in = (
+            len(
+                rows
+            )
+        )
+
+        stage.metrics.documents_out = (
+            len(
+                rows
+            )
+        )
+
+        stage.metrics.exceptions = (
+            len(
+                workbook_sheet_rename_failures
+            )
+        )
+
+        stage.metrics.extra.update(
+            {
+                "processing_set_count": len(
+                    {
+                        str(
+                            row[
+                                "set_id"
+                            ]
+                        )
+                        for row in rows
+                        if row[
+                            "set_id"
+                        ]
+                    }
+                ),
+                "processing_set_members_in": (
+                    len(
+                        rows
+                    )
+                ),
+                "processing_set_primary_members": (
+                    sum(
+                        1
+                        for row in rows
+                        if str(
+                            row[
+                                "membership_role"
+                            ]
+                            or ""
+                        )
+                        == "primary"
+                    )
+                ),
+                "processing_set_support_members": (
+                    sum(
+                        1
+                        for row in rows
+                        if str(
+                            row[
+                                "membership_role"
+                            ]
+                            or ""
+                        )
+                        == "workbook_parent"
+                    )
+                ),
+                "prefix": prefix,
+                "requested_start_number": (
+                    start_number
+                ),
+                "registry_start_number": (
+                    allocation.start_number
+                ),
+                "registry_end_number": (
+                    allocation.end_number
+                ),
+                "previous_last_assigned_number": (
+                    allocation.previous_last_assigned_number
+                ),
+                "new_last_assigned_number": (
+                    allocation.new_last_assigned_number
+                ),
+                "registry_blob_path": (
+                    allocation.registry_blob_path
+                ),
+                "assigned": (
+                    len(
+                        rows
+                    )
+                ),
+                "registry_doc_ids_consumed": (
+                    len(
+                        root_rows
+                    )
+                ),
+                "root_doc_count": (
+                    len(
+                        root_rows
+                    )
+                ),
+                "workbook_child_doc_count": (
+                    len(
+                        workbook_child_rows
+                    )
+                ),
+                "workbook_sheet_doc_count": (
+                    workbook_sheet_count
+                ),
+                "workbook_sheet_rename_count": (
+                    workbook_sheet_rename_count
+                ),
+                "workbook_sheet_rename_failures": (
+                    workbook_sheet_rename_failures[
+                        :50
+                    ]
+                ),
+            }
+        )

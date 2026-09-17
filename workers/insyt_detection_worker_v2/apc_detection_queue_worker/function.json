@@ -1,0 +1,12 @@
+﻿{
+  "scriptFile": "__init__.py",
+  "bindings": [
+    {
+      "name": "msg",
+      "type": "queueTrigger",
+      "direction": "in",
+      "queueName": "%APC_DETECTION_QUEUE_NAME%",
+      "connection": "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
+    }
+  ]
+}

@@ -5,6 +5,11 @@ import mimetypes
 import os
 import tempfile
 
+import random
+import time
+
+from azure.core.exceptions import HttpResponseError
+
 from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
@@ -210,6 +215,111 @@ def _content_type_for_document(
         or "application/octet-stream"
     )
 
+def _ocr_bytes_with_retry(
+    content: bytes,
+    content_type: str,
+) -> tuple[str, int]:
+    max_attempts = max(
+        1,
+        int(
+            os.getenv(
+                "APC_OCR_MAX_ATTEMPTS",
+                "5",
+            )
+        ),
+    )
+
+    for attempt in range(
+        1,
+        max_attempts + 1,
+    ):
+        try:
+            return _ocr_bytes(
+                content,
+                content_type,
+            )
+
+        except HttpResponseError as exc:
+            status_code = getattr(
+                exc,
+                "status_code",
+                None,
+            )
+
+            #
+            # Permanent failures such as InvalidContent
+            # are NOT retried.
+            #
+            if status_code != 429:
+                raise
+
+            if attempt >= max_attempts:
+                raise
+
+            #
+            # Respect Azure Retry-After when present,
+            # while still progressively backing off.
+            #
+            retry_after = 0.0
+
+            response = getattr(
+                exc,
+                "response",
+                None,
+            )
+
+            headers = getattr(
+                response,
+                "headers",
+                {},
+            ) or {}
+
+            try:
+                retry_after = float(
+                    headers.get(
+                        "Retry-After",
+                        headers.get(
+                            "retry-after",
+                            0,
+                        ),
+                    )
+                    or 0
+                )
+            except Exception:
+                retry_after = 0.0
+
+            exponential_delay = float(
+                2 ** (attempt - 1)
+            )
+
+            delay = max(
+                retry_after,
+                exponential_delay,
+            )
+
+            #
+            # Jitter prevents many concurrent OCR threads
+            # from retrying at exactly the same instant.
+            #
+            delay += random.uniform(
+                0.25,
+                1.25,
+            )
+
+            print(
+                "Azure Document Intelligence throttled "
+                f"OCR request (429). Attempt "
+                f"{attempt}/{max_attempts}; retrying "
+                f"in {delay:.2f} seconds."
+            )
+
+            time.sleep(
+                delay
+            )
+
+    raise RuntimeError(
+        "OCR retry loop exited unexpectedly."
+    )
 
 def _ocr_one_document(
     *,
@@ -257,7 +367,7 @@ def _ocr_one_document(
         )
     )
 
-    text, page_count = _ocr_bytes(
+    text, page_count = _ocr_bytes_with_retry(
         content,
         content_type,
     )
