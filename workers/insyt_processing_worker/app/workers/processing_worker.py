@@ -1262,6 +1262,43 @@ def process_job_message(message_content: str):
                 )
                 return
 
+            #
+            # MANUAL DATA DETECTION GATE
+            #
+            # Structured / non-OCR documents have completed
+            # ingestion and have already been staged for the
+            # existing Data Detection Ready workflow.
+            #
+            # Do NOT automatically create or enqueue a
+            # Data Element Detection job here.
+            #
+            _update_status(
+                status_blob_path=status_blob_path,
+                status="running",
+                stage="structured_fast_lane",
+                progress_pct=60,
+                message=(
+                    "Structured fast lane completed. "
+                    "Documents are ready for Data Detection."
+                ),
+                extra={
+                    "current_step": (
+                        f"{len(xl_detection_docs) + len(json_detection_docs):,} "
+                        "structured document(s) prepared for "
+                        "manual Data Detection selection."
+                    ),
+                    "xl_fast_lane_uploaded_count":
+                        len(xl_uploaded_rows),
+                    "xl_detection_ready_count":
+                        len(xl_detection_docs),
+                    "json_fast_lane_uploaded_count":
+                        len(json_uploaded_rows),
+                    "json_detection_ready_count":
+                        len(json_detection_docs),
+                },
+            )
+
+            return
 
             detection_job_id = (
                 f"DET-"

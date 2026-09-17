@@ -550,6 +550,16 @@ def _queue_detection_for_completed_ocr(
     if not completed_documents:
         return None
 
+    #
+    # MANUAL DATA DETECTION GATE
+    #
+    # OCR is complete. Completed OCR documents remain available
+    # to the existing Data Detection Ready workflow.
+    #
+    # Do NOT automatically create or enqueue a DET-* job here.
+    #
+    return None
+
     from uuid import uuid4
 
     detection_job_id = (
