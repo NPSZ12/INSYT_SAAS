@@ -199,6 +199,9 @@ class BuildAiExtractionSetRequest(BaseModel):
     project: str
     job_id: str
     set_id: str
+    doc_ids: list[str] = Field(
+        default_factory=list
+    )
     overwrite: bool = True
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -287,6 +290,106 @@ def _cyber2_intake_document_path(
             client=client,
             project=project,
         )}/cyber2/intake/documents/{doc_id}.json"
+    )
+
+def _resolve_processing_sets_for_doc_ids(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    job_id: str,
+    doc_ids: set[str],
+) -> list[str]:
+    clean_doc_ids = {
+        str(doc_id or "").strip()
+        for doc_id in doc_ids
+        if str(doc_id or "").strip()
+    }
+
+    if not clean_doc_ids:
+        return []
+
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    manifest_blob_path = (
+        f"{base_path}/"
+        "processing_center/jobs/"
+        f"{job_id}/processing_sets/"
+        "manifest.json"
+    )
+
+    manifest = (
+        _read_processing_json_blob(
+            manifest_blob_path
+        )
+        or {}
+    )
+
+    sets = manifest.get("sets") or []
+
+    if not isinstance(sets, list):
+        return []
+
+    matched_set_ids: list[str] = []
+
+    for set_row in sets:
+        if not isinstance(set_row, dict):
+            continue
+
+        set_id = str(
+            set_row.get("set_id")
+            or ""
+        ).strip()
+
+        if not set_id:
+            continue
+
+        set_manifest_blob_path = str(
+            set_row.get(
+                "manifest_blob_path"
+            )
+            or (
+                f"{base_path}/"
+                "processing_center/jobs/"
+                f"{job_id}/processing_sets/"
+                f"{set_id}.json"
+            )
+        ).strip()
+
+        set_manifest = (
+            _read_processing_json_blob(
+                set_manifest_blob_path
+            )
+            or {}
+        )
+
+        primary_doc_ids = {
+            str(doc_id or "").strip()
+            for doc_id in (
+                set_manifest.get(
+                    "primary_doc_ids"
+                )
+                or []
+            )
+            if str(doc_id or "").strip()
+        }
+
+        if (
+            clean_doc_ids
+            & primary_doc_ids
+        ):
+            matched_set_ids.append(
+                set_id
+            )
+
+    return sorted(
+        set(
+            matched_set_ids
+        )
     )
 
 def _job_base_path(
@@ -10348,6 +10451,21 @@ def promote_processing_center_review_population(
     ] = []
 
     #
+    # Downstream AI Extraction handoff results.
+    #
+    # This is additive to Review/Files promotion.
+    # AI Extraction failures must not undo or replace
+    # successful document promotion.
+    #
+    ai_extraction_results: list[
+        dict[str, Any]
+    ] = []
+
+    ai_extraction_errors: list[
+        dict[str, Any]
+    ] = []
+
+    #
     # Reuse the existing per-source-job promotion engine.
     #
     for (
@@ -10483,6 +10601,130 @@ def promote_processing_center_review_population(
                     ),
                 }
             )
+
+    #
+    # ADDITIVE AI EXTRACTION HANDOFF
+    #
+    # Only documents that were successfully promoted to Files
+    # participate in this downstream handoff.
+    #
+    # Existing Review/Files promotion above remains unchanged.
+    #
+    promoted_doc_ids_by_source_job: dict[
+        str,
+        set[str],
+    ] = {}
+
+    for item in promoted:
+        if not isinstance(item, dict):
+            continue
+
+        source_job_id = str(
+            item.get("source_job_id")
+            or ""
+        ).strip()
+
+        doc_id = str(
+            item.get("doc_id")
+            or ""
+        ).strip()
+
+        if not source_job_id or not doc_id:
+            continue
+
+        promoted_doc_ids_by_source_job.setdefault(
+            source_job_id,
+            set(),
+        ).add(
+            doc_id
+        )
+
+    for (
+        source_job_id,
+        promoted_source_doc_ids,
+    ) in sorted(
+        promoted_doc_ids_by_source_job.items()
+    ):
+        try:
+            set_ids = (
+                _resolve_processing_sets_for_doc_ids(
+                    workspace=workspace,
+                    client=request.client,
+                    project=request.project,
+                    job_id=source_job_id,
+                    doc_ids=promoted_source_doc_ids,
+                )
+            )
+
+        except Exception as exc:
+            ai_extraction_errors.append(
+                {
+                    "source_job_id":
+                        source_job_id,
+                    "doc_ids":
+                        sorted(
+                            promoted_source_doc_ids
+                        ),
+                    "stage":
+                        "resolve_processing_sets",
+                    "error_type":
+                        type(exc).__name__,
+                    "error":
+                        str(exc),
+                }
+            )
+
+            continue
+
+        for set_id in set_ids:
+            try:
+                ai_result = (
+                    build_ai_extraction_set(
+                        workspace=workspace,
+                        request=(
+                            BuildAiExtractionSetRequest(
+                                client=request.client,
+                                project=request.project,
+                                job_id=source_job_id,
+                                set_id=set_id,
+                                doc_ids=sorted(
+                                    promoted_source_doc_ids
+                                ),
+                                overwrite=True,
+                            )
+                        ),
+                        current_user=admin,
+                    )
+                )
+
+                ai_extraction_results.append(
+                    {
+                        "source_job_id":
+                            source_job_id,
+                        "set_id":
+                            set_id,
+                        "status":
+                            "completed",
+                        "result":
+                            ai_result,
+                    }
+                )
+
+            except Exception as exc:
+                ai_extraction_errors.append(
+                    {
+                        "source_job_id":
+                            source_job_id,
+                        "set_id":
+                            set_id,
+                        "stage":
+                            "build_ai_extraction",
+                        "error_type":
+                            type(exc).__name__,
+                        "error":
+                            str(exc),
+                    }
+                )
 
     #
     # Refresh project-wide Promotion state after all writes.
@@ -10640,6 +10882,22 @@ def promote_processing_center_review_population(
         "message": (
             f"{len(promoted_doc_ids)} "
             "document(s) promoted to Review."
+        ),
+
+        "ai_extraction_result_count": len(
+            ai_extraction_results
+        ),
+
+        "ai_extraction_results": (
+            ai_extraction_results
+        ),
+
+        "ai_extraction_error_count": len(
+            ai_extraction_errors
+        ),
+
+        "ai_extraction_errors": (
+            ai_extraction_errors
         ),
     }
 
@@ -11126,6 +11384,14 @@ def build_ai_extraction_set(
                         blob_path=blob_path,
                     )
                 ),
+                selected_doc_ids={
+                    str(doc_id or "").strip()
+                    for doc_id in (
+                        request.doc_ids
+                        or []
+                    )
+                    if str(doc_id or "").strip()
+                },
             )
         )
 

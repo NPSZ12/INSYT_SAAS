@@ -15,6 +15,7 @@ def load_processing_set_documents(
     job_id: str,
     set_id: str,
     read_json_blob: JsonBlobReader,
+    selected_doc_ids: set[str] | None = None,
 ) -> list[AiExtractionSourceDocument]:
     """
     Load one persisted APC Processing Set from Azure storage.
@@ -40,6 +41,15 @@ def load_processing_set_documents(
     clean_set_id = str(
         set_id or ""
     ).strip()
+
+    clean_selected_doc_ids = {
+        str(doc_id or "").strip()
+        for doc_id in (
+            selected_doc_ids
+            or set()
+        )
+        if str(doc_id or "").strip()
+    }
 
     if not clean_project_base:
         raise ValueError(
@@ -159,6 +169,13 @@ def load_processing_set_documents(
         ).strip()
 
         if not doc_id:
+            continue
+
+        if (
+            clean_selected_doc_ids
+            and doc_id
+            not in clean_selected_doc_ids
+        ):
             continue
 
         file_id = str(

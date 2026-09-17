@@ -20,6 +20,7 @@ def build_processing_set_ai_extraction(
         [str],
         str | None,
     ],
+    selected_doc_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """
     Build the AI Extraction artifact for one persisted APC
@@ -40,6 +41,7 @@ def build_processing_set_ai_extraction(
         job_id=job_id,
         set_id=set_id,
         read_json_blob=read_json_blob,
+        selected_doc_ids=selected_doc_ids,
     )
 
     documents = attach_detection_results(
