@@ -45,6 +45,61 @@ def _processing_container() -> str:
         "insyt-processing",
     )
 
+def _review_account() -> str:
+    return os.getenv(
+        "INSYT_REVIEW_STORAGE_ACCOUNT",
+        "insytreviewstorage",
+    )
+
+
+def _review_container(
+    workspace: str,
+) -> str:
+    workspace_key = str(
+        workspace or "capture"
+    ).strip().lower()
+
+    return (
+        os.getenv(
+            f"INSYT_REVIEW_CONTAINER_{workspace_key.upper()}"
+        )
+        or f"insyt-{workspace_key}"
+    )
+
+
+def _review_blob_service() -> BlobServiceClient:
+    return BlobServiceClient(
+        account_url=(
+            f"https://{_review_account()}"
+            ".blob.core.windows.net"
+        ),
+        credential=DefaultAzureCredential(),
+    )
+
+
+def _write_review_text_blob(
+    *,
+    workspace: str,
+    blob_path: str,
+    text: str,
+) -> None:
+    (
+        _review_blob_service()
+        .get_container_client(
+            _review_container(workspace)
+        )
+        .get_blob_client(blob_path)
+        .upload_blob(
+            (text or "").encode("utf-8"),
+            overwrite=True,
+            content_settings=ContentSettings(
+                content_type=(
+                    "text/plain; charset=utf-8"
+                )
+            ),
+        )
+    )
+
 
 def _blob_service() -> BlobServiceClient:
     processing_conn = os.getenv(
@@ -396,6 +451,19 @@ def _ocr_one_document(
     _write_text_blob(
         text_blob_path,
         text,
+    )
+
+    staged_text_blob_path = (
+        f"{client}/{workspace}/{project}/"
+        "processing_center/"
+        f"staged/{source_job_id}/"
+        f"text/{doc_id}.txt"
+    )
+
+    _write_review_text_blob(
+        workspace=workspace,
+        blob_path=staged_text_blob_path,
+        text=text,
     )
 
     result_payload = {

@@ -3235,7 +3235,6 @@ def list_data_element_detection_ready(
                     text_blob_path
                     and not doc.get("is_duplicate")
                     and not doc.get("is_denisted")
-                    and not doc.get("requires_ocr")
                     and str(
                         doc.get("promotion_status") or ""
                     ).strip().lower() != "promoted"
@@ -3378,9 +3377,6 @@ def start_data_element_detection(
                 continue
 
             if doc.get("is_denisted"):
-                continue
-
-            if doc.get("requires_ocr"):
                 continue
 
             if str(
