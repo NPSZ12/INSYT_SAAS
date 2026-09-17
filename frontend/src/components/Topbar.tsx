@@ -180,7 +180,7 @@ export default function Topbar() {
               {" "}
             </span>
 
-            <span className="text-sky-400">
+            <span className="text-white">
               {selectedProject.replaceAll("_", " ")}
             </span>
           </p>

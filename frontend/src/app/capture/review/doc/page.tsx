@@ -703,7 +703,32 @@ function ReviewPageContent() {
   }
 
   function getCurrentDocIndex() {
-    return Number((reviewNav as any).batch_doc_index ?? -1);
+    const batchDocIds = getBatchDocIds();
+
+    const activeDocId = String(
+      reviewDoc?.doc_id ||
+      docId ||
+      ""
+    ).trim();
+
+    if (activeDocId && batchDocIds.length > 0) {
+      const actualIndex = batchDocIds.findIndex(
+        (candidateDocId) =>
+          String(candidateDocId || "").trim() === activeDocId
+      );
+
+      if (actualIndex >= 0) {
+        return actualIndex;
+      }
+    }
+
+    const navIndex = Number(
+      (reviewNav as any).batch_doc_index ?? -1
+    );
+
+    return Number.isInteger(navIndex)
+      ? navIndex
+      : -1;
   }
 
   function goFirstDoc() {
@@ -748,12 +773,9 @@ function ReviewPageContent() {
     const currentIndex = getCurrentDocIndex();
 
     const previousDocId =
-      reviewNav.previous_doc_id ||
-      (
-        currentIndex > 0
-          ? batchDocIds[currentIndex - 1]
-          : ""
-      );
+      currentIndex > 0
+        ? batchDocIds[currentIndex - 1]
+        : "";
 
     console.log("GO PREVIOUS DOC", {
       batchDocIds,
@@ -772,13 +794,10 @@ function ReviewPageContent() {
     const currentIndex = getCurrentDocIndex();
 
     const nextDocId =
-      reviewNav.next_doc_id ||
-      (
-        currentIndex >= 0 &&
-        currentIndex < batchDocIds.length - 1
-          ? batchDocIds[currentIndex + 1]
-          : ""
-      );
+      currentIndex >= 0 &&
+      currentIndex < batchDocIds.length - 1
+        ? batchDocIds[currentIndex + 1]
+        : "";
 
     console.log("GO NEXT DOC", {
       batchDocIds,
