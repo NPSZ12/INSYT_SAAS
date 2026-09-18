@@ -135,6 +135,18 @@ export default function Topbar() {
     router.push("/login");
   }
 
+  const projectDisplayName =
+    selectedProject?.replaceAll("_", " ") || "";
+
+  const projectNameParts =
+    projectDisplayName.split(" ");
+
+  const firstProjectWord =
+    projectNameParts[0] || "";
+
+  const remainingProjectWords =
+    projectNameParts.slice(1).join(" ");
+
   return (
     <header className="relative z-40 flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950 px-8 shadow-md shadow-black/10">
 
@@ -168,27 +180,28 @@ export default function Topbar() {
       </div>
 
       {/* CENTER */}
-        {selectedProject && (
-          <div className="absolute left-1/2 -translate-x-1/2 text-center">
+      {selectedProject && (
+        <div className="absolute left-1/2 -translate-x-1/2 text-center">
 
-            <p className="text-xs font-semibold">
-              <span className="text-sky-400">
-                Project
-              </span>
-              {" "}
+          <p className="text-xs text-slate-500">
+            Selected Project
+          </p>
+
+          <p className="insyt-project text-2xl font-bold tracking-wide">
+            <span className="text-sky-400">
+              {firstProjectWord}
+            </span>
+
+            {remainingProjectWords ? (
               <span className="text-white">
-                Name
+                {" "}
+                {remainingProjectWords}
               </span>
-            </p>
+            ) : null}
+          </p>
 
-            <p className="insyt-project text-2xl font-bold tracking-wide">
-              <span className="text-white">
-                {selectedProject.replaceAll("_", " ")}
-              </span>
-            </p>
-
-          </div>
-        )}
+        </div>
+      )}
 
       {/* RIGHT */}
       <div className="flex items-center gap-4">

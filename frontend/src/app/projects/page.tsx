@@ -138,30 +138,76 @@ function ProjectsPageContent() {
         client
       )}/projects`
     )
-      .then((response) => {
-        const projectList = response.projects || [];
+      .then(async (response) => {
+        const projectList =
+          response.projects || [];
 
         const visibleProjects = isAdmin
           ? projectList
-          : projectList.filter((projectId: string) =>
-              userCanAccessProject(user, client, projectId)
+          : projectList.filter(
+              (projectId: string) =>
+                userCanAccessProject(
+                  user,
+                  client,
+                  projectId
+                )
             );
 
+        const projectsWithStatus =
+          await Promise.all(
+            visibleProjects.map(
+              async (projectId: string) => {
+                let projectStatus =
+                  "Created";
+
+                try {
+                  const statusResponse =
+                    await apiGet(
+                      `/api/registry/workspace-projects/status?workspace=${encodeURIComponent(
+                        workspace
+                      )}&client_name=${encodeURIComponent(
+                        client
+                      )}&project_name=${encodeURIComponent(
+                        projectId
+                      )}`
+                    );
+
+                  projectStatus =
+                    statusResponse.project_status ||
+                    "Created";
+                } catch (error) {
+                  console.error(
+                    `Unable to load status for ${projectId}:`,
+                    error
+                  );
+                }
+
+                return {
+                  id: projectId,
+                  name: projectId,
+                  client,
+                  status: projectStatus,
+                  progress: 0,
+                  openHref: `/project-dashboard?workspace=${workspace}&client=${encodeURIComponent(
+                    client
+                  )}&project=${encodeURIComponent(
+                    projectId
+                  )}`,
+                };
+              }
+            )
+          );
+
         setProjects(
-          visibleProjects.map((projectId: string) => ({
-            id: projectId,
-            name: projectId,
-            client,
-            status: "Active",
-            progress: 0,
-            openHref: `/project-dashboard?workspace=${workspace}&client=${encodeURIComponent(
-              client
-            )}&project=${encodeURIComponent(projectId)}`,
-          }))
+          projectsWithStatus
         );
       })
       .catch((error) => {
-        console.error("Failed to load projects:", error);
+        console.error(
+          "Failed to load projects:",
+          error
+        );
+
         setProjects([]);
       });
   }

@@ -481,7 +481,7 @@ export default function ReviewCapturePanel({
       qc_questions: isQcBatch ? qcQuestions : "",
     })
       .then(() => {
-        setMessage("Document saved.");
+        setMessage("Saved Successfully.");
 
         setValues({});
         setQcCoding("");

@@ -842,13 +842,15 @@ function ReviewPageContent() {
   }
 
   function handleSaveComplete() {
-    if (isFileView) {
-      if (fileDocIndex >= fileDocCount - 1) {
-        exitReview();
-        return;
-      }
-
-      goFileNextDoc();
+    //
+    // Direct document views — including documents opened
+    // from Captured Entities / AI Entities — stay on the
+    // current document after Save / Update.
+    //
+    // Automatic document advancement is reserved for
+    // checked-out batch review.
+    //
+    if (!batchId) {
       return;
     }
 
