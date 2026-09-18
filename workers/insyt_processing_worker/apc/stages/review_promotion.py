@@ -19,6 +19,10 @@ from ..db import LedgerDB
 from ..telemetry import StageRunner
 from ..util import json_dumps, new_id, utc_now
 
+try:
+    import extract_msg
+except ImportError:
+    extract_msg = None
 
 
 TEXT_EXTENSIONS = {"txt", "csv", "json", "xml", "html", "htm", "md", "log", "rtf"}
@@ -455,6 +459,368 @@ def _extract_docx_native_text(
         "docx_native_text",
     )
 
+def _extract_msg_native_text(
+    path: Path,
+) -> tuple[str, str]:
+    """
+    Extract searchable metadata and body text from an Outlook MSG file.
+
+    The original MSG remains untouched as the native document.
+    This function only creates the normalized review/search text.
+
+    Searchable fields include, when available:
+    - From / Sender
+    - To
+    - Cc
+    - Bcc
+    - Subject
+    - Sent date/time
+    - Received date/time
+    - Message-ID
+    - Conversation topic/thread
+    - Importance / priority
+    - Attachment filenames
+    - Attachment count
+    - Message body
+    """
+
+    if extract_msg is None:
+        raise ReviewPromotionRemediationRequired(
+            (
+                "MSG extraction requires the extract-msg "
+                "package, but it is not installed."
+            ),
+            reason_code="MSG_PARSER_UNAVAILABLE",
+        )
+
+    def clean_value(value) -> str:
+        if value is None:
+            return ""
+
+        if isinstance(value, bytes):
+            return value.decode(
+                "utf-8",
+                errors="replace",
+            ).strip()
+
+        return str(value).strip()
+
+    def first_value(*values) -> str:
+        for value in values:
+            cleaned = clean_value(value)
+
+            if cleaned:
+                return cleaned
+
+        return ""
+
+    def header_value(
+        header,
+        *names: str,
+    ) -> str:
+        if header is None:
+            return ""
+
+        for name in names:
+            try:
+                value = header.get(name)
+            except Exception:
+                value = None
+
+            cleaned = clean_value(value)
+
+            if cleaned:
+                return cleaned
+
+        return ""
+
+    message = None
+
+    try:
+        message = extract_msg.openMsg(
+            str(path)
+        )
+
+        header = getattr(
+            message,
+            "header",
+            None,
+        )
+
+        sender = first_value(
+            getattr(message, "sender", None),
+            header_value(
+                header,
+                "Sender",
+                "X-Sender",
+            ),
+        )
+
+        from_value = first_value(
+            header_value(
+                header,
+                "From",
+            ),
+            sender,
+        )
+
+        to_value = first_value(
+            getattr(message, "to", None),
+            header_value(
+                header,
+                "To",
+            ),
+        )
+
+        cc_value = first_value(
+            getattr(message, "cc", None),
+            header_value(
+                header,
+                "Cc",
+                "CC",
+            ),
+        )
+
+        bcc_value = first_value(
+            getattr(message, "bcc", None),
+            header_value(
+                header,
+                "Bcc",
+                "BCC",
+            ),
+        )
+
+        subject = first_value(
+            getattr(message, "subject", None),
+            header_value(
+                header,
+                "Subject",
+            ),
+        )
+
+        sent_date = first_value(
+            getattr(message, "date", None),
+            header_value(
+                header,
+                "Date",
+            ),
+        )
+
+        received_date = first_value(
+            header_value(
+                header,
+                "Received-Date",
+                "Delivery-Date",
+                "X-OriginalArrivalTime",
+            ),
+        )
+
+        message_id = first_value(
+            getattr(message, "messageId", None),
+            getattr(message, "messageID", None),
+            header_value(
+                header,
+                "Message-ID",
+                "Message-Id",
+            ),
+        )
+
+        conversation_topic = first_value(
+            getattr(
+                message,
+                "conversationTopic",
+                None,
+            ),
+            header_value(
+                header,
+                "Thread-Topic",
+                "Conversation-Topic",
+            ),
+        )
+
+        importance = first_value(
+            getattr(message, "importance", None),
+            header_value(
+                header,
+                "Importance",
+                "Priority",
+                "X-Priority",
+            ),
+        )
+
+        body = first_value(
+            getattr(message, "body", None),
+        )
+
+        attachment_names: list[str] = []
+
+        try:
+            attachments = list(
+                getattr(
+                    message,
+                    "attachments",
+                    None,
+                )
+                or []
+            )
+        except Exception:
+            attachments = []
+
+        for attachment in attachments:
+            attachment_name = ""
+
+            for attribute_name in (
+                "longFilename",
+                "shortFilename",
+                "displayName",
+                "filename",
+                "name",
+            ):
+                try:
+                    candidate = getattr(
+                        attachment,
+                        attribute_name,
+                        None,
+                    )
+                except Exception:
+                    candidate = None
+
+                candidate_text = clean_value(
+                    candidate
+                )
+
+                if candidate_text:
+                    attachment_name = (
+                        candidate_text
+                    )
+                    break
+
+            if not attachment_name:
+                try:
+                    get_filename = getattr(
+                        attachment,
+                        "getFilename",
+                        None,
+                    )
+
+                    if callable(get_filename):
+                        attachment_name = (
+                            clean_value(
+                                get_filename()
+                            )
+                        )
+                except Exception:
+                    attachment_name = ""
+
+            if attachment_name:
+                attachment_names.append(
+                    attachment_name
+                )
+
+        lines: list[str] = [
+            "INSYT EMAIL METADATA",
+            "",
+            f"From: {from_value}",
+            f"Sender: {sender}",
+            f"To: {to_value}",
+            f"Cc: {cc_value}",
+            f"Bcc: {bcc_value}",
+            f"Subject: {subject}",
+            f"Sent: {sent_date}",
+            f"Received: {received_date}",
+            f"Message-ID: {message_id}",
+            (
+                "Conversation Topic: "
+                f"{conversation_topic}"
+            ),
+            f"Importance: {importance}",
+            (
+                "Attachment Count: "
+                f"{len(attachment_names)}"
+            ),
+            "",
+            "Attachments:",
+        ]
+
+        if attachment_names:
+            lines.extend(
+                f"- {name}"
+                for name in attachment_names
+            )
+        else:
+            lines.append("- None")
+
+        lines.extend(
+            [
+                "",
+                "--- EMAIL BODY ---",
+                "",
+                body,
+            ]
+        )
+
+        extracted_text = (
+            "\n".join(lines)
+            .strip()
+        )
+
+        meaningful_values = [
+            from_value,
+            sender,
+            to_value,
+            cc_value,
+            bcc_value,
+            subject,
+            sent_date,
+            received_date,
+            message_id,
+            conversation_topic,
+            importance,
+            body,
+            *attachment_names,
+        ]
+
+        if not any(
+            clean_value(value)
+            for value in meaningful_values
+        ):
+            raise ReviewPromotionRemediationRequired(
+                (
+                    "MSG extraction completed but "
+                    "produced no meaningful searchable "
+                    "metadata or body text."
+                ),
+                reason_code=(
+                    "MSG_NO_EXTRACTABLE_TEXT"
+                ),
+            )
+
+        return (
+            extracted_text,
+            "msg_native_text",
+        )
+
+    except ReviewPromotionRemediationRequired:
+        raise
+
+    except Exception as exc:
+        raise ReviewPromotionRemediationRequired(
+            (
+                "MSG extraction failed: "
+                f"{exc}"
+            ),
+            reason_code=(
+                "MSG_EXTRACTION_FAILED"
+            ),
+        ) from exc
+
+    finally:
+        if message is not None:
+            try:
+                message.close()
+            except Exception:
+                pass
+
 def _safe_ext(extension: str | None) -> str:
     ext = (extension or "bin").lower().lstrip(".")
     return ext or "bin"
@@ -732,6 +1098,19 @@ def _build_text_output(
     if ext in DOCX_EXTENSIONS:
         return (
             _extract_docx_native_text(
+                path
+            )
+        )
+
+    #
+    # Outlook MSG native extraction.
+    #
+    # Preserve the original .msg as the native document while
+    # producing normalized searchable metadata/body text.
+    #
+    if ext == "msg":
+        return (
+            _extract_msg_native_text(
                 path
             )
         )
