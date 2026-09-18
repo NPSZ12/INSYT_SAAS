@@ -22,6 +22,23 @@ REGISTRY_WORKSPACE = "capture"
 CLIENT_REGISTRY_BLOB = "_registry/clients.json"
 PROJECT_REGISTRY_BLOB = "_registry/projects.json"
 
+PROJECT_STATUSES = [
+    "Created",
+    "Docs Processing",
+    "Culling",
+    "Review",
+    "Deduplication",
+    "Completed",
+    "Purged",
+]
+
+
+class UpdateProjectStatusRequest(BaseModel):
+    workspace: str
+    client_name: str
+    project_name: str
+    status: str
+
 class CreateProjectRequest(BaseModel):
     project_name: str | None = None
     project_id: str | None = None
@@ -177,7 +194,14 @@ def register_project(
 
     if existing:
         existing["client_uuid"] = client_uuid
-        existing["project_uuid"] = existing.get("project_uuid") or project_uuid
+        existing["project_uuid"] = (
+            existing.get("project_uuid")
+            or project_uuid
+        )
+        existing["status"] = (
+            existing.get("status")
+            or "Created"
+        )
         existing["updated_at"] = now
     else:
         projects.append(
@@ -187,12 +211,259 @@ def register_project(
                 "project_uuid": project_uuid,
                 "project_name": project_name,
                 "workspace": workspace,
+                "status": "Created",
                 "created_at": now,
             }
         )
 
     save_registry_list(PROJECT_REGISTRY_BLOB, projects)
 
+@router.get("/registry/workspace-projects/status")
+def get_registered_project_status(
+    workspace: str,
+    client_name: str,
+    project_name: str,
+):
+    workspace = str(
+        workspace or ""
+    ).strip().lower()
+
+    client_name = str(
+        client_name or ""
+    ).strip()
+
+    project_name = str(
+        project_name or ""
+    ).strip()
+
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Workspace must be capture, "
+                "summaries, or discovery."
+            ),
+        )
+
+    projects = load_registry_list(
+        PROJECT_REGISTRY_BLOB
+    )
+
+    matched = next(
+        (
+            item
+            for item in projects
+            if item.get("workspace") == workspace
+            and normalize_registry_name(
+                item.get("client_name")
+            )
+            == normalize_registry_name(
+                client_name
+            )
+            and normalize_registry_name(
+                item.get("project_name")
+            )
+            == normalize_registry_name(
+                project_name
+            )
+        ),
+        None,
+    )
+
+    if not matched:
+        raise HTTPException(
+            status_code=404,
+            detail="Project registry record not found.",
+        )
+
+    return {
+        "status": "success",
+        "workspace": workspace,
+        "client": client_name,
+        "project": project_name,
+        "project_status": (
+            matched.get("status")
+            or "Created"
+        ),
+    }
+
+
+@router.post("/registry/workspace-projects/status")
+def update_registered_project_status(
+    payload: UpdateProjectStatusRequest,
+):
+    workspace = str(
+        payload.workspace or ""
+    ).strip().lower()
+
+    client_name = str(
+        payload.client_name or ""
+    ).strip()
+
+    project_name = str(
+        payload.project_name or ""
+    ).strip()
+
+    project_status = str(
+        payload.status or ""
+    ).strip()
+
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Workspace must be capture, "
+                "summaries, or discovery."
+            ),
+        )
+
+    if project_status not in PROJECT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid project status."
+            ),
+        )
+
+    projects = load_registry_list(
+        PROJECT_REGISTRY_BLOB
+    )
+
+    matched = None
+
+    for item in projects:
+        if (
+            item.get("workspace") == workspace
+            and normalize_registry_name(
+                item.get("client_name")
+            )
+            == normalize_registry_name(
+                client_name
+            )
+            and normalize_registry_name(
+                item.get("project_name")
+            )
+            == normalize_registry_name(
+                project_name
+            )
+        ):
+            matched = item
+            break
+
+    if matched is None:
+        client_uuid, clean_client_name = (
+            get_or_create_client_uuid(
+                client_name
+            )
+        )
+
+        matched = {
+            "client_uuid": client_uuid,
+            "client_name": clean_client_name,
+            "project_uuid": str(uuid.uuid4()),
+            "project_name": project_name,
+            "workspace": workspace,
+            "status": "Created",
+            "created_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+        }
+
+        projects.append(matched)
+
+    updated_at = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    matched["status"] = project_status
+    matched["updated_at"] = updated_at
+
+    save_registry_list(
+        PROJECT_REGISTRY_BLOB,
+        projects,
+    )
+
+    #
+    # Keep canonical project.json metadata
+    # synchronized anywhere this project exists.
+    #
+    project_root = build_project_base_path(
+        workspace=workspace,
+        client=client_name,
+        project=project_name,
+    )
+
+    marker_blob = (
+        f"{project_root}/project.json"
+    )
+
+    updated_targets = []
+
+    for target in get_project_storage_targets(
+        workspace
+    ):
+        container = target["container"]
+        blob_client = (
+            container.get_blob_client(
+                marker_blob
+            )
+        )
+
+        if not blob_client.exists():
+            continue
+
+        try:
+            existing_bytes = (
+                blob_client
+                .download_blob()
+                .readall()
+            )
+
+            metadata = json.loads(
+                existing_bytes.decode("utf-8")
+            )
+
+            if not isinstance(
+                metadata,
+                dict,
+            ):
+                metadata = {}
+
+        except Exception:
+            metadata = {}
+
+        metadata.update(
+            {
+                "workspace": workspace,
+                "client_name": client_name,
+                "project_name": project_name,
+                "status": project_status,
+                "updated_at": updated_at,
+            }
+        )
+
+        blob_client.upload_blob(
+            json.dumps(
+                metadata,
+                indent=2,
+            ).encode("utf-8"),
+            overwrite=True,
+            content_type="application/json",
+        )
+
+        updated_targets.append(
+            target["target"]
+        )
+
+    return {
+        "status": "updated",
+        "workspace": workspace,
+        "client": client_name,
+        "project": project_name,
+        "project_status": project_status,
+        "updated_at": updated_at,
+        "updated_targets": updated_targets,
+    }
 
 def build_project_metadata(
     workspace: str,
@@ -207,6 +478,7 @@ def build_project_metadata(
         "project_name": project_name,
         "client_name": client_name,
         "workspace": workspace,
+        "status": "Created",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 

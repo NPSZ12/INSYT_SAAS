@@ -28,6 +28,16 @@ type RegistryClient = {
   workspaces?: string[];
 };
 
+const PROJECT_STATUSES = [
+  "Created",
+  "Docs Processing",
+  "Culling",
+  "Review",
+  "Deduplication",
+  "Completed",
+  "Purged",
+] as const;
+
 export default function NewProjectPage() {
   const [workspace, setWorkspace] = useState("capture");
   const [projectName, setProjectName] = useState("");
@@ -50,6 +60,27 @@ export default function NewProjectPage() {
   const [customFields, setCustomFields] = useState<
     Record<string, ProtocolTemplateField[]>
   >({});
+
+  const [statusWorkspace, setStatusWorkspace] =
+    useState("capture");
+
+  const [statusClients, setStatusClients] =
+    useState<string[]>([]);
+
+  const [statusClient, setStatusClient] =
+    useState("");
+
+  const [statusProjects, setStatusProjects] =
+    useState<string[]>([]);
+
+  const [statusProject, setStatusProject] =
+    useState("");
+
+  const [projectStatus, setProjectStatus] =
+    useState("Created");
+
+  const [updatingProjectStatus, setUpdatingProjectStatus] =
+    useState(false);
 
   const [overlayView, setOverlayView] =
     useState<"raw" | "final">("raw");
@@ -150,6 +181,170 @@ export default function NewProjectPage() {
 
     loadProjects();
   }, [workspace, selectedClient]);
+
+  useEffect(() => {
+    setStatusClient("");
+    setStatusProject("");
+    setStatusProjects([]);
+    setProjectStatus("Created");
+
+    loadStatusClients(
+      statusWorkspace
+    );
+  }, [statusWorkspace]);
+
+  function loadStatusClients(
+    workspaceOverride?: string
+  ) {
+    const targetWorkspace =
+      workspaceOverride || statusWorkspace;
+
+    apiGet(
+      `/api/${targetWorkspace}/clients`
+    )
+      .then((response) => {
+        setStatusClients(
+          response.clients || []
+        );
+      })
+      .catch((error) => {
+        console.error(
+          "Failed to load status clients:",
+          error
+        );
+
+        setStatusClients([]);
+      });
+  }
+
+
+  function loadStatusProjects(
+    clientOverride?: string,
+    workspaceOverride?: string
+  ) {
+    const targetClient =
+      clientOverride || statusClient;
+
+    const targetWorkspace =
+      workspaceOverride || statusWorkspace;
+
+    if (!targetClient) {
+      setStatusProjects([]);
+      setStatusProject("");
+      return;
+    }
+
+    apiGet(
+      `/api/${targetWorkspace}/clients/${encodeURIComponent(
+        targetClient
+      )}/projects`
+    )
+      .then((response) => {
+        setStatusProjects(
+          response.projects || []
+        );
+      })
+      .catch((error) => {
+        console.error(
+          "Failed to load status projects:",
+          error
+        );
+
+        setStatusProjects([]);
+      });
+  }
+
+
+  function loadCurrentProjectStatus(
+    projectOverride?: string
+  ) {
+    const targetProject =
+      projectOverride || statusProject;
+
+    if (
+      !statusClient ||
+      !targetProject
+    ) {
+      setProjectStatus("Created");
+      return;
+    }
+
+    apiGet(
+      `/api/registry/workspace-projects/status?workspace=${encodeURIComponent(
+        statusWorkspace
+      )}&client_name=${encodeURIComponent(
+        statusClient
+      )}&project_name=${encodeURIComponent(
+        targetProject
+      )}`
+    )
+      .then((response) => {
+        setProjectStatus(
+          response.project_status ||
+          "Created"
+        );
+      })
+      .catch((error) => {
+        console.error(
+          "Failed to load project status:",
+          error
+        );
+
+        setProjectStatus("Created");
+      });
+  }
+
+
+  function updateProjectStatus() {
+    if (
+      !statusWorkspace ||
+      !statusClient ||
+      !statusProject ||
+      !projectStatus
+    ) {
+      setMessage(
+        "Select workspace, client, project, and status."
+      );
+      return;
+    }
+
+    setUpdatingProjectStatus(true);
+    setMessage("");
+
+    apiPost(
+      "/api/registry/workspace-projects/status",
+      {
+        workspace: statusWorkspace,
+        client_name: statusClient,
+        project_name: statusProject,
+        status: projectStatus,
+      }
+    )
+      .then((response) => {
+        setMessage(
+          `${statusProject.replaceAll(
+            "_",
+            " "
+          )} status updated to ${
+            response.project_status ||
+            projectStatus
+          }.`
+        );
+      })
+      .catch((error) => {
+        console.error(
+          "Project status update failed:",
+          error
+        );
+
+        setMessage(
+          "Project status update failed."
+        );
+      })
+      .finally(() => {
+        setUpdatingProjectStatus(false);
+      });
+  }
 
   function createProject() {
     setMessage("");
@@ -415,7 +610,7 @@ export default function NewProjectPage() {
           </p>
         )}
 
-        <ContentCard title="Create Azure Project">
+        <ContentCard title="Create Project">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
               <FormLabel>Existing Client</FormLabel>
@@ -494,11 +689,152 @@ export default function NewProjectPage() {
 
             <div className="md:col-span-4">
               <Button onClick={createProject}>
-                Create Azure Project
+                Create Project
               </Button>
             </div>
           </div>
         </ContentCard>
+
+        <div className="mt-8">
+          <ContentCard title="Update Project Status">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+
+              <div>
+                <FormLabel>Workspace</FormLabel>
+
+                <Select
+                  value={statusWorkspace}
+                  onChange={(value) => {
+                    setStatusWorkspace(value);
+                  }}
+                >
+                  <option value="capture">
+                    INSYT Capture
+                  </option>
+
+                  <option value="discovery">
+                    INSYT Discovery
+                  </option>
+
+                  <option value="summaries">
+                    INSYT Summaries
+                  </option>
+                </Select>
+              </div>
+
+              <div>
+                <FormLabel>Client</FormLabel>
+
+                <Select
+                  value={statusClient}
+                  onChange={(value) => {
+                    setStatusClient(value);
+                    setStatusProject("");
+                    setProjectStatus("Created");
+
+                    loadStatusProjects(
+                      value,
+                      statusWorkspace
+                    );
+                  }}
+                >
+                  <option value="">
+                    Select client...
+                  </option>
+
+                  {statusClients.map(
+                    (client) => (
+                      <option
+                        key={client}
+                        value={client}
+                      >
+                        {client.replaceAll(
+                          "_",
+                          " "
+                        )}
+                      </option>
+                    )
+                  )}
+                </Select>
+              </div>
+
+              <div>
+                <FormLabel>Project</FormLabel>
+
+                <Select
+                  value={statusProject}
+                  onChange={(value) => {
+                    setStatusProject(value);
+
+                    if (value) {
+                      loadCurrentProjectStatus(
+                        value
+                      );
+                    } else {
+                      setProjectStatus(
+                        "Created"
+                      );
+                    }
+                  }}
+                >
+                  <option value="">
+                    Select project...
+                  </option>
+
+                  {statusProjects.map(
+                    (project) => (
+                      <option
+                        key={project}
+                        value={project}
+                      >
+                        {project.replaceAll(
+                          "_",
+                          " "
+                        )}
+                      </option>
+                    )
+                  )}
+                </Select>
+              </div>
+
+              <div>
+                <FormLabel>Status</FormLabel>
+
+                <Select
+                  value={projectStatus}
+                  onChange={setProjectStatus}
+                >
+                  {PROJECT_STATUSES.map(
+                    (status) => (
+                      <option
+                        key={status}
+                        value={status}
+                      >
+                        {status}
+                      </option>
+                    )
+                  )}
+                </Select>
+              </div>
+
+              <div className="md:col-span-4">
+                <Button
+                  onClick={updateProjectStatus}
+                  disabled={
+                    updatingProjectStatus ||
+                    !statusClient ||
+                    !statusProject
+                  }
+                >
+                  {updatingProjectStatus
+                    ? "Updating Project Status..."
+                    : "Update Project Status"}
+                </Button>
+              </div>
+
+            </div>
+          </ContentCard>
+        </div>
 
         <div className="mt-8">
           <ProjectFileUploadCard

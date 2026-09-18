@@ -168,25 +168,27 @@ export default function Topbar() {
       </div>
 
       {/* CENTER */}
-      {selectedProject && (
-        <div className="absolute left-1/2 -translate-x-1/2 text-center">
+        {selectedProject && (
+          <div className="absolute left-1/2 -translate-x-1/2 text-center">
 
-          <p className="text-xs text-slate-500">
-            Selected Project
-          </p>
-
-          <p className="insyt-project text-2xl font-bold tracking-wide">
-            <span className="text-white">
+            <p className="text-xs font-semibold">
+              <span className="text-sky-400">
+                Project
+              </span>
               {" "}
-            </span>
+              <span className="text-white">
+                Name
+              </span>
+            </p>
 
-            <span className="text-white">
-              {selectedProject.replaceAll("_", " ")}
-            </span>
-          </p>
+            <p className="insyt-project text-2xl font-bold tracking-wide">
+              <span className="text-white">
+                {selectedProject.replaceAll("_", " ")}
+              </span>
+            </p>
 
-        </div>
-      )}
+          </div>
+        )}
 
       {/* RIGHT */}
       <div className="flex items-center gap-4">
