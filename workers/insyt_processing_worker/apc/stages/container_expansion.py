@@ -1303,7 +1303,44 @@ def _expand_msg_container(
                 )
 
             #
-            # Strip any path information supplied by the MSG.
+            # Outlook/MSG properties may contain embedded NULs
+            # or other control characters that are invalid in
+            # filesystem paths. Preserve the human-readable name
+            # while removing characters Windows/Linux cannot use.
+            #
+            attachment_name = (
+                str(
+                    attachment_name
+                    or ""
+                )
+                .replace(
+                    "\x00",
+                    ""
+                )
+                .strip()
+            )
+
+            attachment_name = re.sub(
+                r'[\x00-\x1f<>:"/\\|?*]',
+                "_",
+                attachment_name,
+            )
+
+            attachment_name = (
+                attachment_name
+                .strip(
+                    " ._"
+                )
+            )
+
+            if not attachment_name:
+                attachment_name = (
+                    f"Attachment_"
+                    f"{attachment_index:04d}.bin"
+                )
+
+            #
+            # Strip any remaining unsafe path information.
             #
             safe_rel = _safe_member_path(
                 attachment_name
