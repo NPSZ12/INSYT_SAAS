@@ -6,6 +6,11 @@ import mimetypes
 import re
 import zipfile
 
+try:
+    import extract_msg
+except ImportError:
+    extract_msg = None
+
 from datetime import date, datetime, time
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -24,6 +29,10 @@ ZIP_EXTENSIONS = {
     "zip",
 }
 
+MSG_EXTENSIONS = {
+    "msg",
+}
+
 WORKBOOK_EXTENSIONS = {
     "xlsx",
     "xlsm",
@@ -36,6 +45,7 @@ WORKBOOK_EXTENSIONS = {
 CONTAINER_EXTENSIONS = (
     ZIP_EXTENSIONS
     | WORKBOOK_EXTENSIONS
+    | MSG_EXTENSIONS
 )
 
 OPENPYXL_EXTENSIONS = {
@@ -215,6 +225,15 @@ def _is_workbook_extension(
         in WORKBOOK_EXTENSIONS
     )
 
+def _is_msg_extension(
+    extension: str | None,
+) -> bool:
+    return (
+        _normalize_extension(
+            extension
+        )
+        in MSG_EXTENSIONS
+    )
 
 def _is_container_extension(
     extension: str | None,
@@ -1133,6 +1152,451 @@ def _expand_zip_container(
         "workbook_manifest": None,
     }
 
+def _expand_msg_container(
+    *,
+    db: LedgerDB,
+    row,
+    expansion_root: Path,
+    queue: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Expand attachments from an Outlook MSG while preserving
+    the parent email as a normal reviewable document.
+
+    Attachments become independent APC child documents and
+    continue through the existing hash/dedupe/Doc-ID/OCR/
+    Detection workflows.
+
+    The parent MSG remains is_container=0.
+    """
+
+    if extract_msg is None:
+        raise RuntimeError(
+            "MSG attachment expansion requires "
+            "the extract-msg package."
+        )
+
+    file_id = str(
+        row["file_id"]
+    )
+
+    container_depth = int(
+        row["container_depth"]
+        or 0
+    )
+
+    msg_path = Path(
+        row["original_path"]
+    )
+
+    family_id = str(
+        _row_value(
+            row,
+            "family_id",
+            "",
+        )
+        or file_id
+    )
+
+    #
+    # Establish the parent Family ID before creating children.
+    #
+    db.execute(
+        """
+        UPDATE file_processing_metrics
+        SET
+            family_id=CASE
+                WHEN coalesce(family_id, '') = ''
+                    THEN ?
+                ELSE family_id
+            END,
+            updated_at=?
+        WHERE file_id=?
+        """,
+        (
+            family_id,
+            utc_now(),
+            file_id,
+        ),
+    )
+
+    event_status = "completed"
+
+    event_exceptions: list[
+        dict[str, Any]
+    ] = []
+
+    extracted_file_count = 0
+    extracted_bytes = 0
+    nested_container_count = 0
+
+    message = None
+
+    try:
+        message = extract_msg.openMsg(
+            str(msg_path)
+        )
+
+        try:
+            attachments = list(
+                getattr(
+                    message,
+                    "attachments",
+                    None,
+                )
+                or []
+            )
+        except Exception:
+            attachments = []
+
+        for attachment_index, attachment in enumerate(
+            attachments,
+            start=1,
+        ):
+            attachment_name = ""
+
+            for attribute_name in (
+                "longFilename",
+                "shortFilename",
+                "displayName",
+                "filename",
+                "name",
+            ):
+                try:
+                    candidate = getattr(
+                        attachment,
+                        attribute_name,
+                        None,
+                    )
+                except Exception:
+                    candidate = None
+
+                if candidate:
+                    attachment_name = str(
+                        candidate
+                    ).strip()
+
+                    if attachment_name:
+                        break
+
+            if not attachment_name:
+                try:
+                    get_filename = getattr(
+                        attachment,
+                        "getFilename",
+                        None,
+                    )
+
+                    if callable(get_filename):
+                        attachment_name = str(
+                            get_filename()
+                            or ""
+                        ).strip()
+
+                except Exception:
+                    attachment_name = ""
+
+            if not attachment_name:
+                attachment_name = (
+                    f"Attachment_"
+                    f"{attachment_index:04d}.bin"
+                )
+
+            #
+            # Strip any path information supplied by the MSG.
+            #
+            safe_rel = _safe_member_path(
+                attachment_name
+            )
+
+            if safe_rel is None:
+                safe_rel = Path(
+                    f"Attachment_"
+                    f"{attachment_index:04d}.bin"
+                )
+
+            child_base = (
+                expansion_root
+                / file_id
+                / "attachments"
+            )
+
+            child_path = _unique_child_path(
+                child_base,
+                safe_rel,
+            )
+
+            child_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            #
+            # extract-msg attachment APIs can vary slightly
+            # by attachment type/version. Prefer binary data
+            # directly and use save() as a fallback.
+            #
+            attachment_data = None
+
+            try:
+                attachment_data = getattr(
+                    attachment,
+                    "data",
+                    None,
+                )
+            except Exception:
+                attachment_data = None
+
+            if isinstance(
+                attachment_data,
+                bytes,
+            ):
+                child_path.write_bytes(
+                    attachment_data
+                )
+
+            elif isinstance(
+                attachment_data,
+                bytearray,
+            ):
+                child_path.write_bytes(
+                    bytes(
+                        attachment_data
+                    )
+                )
+
+            else:
+                save_method = getattr(
+                    attachment,
+                    "save",
+                    None,
+                )
+
+                if not callable(
+                    save_method
+                ):
+                    raise RuntimeError(
+                        "MSG attachment does not expose "
+                        "binary data or a save method: "
+                        f"{attachment_name}"
+                    )
+
+                #
+                # Save into a temporary attachment directory,
+                # then normalize into the deterministic APC
+                # child path.
+                #
+                temp_dir = (
+                    child_path.parent
+                    / (
+                        ".extract_msg_"
+                        f"{attachment_index:04d}"
+                    )
+                )
+
+                temp_dir.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+
+                save_result = save_method(
+                    customPath=str(
+                        temp_dir
+                    )
+                )
+
+                saved_candidates = [
+                    candidate
+                    for candidate
+                    in temp_dir.iterdir()
+                    if candidate.is_file()
+                ]
+
+                if (
+                    isinstance(
+                        save_result,
+                        (str, Path),
+                    )
+                ):
+                    returned_path = Path(
+                        save_result
+                    )
+
+                    if returned_path.is_file():
+                        saved_candidates.insert(
+                            0,
+                            returned_path,
+                        )
+
+                if not saved_candidates:
+                    raise RuntimeError(
+                        "extract-msg did not produce an "
+                        "attachment file for "
+                        f"{attachment_name}"
+                    )
+
+                saved_path = saved_candidates[0]
+
+                child_path.write_bytes(
+                    saved_path.read_bytes()
+                )
+
+            if (
+                not child_path.exists()
+                or not child_path.is_file()
+            ):
+                raise RuntimeError(
+                    "MSG attachment extraction did not "
+                    "produce a file: "
+                    f"{attachment_name}"
+                )
+
+            stat_size = (
+                child_path
+                .stat()
+                .st_size
+            )
+
+            ext = (
+                child_path
+                .suffix
+                .lower()
+                .lstrip(".")
+            )
+
+            mime_type, _ = (
+                mimetypes.guess_type(
+                    child_path.name
+                )
+            )
+
+            child_file_id = new_id(
+                "FILE"
+            )
+
+            logical_path = (
+                f"{row['normalized_path']}"
+                f"!/attachments/"
+                f"{child_path.name}"
+            )
+
+            _insert_child_file(
+                db,
+                parent_row=row,
+                parent_file_id=file_id,
+                child_file_id=child_file_id,
+                child_path=child_path,
+                logical_path=logical_path,
+                extension=ext,
+                mime_type=(
+                    mime_type
+                    or "application/octet-stream"
+                ),
+                source_bytes=stat_size,
+                container_depth=(
+                    container_depth
+                    + 1
+                ),
+                container_path=str(
+                    row["normalized_path"]
+                ),
+                child_stage_status={
+                    "container_expansion": {
+                        "status": "extracted",
+                        "source_type": (
+                            "msg_attachment"
+                        ),
+                        "relationship": (
+                            "attachment"
+                        ),
+                        "attachment_ordinal": (
+                            attachment_index
+                        ),
+                        "attachment_filename": (
+                            attachment_name
+                        ),
+                        "parent_file_id": (
+                            file_id
+                        ),
+                        "parent_normalized_path": (
+                            row[
+                                "normalized_path"
+                            ]
+                        ),
+                        "family_id": (
+                            family_id
+                        ),
+                    }
+                },
+            )
+
+            extracted_file_count += 1
+
+            extracted_bytes += (
+                stat_size
+            )
+
+            #
+            # If an attachment is itself expandable—
+            # ZIP, workbook, or MSG—it enters the SAME
+            # existing recursive expansion queue.
+            #
+            if _is_container_extension(
+                ext
+            ):
+                nested_container_count += 1
+
+                _queue_child_container(
+                    queue,
+                    child_file_id=(
+                        child_file_id
+                    ),
+                    child_path=(
+                        child_path
+                    ),
+                    logical_path=(
+                        logical_path
+                    ),
+                    extension=ext,
+                    source_bytes=(
+                        stat_size
+                    ),
+                    parent_file_id=(
+                        file_id
+                    ),
+                    container_depth=(
+                        container_depth
+                        + 1
+                    ),
+                    family_id=(
+                        family_id
+                    ),
+                )
+
+    finally:
+        if message is not None:
+            try:
+                message.close()
+            except Exception:
+                pass
+
+    return {
+        "status": event_status,
+        "exceptions": (
+            event_exceptions
+        ),
+        "extracted_file_count": (
+            extracted_file_count
+        ),
+        "extracted_bytes": (
+            extracted_bytes
+        ),
+        "nested_container_count": (
+            nested_container_count
+        ),
+        "container_type": "msg",
+        "workbook_manifest": None,
+    }
 
 def _expand_workbook_container(
     *,
@@ -1640,7 +2104,7 @@ def run_container_expansion(
 
       ZIP:
         - .zip
-        - nested ZIP/workbook children are recursively queued
+        - nested ZIP/workbook/MSG children are recursively queued
 
       Workbook:
         - .xlsx
@@ -1649,6 +2113,12 @@ def run_container_expansion(
         - .xltm
         - .xls
         - .xlsb
+
+      MSG:
+        - .msg
+        - parent email remains a reviewable INSYT document
+        - attachments become independent child documents
+        - nested ZIP/workbook/MSG attachments are recursively queued
 
     Workbook behavior:
 
@@ -1665,8 +2135,21 @@ def run_container_expansion(
       - worksheet triage state is pre-seeded for the later
         first-reportable-hit detection pass
 
-    Successfully expanded containers are marked is_container=1,
-    so downstream stages operate on their leaf children.
+    MSG behavior:
+
+      - original MSG remains a normal reviewable document
+      - MSG is NOT marked is_container=1
+      - each attachment becomes an independent child document
+      - parent/child provenance and family_id are retained
+      - attachments enter the same existing downstream workflows
+      - no separate attachment processing engine is created
+
+    Successfully expanded ZIP/workbook parents are marked
+    is_container=1 so downstream stages operate on their leaf
+    children.
+
+    Successfully expanded MSG parents remain is_container=0 so
+    the parent email itself continues through normal processing.
     """
 
     root = Path(
@@ -1767,6 +2250,7 @@ def run_container_expansion(
         expanded_container_count = 0
         expanded_zip_count = 0
         expanded_workbook_count = 0
+        expanded_msg_count = 0
 
         extracted_file_count = 0
         workbook_sheet_child_count = 0
@@ -1911,6 +2395,20 @@ def run_container_expansion(
                             )
                         )
 
+                    elif _is_msg_extension(
+                        extension
+                    ):
+                        result = (
+                            _expand_msg_container(
+                                db=db,
+                                row=row,
+                                expansion_root=(
+                                    expansion_root
+                                ),
+                                queue=queue,
+                            )
+                        )
+
                     else:
                         raise RuntimeError(
                             "Unsupported container "
@@ -2018,11 +2516,25 @@ def run_container_expansion(
                         workbook_manifest
                     )
 
+                #
+                # ZIP/workbook parents become support containers and
+                # are excluded from ordinary leaf processing.
+                #
+                # MSG parents are different: the email itself remains
+                # a real reviewable document while attachments become
+                # additional child documents.
+                #
+                parent_is_container = (
+                    0
+                    if container_type == "msg"
+                    else 1
+                )
+
                 db.execute(
                     """
                     UPDATE file_processing_metrics
                     SET
-                        is_container=1,
+                        is_container=?,
                         updated_at=?,
                         stage_status_json=json_patch(
                             stage_status_json,
@@ -2031,6 +2543,7 @@ def run_container_expansion(
                     WHERE file_id=?
                     """,
                     (
+                        parent_is_container,
                         utc_now(),
                         json_dumps(
                             stage_payload
@@ -2052,6 +2565,12 @@ def run_container_expansion(
                     == "workbook"
                 ):
                     expanded_workbook_count += 1
+
+                elif (
+                    container_type
+                    == "msg"
+                ):
+                    expanded_msg_count += 1
 
             else:
                 #
@@ -2282,8 +2801,9 @@ def run_container_expansion(
                 extracted_file_count,
                 "operations",
                 confidence_note=(
-                    "proxy for extracted ZIP members "
-                    "and worksheet-derived CSV writes"
+                    "proxy for extracted ZIP members, "
+                    "MSG attachments, and worksheet-derived "
+                    "CSV writes"
                 ),
             )
 
@@ -2294,7 +2814,7 @@ def run_container_expansion(
                 expansion_events,
                 "operations",
                 confidence_note=(
-                    "proxy for ZIP/workbook "
+                    "proxy for ZIP/workbook/MSG "
                     "container reads"
                 ),
             )
@@ -2341,6 +2861,9 @@ def run_container_expansion(
                 "expanded_workbook_count": (
                     expanded_workbook_count
                 ),
+                "expanded_msg_count": (
+                    expanded_msg_count
+                ),
                 "extracted_file_count": (
                     extracted_file_count
                 ),
@@ -2381,6 +2904,11 @@ def run_container_expansion(
                 "supported_workbooks": (
                     sorted(
                         WORKBOOK_EXTENSIONS
+                    )
+                ),
+                "supported_msg": (
+                    sorted(
+                        MSG_EXTENSIONS
                     )
                 ),
                 "workbook_manifest_count": (
