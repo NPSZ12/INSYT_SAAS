@@ -22,7 +22,18 @@ def run_dedupe(
             f.file_id,
             f.sha256,
             f.source_bytes,
-            f.normalized_path
+            f.normalized_path,
+            f.extension,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM file_processing_metrics child
+                    WHERE child.job_id = f.job_id
+                    AND child.parent_file_id = f.file_id
+                )
+                THEN 1
+                ELSE 0
+            END AS has_attachments
         FROM file_processing_metrics f
         WHERE f.job_id=?
           AND f.is_container=0
@@ -65,8 +76,37 @@ def run_dedupe(
         groups: dict[str, list] = defaultdict(list)
 
         for row in rows:
+            extension = str(
+                row["extension"] or ""
+            ).strip().lower()
+
+            is_msg = extension in {
+                ".msg",
+                "msg",
+            }
+
+            has_attachments = bool(
+                row["has_attachments"]
+            )
+
+            #
+            # A MSG with one or more extracted attachments
+            # must remain a first-class occurrence.
+            #
+            # Do not allow exact-hash dedupe to suppress the
+            # parent email because its child attachments and
+            # provenance belong to this specific occurrence.
+            #
+            # MSG files without attachments continue through
+            # the normal SHA-256 dedupe workflow.
+            #
+            if is_msg and has_attachments:
+                continue
+
             if row["sha256"]:
-                groups[row["sha256"]].append(row)
+                groups[
+                    row["sha256"]
+                ].append(row)
 
         duplicate_count = 0
         duplicate_bytes = 0

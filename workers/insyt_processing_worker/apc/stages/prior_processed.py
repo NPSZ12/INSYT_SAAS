@@ -64,7 +64,18 @@ def run_prior_processed_duplicate_suppression(
             f.file_id,
             f.normalized_path,
             f.sha256,
-            f.stage_status_json
+            f.stage_status_json,
+            f.extension,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM file_processing_metrics child
+                    WHERE child.job_id = f.job_id
+                    AND child.parent_file_id = f.file_id
+                )
+                THEN 1
+                ELSE 0
+            END AS has_attachments
         FROM file_processing_metrics f
         WHERE f.job_id=?
           AND f.is_container=0
@@ -105,8 +116,32 @@ def run_prior_processed_duplicate_suppression(
         examples: list[dict[str, Any]] = []
 
         for row in current_rows:
+            extension = str(
+                row["extension"] or ""
+            ).strip().lower()
+
+            is_msg = extension in {
+                ".msg",
+                "msg",
+            }
+
+            has_attachments = bool(
+                row["has_attachments"]
+            )
+
+            #
+            # Do not suppress a parent MSG that contains
+            # one or more extracted attachments, even when
+            # its hash exists in a prior processing job.
+            #
+            if is_msg and has_attachments:
+                continue
+
             checked += 1
-            sha256 = str(row["sha256"] or "").strip().lower()
+
+            sha256 = str(
+                row["sha256"] or ""
+            ).strip().lower()
 
             prior = prior_by_sha256.get(sha256)
             if not prior:
