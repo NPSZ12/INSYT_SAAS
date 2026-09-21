@@ -43,9 +43,29 @@ jobs:
             bash -lc '
               set -euo pipefail
 
-              apt-get update
+              #
+              # Debian 11 Bullseye reached LTS EOL on
+              # 2026-08-31. Pin to the final Bullseye
+              # snapshot so this native runtime build
+              # remains deterministic and does not depend
+              # on the retired live security repository.
+              #
+              rm -f /etc/apt/sources.list.d/*
 
-              apt-get install -y \
+              cat > /etc/apt/sources.list <<EOF
+              deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260831T235959Z/ bullseye main
+              deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260831T235959Z/ bullseye-updates main
+              deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260831T235959Z/ bullseye-security main
+              EOF
+
+              apt-get \
+                -o Acquire::Check-Valid-Until=false \
+                -o Acquire::Retries=5 \
+                update
+
+              apt-get \
+                -o Acquire::Retries=5 \
+                install -y \
                 --no-install-recommends \
                 pst-utils
 
@@ -96,10 +116,27 @@ jobs:
 
               chmod -R a+rX /out
 
-              /usr/bin/readpst -V \
+              LD_LIBRARY_PATH=/out/lib \
+                /out/bin/readpst -V \
                 > /out/version.txt \
-                2>&1 || true
+                2>&1
             '
+
+            #
+            # Verify the bundle in a CLEAN Debian 11 container
+            # that does not have pst-utils installed.
+            #
+            docker run --rm \
+              -v "$PWD/native/readpst:/out:ro" \
+              debian:11-slim \
+              bash -lc '
+                set -euo pipefail
+
+                echo "=== Clean-container readpst verification ==="
+
+                LD_LIBRARY_PATH=/out/lib \
+                  /out/bin/readpst -V
+              '
 
           echo "=== Bundled readpst ==="
           cat native/readpst/version.txt || true
