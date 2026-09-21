@@ -203,6 +203,7 @@ def run_text_extraction(
         SELECT
             fpm.file_id,
             fpm.original_path,
+            fpm.text_output_path,
             fpm.extension,
             fpm.source_bytes,
             fpm.doc_id,
@@ -243,13 +244,81 @@ def run_text_extraction(
         stage_total_files = len(rows)
         for row_index, row in enumerate(rows, start=1):
             try:
-                path = Path(row["original_path"])
-                ext = row["extension"] or ""
-                page_count, text_bytes, page_confidence, text_signal, encrypted, text_window = _native_text_signal(
-                    path,
-                    ext,
-                    workspace=workspace,
+                path = Path(
+                    row["original_path"]
                 )
+
+                ext = (
+                    row["extension"]
+                    or ""
+                )
+
+                prepared_text_path = str(
+                    row["text_output_path"]
+                    or ""
+                ).strip()
+
+                #
+                # A prior adapter/OCR/preparation stage may
+                # already have produced authoritative clean
+                # text for this document.
+                #
+                # Use that artifact instead of reopening the
+                # native file according to its extension.
+                #
+                if prepared_text_path:
+                    prepared_path = Path(
+                        prepared_text_path
+                    )
+
+                    if (
+                        prepared_path.exists()
+                        and prepared_path.is_file()
+                    ):
+                        (
+                            text_bytes,
+                            _,
+                        ) = _text_file_signal(
+                            prepared_path
+                        )
+
+                        page_count = 0
+                        page_confidence = (
+                            "not_applicable"
+                        )
+                        text_signal = (
+                            "prepared_text_artifact"
+                        )
+                        encrypted = False
+                        text_window = {}
+
+                    else:
+                        (
+                            page_count,
+                            text_bytes,
+                            page_confidence,
+                            text_signal,
+                            encrypted,
+                            text_window,
+                        ) = _native_text_signal(
+                            path,
+                            ext,
+                            workspace=workspace,
+                        )
+
+                else:
+                    (
+                        page_count,
+                        text_bytes,
+                        page_confidence,
+                        text_signal,
+                        encrypted,
+                        text_window,
+                    ) = _native_text_signal(
+                        path,
+                        ext,
+                        workspace=workspace,
+                    )
                 has_text = 1 if text_bytes >= settings.ocr_low_text_bytes_threshold else 0
                 if has_text:
                     text_docs += 1

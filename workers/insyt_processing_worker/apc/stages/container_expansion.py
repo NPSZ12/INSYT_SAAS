@@ -23,6 +23,10 @@ from ..util import (
     new_id,
     utc_now,
 )
+from ..adapters.base import AdapterContext
+from ..adapters.builtin import register_builtin_adapters
+from ..adapters.dispatcher import dispatch_to_adapter
+from ..adapters.registry import registered_extensions
 
 
 ZIP_EXTENSIONS = {
@@ -245,6 +249,41 @@ def _is_container_extension(
         in CONTAINER_EXTENSIONS
     )
 
+def _adapter_extensions() -> set[str]:
+    """
+    Return registered adapter extensions in the same
+    no-leading-dot format used by container_expansion.py.
+    """
+
+    return {
+        str(extension or "")
+        .strip()
+        .lower()
+        .lstrip(".")
+        for extension in registered_extensions()
+        if str(extension or "").strip()
+    }
+
+
+def _is_expandable_extension(
+    extension: str | None,
+) -> bool:
+    """
+    True when a file should enter the recursive expansion/
+    adapter queue.
+
+    Existing ZIP/workbook/MSG behavior remains unchanged.
+    Registered adapters are additive.
+    """
+
+    normalized = _normalize_extension(
+        extension
+    )
+
+    return (
+        normalized in CONTAINER_EXTENSIONS
+        or normalized in _adapter_extensions()
+    )
 
 def _row_value(
     row,
@@ -909,6 +948,417 @@ def _queue_child_container(
         }
     )
 
+def _expand_registered_adapter(
+    *,
+    db: LedgerDB,
+    row,
+    job_id: str,
+    matter_id: str,
+    expansion_root: Path,
+    queue: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Run one registered file adapter and return its prepared
+    children to the existing APC ledger/recursive queue.
+
+    Adapters never write directly to file_processing_metrics.
+    """
+
+    file_id = str(
+        row["file_id"]
+    )
+
+    extension = _normalize_extension(
+        row["extension"]
+    )
+
+    container_depth = int(
+        row["container_depth"]
+        or 0
+    )
+
+    source_path = Path(
+        row["original_path"]
+    )
+
+    work_dir = (
+        expansion_root
+        / file_id
+        / "adapter"
+    )
+
+    work_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    context = AdapterContext(
+        job_id=job_id,
+        matter_id=matter_id,
+        file_id=file_id,
+        source_path=source_path,
+        normalized_path=str(
+            row["normalized_path"]
+        ),
+        extension=(
+            f".{extension}"
+            if extension
+            else ""
+        ),
+        work_dir=work_dir,
+        parent_file_id=(
+            str(
+                _row_value(
+                    row,
+                    "parent_file_id",
+                    "",
+                )
+                or ""
+            )
+            or None
+        ),
+        family_id=(
+            str(
+                _row_value(
+                    row,
+                    "family_id",
+                    "",
+                )
+                or ""
+            )
+            or None
+        ),
+
+    )
+
+    adapter_result = dispatch_to_adapter(
+        context
+    )
+
+    if adapter_result is None:
+        raise RuntimeError(
+            "No registered adapter for "
+            f"extension: {extension}"
+        )
+
+    if adapter_result.status not in {
+        "completed",
+        "completed_with_warnings",
+    }:
+        return {
+            "status": "failed",
+            "exceptions": [
+                {
+                    "error": (
+                        adapter_result.error
+                        or (
+                            "Adapter returned "
+                            f"{adapter_result.status}"
+                        )
+                    ),
+                }
+            ],
+            "extracted_file_count": 0,
+            "extracted_bytes": 0,
+            "nested_container_count": 0,
+            "container_type": (
+                adapter_result.adapter_name
+            ),
+            "workbook_manifest": None,
+            "adapter_manifest": {
+                "adapter_name": (
+                    adapter_result.adapter_name
+                ),
+                "status": (
+                    adapter_result.status
+                ),
+                "metadata": (
+                    adapter_result.metadata
+                ),
+            },
+        }
+
+    extracted_file_count = 0
+    family_id = str(
+        _row_value(
+            row,
+            "family_id",
+            "",
+        )
+        or file_id
+    )
+    #
+    # If the adapter produced clean text for the parent
+    # document, expose it through APC's standard text path.
+    #
+    # Downstream stages do not need to know which adapter
+    # produced it.
+    #
+    if adapter_result.extracted_text_path:
+        prepared_text_path = Path(
+            adapter_result.extracted_text_path
+        )
+
+        if (
+            not prepared_text_path.exists()
+            or not prepared_text_path.is_file()
+        ):
+            raise RuntimeError(
+                "Adapter extracted text path does "
+                "not exist: "
+                f"{prepared_text_path}"
+            )
+
+        prepared_text_bytes = len(
+            prepared_text_path
+            .read_bytes()
+            .strip()
+        )
+
+        db.execute(
+            """
+            UPDATE file_processing_metrics
+            SET
+                text_output_path=?,
+                text_bytes=?,
+                has_native_text=?,
+                updated_at=?
+            WHERE file_id=?
+            """,
+            (
+                str(prepared_text_path),
+                prepared_text_bytes,
+                (
+                    1
+                    if prepared_text_bytes > 0
+                    else 0
+                ),
+                utc_now(),
+                file_id,
+            ),
+        )
+
+    #
+    # When an adapter creates child documents, establish
+    # the parent's Family ID before registering children.
+    #
+    if adapter_result.children:
+        db.execute(
+            """
+            UPDATE file_processing_metrics
+            SET
+                family_id=CASE
+                    WHEN coalesce(family_id, '') = ''
+                        THEN ?
+                    ELSE family_id
+                END,
+                updated_at=?
+            WHERE file_id=?
+            """,
+            (
+                family_id,
+                utc_now(),
+                file_id,
+            ),
+        )
+    extracted_bytes = 0
+    nested_container_count = 0
+
+    event_exceptions: list[
+        dict[str, Any]
+    ] = []
+
+    child_file_ids: list[str] = []
+
+    for child in adapter_result.children:
+        child_path = Path(
+            child.source_path
+        )
+
+        if (
+            not child_path.exists()
+            or not child_path.is_file()
+        ):
+            event_exceptions.append(
+                {
+                    "error": (
+                        "Adapter child does not "
+                        "exist on disk"
+                    ),
+                    "path": str(
+                        child_path
+                    ),
+                    "relationship": (
+                        child.relationship
+                    ),
+                }
+            )
+
+            continue
+
+        source_bytes = int(
+            child_path.stat().st_size
+        )
+
+        child_extension = (
+            _normalize_extension(
+                child.extension
+                or child_path.suffix
+            )
+        )
+
+        mime_type, _ = (
+            mimetypes.guess_type(
+                child_path.name
+            )
+        )
+
+        child_file_id = new_id(
+            "FILE"
+        )
+
+        child_file_ids.append(
+            child_file_id
+        )
+
+        logical_path = str(
+            child.normalized_path
+        )
+
+        child_stage_status = {
+            "container_expansion": {
+                "status": "extracted",
+                "source_type": (
+                    f"{adapter_result.adapter_name}"
+                    "_adapter"
+                ),
+                "relationship": (
+                    child.relationship
+                ),
+                "parent_file_id": (
+                    file_id
+                ),
+                "parent_normalized_path": (
+                    row["normalized_path"]
+                ),
+                "adapter_metadata": (
+                    child.metadata
+                ),
+            }
+        }
+
+        _insert_child_file(
+            db,
+            parent_row=row,
+            parent_file_id=file_id,
+            child_file_id=child_file_id,
+            child_path=child_path,
+            logical_path=logical_path,
+            extension=child_extension,
+            mime_type=(
+                mime_type
+                or "application/octet-stream"
+            ),
+            source_bytes=source_bytes,
+            container_depth=(
+                container_depth
+                + 1
+            ),
+            container_path=str(
+                row["normalized_path"]
+            ),
+            child_stage_status=(
+                child_stage_status
+            ),
+        )
+
+        extracted_file_count += 1
+        extracted_bytes += (
+            source_bytes
+        )
+
+        #
+        # An adapter child may itself require either
+        # legacy expansion or another registered adapter.
+        #
+        if _is_expandable_extension(
+            child_extension
+        ):
+            nested_container_count += 1
+
+            _queue_child_container(
+                queue,
+                child_file_id=(
+                    child_file_id
+                ),
+                child_path=(
+                    child_path
+                ),
+                logical_path=(
+                    logical_path
+                ),
+                extension=(
+                    child_extension
+                ),
+                source_bytes=(
+                    source_bytes
+                ),
+                parent_file_id=(
+                    file_id
+                ),
+                container_depth=(
+                    container_depth
+                    + 1
+                ),
+                family_id=family_id,
+            )
+
+    status = "completed"
+
+    if event_exceptions:
+        status = (
+            "completed_with_warnings"
+            if extracted_file_count > 0
+            else "failed"
+        )
+
+    return {
+        "status": status,
+        "exceptions": (
+            event_exceptions
+        ),
+        "extracted_file_count": (
+            extracted_file_count
+        ),
+        "extracted_bytes": (
+            extracted_bytes
+        ),
+        "nested_container_count": (
+            nested_container_count
+        ),
+        "container_type": (
+            adapter_result.adapter_name
+        ),
+        "workbook_manifest": None,
+        "adapter_manifest": {
+            "adapter_name": (
+                adapter_result.adapter_name
+            ),
+            "status": status,
+            "child_file_ids": (
+                child_file_ids
+            ),
+            "child_count": (
+                extracted_file_count
+            ),
+            "extracted_text_path": (
+                adapter_result.extracted_text_path
+            ),
+            "metadata": (
+                adapter_result.metadata
+            ),
+        },
+    }
 
 def _expand_zip_container(
     *,
@@ -1097,7 +1547,7 @@ def _expand_zip_container(
                 stat_size
             )
 
-            if _is_container_extension(
+            if _is_expandable_extension(
                 ext
             ):
                 nested_container_count += 1
@@ -1578,7 +2028,7 @@ def _expand_msg_container(
             # ZIP, workbook, or MSG—it enters the SAME
             # existing recursive expansion queue.
             #
-            if _is_container_extension(
+            if _is_expandable_extension(
                 ext
             ):
                 nested_container_count += 1
@@ -2204,10 +2654,22 @@ def run_container_expansion(
         exist_ok=True,
     )
 
+    #
+    # Adapter registration is additive and idempotent.
+    #
+    register_builtin_adapters()
+
+    expansion_extensions = (
+        set(
+            CONTAINER_EXTENSIONS
+        )
+        | _adapter_extensions()
+    )
+
     placeholders = ",".join(
         "?"
         for _ in sorted(
-            CONTAINER_EXTENSIONS
+            expansion_extensions
         )
     )
 
@@ -2238,7 +2700,7 @@ def run_container_expansion(
         (
             job_id,
             *sorted(
-                CONTAINER_EXTENSIONS
+                expansion_extensions
             ),
         ),
     )
@@ -2385,6 +2847,7 @@ def run_container_expansion(
             )
 
             workbook_manifest = None
+            adapter_manifest = None
 
             if (
                 container_depth
@@ -2447,9 +2910,17 @@ def run_container_expansion(
                         )
 
                     else:
-                        raise RuntimeError(
-                            "Unsupported container "
-                            f"extension: {extension}"
+                        result = (
+                            _expand_registered_adapter(
+                                db=db,
+                                row=row,
+                                job_id=job_id,
+                                matter_id=matter_id,
+                                expansion_root=(
+                                    expansion_root
+                                ),
+                                queue=queue,
+                            )
                         )
 
                     event_status = str(
@@ -2497,6 +2968,11 @@ def run_container_expansion(
                     workbook_manifest = (
                         result.get(
                             "workbook_manifest"
+                        )
+                    )
+                    adapter_manifest = (
+                        result.get(
+                            "adapter_manifest"
                         )
                     )
 
@@ -2553,6 +3029,16 @@ def run_container_expansion(
                         workbook_manifest
                     )
 
+                if (
+                    adapter_manifest
+                    is not None
+                ):
+                    stage_payload[
+                        "adapter_expansion"
+                    ] = (
+                        adapter_manifest
+                    )
+
                 #
                 # ZIP/workbook parents become support containers and
                 # are excluded from ordinary leaf processing.
@@ -2563,7 +3049,10 @@ def run_container_expansion(
                 #
                 parent_is_container = (
                     0
-                    if container_type == "msg"
+                    if container_type in {
+                        "msg",
+                        "eml",
+                    }
                     else 1
                 )
 
