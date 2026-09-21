@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 from .email.eml_adapter import EML_ADAPTER
+from .email.pst_adapter import PstAdapter
+from .email.readpst_backend import ReadPstBackend
 from .registry import register_adapter
+
+
+PST_ADAPTER = PstAdapter(
+    backend=ReadPstBackend()
+)
 
 
 #
@@ -14,6 +21,7 @@ from .registry import register_adapter
 #
 BUILTIN_ADAPTERS = (
     EML_ADAPTER,
+    PST_ADAPTER,
 )
 
 
