@@ -29,6 +29,87 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Build Debian 11 readpst runtime
+        run: |
+          cd "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
+
+          rm -rf native/readpst
+          mkdir -p native/readpst/bin
+          mkdir -p native/readpst/lib
+
+          docker run --rm \
+            -v "$PWD/native/readpst:/out" \
+            debian:11-slim \
+            bash -lc '
+              set -euo pipefail
+
+              apt-get update
+
+              apt-get install -y \
+                --no-install-recommends \
+                pst-utils
+
+              cp /usr/bin/readpst \
+                /out/bin/readpst
+
+              chmod 0755 \
+                /out/bin/readpst
+
+              ldd /usr/bin/readpst \
+                > /out/ldd.txt
+
+              dpkg-query -W \
+                -f="\${Package}=\${Version}\n" \
+                pst-utils \
+                libpst4 \
+                > /out/packages.txt
+
+              ldd /usr/bin/readpst |
+              awk '"'"'
+                $2 == "=>" && $3 ~ /^\// {
+                  print $3
+                }
+                $1 ~ /^\// {
+                  print $1
+                }
+              '"'"' |
+              sort -u |
+              while read -r library
+              do
+                name="$(basename "$library")"
+
+                case "$name" in
+                  libc.so.6|\
+                  libm.so.6|\
+                  libpthread.so.0|\
+                  libdl.so.2|\
+                  librt.so.1|\
+                  libresolv.so.2|\
+                  ld-linux-x86-64.so.2)
+                    continue
+                    ;;
+                esac
+
+                cp -L "$library" \
+                  "/out/lib/$name"
+              done
+
+              chmod -R a+rX /out
+
+              /usr/bin/readpst -V \
+                > /out/version.txt \
+                2>&1 || true
+            '
+
+          echo "=== Bundled readpst ==="
+          cat native/readpst/version.txt || true
+
+          echo "=== Debian packages ==="
+          cat native/readpst/packages.txt
+
+          echo "=== Native libraries ==="
+          ls -lah native/readpst/lib
+
       - name: Install worker dependencies
         run: |
           cd "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"

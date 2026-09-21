@@ -44,15 +44,6 @@ class AdapterContext:
 class PreparedChild:
     """
     A physical/logical child produced by a file-type adapter.
-
-    Example:
-        EML -> attachment
-        MSG -> attachment
-        PST -> email
-        ZIP -> contained file
-        XLSX -> worksheet-derived artifact
-
-    The child has not yet received an INSYT document ID.
     """
 
     source_path: Path
@@ -61,6 +52,17 @@ class PreparedChild:
     relationship: str
     original_name: str | None = None
     extension: str | None = None
+
+    #
+    # True when this child starts a new logical Family
+    # instead of inheriting the parent/container Family.
+    #
+    # Example:
+    #     PST -> EML
+    #     The EML begins its own email Family, while its
+    #     subsequent attachments inherit that EML Family.
+    #
+    start_new_family: bool = False
 
     metadata: dict[str, Any] = field(
         default_factory=dict

@@ -806,11 +806,13 @@ def _insert_child_file(
     container_depth: int,
     container_path: str,
     child_stage_status: dict[str, Any] | None = None,
+    child_family_id: str | None = None,
 ) -> None:
     now = utc_now()
 
     family_id = str(
-        _row_value(
+        child_family_id
+        or _row_value(
             parent_row,
             "family_id",
             "",
@@ -1217,6 +1219,12 @@ def _expand_registered_adapter(
             "FILE"
         )
 
+        child_family_id = (
+            child_file_id
+            if child.start_new_family
+            else None
+        )
+
         child_file_ids.append(
             child_file_id
         )
@@ -1253,6 +1261,9 @@ def _expand_registered_adapter(
             parent_file_id=file_id,
             child_file_id=child_file_id,
             child_path=child_path,
+            child_family_id=(
+                child_family_id
+            ),
             logical_path=logical_path,
             extension=child_extension,
             mime_type=(
