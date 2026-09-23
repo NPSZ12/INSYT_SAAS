@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -22,6 +23,7 @@ from app.database.connection import Base
 from app.models.user import User
 from app.models.project import Project
 from app.models.job import Job
+from app.models.document_lifecycle import DocumentLifecycle
 
 target_metadata = Base.metadata
 
@@ -43,7 +45,10 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = (
+        os.getenv("ALEMBIC_SQL_URL")
+        or config.get_main_option("sqlalchemy.url")
+    )
     context.configure(
         url=url,
         target_metadata=target_metadata,
