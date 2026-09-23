@@ -907,6 +907,7 @@ def _read_existing_extracted_text(row) -> tuple[str, str] | None:
 
     text_path = _row_value(
         row,
+        "text_output_path",
         "ocr_text_path",
         "extracted_text_path",
         "text_path",
