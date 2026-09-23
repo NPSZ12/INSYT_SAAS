@@ -466,6 +466,10 @@ def _ocr_one_document(
         text=text,
     )
 
+    text_bytes = len(
+        (text or "").encode("utf-8")
+    )
+
     result_payload = {
         "job_type": "ocr_document_result",
         "source_job_id": source_job_id,
@@ -492,6 +496,13 @@ def _ocr_one_document(
         ),
         "text_blob_path":
             text_blob_path,
+
+        "staged_text_blob_path":
+            staged_text_blob_path,
+
+        "text_bytes":
+            text_bytes,
+
         "native_blob_path":
             native_blob_path,
         "ocr_engine":
@@ -1078,6 +1089,43 @@ def process_ocr_set_message(
                         errors[:100],
                 )
 
+        #
+        # Advance successful OCR documents in the persistent
+        # lifecycle index before exposing them to Detection Ready.
+        #
+        # Lifecycle indexing is deliberately non-fatal to OCR:
+        # successfully generated OCR must never be discarded merely
+        # because the control-plane index is temporarily unavailable.
+        #
+        try:
+            from app.services.document_lifecycle_writer import (
+                bulk_mark_ocr_completed,
+            )
+
+            lifecycle_result = (
+                bulk_mark_ocr_completed(
+                    workspace=workspace,
+                    client=client,
+                    project=project,
+                    source_job_id=
+                        source_job_id,
+                    completed_documents=
+                        completed_documents,
+                )
+            )
+
+        except Exception as lifecycle_exc:
+            lifecycle_result = {
+                "enabled": True,
+                "status": "failed",
+                "error":
+                    repr(
+                        lifecycle_exc
+                    ),
+                "reconciliation_required":
+                    True,
+            }
+
         detection_result = (
             _queue_detection_for_completed_ocr(
                 payload=payload,
@@ -1085,6 +1133,25 @@ def process_ocr_set_message(
                     completed_documents,
             )
         )
+
+        if lifecycle_result:
+            status_payload = _read_json_blob(
+                status_blob_path,
+                default={},
+            )
+
+            status_payload[
+                "document_lifecycle"
+            ] = lifecycle_result
+
+            status_payload[
+                "updated_at"
+            ] = utc_now()
+
+            _write_json_blob(
+                status_blob_path,
+                status_payload,
+            )
 
         final_status = (
             "completed"

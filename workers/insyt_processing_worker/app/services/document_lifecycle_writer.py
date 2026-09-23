@@ -92,43 +92,59 @@ def _build_staging_lookup(
                 )
 
                 if kind == "native":
+                    upload_ok = (
+                        _safe_text(
+                            item.get("status")
+                        ).lower()
+                        == "uploaded"
+                    )
+
+                    row["native_uploaded"] = upload_ok
+
                     row["native_staged_blob_path"] = (
                         _safe_text(
                             item.get("blob_path")
                         )
                         or None
+                        if upload_ok
+                        else None
                     )
 
-                    row["native_uploaded"] = (
+                    row["native_bytes"] = (
+                        int(
+                            item.get("bytes")
+                            or 0
+                        )
+                        if upload_ok
+                        else 0
+                    )
+
+                elif kind == "text":
+                    upload_ok = (
                         _safe_text(
                             item.get("status")
                         ).lower()
                         == "uploaded"
                     )
 
-                    row["native_bytes"] = int(
-                        item.get("bytes")
-                        or 0
-                    )
+                    row["text_uploaded"] = upload_ok
 
-                elif kind == "text":
                     row["text_staged_blob_path"] = (
                         _safe_text(
                             item.get("blob_path")
                         )
                         or None
+                        if upload_ok
+                        else None
                     )
 
-                    row["text_uploaded"] = (
-                        _safe_text(
-                            item.get("status")
-                        ).lower()
-                        == "uploaded"
-                    )
-
-                    row["text_bytes"] = int(
-                        item.get("bytes")
-                        or 0
+                    row["text_bytes"] = (
+                        int(
+                            item.get("bytes")
+                            or 0
+                        )
+                        if upload_ok
+                        else 0
                     )
 
         #
@@ -751,6 +767,200 @@ def _upsert_chunk(
         rows
     )
 
+def bulk_mark_ocr_completed(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    source_job_id: str,
+    completed_documents: list[
+        dict[str, Any]
+    ],
+) -> dict[str, Any]:
+    """
+    Advance successfully OCR-completed documents in the
+    PostgreSQL lifecycle index.
+
+    This function is deliberately independent of the APC
+    SQLite ledger because asynchronous OCR may execute on a
+    different worker instance after the ingestion ledger is gone.
+
+    It does not enqueue Detection. It only makes successfully
+    OCR-completed documents eligible for the existing manual
+    Detection Ready workflow.
+    """
+
+    if not _enabled():
+        return {
+            "enabled": False,
+            "status": "disabled",
+            "updated_count": 0,
+        }
+
+    if not completed_documents:
+        return {
+            "enabled": True,
+            "status": "no_documents",
+            "updated_count": 0,
+        }
+
+    #
+    # Lazy imports preserve the current worker behavior when
+    # lifecycle indexing is disabled.
+    #
+    from sqlalchemy import text
+    from app.database.connection import engine
+
+    parameters: list[
+        dict[str, Any]
+    ] = []
+
+    for document in completed_documents:
+        doc_id = _safe_text(
+            document.get("doc_id")
+        )
+
+        staged_text_blob_path = _safe_text(
+            document.get(
+                "staged_text_blob_path"
+            )
+        )
+
+        if (
+            not doc_id
+            or not staged_text_blob_path
+        ):
+            continue
+
+        try:
+            text_bytes = int(
+                document.get(
+                    "text_bytes"
+                )
+                or 0
+            )
+        except Exception:
+            text_bytes = 0
+
+        parameters.append(
+            {
+                "workspace":
+                    _safe_text(
+                        workspace
+                    ).lower()
+                    or "capture",
+
+                "client":
+                    _safe_text(
+                        client
+                    ),
+
+                "project":
+                    _safe_text(
+                        project
+                    ),
+
+                "source_job_id":
+                    _safe_text(
+                        source_job_id
+                    ),
+
+                "doc_id":
+                    doc_id,
+
+                "text_staged_blob_path":
+                    staged_text_blob_path,
+
+                "text_staged_bytes":
+                    text_bytes,
+            }
+        )
+
+    if not parameters:
+        return {
+            "enabled": True,
+            "status": "no_valid_documents",
+            "updated_count": 0,
+        }
+
+    statement = text(
+        """
+        UPDATE document_lifecycle
+        SET
+            text_staged_blob_path =
+                :text_staged_blob_path,
+
+            text_staged_bytes =
+                :text_staged_bytes,
+
+            ocr_status =
+                'COMPLETE',
+
+            detection_status =
+                CASE
+                    WHEN detection_status = 'PENDING'
+                        THEN 'READY'
+                    ELSE detection_status
+                END,
+
+            updated_at =
+                NOW()
+
+        WHERE workspace =
+                :workspace
+          AND client =
+                :client
+          AND project =
+                :project
+          AND source_job_id =
+                :source_job_id
+          AND doc_id =
+                :doc_id
+        """
+    )
+
+    updated = 0
+
+    #
+    # Chunked executemany keeps OCR-set completion scalable
+    # without issuing one transaction per document.
+    #
+    size = _chunk_size()
+
+    with engine.begin() as connection:
+        for offset in range(
+            0,
+            len(parameters),
+            size,
+        ):
+            chunk = parameters[
+                offset:
+                offset + size
+            ]
+
+            result = connection.execute(
+                statement,
+                chunk,
+            )
+
+            if (
+                result.rowcount is not None
+                and result.rowcount >= 0
+            ):
+                updated += int(
+                    result.rowcount
+                )
+
+    return {
+        "enabled": True,
+        "status": "completed",
+        "document_count":
+            len(parameters),
+        "updated_count":
+            updated,
+        "chunk_size":
+            size,
+    }
 
 def bulk_upsert_document_lifecycle(
     *,
