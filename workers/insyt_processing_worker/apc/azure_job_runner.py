@@ -15,6 +15,10 @@ from .azure_blob_adapter import (
     azure_upload_xl_files_outputs,
 )
 
+from app.services.document_lifecycle_writer import (
+    bulk_upsert_document_lifecycle,
+)
+
 from app.services.structured_intake.worker_prepare import (
     prepare_json_structured_sources,
 )
@@ -46,7 +50,7 @@ class AzureRunResult:
     report_upload: dict[str, Any] | None
     status_upload: dict[str, Any] | None
     hash_index_upload: dict[str, Any] | None
-    warnings: list[str]
+    warnings: list[Any]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -66,7 +70,7 @@ def build_job_status_payload(
     client_id: str,
     project_id: str,
     report: dict[str, Any] | None = None,
-    warnings: list[str] | None = None,
+    warnings: list[Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "generated_at": utc_now(),
@@ -307,6 +311,7 @@ def run_azure_processing_job(
                 overwrite=overwrite,
                 export_dir=export_dir,
             )
+
             xl_files_upload = (
                 azure_upload_xl_files_outputs(
                     db=db,
@@ -316,6 +321,98 @@ def run_azure_processing_job(
                     overwrite=overwrite,
                 )
             )
+
+            staging_payloads = [
+                payload
+                for payload in (
+                    review_upload,
+                    xl_files_upload,
+                )
+                if isinstance(
+                    payload,
+                    dict,
+                )
+            ]
+
+            try:
+                lifecycle_result = (
+                    bulk_upsert_document_lifecycle(
+                        ledger_db=db,
+                        workspace=routing.workspace,
+                        client=routing.client,
+                        project=routing.project,
+                        source_job_id=job_id,
+                        tracked_job_id=tracked_job_id,
+                        staging_payloads=staging_payloads,
+                    )
+                )
+
+                if (
+                    lifecycle_result.get(
+                        "enabled"
+                    )
+                ):
+                    warnings.append(
+                        {
+                            "type":
+                                "document_lifecycle_index",
+
+                            "message":
+                                "Document lifecycle index updated.",
+
+                            "status":
+                                lifecycle_result.get(
+                                    "status",
+                                    "",
+                                ),
+
+                            "row_count":
+                                lifecycle_result.get(
+                                    "row_count",
+                                    0,
+                                ),
+
+                            "written_count":
+                                lifecycle_result.get(
+                                    "written_count",
+                                    0,
+                                ),
+
+                            "chunk_size":
+                                lifecycle_result.get(
+                                    "chunk_size",
+                                    0,
+                                ),
+                        }
+                    )
+
+            except Exception as lifecycle_exc:
+                warnings.append(
+                    {
+                        "type":
+                            "document_lifecycle_index_error",
+
+                        "message":
+                            (
+                                "Document lifecycle indexing failed "
+                                "after staging completed. "
+                                "The APC job will remain successful "
+                                "and can be reconciled separately."
+                            ),
+
+                        "job_id":
+                            job_id,
+
+                        "error":
+                            repr(
+                                lifecycle_exc
+                            ),
+
+                        "reconciliation_required":
+                            True,
+                    }
+                )
+
             hash_index_upload = azure_update_processed_hash_index(
                 db=db,
                 routing=routing,
