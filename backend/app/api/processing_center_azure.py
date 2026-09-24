@@ -974,10 +974,71 @@ def _list_processing_job_history(
 
     blobs = list(container_client.list_blobs(name_starts_with=jobs_prefix))
 
-    status_blobs = [
-        blob for blob in blobs
-        if blob.name.endswith("/status.json")
-    ]
+    #
+    # Only top-level APC job statuses belong in the
+    # Processing Status / History list.
+    #
+    # Valid:
+    #   jobs/JOB-.../status.json
+    #
+    # Child statuses such as:
+    #   jobs/JOB-.../ocr/sets/OCRSET-.../status.json
+    #
+    # are merged into the parent job instead of appearing
+    # as separate jobs.
+    #
+    status_blobs = []
+
+    ocr_status_blobs_by_job: dict[
+        str,
+        list[Any],
+    ] = {}
+
+    for blob in blobs:
+        relative_name = str(
+            blob.name
+        ).removeprefix(
+            jobs_prefix
+        )
+
+        parts = [
+            part
+            for part in relative_name.split("/")
+            if part
+        ]
+
+        #
+        # Top-level APC job:
+        # JOB-.../status.json
+        #
+        if (
+            len(parts) == 2
+            and parts[0].startswith("JOB-")
+            and parts[1] == "status.json"
+        ):
+            status_blobs.append(
+                blob
+            )
+            continue
+
+        #
+        # OCR child:
+        # JOB-.../ocr/sets/OCRSET-.../status.json
+        #
+        if (
+            len(parts) == 5
+            and parts[0].startswith("JOB-")
+            and parts[1] == "ocr"
+            and parts[2] == "sets"
+            and parts[3].startswith("OCRSET-")
+            and parts[4] == "status.json"
+        ):
+            ocr_status_blobs_by_job.setdefault(
+                parts[0],
+                [],
+            ).append(
+                blob
+            )
 
     for blob in status_blobs:
         try:
@@ -996,6 +1057,84 @@ def _list_processing_job_history(
             job_id = (
                 status.get("job_id")
                 or blob.name.replace(jobs_prefix, "").split("/")[0]
+            )
+
+            ocr_sets: list[
+                dict[str, Any]
+            ] = []
+
+            for ocr_blob in (
+                ocr_status_blobs_by_job.get(
+                    str(job_id),
+                    [],
+                )
+            ):
+                try:
+                    ocr_blob_client = (
+                        container_client
+                        .get_blob_client(
+                            ocr_blob.name
+                        )
+                    )
+
+                    ocr_raw = (
+                        ocr_blob_client
+                        .download_blob()
+                        .readall()
+                        .decode("utf-8")
+                    )
+
+                    ocr_status = json.loads(
+                        ocr_raw
+                    )
+
+                    if not isinstance(
+                        ocr_status,
+                        dict,
+                    ):
+                        continue
+
+                    ocr_sets.append(
+                        {
+                            **ocr_status,
+
+                            "status_blob_path":
+                                ocr_blob.name,
+
+                            "last_modified":
+                                (
+                                    ocr_blob
+                                    .last_modified
+                                    .isoformat()
+                                    if getattr(
+                                        ocr_blob,
+                                        "last_modified",
+                                        None,
+                                    )
+                                    else None
+                                ),
+                        }
+                    )
+
+                except Exception as exc:
+                    errors.append(
+                        {
+                            "job_id":
+                                job_id,
+                            "status_blob_path":
+                                ocr_blob.name,
+                            "type":
+                                "ocr_status_read_error",
+                            "error":
+                                str(exc),
+                        }
+                    )
+
+            ocr_sets.sort(
+                key=lambda item: str(
+                    item.get("ocr_set_id")
+                    or ""
+                )
             )
 
             apc_job_id = (
@@ -1155,6 +1294,8 @@ def _list_processing_job_history(
                     ),
                     "actual_azure_cost_usd": status.get("actual_azure_cost_usd"),
                     "status_blob_path": blob.name,
+                    "ocr_sets":
+                        ocr_sets,
                     "last_modified": (
                         blob.last_modified.isoformat()
                         if getattr(blob, "last_modified", None)

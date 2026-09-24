@@ -1004,24 +1004,97 @@ def process_job_message(message_content: str):
         db = LedgerDB(
             _db_path(job_id)
         )
+        existing_status = _read_json_blob(
+            status_blob_path,
+            default={},
+        )
+
+        previous_worker_started_at = (
+            existing_status.get("worker_started_at")
+            if isinstance(existing_status, dict)
+            else None
+        )
+
+        try:
+            previous_attempt_count = int(
+                existing_status.get(
+                    "worker_attempt_count",
+                    0,
+                )
+                or 0
+            )
+        except (TypeError, ValueError):
+            previous_attempt_count = 0
+
+        #
+        # Backward compatibility for statuses created before
+        # worker_attempt_count existed.
+        #
+        if (
+            previous_attempt_count == 0
+            and previous_worker_started_at
+        ):
+            previous_attempt_count = 1
+
+        worker_attempt_count = (
+            previous_attempt_count + 1
+        )
+
+        is_resumed_attempt = (
+            previous_attempt_count > 0
+        )
+        worker_started_at = utc_now()
+
         _update_status(
             status_blob_path=status_blob_path,
             status="running",
-            stage="starting",
+            stage=(
+                "resumed"
+                if is_resumed_attempt
+                else "starting"
+            ),
             progress_pct=5,
-            message="APC worker accepted job.",
+            message=(
+                "APC worker resumed job after queue redelivery "
+                "or worker restart."
+                if is_resumed_attempt
+                else "APC worker accepted job."
+            ),
             extra={
-                "current_step": "Worker accepted queued APC job.",
-                "worker_started_at": utc_now(),
-                "request_blob_path": request_blob_path,
+                "current_step": (
+                    "Worker reacquired the APC job and resumed "
+                    "processing after interruption."
+                    if is_resumed_attempt
+                    else "Worker accepted queued APC job."
+                ),
+                "worker_started_at":
+                    worker_started_at,
+                "worker_attempt_count":
+                    worker_attempt_count,
+                "worker_resumed":
+                    is_resumed_attempt,
+                "previous_worker_started_at":
+                    previous_worker_started_at,
+                "worker_resumed_at": (
+                    worker_started_at
+                    if is_resumed_attempt
+                    else None
+                ),
 
-                "client": payload.get("client", ""),
-                "project": payload.get("project", ""),
-                "workspace": payload.get("workspace", ""),
-                "matter_id": payload.get("matter_id", ""),
+                "request_blob_path":
+                    request_blob_path,
 
-                # Routing debug fields — these tell us exactly where the worker is looking.
-                "routing_prefix": routing.prefix,
+                "client":
+                    payload.get("client", ""),
+                "project":
+                    payload.get("project", ""),
+                "workspace":
+                    payload.get("workspace", ""),
+                "matter_id":
+                    payload.get("matter_id", ""),
+
+                "routing_prefix":
+                    routing.prefix,
                 "uploads_prefix": routing.processing_paths().get("uploads", ""),
                 "work_prefix": routing.processing_paths().get("work", ""),
                 "temp_prefix": routing.processing_paths().get("temp", ""),

@@ -21,6 +21,45 @@ type ProcessingSettings = {
   review_account?: string;
 };
 
+type OcrSetHistoryItem = {
+  ocr_set_id?: string;
+  source_job_id?: string;
+
+  status?: string;
+  stage?: string;
+  message?: string;
+
+  document_count?: number;
+  documents_completed?: number;
+  documents_failed?: number;
+  documents_remaining?: number;
+
+  estimated_pages?: number;
+  pages_completed?: number;
+
+  requested_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  updated_at?: string;
+
+  current_doc_id?: string;
+
+  errors?: any[];
+
+  document_lifecycle?: {
+    enabled?: boolean;
+    status?: string;
+    document_count?: number;
+    updated_count?: number;
+    chunk_size?: number;
+    error?: string;
+    reconciliation_required?: boolean;
+  };
+
+  status_blob_path?: string;
+  last_modified?: string;
+};
+
 type JobHistoryItem = {
   job_id?: string;
   status?: string;
@@ -33,6 +72,7 @@ type JobHistoryItem = {
   expanded_file_count?: number;
   unique_doc_count?: number;
   duplicate_doc_count?: number;
+  ocr_sets?: OcrSetHistoryItem[];
   ocr_page_count?: number;
   estimated_azure_cost_usd?: number;
   ocr_candidate_files?: number;
@@ -372,13 +412,49 @@ export default function AzureProcessingCenterPanel({
           ? 100
           : 0;
 
+  const processingUpdatedAt =
+    activeJobStatus?.updated_at ||
+    activeJobStatus?.last_updated_at ||
+    activeJobStatus?.completed_at ||
+    activeJobStatus?.created_at ||
+    "";
+
+  const processingUpdatedMs = processingUpdatedAt
+    ? new Date(processingUpdatedAt).getTime()
+    : NaN;
+
+  const processingHeartbeatAgeMs =
+    Number.isFinite(processingUpdatedMs)
+      ? Date.now() - processingUpdatedMs
+      : 0;
+
+  const processingStatusNormalized = String(
+    activeJobStatus?.status || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const processingAwaitingWorkerRecovery =
+    [
+      "queued",
+      "running",
+      "cancel_requested",
+    ].includes(processingStatusNormalized) &&
+    processingHeartbeatAgeMs >= 180000;
+
+
   const processingStatusLabel =
-    activeJobStatus?.message ||
-    (starting || pollingJob
-      ? "Processing in progress..."
-      : activeJobStatus?.status === "completed"
-        ? "Processing completed"
-        : "Ready");
+    processingAwaitingWorkerRecovery
+      ? (
+          "No recent worker update. The current step may still be running, " +
+          "or Azure may be waiting to redeliver the job after a worker restart."
+        )
+      : activeJobStatus?.message ||
+        (starting || pollingJob
+          ? "Processing in progress..."
+          : activeJobStatus?.status === "completed"
+            ? "Processing completed"
+            : "Ready");
 
   const processingStage =
     activeJobStatus?.stage ||
@@ -397,13 +473,6 @@ export default function AzureProcessingCenterPanel({
     activeJobStatus?.current_file_name ||
     activeJobStatus?.latest_file_name ||
     "—";
-
-  const processingUpdatedAt =
-    activeJobStatus?.updated_at ||
-    activeJobStatus?.last_updated_at ||
-    activeJobStatus?.completed_at ||
-    activeJobStatus?.created_at ||
-    "";
 
   const processingEvents =
     activeJobStatus?.events ||
@@ -1510,6 +1579,12 @@ export default function AzureProcessingCenterPanel({
                 </>
               ) : null}
 
+              {processingAwaitingWorkerRecovery ? (
+                <div className="insyt-status insyt-status-warning">
+                  Awaiting Worker Recovery
+                </div>
+              ) : null}
+
               <div className="text-xs font-semibold insyt-text-secondary">
                 {processingProgressPct}%
               </div>
@@ -1541,7 +1616,7 @@ export default function AzureProcessingCenterPanel({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-6">
+              <div className="grid gap-3 md:grid-cols-7">
                 <div className="insyt-metric">
                   <div className="text-xs insyt-text-muted">
                     APC Job ID
@@ -1553,6 +1628,22 @@ export default function AzureProcessingCenterPanel({
                       "—"}
                   </div>
                 </div>
+
+                {getStatusNumber(
+                  activeJobStatus?.worker_attempt_count
+                ) > 1 ? (
+                  <div className="insyt-metric">
+                    <div className="text-xs insyt-text-muted">
+                      Worker Attempts
+                    </div>
+
+                    <div className="mt-1 text-sm font-semibold text-[var(--insyt-warning)]">
+                      {getStatusNumber(
+                        activeJobStatus?.worker_attempt_count
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="insyt-metric">
                   <div className="text-xs insyt-text-muted">
@@ -2656,6 +2747,125 @@ export default function AzureProcessingCenterPanel({
               </div>
             )}
           </div>
+
+          {(selectedHistoryJob.ocr_sets || []).length > 0 ? (
+            <div className="mt-5">
+              <div className="mb-3 font-medium insyt-text-primary">
+                OCR Processing
+              </div>
+
+              <div className="space-y-3">
+                {(selectedHistoryJob.ocr_sets || []).map(
+                  (ocrSet: OcrSetHistoryItem) => (
+                    <div
+                      key={
+                        ocrSet.ocr_set_id ||
+                        ocrSet.status_blob_path
+                      }
+                      className="insyt-subpanel px-4 py-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-mono text-sm font-semibold text-sky-400">
+                            {ocrSet.ocr_set_id ||
+                              "OCR Set"}
+                          </div>
+
+                          <div className="mt-1 text-xs insyt-text-muted">
+                            Completed:{" "}
+                            {formatDateTime(
+                              ocrSet.completed_at ||
+                                ocrSet.updated_at ||
+                                ocrSet.last_modified
+                            )}
+                          </div>
+                        </div>
+
+                        <div
+                          className={
+                            String(
+                              ocrSet.status || ""
+                            )
+                              .toLowerCase()
+                              .includes("completed")
+                              ? "insyt-status insyt-status-success"
+                              : "insyt-status insyt-status-neutral"
+                          }
+                        >
+                          {ocrSet.status || "unknown"}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 md:grid-cols-5">
+                        <div className="insyt-metric">
+                          <div className="text-xs insyt-text-muted">
+                            Documents
+                          </div>
+                          <div className="font-semibold insyt-text-primary">
+                            {ocrSet.document_count ?? "—"}
+                          </div>
+                        </div>
+
+                        <div className="insyt-metric">
+                          <div className="text-xs insyt-text-muted">
+                            Completed
+                          </div>
+                          <div className="font-semibold text-[var(--insyt-success)]">
+                            {ocrSet.documents_completed ??
+                              "—"}
+                          </div>
+                        </div>
+
+                        <div className="insyt-metric">
+                          <div className="text-xs insyt-text-muted">
+                            Failed
+                          </div>
+                          <div className="font-semibold text-[var(--insyt-danger)]">
+                            {ocrSet.documents_failed ?? "—"}
+                          </div>
+                        </div>
+
+                        <div className="insyt-metric">
+                          <div className="text-xs insyt-text-muted">
+                            OCR Pages
+                          </div>
+                          <div className="font-semibold insyt-text-primary">
+                            {ocrSet.pages_completed ?? "—"}
+                          </div>
+                        </div>
+
+                        <div className="insyt-metric">
+                          <div className="text-xs insyt-text-muted">
+                            Lifecycle Updated
+                          </div>
+                          <div className="font-semibold insyt-text-primary">
+                            {ocrSet.document_lifecycle
+                              ?.updated_count ?? "—"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {ocrSet.document_lifecycle ? (
+                        <div className="mt-3 text-xs insyt-text-muted">
+                          Lifecycle:{" "}
+                          <span className="font-medium insyt-text-primary">
+                            {ocrSet.document_lifecycle
+                              .status || "unknown"}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      {ocrSet.status_blob_path ? (
+                        <div className="mt-2 break-all text-xs insyt-text-subtle">
+                          {ocrSet.status_blob_path}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-5">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide insyt-text-muted">
