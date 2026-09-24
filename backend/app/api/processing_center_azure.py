@@ -69,6 +69,7 @@ from app.services.summary_outline_service import build_summary_extract_payload
 from app.services.ai_extraction.service import (
     build_processing_set_ai_extraction,
 )
+from app.api.review import save_document_review_state
 
 router = APIRouter(prefix="/api", tags=["processing-center-azure"])
 
@@ -122,6 +123,20 @@ class PromoteReviewPopulationRequest(BaseModel):
 
     The frontend supplies only Doc IDs. The backend resolves
     each document back to its originating APC source job.
+    """
+
+    client: str
+    project: str
+    doc_ids: list[str] = []
+    overwrite: bool = False
+
+class PromoteNoHitsPopulationRequest(BaseModel):
+    """
+    Project-wide Promotion Center request for documents whose
+    latest Detection classification is NO_HIT.
+
+    Selected documents are promoted to Files and automatically
+    coded Not Responsive - AI.
     """
 
     client: str
@@ -11039,6 +11054,508 @@ def promote_processing_center_review_population(
 
         "ai_extraction_errors": (
             ai_extraction_errors
+        ),
+    }
+
+@router.post(
+    "/{workspace}/processing-center/"
+    "promotion/promote-no-hits"
+)
+def promote_processing_center_no_hits_population(
+    workspace: Literal[
+        "capture",
+        "discovery",
+        "summaries",
+    ],
+    request: PromoteNoHitsPopulationRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """
+    Promote selected project-wide NO_HIT documents to Files.
+
+    Only documents in the authoritative current No Hits
+    population are eligible.
+
+    Successfully promoted documents are automatically coded:
+
+        Not Responsive - AI
+    """
+
+    requested_doc_ids = {
+        str(doc_id or "").strip()
+        for doc_id in (
+            request.doc_ids
+            or []
+        )
+        if str(doc_id or "").strip()
+    }
+
+    if not requested_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Select at least one No Hit "
+                "document for promotion."
+            ),
+        )
+
+    current_population = (
+        get_processing_center_promotion_population(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+    )
+
+    no_hits = (
+        current_population.get(
+            "no_hits"
+        )
+        or []
+    )
+
+    if not isinstance(
+        no_hits,
+        list,
+    ):
+        no_hits = []
+
+    no_hits_by_doc_id: dict[
+        str,
+        dict[str, Any],
+    ] = {}
+
+    for row in no_hits:
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        doc_id = str(
+            row.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+
+        if not doc_id:
+            continue
+
+        no_hits_by_doc_id[
+            doc_id
+        ] = row
+
+    #
+    # Critical safety rule:
+    # only documents currently classified NO_HIT
+    # may receive Not Responsive - AI.
+    #
+    eligible_doc_ids = {
+        doc_id
+        for doc_id in requested_doc_ids
+        if doc_id in no_hits_by_doc_id
+    }
+
+    rejected_doc_ids = sorted(
+        requested_doc_ids
+        - eligible_doc_ids
+    )
+
+    if not eligible_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "None of the selected documents are "
+                    "currently eligible for No Hit promotion."
+                ),
+                "requested_doc_ids": sorted(
+                    requested_doc_ids
+                ),
+                "rejected_doc_ids": (
+                    rejected_doc_ids
+                ),
+            },
+        )
+
+    doc_ids_by_source_job: dict[
+        str,
+        list[str],
+    ] = {}
+
+    missing_source_job_ids: list[
+        str
+    ] = []
+
+    for doc_id in sorted(
+        eligible_doc_ids
+    ):
+        row = (
+            no_hits_by_doc_id.get(
+                doc_id
+            )
+            or {}
+        )
+
+        source_job_id = str(
+            row.get(
+                "source_job_id"
+            )
+            or ""
+        ).strip()
+
+        if not source_job_id:
+            missing_source_job_ids.append(
+                doc_id
+            )
+            continue
+
+        doc_ids_by_source_job.setdefault(
+            source_job_id,
+            [],
+        ).append(
+            doc_id
+        )
+
+    if not doc_ids_by_source_job:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "Selected No Hit documents could not "
+                    "be resolved to their source APC jobs."
+                ),
+                "missing_source_job_doc_ids": (
+                    missing_source_job_ids
+                ),
+            },
+        )
+
+    promoted: list[
+        dict[str, Any]
+    ] = []
+
+    skipped: list[
+        dict[str, Any]
+    ] = []
+
+    source_job_results: list[
+        dict[str, Any]
+    ] = []
+
+    source_job_errors: list[
+        dict[str, Any]
+    ] = []
+
+    for (
+        source_job_id,
+        source_doc_ids,
+    ) in sorted(
+        doc_ids_by_source_job.items()
+    ):
+        try:
+            job_result = (
+                promote_processing_center_staged_results(
+                    workspace=workspace,
+                    request=(
+                        PromoteStagedResultsRequest(
+                            client=request.client,
+                            project=request.project,
+                            job_id=source_job_id,
+                            doc_ids=(
+                                source_doc_ids
+                            ),
+                            promote_all=False,
+                            overwrite=(
+                                request.overwrite
+                            ),
+                        )
+                    ),
+                )
+            )
+
+            source_job_results.append(
+                {
+                    "source_job_id":
+                        source_job_id,
+                    "requested_doc_ids":
+                        source_doc_ids,
+                    "promoted_count":
+                        job_result.get(
+                            "promoted_count",
+                            0,
+                        ),
+                    "skipped_count":
+                        job_result.get(
+                            "skipped_count",
+                            0,
+                        ),
+                    "promotion_status":
+                        job_result.get(
+                            "promotion_status",
+                            "",
+                        ),
+                }
+            )
+
+            for item in (
+                job_result.get(
+                    "promoted"
+                )
+                or []
+            ):
+                if not isinstance(
+                    item,
+                    dict,
+                ):
+                    continue
+
+                promoted.append(
+                    {
+                        **item,
+                        "source_job_id":
+                            source_job_id,
+                    }
+                )
+
+            for item in (
+                job_result.get(
+                    "skipped"
+                )
+                or []
+            ):
+                if not isinstance(
+                    item,
+                    dict,
+                ):
+                    continue
+
+                skipped.append(
+                    {
+                        **item,
+                        "source_job_id":
+                            source_job_id,
+                    }
+                )
+
+        except HTTPException as exc:
+            source_job_errors.append(
+                {
+                    "source_job_id":
+                        source_job_id,
+                    "doc_ids":
+                        source_doc_ids,
+                    "status_code":
+                        exc.status_code,
+                    "detail":
+                        exc.detail,
+                }
+            )
+
+        except Exception as exc:
+            source_job_errors.append(
+                {
+                    "source_job_id":
+                        source_job_id,
+                    "doc_ids":
+                        source_doc_ids,
+                    "error_type":
+                        type(exc).__name__,
+                    "error":
+                        str(exc),
+                }
+            )
+
+    requested_by = (
+        getattr(
+            admin,
+            "username",
+            None,
+        )
+        or getattr(
+            admin,
+            "email",
+            None,
+        )
+        or "INSYT Admin"
+    )
+
+    promoted_doc_ids = sorted(
+        {
+            str(
+                item.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+            for item in promoted
+            if str(
+                item.get(
+                    "doc_id"
+                )
+                or ""
+            ).strip()
+        }
+    )
+
+    coded_doc_ids: list[str] = []
+    coding_errors: list[
+        dict[str, Any]
+    ] = []
+
+    #
+    # Coding happens only AFTER successful Files promotion.
+    #
+    for doc_id in promoted_doc_ids:
+        try:
+            save_document_review_state(
+                workspace=workspace,
+                client=request.client,
+                project_id=request.project,
+                batch_id="",
+                doc_id=doc_id,
+                document_coding=(
+                    "Not Responsive - AI"
+                ),
+                further_review_reason="",
+                qc_coding="",
+                qc_questions="",
+                values={},
+                reviewed_by=requested_by,
+                action=(
+                    "auto_no_hit_promotion"
+                ),
+            )
+
+            coded_doc_ids.append(
+                doc_id
+            )
+
+        except Exception as exc:
+            coding_errors.append(
+                {
+                    "doc_id": doc_id,
+                    "error_type":
+                        type(exc).__name__,
+                    "error":
+                        str(exc),
+                }
+            )
+
+    refreshed_population = (
+        get_processing_center_promotion_population(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+    )
+
+    return {
+        "workspace": workspace,
+        "client": request.client,
+        "project": request.project,
+
+        "destination": "files",
+
+        "auto_coding": (
+            "Not Responsive - AI"
+        ),
+
+        "requested_by":
+            requested_by,
+
+        "requested_at":
+            _utc_now(),
+
+        "overwrite":
+            request.overwrite,
+
+        "requested_doc_ids":
+            sorted(
+                requested_doc_ids
+            ),
+
+        "eligible_doc_ids":
+            sorted(
+                eligible_doc_ids
+            ),
+
+        "rejected_doc_ids":
+            rejected_doc_ids,
+
+        "missing_source_job_doc_ids":
+            missing_source_job_ids,
+
+        "promoted_count":
+            len(
+                promoted_doc_ids
+            ),
+
+        "promoted_doc_ids":
+            promoted_doc_ids,
+
+        "promoted":
+            promoted,
+
+        "skipped_count":
+            len(
+                skipped
+            ),
+
+        "skipped":
+            skipped,
+
+        "coded_count":
+            len(
+                coded_doc_ids
+            ),
+
+        "coded_doc_ids":
+            coded_doc_ids,
+
+        "coding_error_count":
+            len(
+                coding_errors
+            ),
+
+        "coding_errors":
+            coding_errors,
+
+        "source_job_error_count":
+            len(
+                source_job_errors
+            ),
+
+        "source_job_errors":
+            source_job_errors,
+
+        "source_job_results":
+            source_job_results,
+
+        "promotion_population_counts":
+            (
+                refreshed_population.get(
+                    "counts"
+                )
+                or {}
+            ),
+
+        "status": (
+            "completed"
+            if (
+                not source_job_errors
+                and not coding_errors
+            )
+            else "completed_with_errors"
+        ),
+
+        "message": (
+            f"{len(promoted_doc_ids)} "
+            "No Hit document(s) promoted "
+            "to Files; "
+            f"{len(coded_doc_ids)} coded "
+            "Not Responsive - AI."
         ),
     }
 

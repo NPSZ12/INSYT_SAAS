@@ -2525,7 +2525,102 @@ def process_job_message(message_content: str):
         else:
             result_dict = {"result": str(result)}
 
-        result_summary = _summarize_result_for_status(result_dict)
+        result_summary = _summarize_result_for_status(
+            result_dict
+        )
+
+        #
+        # Preserve authoritative live-processing counters when the
+        # final result/report does not carry them forward.
+        #
+        # The APC worker already published these values while the
+        # stages were running. Finalization must not regress a known
+        # non-zero value to a fallback zero/source-upload count.
+        #
+        existing_progress_status = _read_json_blob(
+            status_blob_path,
+            default={},
+        )
+
+        if not isinstance(
+            existing_progress_status,
+            dict,
+        ):
+            existing_progress_status = {}
+
+
+        def _preserve_nonzero_status_value(
+            key: str,
+        ) -> None:
+            try:
+                existing_value = int(
+                    existing_progress_status.get(
+                        key,
+                        0,
+                    )
+                    or 0
+                )
+            except (TypeError, ValueError):
+                existing_value = 0
+
+            try:
+                summary_value = int(
+                    result_summary.get(
+                        key,
+                        0,
+                    )
+                    or 0
+                )
+            except (TypeError, ValueError):
+                summary_value = 0
+
+            if (
+                existing_value > 0
+                and summary_value <= 0
+            ):
+                result_summary[key] = (
+                    existing_value
+                )
+
+
+        _preserve_nonzero_status_value(
+            "ocr_page_count"
+        )
+
+        _preserve_nonzero_status_value(
+            "ocr_estimated_pages"
+        )
+
+        try:
+            existing_expanded_file_count = int(
+                existing_progress_status.get(
+                    "expanded_file_count",
+                    0,
+                )
+                or 0
+            )
+        except (TypeError, ValueError):
+            existing_expanded_file_count = 0
+
+        try:
+            summary_expanded_file_count = int(
+                result_summary.get(
+                    "expanded_file_count",
+                    0,
+                )
+                or 0
+            )
+        except (TypeError, ValueError):
+            summary_expanded_file_count = 0
+
+        if (
+            existing_expanded_file_count > 0
+            and summary_expanded_file_count
+            < existing_expanded_file_count
+        ):
+            result_summary[
+                "expanded_file_count"
+            ] = existing_expanded_file_count
 
         _update_status(
             status_blob_path=status_blob_path,
@@ -2562,7 +2657,7 @@ def process_job_message(message_content: str):
                 message="Archiving processed upload files.",
                 extra={
                     "current_step": "Archiving processed upload files.",
-                    **_summarize_result_for_status(result_dict),
+                    **result_summary,
                 },
             )
 
@@ -2590,7 +2685,7 @@ def process_job_message(message_content: str):
             message="APC job finalizing status.",
             extra={
                 "current_step": "Writing final tracked job status.",
-                **_summarize_result_for_status(result_dict),
+                **result_summary,
             },
         )
 
@@ -2606,15 +2701,16 @@ def process_job_message(message_content: str):
             progress_pct=100,
             message=result_dict.get("message", "APC job completed."),
             extra={
-                "current_step": "APC job completed.",
-                **_summarize_result_for_status(result_dict),
+                "current_step":
+                    "APC job completed.",
+                **result_summary,
             },
         )
 
         final_status = {
             **final_status_existing,
             **result_dict,
-            **_summarize_result_for_status(result_dict),
+            **result_summary,
             "azure_layout_file": final_status_existing.get("azure_layout_file"),
             "routing_debug": final_status_existing.get("routing_debug"),
             "job_id": job_id,

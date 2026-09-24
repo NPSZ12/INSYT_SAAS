@@ -392,11 +392,11 @@ def _write_sheet_rows_to_csv(
     """
     Stream a worksheet to CSV.
 
-    Internal blank rows are preserved.
+    Rows that are completely blank are ignored.
 
-    Trailing blank rows and trailing blank columns are
-    omitted so heavily formatted spreadsheets do not
-    generate enormous empty CSVs.
+    Trailing blank columns are omitted so heavily
+    formatted spreadsheets do not generate enormous
+    empty CSVs.
     """
 
     csv_path.parent.mkdir(
@@ -407,7 +407,6 @@ def _write_sheet_rows_to_csv(
     row_count = 0
     nonblank_row_count = 0
     max_column_count = 0
-    pending_blank_rows = 0
     cell_value_count = 0
 
     #
@@ -434,21 +433,7 @@ def _write_sheet_rows_to_csv(
             )
 
             if not values:
-                pending_blank_rows += 1
                 continue
-
-            #
-            # Preserve internal blank rows but do not flush
-            # trailing blank rows at EOF.
-            #
-            for _ in range(
-                pending_blank_rows
-            ):
-                writer.writerow(
-                    []
-                )
-
-            pending_blank_rows = 0
 
             writer.writerow(
                 values

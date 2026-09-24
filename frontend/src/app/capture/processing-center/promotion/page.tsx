@@ -215,6 +215,18 @@ function ProcessingCenterPromotionPageContent() {
   );
 
   const [
+    selectedNoHitIds,
+    setSelectedNoHitIds,
+  ] = useState<Set<string>>(
+    new Set()
+  );
+
+  const [
+    promotingNoHits,
+    setPromotingNoHits,
+  ] = useState(false);
+
+  const [
     expandedRows,
     setExpandedRows,
   ] = useState<Set<string>>(
@@ -314,6 +326,28 @@ function ProcessingCenterPromotionPageContent() {
           )
         );
 
+      const validNoHitIds =
+        new Set(
+          (
+            response?.no_hits ||
+            []
+          )
+            .filter(
+              (doc: PromotionDoc) =>
+                String(
+                  doc.promotion_status ||
+                    ""
+                )
+                  .trim()
+                  .toLowerCase() !==
+                "promoted"
+            )
+            .map(
+              (doc: PromotionDoc) =>
+                doc.doc_id
+            )
+        );
+
       setSelectedSpreadsheetIds(
         (current) => {
           const next =
@@ -341,6 +375,25 @@ function ProcessingCenterPromotionPageContent() {
           for (const docId of current) {
             if (
               validReviewIds.has(
+                docId
+              )
+            ) {
+              next.add(docId);
+            }
+          }
+
+          return next;
+        }
+      );
+
+      setSelectedNoHitIds(
+        (current) => {
+          const next =
+            new Set<string>();
+
+          for (const docId of current) {
+            if (
+              validNoHitIds.has(
                 docId
               )
             ) {
@@ -451,6 +504,24 @@ function ProcessingCenterPromotionPageContent() {
     );
   }
 
+  function toggleNoHitDoc(
+    docId: string
+  ) {
+    setSelectedNoHitIds(
+      (current) => {
+        const next =
+          new Set(current);
+
+        if (next.has(docId)) {
+          next.delete(docId);
+        } else {
+          next.add(docId);
+        }
+
+        return next;
+      }
+    );
+  }
 
   function normalizeSearchValue(
     value: unknown
@@ -603,6 +674,34 @@ function ProcessingCenterPromotionPageContent() {
     );
   }
 
+  function selectAllNoHits() {
+    setSelectedNoHitIds(
+      new Set(
+        filteredNoHits
+          .filter(
+            (doc) =>
+              String(
+                doc.promotion_status ||
+                  ""
+              )
+                .trim()
+                .toLowerCase() !==
+              "promoted"
+          )
+          .map(
+            (doc) =>
+              doc.doc_id
+          )
+      )
+    );
+  }
+
+
+  function clearNoHitSelection() {
+    setSelectedNoHitIds(
+      new Set()
+    );
+  }
 
 async function sendSelectedToCyber2() {
   if (
@@ -916,6 +1015,114 @@ async function promoteSelectedToReview() {
   }
 }
 
+async function promoteSelectedNoHits() {
+  if (
+    selectedNoHitIds.size === 0
+  ) {
+    setError(
+      "Select at least one No Hit document."
+    );
+
+    return;
+  }
+
+  if (!clientId || !projectId) {
+    setError(
+      "Client and project are required for No Hit promotion."
+    );
+
+    return;
+  }
+
+  const docIds =
+    Array.from(
+      selectedNoHitIds
+    );
+
+  setPromotingNoHits(true);
+  setError("");
+
+  try {
+    const response =
+      await apiPost(
+        `/api/${encodeURIComponent(
+          workspace
+        )}/processing-center/promotion/promote-no-hits`,
+        {
+          client: clientId,
+          project: projectId,
+          doc_ids: docIds,
+          overwrite: false,
+        }
+      );
+
+    const promotedCount =
+      Number(
+        response?.promoted_count ||
+          0
+      );
+
+    const skippedCount =
+      Number(
+        response?.skipped_count ||
+          0
+      );
+
+    const sourceJobErrorCount =
+      Number(
+        response?.source_job_error_count ||
+          0
+      );
+
+    const codingErrorCount =
+      Number(
+        response?.coding_error_count ||
+          0
+      );
+
+    if (
+      skippedCount > 0 ||
+      sourceJobErrorCount > 0 ||
+      codingErrorCount > 0
+    ) {
+      console.warn(
+        "No Hit promotion completed with skipped/errors:",
+        response
+      );
+    }
+
+    setSelectedNoHitIds(
+      new Set()
+    );
+
+    await loadPromotionPopulation(
+      true
+    );
+
+    if (promotedCount === 0) {
+      setError(
+        response?.message ||
+          "No No-Hit documents were promoted."
+      );
+    }
+
+  } catch (err: any) {
+    console.error(
+      "Failed to promote selected No Hit documents:",
+      err
+    );
+
+    setError(
+      err?.message ||
+        "Unable to promote selected No Hit documents."
+    );
+
+  } finally {
+    setPromotingNoHits(
+      false
+    );
+  }
+}
 
   const totalProcessed =
     counts.total ??
@@ -983,8 +1190,8 @@ async function promoteSelectedToReview() {
               Responsive spreadsheet and worksheet-derived CSV
               data is separated for Cyber² processing, ordinary
               responsive documents are prepared for Review, and
-              No Hit documents remain retained outside the
-              responsive review population.
+              No Hit documents may be promoted to Files with
+              automatic Not Responsive - AI coding.
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
@@ -1095,7 +1302,7 @@ async function promoteSelectedToReview() {
             value={String(
               noHitCount
             )}
-            detail="Retained / excluded"
+            detail="Files / Not Responsive - AI"
           />
 
           <MetricCard
@@ -1165,8 +1372,8 @@ async function promoteSelectedToReview() {
                 <FolderArchive className="h-5 w-5 text-slate-300" />
               }
               title="NO HIT"
-              destination="Retained"
-              description="No Hit documents remain preserved and defensible without entering the responsive review population."
+              destination="Files"
+              description="No Hit documents may be promoted to Files with automatic Not Responsive - AI coding."
             />
 
           </div>
@@ -1436,7 +1643,7 @@ async function promoteSelectedToReview() {
             <PromotionSection
               folderKey="no_hits"
               title="No Hits"
-              description="Detection completed without a responsive result. These documents remain retained for defensibility and are excluded from the responsive review population."
+              description="Detection completed without a responsive result. Selected documents can be promoted to Files with automatic Not Responsive - AI coding."
               count={
                 noHitCount
               }
@@ -1451,15 +1658,70 @@ async function promoteSelectedToReview() {
                   "no_hits"
                 )
               }
+              headerActions={
+                <div className="flex flex-wrap items-center gap-2">
+
+                  <button
+                    type="button"
+                    onClick={
+                      selectAllNoHits
+                    }
+                    disabled={
+                      filteredNoHits.length ===
+                      0
+                    }
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                  >
+                    Select All
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      clearNoHitSelection
+                    }
+                    disabled={
+                      selectedNoHitIds.size ===
+                      0
+                    }
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                  >
+                    Clear
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      promoteSelectedNoHits
+                    }
+                    disabled={
+                      promotingNoHits ||
+                      selectedNoHitIds.size ===
+                        0
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-500 bg-slate-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <FileCheck2 className="h-3.5 w-3.5" />
+
+                    {promotingNoHits
+                      ? "Promoting..."
+                      : "Promote to Files - Not Responsive - AI"}
+                  </button>
+
+                </div>
+              }
             >
 
               <PromotionTable
                 docs={
                   filteredNoHits
                 }
-                selectable={false}
+                selectable
                 selectedIds={
-                  new Set()
+                  selectedNoHitIds
+                }
+                onToggleSelect={
+                  toggleNoHitDoc
                 }
                 expandedRows={
                   expandedRows
@@ -2481,7 +2743,7 @@ function DestinationBadge({
   ) {
     return (
       <span className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-slate-300">
-        Retained
+        No Hit
       </span>
     );
   }
