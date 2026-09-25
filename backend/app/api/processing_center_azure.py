@@ -69,7 +69,6 @@ from app.services.summary_outline_service import build_summary_extract_payload
 from app.services.ai_extraction.service import (
     build_processing_set_ai_extraction,
 )
-from app.api.review import save_document_review_state
 
 router = APIRouter(prefix="/api", tags=["processing-center-azure"])
 
@@ -11407,6 +11406,8 @@ def promote_processing_center_no_hits_population(
     #
     # Coding happens only AFTER successful Files promotion.
     #
+    from app.api.review import save_document_review_state
+
     for doc_id in promoted_doc_ids:
         try:
             save_document_review_state(
