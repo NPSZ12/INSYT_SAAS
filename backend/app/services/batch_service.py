@@ -203,6 +203,97 @@ def get_already_batched_doc_ids(
 
     return already_batched
 
+def get_discovery_1l_excluded_coding_doc_ids(
+    project_id: str,
+    client_id: str = "",
+) -> set[str]:
+    """
+    Discovery-only 1L eligibility exclusion.
+
+    Documents coded Not Responsive or Not Responsive - AI remain
+    available in Files but are excluded from ordinary first-level
+    Discovery review batches.
+
+    Documents with no review state / no document_coding remain eligible.
+    """
+
+    workspace: Workspace = "discovery"
+
+    container = get_container_client(
+        workspace
+    )
+
+    review_documents_prefix = build_project_path(
+        client_id,
+        workspace,
+        project_id,
+        "Review",
+        "documents",
+    ).rstrip("/") + "/"
+
+    excluded_codings = {
+        "not responsive",
+        "not responsive - ai",
+    }
+
+    excluded_doc_ids: set[str] = set()
+
+    for blob in container.list_blobs(
+        name_starts_with=review_documents_prefix
+    ):
+        blob_name = str(
+            blob.name
+            or ""
+        ).strip()
+
+        if (
+            not blob_name
+            or not blob_name.lower().endswith(".json")
+        ):
+            continue
+
+        try:
+            state = json.loads(
+                container
+                .get_blob_client(blob_name)
+                .download_blob()
+                .readall()
+                .decode("utf-8")
+            )
+        except Exception:
+            continue
+
+        if not isinstance(
+            state,
+            dict,
+        ):
+            continue
+
+        doc_id = str(
+            state.get(
+                "doc_id"
+            )
+            or ""
+        ).strip()
+
+        document_coding = str(
+            state.get(
+                "document_coding"
+            )
+            or ""
+        ).strip().lower()
+
+        if (
+            doc_id
+            and document_coding
+            in excluded_codings
+        ):
+            excluded_doc_ids.add(
+                doc_id
+            )
+
+    return excluded_doc_ids
+
 def resolve_search_folder_doc_ids(
     workspace: Workspace,
     project_id: str,
@@ -518,6 +609,21 @@ def create_project_batch(
                 for doc_id in all_doc_ids
                 if doc_id not in already_batched
             ]
+
+            if workspace == "discovery":
+                excluded_coding_doc_ids = (
+                    get_discovery_1l_excluded_coding_doc_ids(
+                        project_id=project_id,
+                        client_id=client_id,
+                    )
+                )
+
+                eligible_doc_ids = [
+                    doc_id
+                    for doc_id in eligible_doc_ids
+                    if doc_id
+                    not in excluded_coding_doc_ids
+                ]
 
         elif level == "QC":
             already_qc_batched = get_already_batched_doc_ids(

@@ -183,6 +183,7 @@ class StartDataElementDetectionRequest(BaseModel):
     protocol_name: str | None = None
     protocol_version: str | None = None
     include_phi: bool = True
+    search_rule_sheets: list[str] | None = None
 
     #
     # auto:
@@ -3854,6 +3855,7 @@ def start_data_element_detection(
             "protocol_name": request.protocol_name,
             "protocol_version": request.protocol_version,
             "include_phi": request.include_phi,
+            "search_rule_sheets": request.search_rule_sheets,
             "requested_by": requested_by,
             "requested_at": _utc_now(),
             "request_blob_path": request_blob_path,

@@ -121,8 +121,12 @@ export default function ReviewCapturePanel({
     setOpenSections(initialOpenState);
   }, [fields]);
 
+  const isInitialNotResponsiveCoding =
+    initialDocumentCoding === "Not Responsive" ||
+    initialDocumentCoding === "Not Responsive - AI";
+
   const forceResponsive =
-    initialDocumentCoding !== "Not Responsive" &&
+    !isInitialNotResponsiveCoding &&
     (hasLinkedEntities || localLinkedEntityAttached);
 
   const isBatchReview = Boolean(batchId);
@@ -411,7 +415,13 @@ export default function ReviewCapturePanel({
 
     const valuesToSave =
       hasPendingAiEntity ||
-      (documentCoding === "Not Responsive" && !hasCapturedValues)
+      (
+        (
+          documentCoding === "Not Responsive" ||
+          documentCoding === "Not Responsive - AI"
+        ) &&
+        !hasCapturedValues
+      )
         ? {}
         : values;
 
@@ -464,7 +474,13 @@ export default function ReviewCapturePanel({
 
     const valuesToSave =
       hasPendingAiEntity ||
-      (documentCoding === "Not Responsive" && !hasCapturedValues)
+      (
+        (
+          documentCoding === "Not Responsive" ||
+          documentCoding === "Not Responsive - AI"
+        ) &&
+        !hasCapturedValues
+      )
         ? {}
         : values;
 
@@ -653,6 +669,7 @@ export default function ReviewCapturePanel({
           <div className="space-y-3">
             {[
               "Not Responsive",
+              "Not Responsive - AI",
               "Responsive",
               "Foreign Language",
               "Tech Issue",
