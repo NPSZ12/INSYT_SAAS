@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 from .built_in_rules import get_built_in_rules
 from .merge import merge_detection_candidates
 from .models import DetectionCandidate
 from .post_validation import post_validate_candidates
 from .regex_detector import detect_regex_entities
+from .rules import DetectionRule
 
 
 def run_detection_engine(
@@ -17,6 +18,7 @@ def run_detection_engine(
     protocol_version: str | None = None,
     enable_azure: bool = True,
     enable_structured_rules: bool = True,
+    structured_rules: Iterable[DetectionRule] | None = None,
 ) -> dict[str, Any]:
     """
     Run the unified INSYT Data Element Detection engine.
@@ -67,9 +69,15 @@ def run_detection_engine(
         )
 
     if enable_structured_rules:
+        effective_structured_rules = (
+            structured_rules
+            if structured_rules is not None
+            else get_built_in_rules()
+        )
+
         structured_candidates = detect_regex_entities(
             value,
-            rules=get_built_in_rules(),
+            rules=effective_structured_rules,
             protocol_name=protocol_name,
             protocol_version=protocol_version,
         )

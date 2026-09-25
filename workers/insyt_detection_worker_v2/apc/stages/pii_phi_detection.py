@@ -3,10 +3,17 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from ..detection.engine import run_detection_engine
 from ..detection.models import DetectionCandidate
+from ..detection.rules import DetectionRule
+from ..detection.capture_rules import (
+    load_capture_rules_from_azure,
+)
+from ..detection.discovery_rules import (
+    load_discovery_rules_from_azure,
+)
 
 from ..util import json_dumps, new_id, utc_now
 
@@ -321,6 +328,10 @@ def _run_full_detection_engine(
     include_phi: bool,
     protocol_name: str | None,
     protocol_version: str | None,
+    enable_azure: bool = True,
+    structured_rules: Iterable[
+        DetectionRule
+    ] | None = None,
 ) -> dict[str, Any]:
     text = path.read_text(
         encoding="utf-8",
@@ -337,18 +348,22 @@ def _run_full_detection_engine(
         include_phi=include_phi,
         protocol_name=protocol_name,
         protocol_version=protocol_version,
-        enable_azure=True,
+        enable_azure=enable_azure,
         enable_structured_rules=True,
+        structured_rules=structured_rules,
     )
 
     return {
         **result,
-        "detection_mode": FULL_DETECTION_MODE,
+        "detection_mode":
+            FULL_DETECTION_MODE,
         "scan_complete": True,
         "entity_counts_complete": True,
         "triage_stopped_early": False,
         "rows_scanned": None,
-        "characters_scanned": len(text),
+        "characters_scanned": len(
+            text
+        ),
         "first_hit_row": None,
     }
 
@@ -359,6 +374,10 @@ def _run_worksheet_triage_engine(
     include_phi: bool,
     protocol_name: str | None,
     protocol_version: str | None,
+    enable_azure: bool = True,
+    structured_rules: Iterable[
+        DetectionRule
+    ] | None = None,
 ) -> dict[str, Any]:
     """
     Profile a worksheet-derived CSV/text representation.
@@ -434,8 +453,9 @@ def _run_worksheet_triage_engine(
             include_phi=include_phi,
             protocol_name=protocol_name,
             protocol_version=protocol_version,
-            enable_azure=True,
+            enable_azure=enable_azure,
             enable_structured_rules=True,
+            structured_rules=structured_rules,
         )
 
         azure_candidate_count += int(
@@ -795,12 +815,23 @@ def run_pii_phi_detection(
     source_job_id: str,
     matter_id: str,
     client_id: str,
+    project: str,
     workspace: str = "capture",
     protocol_name: str | None = None,
     protocol_version: str | None = None,
     include_phi: bool = True,
-    selected_doc_ids: set[str] | None = None,
-    document_options: dict[str, dict[str, Any]] | None = None,
+    search_rule_sheets: (
+        list[str]
+        | tuple[str, ...]
+        | None
+    ) = None,
+    selected_doc_ids: (
+        set[str] | None
+    ) = None,
+    document_options: (
+        dict[str, dict[str, Any]]
+        | None
+    ) = None,
 ) -> dict:
     """
     Scan ingestion-complete documents with the unified INSYT
@@ -829,6 +860,87 @@ def run_pii_phi_detection(
         document_options
         or {}
     )
+
+    workspace_key = str(
+        workspace
+        or "capture"
+    ).strip().lower()
+
+    selected_rule_sheets = tuple(
+        str(sheet_name).strip()
+        for sheet_name in (
+            search_rule_sheets
+            or []
+        )
+        if str(
+            sheet_name
+            or ""
+        ).strip()
+    )
+
+    structured_rules: (
+        list[DetectionRule]
+        | None
+    ) = None
+
+    rule_workbook_blob = ""
+
+    enable_azure_detection = True
+
+    if workspace_key == "discovery":
+        #
+        # Discovery responsiveness is driven only
+        # by Discovery Search Rules.
+        #
+        # Capture-style Azure PII/PHI detection
+        # must not make Discovery documents
+        # responsive.
+        #
+        (
+            structured_rules,
+            rule_workbook_blob,
+        ) = load_discovery_rules_from_azure(
+            client=client_id,
+            project=project,
+            sheet_names=(
+                selected_rule_sheets
+                or None
+            ),
+        )
+
+        enable_azure_detection = False
+        include_phi = False
+
+    elif workspace_key == "capture":
+        #
+        # Capture now prefers the Excel rule
+        # workbook.
+        #
+        # During migration, if the workbook
+        # cannot be loaded, structured_rules
+        # remains None, which preserves the
+        # existing built-in rules as a fallback.
+        #
+        try:
+            (
+                structured_rules,
+                rule_workbook_blob,
+            ) = load_capture_rules_from_azure(
+                client=client_id,
+                project=project,
+                sheet_names=(
+                    selected_rule_sheets
+                    or None
+                ),
+            )
+
+        except Exception:
+            structured_rules = None
+            rule_workbook_blob = (
+                "built_in_rules_fallback"
+            )
+
+        enable_azure_detection = True
 
     detection_run_id = new_id("DETRUN")
     now = utc_now()
@@ -1061,11 +1173,13 @@ def run_pii_phi_detection(
                     _run_worksheet_triage_engine(
                         path=path,
                         include_phi=include_phi,
-                        protocol_name=(
-                            protocol_name
+                        protocol_name=protocol_name,
+                        protocol_version=protocol_version,
+                        enable_azure=(
+                            enable_azure_detection
                         ),
-                        protocol_version=(
-                            protocol_version
+                        structured_rules=(
+                            structured_rules
                         ),
                     )
                 )
@@ -1079,11 +1193,13 @@ def run_pii_phi_detection(
                     _run_full_detection_engine(
                         path=path,
                         include_phi=include_phi,
-                        protocol_name=(
-                            protocol_name
+                        protocol_name=protocol_name,
+                        protocol_version=protocol_version,
+                        enable_azure=(
+                            enable_azure_detection
                         ),
-                        protocol_version=(
-                            protocol_version
+                        structured_rules=(
+                            structured_rules
                         ),
                     )
                 )

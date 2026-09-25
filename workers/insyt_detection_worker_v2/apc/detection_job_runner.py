@@ -1389,6 +1389,7 @@ def run_data_element_detection_job(
         source_job_id=source_job_id,
         matter_id=matter_id,
         client_id=client_id,
+        project=project,
         workspace=workspace,
         protocol_name=payload.get(
             "protocol_name"
@@ -1401,6 +1402,12 @@ def run_data_element_detection_job(
                 "include_phi",
                 True,
             )
+        ),
+        search_rule_sheets=(
+            payload.get(
+                "search_rule_sheets"
+            )
+            or None
         ),
         selected_doc_ids=(
             selected_doc_ids
