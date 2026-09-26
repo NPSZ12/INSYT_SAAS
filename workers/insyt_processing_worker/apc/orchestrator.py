@@ -31,7 +31,7 @@ def create_job(
 
     db.execute(
         """
-        INSERT INTO processing_job (
+        INSERT OR IGNORE INTO processing_job (
             job_id,
             matter_id,
             client_id,
