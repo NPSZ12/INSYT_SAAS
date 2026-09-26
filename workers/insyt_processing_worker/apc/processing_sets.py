@@ -42,6 +42,23 @@ def _stage_status(value: Any) -> dict[str, Any]:
 
     return parsed if isinstance(parsed, dict) else {}
 
+def _file_route_status(row: Any) -> str:
+    status = _stage_status(
+        row["stage_status_json"]
+    )
+
+    routing = (
+        status.get("file_routing")
+        or {}
+    )
+
+    if not isinstance(routing, dict):
+        return "continue"
+
+    return str(
+        routing.get("status")
+        or "continue"
+    ).strip().lower()
 
 def _workbook_parent_file_id(row: Any) -> str:
     status = _stage_status(row["stage_status_json"])
@@ -119,6 +136,8 @@ def build_processing_sets(
                     "is_duplicate"
                 ]
             )
+            and _file_route_status(row)
+            != "train_station"
         )
     ]
 

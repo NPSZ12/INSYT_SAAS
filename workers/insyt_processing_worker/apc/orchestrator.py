@@ -19,6 +19,10 @@ from .stages.text_extraction import run_text_extraction
 from .processing_sets import build_processing_sets
 from .util import bytes_to_gb, json_dumps, new_id, utc_now
 
+from .routing.train_station import (
+    route_train_station_files,
+)
+
 
 def create_job(
     db: LedgerDB,
@@ -439,6 +443,46 @@ def run_local_pipeline(
         settings,
         job_id,
         matter_id,
+    )
+
+    _emit_pipeline_progress(
+        progress_callback,
+        db=db,
+        job_id=job_id,
+        stage="file_routing",
+        current_step=(
+            "Routing supported files and "
+            "parking unsupported file types "
+            "at the Train Station."
+        ),
+    )
+
+    check_cancel("file_routing")
+
+    file_routing = route_train_station_files(
+        db=db,
+        job_id=job_id,
+    )
+
+    db.execute(
+        """
+        UPDATE processing_job
+        SET metadata_json=json_patch(
+            coalesce(metadata_json, '{}'),
+            ?
+        )
+        WHERE job_id=?
+        """,
+        (
+            json_dumps(
+                {
+                    "file_routing": (
+                        file_routing
+                    )
+                }
+            ),
+            job_id,
+        ),
     )
 
     check_cancel("processing_sets")
