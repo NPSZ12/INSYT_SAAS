@@ -245,11 +245,97 @@ def run_text_extraction(
             try:
                 path = Path(row["original_path"])
                 ext = row["extension"] or ""
-                page_count, text_bytes, page_confidence, text_signal, encrypted, text_window = _native_text_signal(
-                    path,
-                    ext,
-                    workspace=workspace,
-                )
+
+                if progress_callback is not None:
+                    progress_callback(
+                        stage="text_extraction",
+                        current_step=(
+                            "Starting native text inspection."
+                        ),
+                        current_file=path.name,
+                        stage_processed_files=(
+                            row_index - 1
+                        ),
+                        stage_total_files=(
+                            stage_total_files
+                        ),
+                    )
+
+                if ext.lower().lstrip(".") == "pdf":
+                    if progress_callback is not None:
+                        progress_callback(
+                            stage="text_extraction",
+                            current_step=(
+                                "Counting PDF pages."
+                            ),
+                            current_file=path.name,
+                            stage_processed_files=(
+                                row_index - 1
+                            ),
+                            stage_total_files=(
+                                stage_total_files
+                            ),
+                        )
+
+                    page_count, page_confidence = (
+                        count_pdf_pages(path)
+                    )
+
+                    if progress_callback is not None:
+                        progress_callback(
+                            stage="text_extraction",
+                            current_step=(
+                                "Scanning PDF native text signal."
+                            ),
+                            current_file=path.name,
+                            stage_processed_files=(
+                                row_index - 1
+                            ),
+                            stage_total_files=(
+                                stage_total_files
+                            ),
+                        )
+
+                    text_bytes, text_signal = (
+                        estimate_pdf_native_text_bytes(
+                            path
+                        )
+                    )
+
+                    if progress_callback is not None:
+                        progress_callback(
+                            stage="text_extraction",
+                            current_step=(
+                                "Checking PDF encryption."
+                            ),
+                            current_file=path.name,
+                            stage_processed_files=(
+                                row_index - 1
+                            ),
+                            stage_total_files=(
+                                stage_total_files
+                            ),
+                        )
+
+                    encrypted = pdf_is_encrypted(
+                        path
+                    )
+
+                    text_window = {}
+
+                else:
+                    (
+                        page_count,
+                        text_bytes,
+                        page_confidence,
+                        text_signal,
+                        encrypted,
+                        text_window,
+                    ) = _native_text_signal(
+                        path,
+                        ext,
+                        workspace=workspace,
+                    )
                 has_text = 1 if text_bytes >= settings.ocr_low_text_bytes_threshold else 0
                 if has_text:
                     text_docs += 1

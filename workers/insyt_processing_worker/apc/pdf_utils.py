@@ -1,8 +1,26 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
+PDF_INSPECTION_MAX_SECONDS = 10.0
+
+
+def _deadline() -> float:
+    return (
+        time.monotonic()
+        + PDF_INSPECTION_MAX_SECONDS
+    )
+
+
+def _deadline_exceeded(
+    deadline: float,
+) -> bool:
+    return (
+        time.monotonic()
+        >= deadline
+    )
 
 _PAGE_RE = re.compile(
     rb"/Type\s*/Page(?!s)\b"
@@ -25,7 +43,7 @@ _TEXT_SHOW_RE = re.compile(
 
 
 PDF_READ_CHUNK_BYTES = (
-    4 * 1024 * 1024
+    256 * 1024
 )
 
 PDF_SCAN_OVERLAP_BYTES = 4096
@@ -89,12 +107,22 @@ def count_pdf_pages(
     if not _looks_like_pdf(path):
         return 0, "not_pdf"
 
+    deadline = _deadline()
+
     count = 0
     carry = b""
 
     try:
         with path.open("rb") as stream:
             while True:
+                if _deadline_exceeded(
+                    deadline
+                ):
+                    return (
+                        count if count > 0 else 0,
+                        "timeout",
+                    )
+
                 chunk = stream.read(
                     PDF_READ_CHUNK_BYTES
                 )
@@ -116,6 +144,13 @@ def count_pdf_pages(
                         buffer
                     )
                 ):
+                    if _deadline_exceeded(
+                        deadline
+                    ):
+                        return (
+                            count if count > 0 else 0,
+                            "timeout",
+                        )
                     #
                     # Do not recount a match contained
                     # entirely inside the overlap from the
@@ -186,6 +221,8 @@ def estimate_pdf_native_text_bytes(
     ):
         return 0, "encrypted"
 
+    deadline = _deadline()
+
     textish = 0
     block_count = 0
     bytes_scanned = 0
@@ -197,6 +234,14 @@ def estimate_pdf_native_text_bytes(
                 bytes_scanned
                 < PDF_NATIVE_TEXT_SCAN_MAX_BYTES
             ):
+                if _deadline_exceeded(
+                    deadline
+                ):
+                    return (
+                        textish,
+                        "inspection_timeout",
+                    )
+
                 remaining = (
                     PDF_NATIVE_TEXT_SCAN_MAX_BYTES
                     - bytes_scanned
@@ -226,6 +271,14 @@ def estimate_pdf_native_text_bytes(
                         buffer
                     )
                 ):
+                    if _deadline_exceeded(
+                        deadline
+                    ):
+                        return (
+                            textish,
+                            "inspection_timeout",
+                        )
+
                     block = (
                         block_match.group(0)
                     )
