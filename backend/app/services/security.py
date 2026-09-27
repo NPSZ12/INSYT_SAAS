@@ -13,6 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.models.user import User
+from app.services.authorization import (
+    ROLE_CLIENT_ADMIN,
+    ROLE_INSYT_ADMIN,
+    ROLE_INSYT_MANAGER,
+    normalize_role,
+)
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -86,10 +92,17 @@ def get_current_user(
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    admin_roles = {"Admin", "INSYT Admin", "INSYT Admin", "Super Admin"}
+    admin_roles = {
+        ROLE_INSYT_ADMIN,
+        ROLE_INSYT_MANAGER,
+        ROLE_CLIENT_ADMIN,
+    }
 
-    if current_user.role not in admin_roles:
-        raise HTTPException(status_code=403, detail="Admin access required")
+    if normalize_role(current_user.role) not in admin_roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required",
+        )
 
     return current_user
 

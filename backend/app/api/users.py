@@ -1,5 +1,7 @@
 import json
+import secrets
 from typing import List
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -8,11 +10,32 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.models.user import User
 from app.services.audit_service import write_audit_log
+from app.services.authorization import (
+    ROLE_CLIENT_ADMIN,
+    ROLE_INSYT_ADMIN,
+    ROLE_INSYT_MANAGER,
+    default_permissions_for_role,
+    may_manage_role,
+    normalize_role,
+    require_user_scope_assignment,
+    user_is_within_actor_client_scope,
+    user_is_within_actor_scope,
+    validate_auth_provider_for_role,
+    validate_canonical_role,
+    PERMISSION_INVITE_USERS,
+    PERMISSION_MANAGE_PROJECT_ACCESS,
+    PERMISSION_MANAGE_USERS,
+    require_permission,
+)
 from app.services.entra_service import invite_external_user
 from app.services.security import hash_password, require_admin
 
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
+
+ROOT_ADMIN_USERNAME = str(
+    os.getenv("INSYT_ROOT_ADMIN_USERNAME") or ""
+).strip().lower()
 
 DUPLICATE_USERNAME_MESSAGE = (
     "Duplicate Username Detected, Contact an INSYT Admin for Assistance."
@@ -64,6 +87,29 @@ class ProjectAccessRequest(BaseModel):
     project_id: str
     allowed: bool
 
+def _is_root_admin(user: User) -> bool:
+    if not ROOT_ADMIN_USERNAME:
+        return False
+
+    return (
+        str(user.username or "").strip().lower()
+        == ROOT_ADMIN_USERNAME
+    )
+
+
+def _require_root_admin_immutable(
+    target: User,
+) -> None:
+    if not _is_root_admin(target):
+        return
+
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "The protected INSYT root administrator "
+            "cannot be modified through user management."
+        ),
+    )
 
 def serialize_user(user: User):
     return {
@@ -79,6 +125,207 @@ def serialize_user(user: User):
         "permissions": json.loads(user.permissions or "[]"),
     }
 
+def _clean_string_set(values: List[str]) -> set[str]:
+    return {
+        str(value).strip()
+        for value in values
+        if str(value).strip()
+    }
+
+
+def _require_role_management_authority(
+    actor: User,
+    target_role: str,
+) -> str:
+    normalized_target_role = validate_canonical_role(
+        target_role
+    )
+
+    if not may_manage_role(
+        actor,
+        normalized_target_role,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "You are not authorized to assign or manage "
+                f"the role {normalized_target_role!r}."
+            ),
+        )
+
+    return normalized_target_role
+
+
+def _require_safe_scope_assignment(
+    actor: User,
+    workspace_access: List[str],
+    client_access: List[str],
+    project_access: List[str],
+) -> None:
+    actor_role = normalize_role(
+        actor.role
+    )
+
+    if actor_role == ROLE_CLIENT_ADMIN:
+        if (
+            "ALL" in _clean_string_set(workspace_access)
+            or "ALL" in _clean_string_set(client_access)
+            or "ALL" in _clean_string_set(project_access)
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Client Admin cannot assign global access."
+                ),
+            )
+
+    require_user_scope_assignment(
+        actor=actor,
+        workspace_access=workspace_access,
+        client_access=client_access,
+        project_access=project_access,
+    )
+
+
+def _require_safe_permissions(
+    actor: User,
+    target_role: str,
+    permissions: List[str],
+) -> None:
+    actor_role = normalize_role(
+        actor.role
+    )
+
+    requested = _clean_string_set(
+        permissions
+    )
+
+    if actor_role == ROLE_INSYT_ADMIN:
+        return
+
+    if "ALL" in requested:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Only INSYT Admin may assign ALL permissions."
+            ),
+        )
+
+    permitted = set(
+        default_permissions_for_role(
+            target_role
+        )
+    )
+
+    unauthorized = requested - permitted
+
+    if unauthorized:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Requested permissions exceed the allowed "
+                f"profile for {target_role}: "
+                + ", ".join(sorted(unauthorized))
+            ),
+        )
+
+
+def _require_target_in_actor_scope(
+    actor: User,
+    target: User,
+) -> None:
+    actor_role = normalize_role(
+        actor.role
+    )
+
+    if actor_role == ROLE_INSYT_ADMIN:
+        return
+
+    if actor_role == ROLE_CLIENT_ADMIN:
+        if not user_is_within_actor_client_scope(
+            actor,
+            target,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "User is outside your authorized client scope."
+                ),
+            )
+
+        return
+
+    if not user_is_within_actor_scope(
+        actor,
+        target,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "User is outside your authorized workspace, "
+                "client, or project scope."
+            ),
+        )
+
+
+def _require_client_admin_non_destructive(
+    actor: User,
+    action: str,
+) -> None:
+    if normalize_role(actor.role) != ROLE_CLIENT_ADMIN:
+        return
+
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Client Admin is not authorized to perform "
+            f"the destructive action: {action}."
+        ),
+    )
+
+def _password_hash_for_new_user(
+    role: str,
+    auth_provider: str,
+    supplied_password: str,
+) -> str:
+    normalized_role = normalize_role(role)
+    provider = str(auth_provider or "").strip().lower()
+
+    if normalized_role == ROLE_INSYT_ADMIN:
+        if provider != "local":
+            raise HTTPException(
+                status_code=400,
+                detail="INSYT Admin must use local authentication.",
+            )
+
+        if not supplied_password:
+            raise HTTPException(
+                status_code=400,
+                detail="INSYT Admin password is required.",
+            )
+
+        return hash_password(
+            supplied_password
+        )
+
+    if provider != "entra":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Non-INSYT-Admin users must use "
+                "Microsoft Entra authentication."
+            ),
+        )
+
+    # UserModel.password_hash is currently non-nullable.
+    # Store an unrecoverable random placeholder for Entra users.
+    # It is never returned or used for Entra authentication.
+    random_placeholder = secrets.token_urlsafe(48)
+
+    return hash_password(
+        random_placeholder
+    )
+
 @router.get("")
 @router.get("/")
 def list_users(
@@ -86,6 +333,30 @@ def list_users(
     admin: User = Depends(require_admin),
 ):
     users = db.query(User).order_by(User.username.asc()).all()
+
+    admin_role = normalize_role(
+        admin.role
+    )
+
+    if admin_role == ROLE_CLIENT_ADMIN:
+        users = [
+            user
+            for user in users
+            if user_is_within_actor_client_scope(
+                admin,
+                user,
+            )
+        ]
+
+    elif admin_role != ROLE_INSYT_ADMIN:
+        users = [
+            user
+            for user in users
+            if user_is_within_actor_scope(
+                admin,
+                user,
+            )
+        ]
 
     return {
         "status": "success",
@@ -100,9 +371,42 @@ def create_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    require_permission(
+        admin,
+        PERMISSION_INVITE_USERS,
+    )
     username = (payload.username or "").strip()
     email = (payload.email or "").strip().lower()
     auth_provider = str(payload.auth_provider or "entra").strip().lower()
+
+    normalized_role = _require_role_management_authority(
+        admin,
+        payload.role,
+    )
+
+    if normalized_role == ROLE_INSYT_ADMIN:
+        auth_provider = "local"
+        payload.auth_provider = "local"
+
+    validate_auth_provider_for_role(
+        normalized_role,
+        auth_provider,
+    )
+
+    _require_safe_scope_assignment(
+        admin,
+        payload.workspace_access,
+        payload.client_access,
+        payload.project_access,
+    )
+
+    _require_safe_permissions(
+        admin,
+        normalized_role,
+        payload.permissions,
+    )
+
+    payload.role = normalized_role
 
     existing_username_user = (
         db.query(User)
@@ -217,7 +521,11 @@ def create_user(
         role=payload.role,
         auth_provider=payload.auth_provider,
         status="Active",
-        password_hash=hash_password(payload.password),
+        password_hash=_password_hash_for_new_user(
+            role=payload.role,
+            auth_provider=payload.auth_provider,
+            supplied_password=payload.password,
+        ),
         workspace_access=json.dumps(payload.workspace_access),
         client_access=json.dumps(payload.client_access),
         project_access=json.dumps(payload.project_access),
@@ -293,6 +601,11 @@ def update_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    # update_user()
+    require_permission(
+        admin,
+        PERMISSION_MANAGE_USERS,
+    )
     username = (payload.username or "").strip()
     email = (payload.email or "").strip().lower()
     auth_provider = str(payload.auth_provider or "entra").strip().lower()
@@ -305,6 +618,40 @@ def update_user(
 
     if not user:
         return {"status": "not_found"}
+
+    _require_root_admin_immutable(
+        user,
+    )
+
+    _require_target_in_actor_scope(
+        admin,
+        user,
+    )
+
+    normalized_role = _require_role_management_authority(
+        admin,
+        payload.role,
+    )
+
+    validate_auth_provider_for_role(
+        normalized_role,
+        auth_provider,
+    )
+
+    _require_safe_scope_assignment(
+        admin,
+        payload.workspace_access,
+        payload.client_access,
+        payload.project_access,
+    )
+
+    _require_safe_permissions(
+        admin,
+        normalized_role,
+        payload.permissions,
+    )
+
+    payload.role = normalized_role
     
     if email:
         existing_email_user = (
@@ -412,7 +759,18 @@ def update_user(
     user.permissions = json.dumps(payload.permissions)
 
     if payload.password:
-        user.password_hash = hash_password(payload.password)
+        if normalize_role(user.role) != ROLE_INSYT_ADMIN:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Microsoft Entra users do not use "
+                    "INSYT local passwords."
+                ),
+            )
+
+        user.password_hash = hash_password(
+            payload.password
+        )
 
     db.commit()
     db.refresh(user)
@@ -453,6 +811,11 @@ def delete_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    # delete_user()
+    require_permission(
+        admin,
+        PERMISSION_MANAGE_USERS,
+    )
     user = (
         db.query(User)
         .filter(User.username == payload.username)
@@ -461,6 +824,20 @@ def delete_user(
 
     if not user:
         return {"status": "not_found"}
+
+    _require_root_admin_immutable(
+        user,
+    )
+
+    _require_target_in_actor_scope(
+        admin,
+        user,
+    )
+
+    _require_client_admin_non_destructive(
+        admin,
+        "delete user",
+    )
 
     if user.role == "INSYT Admin":
         admin_count = (
@@ -509,6 +886,11 @@ def reset_password(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    # reset_password()
+    require_permission(
+        admin,
+        PERMISSION_MANAGE_USERS,
+    )
     user = (
         db.query(User)
         .filter(User.username == payload.username)
@@ -517,6 +899,34 @@ def reset_password(
 
     if not user:
         return {"status": "user_not_found"}
+
+    _require_root_admin_immutable(
+        user,
+    )
+
+    _require_target_in_actor_scope(
+        admin,
+        user,
+    )
+
+    if normalize_role(user.role) == ROLE_INSYT_ADMIN:
+        if normalize_role(admin.role) != ROLE_INSYT_ADMIN:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Only INSYT Admin may reset "
+                    "an INSYT Admin password."
+                ),
+            )
+
+    if str(user.auth_provider or "").strip().lower() == "entra":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Microsoft Entra users do not use "
+                "INSYT local passwords."
+            ),
+        )
 
     user.password_hash = hash_password(payload.new_password)
 
@@ -534,6 +944,11 @@ def update_project_access(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    require_permission(
+        admin,
+        PERMISSION_MANAGE_PROJECT_ACCESS,
+    )
+
     user = (
         db.query(User)
         .filter(User.username == payload.username)
@@ -542,6 +957,39 @@ def update_project_access(
 
     if not user:
         return {"status": "user_not_found"}
+
+    _require_root_admin_immutable(
+        user,
+    )
+
+    _require_target_in_actor_scope(
+        admin,
+        user,
+    )
+
+    actor_role = normalize_role(
+        admin.role
+    )
+
+    if actor_role == ROLE_CLIENT_ADMIN:
+        if not user_is_within_actor_client_scope(
+            admin,
+            user,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Client Admin may only manage "
+                    "users within their own client."
+                ),
+            )
+
+        _require_safe_scope_assignment(
+            admin,
+            json.loads(user.workspace_access or "[]"),
+            json.loads(user.client_access or "[]"),
+            [payload.project_id],
+        )
 
     access = json.loads(user.project_access or "[]")
 

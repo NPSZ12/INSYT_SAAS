@@ -18,11 +18,20 @@ import requests
 
 from app.database.connection import get_db
 from app.models.user import User
+from app.services.authorization import (
+    ENTRA_ROLES,
+    ROLE_INSYT_ADMIN,
+    normalize_role,
+)
 from app.services.security import (
     create_access_token,
     get_current_user,
     hash_password,
     verify_password,
+)
+from app.services.entra_service import (
+    extract_verified_entra_email,
+    verify_entra_id_token,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
@@ -47,6 +56,8 @@ class MfaConfirmRequest(BaseModel):
 class EntraLoginRequest(BaseModel):
     email: str
 
+class VerifiedEntraLoginRequest(BaseModel):
+    id_token: str
 
 def safe_json_list(value: str):
     try:
@@ -182,6 +193,26 @@ def login(
         raise HTTPException(
             status_code=403,
             detail="User account is not active",
+        )
+
+    if normalize_role(user.role) != ROLE_INSYT_ADMIN:
+        write_audit_log(
+            db=db,
+            action="LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "local_login_restricted_to_insyt_admin",
+                "role": user.role,
+                "auth_provider": user.auth_provider,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail="Only INSYT Admin may use local INSYT login.",
         )
 
     if user.auth_provider == "entra":
@@ -558,6 +589,193 @@ def entra_login(
         details={
             "provider": "entra",
             "email": email,
+        },
+    )
+
+    return {
+        "status": "success",
+        "user": serialize_user(user),
+        "access_token": token,
+        "token": token,
+        "token_type": "bearer",
+    }
+
+@router.post("/entra-verified-login")
+def entra_verified_login(
+    payload: VerifiedEntraLoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    claims = verify_entra_id_token(
+        payload.id_token
+    )
+
+    email = extract_verified_entra_email(
+        claims
+    )
+
+    matching_users = (
+        db.query(User)
+        .filter(User.email.ilike(email))
+        .all()
+    )
+
+    if len(matching_users) > 1:
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            request=request,
+            target_type="user",
+            target_id=email,
+            details={
+                "reason": "duplicate_email_detected",
+                "email": email,
+                "matching_user_count": len(matching_users),
+            },
+        )
+
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Duplicate Email Detected, "
+                "Contact an INSYT Admin for Assistance."
+            ),
+        )
+
+    user = (
+        matching_users[0]
+        if matching_users
+        else None
+    )
+
+    if not user:
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            request=request,
+            target_type="user",
+            target_id=email,
+            details={
+                "reason": "user_not_found",
+                "email": email,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This email address has not been provisioned in INSYT. "
+                "Please contact your INSYT administrator."
+            ),
+        )
+
+    if user.status != "Active":
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "inactive_user",
+                "email": email,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail="User account is not active.",
+        )
+
+    normalized_role = normalize_role(
+        user.role
+    )
+
+    if normalized_role == ROLE_INSYT_ADMIN:
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "insyt_admin_must_use_local_mfa",
+                "email": email,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "INSYT Admins must use local INSYT login with MFA."
+            ),
+        )
+
+    if normalized_role not in ENTRA_ROLES:
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "unsupported_entra_role",
+                "email": email,
+                "stored_role": user.role,
+                "normalized_role": normalized_role,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail="User role is not authorized for Microsoft Entra login.",
+        )
+
+    auth_provider = str(
+        user.auth_provider or ""
+    ).strip().lower()
+
+    if auth_provider != "entra":
+        write_audit_log(
+            db=db,
+            action="ENTRA_LOGIN_FAILED",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.username,
+            details={
+                "reason": "user_not_configured_for_entra",
+                "email": email,
+                "auth_provider": user.auth_provider,
+            },
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This user is not configured for Microsoft Entra login."
+            ),
+        )
+
+    token = create_user_token(
+        user
+    )
+
+    write_audit_log(
+        db=db,
+        action="ENTRA_LOGIN_SUCCESS",
+        actor=user,
+        request=request,
+        target_type="user",
+        target_id=user.username,
+        details={
+            "provider": "entra_verified",
+            "email": email,
+            "tenant_id": claims.get("tid"),
+            "object_id": claims.get("oid"),
         },
     )
 
