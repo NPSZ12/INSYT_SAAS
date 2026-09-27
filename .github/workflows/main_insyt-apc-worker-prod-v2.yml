@@ -18,11 +18,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          fetch-depth: 0
+
+      - name: Protect INSYT Shared Ingestion Core v1
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $baseRef = "${{ github.event.before }}"
+
+          if (
+            [string]::IsNullOrWhiteSpace($baseRef) -or
+            $baseRef -eq "0000000000000000000000000000000000000000"
+          ) {
+            $baseRef = "HEAD~1"
+          }
+
+          ./deploy/check-protected-ingestion-core.ps1 `
+            -BaseRef $baseRef
+
+      - name: Confirm protected core manifest exists
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $manifest = "workers/insyt_processing_worker/protected_core_v1.txt"
+
+          if (-not (Test-Path $manifest)) {
+            throw "Protected INSYT ingestion core manifest is missing."
+          }
+
+          Write-Host "PASS: Protected INSYT ingestion core manifest present."
 
       - name: Setup Python
         uses: actions/setup-python@v5
