@@ -41,13 +41,13 @@ type UserAccessForm = {
 };
 
 const levels = [
-  "1L",
+  "Reviewer",
   "QC",
   "TL",
-  "RM",
-  "Admin",
-  "INSYT Admin",
   "Client",
+  "Client Admin",
+  "INSYT Manager",
+  "INSYT Admin",
 ];
 
 const workspaces = [
@@ -115,15 +115,112 @@ function parseProjectAccessKey(value: string) {
 }
 
 const permissions = [
-  "Download Docs",
-  "Upload Docs",
-  "Edit Summaries",
-  "Delete Summaries",
-  "Create Batches",
-  "Create Search Folders",
-  "View Messaging",
-  "Send Messaging",
+  "Can: View",
+  "Can: Download",
+  "Can: Upload",
+  "Can: Process",
+  "Can: Run Detection",
+  "Can: Create Projects",
+  "Can: Manage Projects",
+  "Can: Manage Project Access",
+  "Can: Invite Users",
+  "Can: Manage Users",
+  "Can: Create Batches",
+  "Can: Manage Batches",
+  "Can: Review",
+  "Can: QC",
+  "Can: Manage Review Team",
+  "Can: Manage Protocol",
+  "Can: Export",
+  "Can: View Reports",
+  "Can: Approve Charges",
+  "Can: Manage Billing",
 ];
+
+const roleDefaultPermissions: Record<string, string[]> = {
+  "INSYT Admin": ["ALL"],
+
+  "INSYT Manager": [
+    "Can: View",
+    "Can: Download",
+    "Can: Upload",
+    "Can: Process",
+    "Can: Run Detection",
+    "Can: Create Projects",
+    "Can: Manage Projects",
+    "Can: Manage Project Access",
+    "Can: Invite Users",
+    "Can: Manage Users",
+    "Can: Create Batches",
+    "Can: Manage Batches",
+    "Can: Review",
+    "Can: QC",
+    "Can: Manage Review Team",
+    "Can: Manage Protocol",
+    "Can: Export",
+    "Can: View Reports",
+  ],
+
+  "Client Admin": [
+    "Can: View",
+    "Can: Download",
+    "Can: Upload",
+    "Can: Process",
+    "Can: Manage Project Access",
+    "Can: Invite Users",
+    "Can: Export",
+    "Can: View Reports",
+    "Can: Approve Charges",
+  ],
+
+  Client: [
+    "Can: View",
+    "Can: Download",
+    "Can: Invite Users",
+    "Can: View Reports",
+  ],
+
+  TL: [
+    "Can: View",
+    "Can: Download",
+    "Can: Create Batches",
+    "Can: Manage Batches",
+    "Can: Review",
+    "Can: QC",
+    "Can: Manage Review Team",
+    "Can: View Reports",
+  ],
+
+  QC: [
+    "Can: View",
+    "Can: Download",
+    "Can: Review",
+    "Can: QC",
+    "Can: View Reports",
+  ],
+
+  Reviewer: [
+    "Can: View",
+    "Can: Review",
+  ],
+};
+
+function normalizeLegacyRole(role: string) {
+  switch (role) {
+    case "1L":
+    case "1L Reviewer":
+      return "Reviewer";
+
+    case "RM":
+      return "INSYT Manager";
+
+    case "Admin":
+      return "Client Admin";
+
+    default:
+      return role;
+  }
+}
 
 function makeEmptyForm(defaultWorkspace = "summaries"): UserAccessForm {
   return {
@@ -131,11 +228,11 @@ function makeEmptyForm(defaultWorkspace = "summaries"): UserAccessForm {
     email: "",
     username: "",
     password: "",
-    role: "1L",
+    role: "Reviewer",
     workspace_access: [defaultWorkspace],
     client_access: [],
     project_access: [],
-    permissions: [],
+    permissions: [...roleDefaultPermissions.Reviewer],
     auth_provider: "entra",
   };
 }
@@ -737,19 +834,20 @@ function UserAccessPageContent() {
       }
     );
 
-    const syncedAccess = syncAccessFromProjects(
-      normalizedProjectAccess
-    );
-
     setForm({
       display_name: selectedUser.display_name,
       username: selectedUser.username,
       password: "",
-      role: selectedUser.role,
+      role: normalizeLegacyRole(selectedUser.role),
       auth_provider: selectedUser.auth_provider || "entra",
-      workspace_access: syncedAccess.workspace_access,
-      client_access: syncedAccess.client_access,
-      project_access: syncedAccess.project_access,
+      workspace_access:
+        selectedUser.workspace_access || [],
+
+      client_access:
+        selectedUser.client_access || [],
+
+      project_access:
+        normalizedProjectAccess,
       permissions: selectedUser.permissions || [],
       email: selectedUser.email || "",
     });
@@ -953,18 +1051,29 @@ const filteredUsers = users.filter((user) => {
             </div>
 
             <div>
-              <FormLabel>Password</FormLabel>
-              <Input
-                type="password"
-                value={form.password}
-                onChange={(value) =>
-                  setForm({
-                    ...form,
-                    password: value,
-                  })
-                }
-                placeholder="temporary password"
-              />
+              {isInsytAdminLevel ? (
+                <>
+                  <FormLabel>Password</FormLabel>
+                  <Input
+                    type="password"
+                    value={form.password}
+                    onChange={(value) =>
+                      setForm({
+                        ...form,
+                        password: value,
+                      })
+                    }
+                    placeholder="INSYT Admin password"
+                  />
+                </>
+              ) : (
+                <>
+                  <FormLabel>Password</FormLabel>
+                  <div className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-500">
+                    Managed by Microsoft Entra
+                  </div>
+                </>
+              )}
             </div>
 
             <div>
@@ -972,10 +1081,20 @@ const filteredUsers = users.filter((user) => {
               <Select
                 value={form.role}
                 onChange={(value) =>
-                  setForm({
-                    ...form,
+                  setForm((current) => ({
+                    ...current,
                     role: value,
-                  })
+                    auth_provider:
+                      value === "INSYT Admin"
+                        ? "local"
+                        : "entra",
+                    password:
+                      value === "INSYT Admin"
+                        ? current.password
+                        : "",
+                    permissions:
+                      roleDefaultPermissions[value] || [],
+                  }))
                 }
               >
                 {levels.map((level) => (
@@ -988,29 +1107,15 @@ const filteredUsers = users.filter((user) => {
             <div>
                 <FormLabel>Authentication</FormLabel>
 
-                {isInsytAdminLevel ? (
+                  {isInsytAdminLevel ? (
                     <div className="rounded-lg border border-lime-500/40 bg-lime-500/10 p-3 text-sm text-lime-200">
-                    Local INSYT Login + MFA Required
+                      Local INSYT Login + MFA Required
                     </div>
-                ) : (
-                    <Select
-                    value={form.auth_provider}
-                    onChange={(value) =>
-                        setForm({
-                        ...form,
-                        auth_provider: value,
-                        })
-                    }
-                    >
-                    <option value="entra">
-                        Microsoft Entra
-                    </option>
-
-                    <option value="local">
-                        Local INSYT Login
-                    </option>
-                    </Select>
-                )}
+                  ) : (
+                    <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-200">
+                      Microsoft Entra ID
+                    </div>
+                  )}
                 </div>
           </div>
 

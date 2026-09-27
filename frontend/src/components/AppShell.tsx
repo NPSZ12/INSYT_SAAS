@@ -9,6 +9,8 @@ import ProjectSidebar from "./ProjectSidebar";
 import Topbar from "./Topbar";
 import AutoLogout from "./AutoLogout";
 import UrgentMessageOverlay from "./UrgentMessageOverlay";
+import { apiGet } from "../lib/api";
+
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -40,13 +42,54 @@ function AppShellContent({ children }: AppShellProps) {
     }
 
     const storedUser = localStorage.getItem("insyt_user");
+    const storedToken =
+      localStorage.getItem("insyt_access_token") ||
+      localStorage.getItem("insyt_token");
 
-    if (!storedUser) {
+    if (!storedUser || !storedToken) {
       window.location.href = "/launcher";
       return;
     }
 
-    setAuthChecked(true);
+    let cancelled = false;
+
+    async function refreshCurrentUser() {
+      try {
+        const response: any = await apiGet("/api/auth/me");
+
+        if (cancelled) return;
+
+        if (!response?.user) {
+          throw new Error("Current INSYT user was not returned.");
+        }
+
+        localStorage.setItem(
+          "insyt_user",
+          JSON.stringify(response.user)
+        );
+
+        setAuthChecked(true);
+      } catch (error) {
+        console.error(
+          "Unable to refresh INSYT authorization state:",
+          error
+        );
+
+        if (cancelled) return;
+
+        localStorage.removeItem("insyt_user");
+        localStorage.removeItem("insyt_token");
+        localStorage.removeItem("insyt_access_token");
+
+        window.location.href = "/launcher";
+      }
+    }
+
+    refreshCurrentUser();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (!authChecked) {

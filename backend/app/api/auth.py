@@ -109,6 +109,13 @@ def bootstrap_admin(
     payload: BootstrapAdminRequest,
     db: Session = Depends(get_db),
 ):
+    if str(
+        os.getenv("ALLOW_BOOTSTRAP_ADMIN") or ""
+    ).strip().lower() != "true":
+        raise HTTPException(
+            status_code=403,
+            detail="INSYT administrator bootstrap is disabled.",
+        )
     bootstrap_key = os.getenv("BOOTSTRAP_ADMIN_KEY")
 
     if not bootstrap_key:
