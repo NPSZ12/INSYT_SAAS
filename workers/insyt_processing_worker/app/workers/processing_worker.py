@@ -542,6 +542,23 @@ def _db_path(job_id: str) -> str:
 def _count_list(value: Any) -> int:
     return len(value) if isinstance(value, list) else 0
 
+def _metric_value(
+    primary: dict[str, Any],
+    secondary: dict[str, Any],
+    key: str,
+    default: int = 0,
+) -> int:
+    primary_value = primary.get(key)
+
+    if primary_value is not None:
+        return int(primary_value)
+
+    secondary_value = secondary.get(key)
+
+    if secondary_value is not None:
+        return int(secondary_value)
+
+    return int(default)
 
 def _summarize_result_for_status(result_dict: dict[str, Any]) -> dict[str, Any]:
     report = (
@@ -578,18 +595,26 @@ def _summarize_result_for_status(result_dict: dict[str, Any]) -> dict[str, Any]:
         or source_file_count
     )
 
-    unique_doc_count = (
-        report_job.get("unique_doc_count")
-        or result_dict.get("unique_doc_count")
-        or review_upload.get("planned_docs")
-        or hash_index_upload.get("added_count")
-        or 0
+    unique_doc_count = _metric_value(
+        report_job,
+        result_dict,
+        "unique_doc_count",
+        default=(
+            review_upload.get("planned_docs")
+            if review_upload.get("planned_docs") is not None
+            else (
+                hash_index_upload.get("added_count")
+                if hash_index_upload.get("added_count") is not None
+                else 0
+            )
+        ),
     )
 
-    duplicate_doc_count = (
-        report_job.get("duplicate_doc_count")
-        or result_dict.get("duplicate_doc_count")
-        or 0
+    duplicate_doc_count = _metric_value(
+        report_job,
+        result_dict,
+        "duplicate_doc_count",
+        default=0,
     )
 
     ocr_page_count = (
@@ -2589,6 +2614,14 @@ def process_job_message(message_content: str):
 
         _preserve_nonzero_status_value(
             "ocr_estimated_pages"
+        )
+
+        _preserve_nonzero_status_value(
+            "duplicate_doc_count"
+        )
+
+        _preserve_nonzero_status_value(
+            "unique_doc_count"
         )
 
         try:
