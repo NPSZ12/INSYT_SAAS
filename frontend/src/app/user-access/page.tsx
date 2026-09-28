@@ -175,7 +175,6 @@ const roleDefaultPermissions: Record<string, string[]> = {
 
   Client: [
     "Can: View",
-    "Can: Download",
     "Can: Invite Users",
     "Can: View Reports",
   ],

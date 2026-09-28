@@ -456,26 +456,68 @@ export default function ProjectSidebar() {
     );
   }
 
-  function isHiddenFor1L(label: string) {
-    if (user?.role !== "1L") return false;
+  function isHiddenForRole(label: string) {
+    const role = String(user?.role || "").trim();
 
-    return [
-      "Batch Management",
-      "Processing Center",
-      "Processing Center - Data Element Detection",
-      "Processing Center - Spreadsheets",
-      "Processing Center - Promotion",
-      "Processing Center - Deduplication",
-      "Cyber²",
-      "Overlays / Final Deliverables",
-      "Cyber²",
-      "Search Folders",
-      "Files",
-      "QC Review",
-      "Review Team",
-      "Admin",
-      "Settings",
-    ].includes(label);
+    const reviewerRoles = [
+      "Reviewer",
+      "1L",
+      "1L Reviewer",
+    ];
+
+    if (reviewerRoles.includes(role)) {
+      return [
+        "Batch Management",
+        "Processing Center",
+        "Processing Center - Initial Ingestion",
+        "Processing Center - Data Element Detection",
+        "Processing Center - Spreadsheets",
+        "Processing Center - Promotion",
+        "Processing Center - Deduplication",
+        "Cyber²",
+        "Overlays / Final Deliverables",
+        "Search Folders",
+        "Files",
+        "QC Review",
+        "Review Team",
+        "Admin",
+        "Settings",
+      ].includes(label);
+    }
+
+    if (role === "Client") {
+      return [
+        "Files",
+        "Processing Center - Data Element Detection",
+        "Processing Center - Spreadsheets",
+        "Processing Center - Promotion",
+        "Processing Center - Deduplication",
+        "Overlays / Final Deliverables",
+        "Batch Management",
+        "Search Folders",
+        "Review",
+        "Cyber²",
+        "QC Review",
+        "Review Team",
+        "Admin",
+        "Settings",
+      ].includes(label);
+    }
+
+    if (role === "Client Admin") {
+      return [
+        "Batch Management",
+        "Search Folders",
+        "Review",
+        "Cyber²",
+        "QC Review",
+        "Review Team",
+        "Admin",
+        "Settings",
+      ].includes(label);
+    }
+
+    return false;
   }
 
   const navItems: NavItem[] = [
@@ -668,7 +710,7 @@ export default function ProjectSidebar() {
           }`}
         >
           {navItems
-            .filter((item) => !isHiddenFor1L(item.label))
+            .filter((item) => !isHiddenForRole(item.label))
             .map((item) => {
               const itemPath = item.href.split("?")[0];
 
