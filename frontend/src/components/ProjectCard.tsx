@@ -7,6 +7,7 @@ type ProjectCardProps = {
   status: string;
   docs: string;
   qc: string;
+  reviewTeamVisible?: boolean;
   onOpen?: () => void;
 };
 
@@ -53,6 +54,7 @@ export default function ProjectCard({
   status,
   docs,
   qc,
+  reviewTeamVisible,
   onOpen,
 }: ProjectCardProps) {
   return (
@@ -71,6 +73,19 @@ export default function ProjectCard({
         <StatusBadge variant={getStatusVariant(status)}>
           {status}
         </StatusBadge>
+      </div>
+
+      <div
+        className={
+          reviewTeamVisible
+            ? "mt-2 text-right text-xs font-semibold text-emerald-400"
+            : "mt-2 text-right text-xs font-semibold text-slate-500"
+        }
+      >
+        Review Team:{" "}
+        {reviewTeamVisible
+          ? "Visible"
+          : "Restricted"}
       </div>
 
       <div className="insyt-project-card-stats">

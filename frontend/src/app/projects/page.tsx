@@ -165,6 +165,7 @@ function ProjectsPageContent() {
               async (projectId: string) => {
                 let projectStatus =
                   "Created";
+                let clientReviewTeamVisible = false;
 
                 try {
                   const statusResponse =
@@ -181,6 +182,8 @@ function ProjectsPageContent() {
                   projectStatus =
                     statusResponse.project_status ||
                     "Created";
+                  clientReviewTeamVisible =
+                    statusResponse.client_review_team_visible === true;
                 } catch (error) {
                   console.error(
                     `Unable to load status for ${projectId}:`,
@@ -193,6 +196,8 @@ function ProjectsPageContent() {
                   name: projectId,
                   client,
                   status: projectStatus,
+                  client_review_team_visible:
+                    clientReviewTeamVisible,
                   progress: 0,
                   openHref: `/project-dashboard?workspace=${workspace}&client=${encodeURIComponent(
                     client
@@ -324,6 +329,9 @@ function ProjectsPageContent() {
                   name={project.name}
                   client={project.client}
                   status={project.status}
+                  reviewTeamVisible={
+                    project.client_review_team_visible === true
+                  }
                   docs={project.docs}
                   qc={project.qc}
                   onOpen={() => {

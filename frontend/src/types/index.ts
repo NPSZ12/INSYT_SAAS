@@ -4,6 +4,7 @@ export type Project = {
   status: string;
   docs: string;
   qc: string;
+  client_review_team_visible?: boolean;
 };
 
 export type User = {
