@@ -155,6 +155,111 @@ def _require_role_management_authority(
 
     return normalized_target_role
 
+def _client_names_from_scope(
+    client_access: List[str],
+    project_access: List[str],
+) -> set[str]:
+    client_names: set[str] = set()
+
+    for value in client_access:
+        raw = str(value or "").strip()
+
+        if not raw or raw == "ALL":
+            continue
+
+        parts = raw.split("/")
+
+        if len(parts) >= 2:
+            client_names.add(
+                "/".join(parts[1:]).strip()
+            )
+        else:
+            client_names.add(raw)
+
+    for value in project_access:
+        raw = str(value or "").strip()
+
+        if not raw or raw == "ALL":
+            continue
+
+        parts = raw.split("/")
+
+        if len(parts) >= 3:
+            client_names.add(
+                parts[1].strip()
+            )
+        elif len(parts) == 2:
+            client_names.add(
+                parts[0].strip()
+            )
+
+    return {
+        value
+        for value in client_names
+        if value
+    }
+
+
+def _require_single_client_binding(
+    role: str,
+    client_access: List[str],
+    project_access: List[str],
+) -> None:
+    normalized_role = normalize_role(role)
+
+    if normalized_role not in {
+        ROLE_CLIENT_ADMIN,
+        "Client",
+    }:
+        return
+
+    if "ALL" in _clean_string_set(client_access):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"{normalized_role} cannot be assigned "
+                "global client access."
+            ),
+        )
+
+    explicit_clients = {
+        str(value or "").strip()
+        for value in client_access
+        if str(value or "").strip()
+        and str(value or "").strip() != "ALL"
+    }
+
+    if not explicit_clients:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{normalized_role} must be assigned "
+                "to exactly one Client / DBA."
+            ),
+        )
+
+    client_names = _client_names_from_scope(
+        client_access,
+        project_access,
+    )
+
+    if not client_names:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{normalized_role} must be assigned "
+                "to exactly one Client / DBA."
+            ),
+        )
+
+    if len(client_names) != 1:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"{normalized_role} may only be assigned "
+                "to one Client / DBA."
+            ),
+        )
 
 def _require_safe_scope_assignment(
     actor: User,
@@ -406,6 +511,12 @@ def create_user(
         payload.permissions,
     )
 
+    _require_single_client_binding(
+        normalized_role,
+        payload.client_access,
+        payload.project_access,
+    )
+
     payload.role = normalized_role
 
     existing_username_user = (
@@ -649,6 +760,12 @@ def update_user(
         admin,
         normalized_role,
         payload.permissions,
+    )
+
+    _require_single_client_binding(
+        normalized_role,
+        payload.client_access,
+        payload.project_access,
     )
 
     payload.role = normalized_role

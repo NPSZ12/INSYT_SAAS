@@ -221,6 +221,15 @@ function normalizeLegacyRole(role: string) {
   }
 }
 
+function roleRequiresSingleClient(role: string) {
+  const normalizedRole = normalizeLegacyRole(role);
+
+  return (
+    normalizedRole === "Client" ||
+    normalizedRole === "Client Admin"
+  );
+}
+
 function makeEmptyForm(defaultWorkspace = "summaries"): UserAccessForm {
   return {
     display_name: "",
@@ -372,6 +381,8 @@ function UserAccessPageContent() {
     useState<Record<string, boolean>>({});
   const [permissionsExpanded, setPermissionsExpanded] =
     useState(false);
+  const [selectedClientDba, setSelectedClientDba] =
+    useState("");
   const [addEditExpanded, setAddEditExpanded] =
     useState(true);
 
@@ -411,6 +422,7 @@ function UserAccessPageContent() {
 
   function resetForm() {
     setForm(makeEmptyForm(defaultWorkspace));
+    setSelectedClientDba("");
     setSelectedUsers({});
   }
 
@@ -512,18 +524,93 @@ function UserAccessPageContent() {
   function getWorkspaceProjectKeys(workspace: string) {
     const clientsForWorkspace = accessTree[workspace] || {};
 
-    return Object.entries(clientsForWorkspace).flatMap(
-      ([client, projects]) =>
+    return Object.entries(clientsForWorkspace)
+      .filter(([client]) => {
+        if (!roleRequiresSingleClient(form.role)) {
+          return true;
+        }
+
+        return (
+          Boolean(selectedClientDba) &&
+          client === selectedClientDba
+        );
+      })
+      .flatMap(([client, projects]) =>
         projects.map((project) =>
-          makeProjectAccessKey(workspace, client, project)
+          makeProjectAccessKey(
+            workspace,
+            client,
+            project
+          )
         )
-    );
+      );
   }
 
   function getClientProjectKeys(workspace: string, client: string) {
     return (accessTree[workspace]?.[client] || []).map((project) =>
       makeProjectAccessKey(workspace, client, project)
     );
+  }
+
+  function getAllClientNames() {
+    return Array.from(
+      new Set(
+        Object.values(accessTree).flatMap(
+          (workspaceTree) =>
+            Object.keys(workspaceTree)
+        )
+      )
+    ).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }
+
+  function applySingleClientBinding(
+    client: string
+  ) {
+    setSelectedClientDba(client);
+
+    setForm((current) => {
+      if (!client) {
+        return {
+          ...current,
+          client_access: [],
+          project_access: [],
+        };
+      }
+
+      const nextClientAccess = current.workspace_access.map(
+        (workspace) =>
+          makeClientAccessKey(
+            workspace,
+            client
+          )
+      );
+
+      const nextProjectAccess =
+        current.project_access.filter(
+          (projectKey) =>
+            projectBelongsToClient(
+              projectKey,
+              client
+            )
+        );
+
+      return {
+        ...current,
+        client_access: nextClientAccess,
+        project_access: nextProjectAccess,
+      };
+    });
+  }
+
+  function projectBelongsToClient(
+    projectKey: string,
+    client: string
+  ) {
+    const parsed = parseProjectAccessKey(projectKey);
+
+    return parsed.client === client;
   }
 
   function getSelectionState(keys: string[]) {
@@ -706,6 +793,15 @@ function UserAccessPageContent() {
       setMessage("User display name is required.");
       return;
     }
+    if (
+      roleRequiresSingleClient(form.role) &&
+      !selectedClientDba
+    ) {
+      setMessage(
+        "Select exactly one Client / DBA for this role."
+      );
+      return;
+    }
 
     apiPost("/api/users/create", {
       username: form.username,
@@ -753,6 +849,16 @@ function UserAccessPageContent() {
   function updateUser() {
     if (!form.username.trim()) {
       setMessage("Select or enter a username before updating.");
+      return;
+    }
+
+    if (
+      roleRequiresSingleClient(form.role) &&
+      !selectedClientDba
+    ) {
+      setMessage(
+        "Select exactly one Client / DBA for this role."
+      );
       return;
     }
 
@@ -837,12 +943,43 @@ function UserAccessPageContent() {
         return projectKey;
       }
     );
+    const normalizedRole =
+      normalizeLegacyRole(
+        selectedUser.role
+      );
+
+    let existingClientDba = "";
+
+    if (
+      roleRequiresSingleClient(
+        normalizedRole
+      )
+    ) {
+      const clientNames = Array.from(
+        new Set(
+          (selectedUser.client_access || [])
+            .map((value) =>
+              parseClientAccessKey(value).client
+            )
+            .filter(Boolean)
+        )
+      );
+
+      existingClientDba =
+        clientNames.length === 1
+          ? clientNames[0]
+          : "";
+    }
+
+    setSelectedClientDba(
+      existingClientDba
+    );
 
     setForm({
       display_name: selectedUser.display_name,
       username: selectedUser.username,
       password: "",
-      role: normalizeLegacyRole(selectedUser.role),
+      role: normalizedRole,
       auth_provider:
         normalizeLegacyRole(selectedUser.role) === "INSYT Admin"
           ? "local"
@@ -1107,7 +1244,14 @@ const filteredUsers = users.filter((user) => {
               <FormLabel>Level</FormLabel>
               <Select
                 value={form.role}
-                onChange={(value) =>
+                onChange={(value) => {
+                  const requiresSingleClient =
+                    roleRequiresSingleClient(value);
+
+                  if (!requiresSingleClient) {
+                    setSelectedClientDba("");
+                  }
+
                   setForm((current) => ({
                     ...current,
                     role: value,
@@ -1121,8 +1265,12 @@ const filteredUsers = users.filter((user) => {
                         : "",
                     permissions:
                       roleDefaultPermissions[value] || [],
-                  }))
-                }
+                    client_access:
+                      requiresSingleClient
+                        ? current.client_access
+                        : current.client_access,
+                  }));
+                }}
               >
                 {levels.map((level) => (
                   <option key={level} value={level}>
@@ -1148,20 +1296,54 @@ const filteredUsers = users.filter((user) => {
 
           {isInsytAdminLevel ? (
             <div className="mb-6 rounded-lg border border-lime-500/40 bg-lime-500/10 p-4 text-lime-200">
-                <div className="font-semibold mb-2">
+              <div className="font-semibold mb-2">
                 Full INSYT Platform Access
-                </div>
+              </div>
 
-                <div className="text-sm">
+              <div className="text-sm">
                 Workspace, Client, Project, and Permission
                 selections are not required. INSYT Admin
                 users automatically receive access to all
                 INSYT modules, clients, projects, and
                 administrative functions.
-                </div>
+              </div>
             </div>
-            ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+          ) : (
+            <>
+              {roleRequiresSingleClient(form.role) && (
+                <div className="mb-6 max-w-xl">
+                  <FormLabel>
+                    Client / DBA
+                  </FormLabel>
+
+                  <Select
+                    value={selectedClientDba}
+                    onChange={(value) =>
+                      applySingleClientBinding(value)
+                    }
+                  >
+                    <option value="">
+                      Select Client / DBA...
+                    </option>
+
+                    {getAllClientNames().map((client) => (
+                      <option
+                        key={client}
+                        value={client}
+                      >
+                        {client.replaceAll("_", " ")}
+                      </option>
+                    ))}
+                  </Select>
+
+                  <p className="mt-2 text-xs text-slate-500">
+                    Client and Client Admin accounts must be assigned
+                    to exactly one Client / DBA.
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
               <div className="xl:col-span-2">
                 <h3 className="font-semibold mb-3">
                   Workspace / Client / Project Access
@@ -1173,7 +1355,17 @@ const filteredUsers = users.filter((user) => {
                       accessTree[workspace.value] || {};
                     const clientEntries = Object.entries(
                       clientsForWorkspace
-                    );
+                    ).filter(([client]) => {
+                      if (!roleRequiresSingleClient(form.role)) {
+                        return true;
+                      }
+
+                      if (!selectedClientDba) {
+                        return false;
+                      }
+
+                      return client === selectedClientDba;
+                    });
                     const workspaceProjectKeys =
                       getWorkspaceProjectKeys(workspace.value);
                     const workspaceState = getSelectionState(
@@ -1435,7 +1627,8 @@ const filteredUsers = users.filter((user) => {
                 </p>
               </div>
             </div>
-            )}
+          </>
+        )}
 
           <div className="flex gap-3">
             <Button onClick={createUser}>
