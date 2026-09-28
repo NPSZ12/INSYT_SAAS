@@ -710,8 +710,8 @@ function UserAccessPageContent() {
       role: form.role,
       auth_provider:
         form.role === "INSYT Admin"
-        ? "local"
-        : form.auth_provider,
+          ? "local"
+          : "entra",
       status: "active",
       workspace_access: form.workspace_access,
       client_access: form.client_access,
@@ -759,8 +759,8 @@ function UserAccessPageContent() {
       role: form.role,
       auth_provider:
         form.role === "INSYT Admin"
-            ? "local"
-            : form.auth_provider,
+          ? "local"
+          : "entra",
       workspace_access: form.workspace_access,
       client_access: form.client_access,
       project_access: form.project_access,
@@ -839,7 +839,10 @@ function UserAccessPageContent() {
       username: selectedUser.username,
       password: "",
       role: normalizeLegacyRole(selectedUser.role),
-      auth_provider: selectedUser.auth_provider || "entra",
+      auth_provider:
+        normalizeLegacyRole(selectedUser.role) === "INSYT Admin"
+          ? "local"
+          : "entra",
       workspace_access:
         selectedUser.workspace_access || [],
 
