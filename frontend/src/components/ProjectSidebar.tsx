@@ -53,6 +53,10 @@ export default function ProjectSidebar() {
   const selectedBatch = searchParams.get("batch");
   const workspaceParam = searchParams.get("workspace");
   const [hasNewMessages, setHasNewMessages] = useState(false);
+  const [
+    clientReviewTeamVisible,
+    setClientReviewTeamVisible,
+  ] = useState(false);
 
   const [selectedOutlineItem, setSelectedOutlineItem] =
     useState<PdfOutlineItem | null>(null);
@@ -218,6 +222,70 @@ export default function ProjectSidebar() {
       });
   }, [workspaceName, clientId, projectId, user?.username]);
 
+  useEffect(() => {
+    const role = String(
+      user?.role || ""
+    ).trim();
+
+    if (
+      role !== "Client" &&
+      role !== "Client Admin"
+    ) {
+      setClientReviewTeamVisible(true);
+      return;
+    }
+
+    if (
+      !clientId ||
+      !projectId ||
+      !workspaceName
+    ) {
+      setClientReviewTeamVisible(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadReviewTeamVisibility() {
+      try {
+        const params = new URLSearchParams({
+          workspace: workspaceName,
+          client_name: clientId,
+          project_name: projectId,
+        });
+
+        const response = await apiGet(
+          `/api/registry/workspace-projects/status?${params.toString()}`
+        );
+
+        if (!cancelled) {
+          setClientReviewTeamVisible(
+            response?.client_review_team_visible === true
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Failed to load Client Review Team visibility:",
+          error
+        );
+
+        if (!cancelled) {
+          setClientReviewTeamVisible(false);
+        }
+      }
+    }
+
+    loadReviewTeamVisibility();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    workspaceName,
+    clientId,
+    projectId,
+    user?.role,
+  ]);
 
   useEffect(() => {
     if (
@@ -459,6 +527,17 @@ export default function ProjectSidebar() {
   function isHiddenForRole(label: string) {
     const role = String(user?.role || "").trim();
 
+    if (
+      label === "Review Team" &&
+      (
+        role === "Client" ||
+        role === "Client Admin"
+      ) &&
+      !clientReviewTeamVisible
+    ) {
+      return true;
+    }
+
     const reviewerRoles = [
       "Reviewer",
       "1L",
@@ -487,18 +566,9 @@ export default function ProjectSidebar() {
 
     if (role === "Client") {
       return [
-        "Files",
-        "Processing Center - Data Element Detection",
-        "Processing Center - Spreadsheets",
-        "Processing Center - Promotion",
-        "Processing Center - Deduplication",
-        "Overlays / Final Deliverables",
         "Batch Management",
-        "Search Folders",
-        "Review",
         "Cyber²",
         "QC Review",
-        "Review Team",
         "Admin",
         "Settings",
       ].includes(label);
@@ -507,11 +577,8 @@ export default function ProjectSidebar() {
     if (role === "Client Admin") {
       return [
         "Batch Management",
-        "Search Folders",
-        "Review",
         "Cyber²",
         "QC Review",
-        "Review Team",
         "Admin",
         "Settings",
       ].includes(label);

@@ -48,7 +48,12 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from app.models.user import User
-from app.services.security import require_admin
+from app.services.security import (
+    get_current_user,
+    require_admin,
+    safe_json_list,
+)
+from app.services.authorization import normalize_role
 from app.services.azure_pricing import (
     calculate_document_intelligence_read_quote,
     lookup_document_intelligence_read_price,
@@ -1476,7 +1481,73 @@ async def upload_to_azure_processing_center(
     client: str = Form(...),
     project_id: str = Form(...),
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role == "Client":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Client accounts may view Processing Center "
+                "files and status but may not upload files."
+            ),
+        )
+
+    if role == "Client Admin":
+        client_names: set[str] = set()
+
+        for value in safe_json_list(
+            current_user.client_access
+        ):
+            raw = str(value or "").strip()
+
+            if not raw or raw == "ALL":
+                continue
+
+            parts = raw.split("/")
+
+            if len(parts) >= 2:
+                client_names.add(
+                    "/".join(parts[1:]).strip()
+                )
+            else:
+                client_names.add(raw)
+
+        client_names = {
+            value
+            for value in client_names
+            if value
+        }
+
+        if len(client_names) != 1:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Client Admin accounts must be "
+                    "assigned to exactly one Client / DBA."
+                ),
+            )
+
+        bound_client = next(
+            iter(client_names)
+        )
+
+        if (
+            str(client or "").strip().casefold()
+            != bound_client.casefold()
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Access denied. This account may "
+                    "only upload files to its assigned "
+                    "Client / DBA."
+                ),
+            )
+
     processing_account = _processing_account()
     processing_container = _processing_container()
 

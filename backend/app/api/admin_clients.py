@@ -7,7 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.models.user import User
-from app.services.security import require_admin
+from app.services.security import (
+    get_current_user,
+    require_admin,
+)
+from app.services.authorization import normalize_role
+from app.api.workspace_projects import (
+    PROJECT_REGISTRY_BLOB,
+    load_registry_list,
+    normalize_registry_name,
+)
 from sqlalchemy import func
 
 from app.models.time_entry import TimeEntry
@@ -28,6 +37,164 @@ def safe_list(value):
     except Exception:
         return []
 
+def _bound_client_for_external_user(
+    current_user: User,
+) -> str:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role not in {
+        "Client",
+        "Client Admin",
+    }:
+        return ""
+
+    client_names = set()
+
+    for value in safe_list(
+        current_user.client_access
+    ):
+        raw = str(value or "").strip()
+
+        if not raw or raw == "ALL":
+            continue
+
+        parts = raw.split("/")
+
+        if len(parts) >= 2:
+            client_names.add(
+                "/".join(parts[1:]).strip()
+            )
+        else:
+            client_names.add(raw)
+
+    client_names = {
+        value
+        for value in client_names
+        if value
+    }
+
+    if len(client_names) != 1:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Client and Client Admin accounts "
+                "must be assigned to exactly one "
+                "Client / DBA."
+            ),
+        )
+
+    return next(iter(client_names))
+
+
+def _require_external_project_scope(
+    current_user: User,
+    workspace: str,
+    client: str,
+    project: str,
+) -> None:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role not in {
+        "Client",
+        "Client Admin",
+    }:
+        return
+
+    bound_client = (
+        _bound_client_for_external_user(
+            current_user
+        )
+    )
+
+    if (
+        normalize_registry_name(client)
+        != normalize_registry_name(
+            bound_client
+        )
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied.",
+        )
+
+    project_access = {
+        str(value or "").strip()
+        for value in safe_list(
+            current_user.project_access
+        )
+        if str(value or "").strip()
+    }
+
+    accepted_project_keys = {
+        f"{client}/{project}",
+        f"{workspace}/{client}/{project}",
+        f"{client}/{workspace}/{project}",
+    }
+
+    if not (
+        project_access
+        .intersection(
+            accepted_project_keys
+        )
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Access denied. This account is "
+                "not assigned to this project."
+            ),
+        )
+
+
+def _client_review_team_is_visible(
+    workspace: str,
+    client: str,
+    project: str,
+) -> bool:
+    projects = load_registry_list(
+        PROJECT_REGISTRY_BLOB
+    )
+
+    matched = next(
+        (
+            item
+            for item in projects
+            if str(
+                item.get("workspace") or ""
+            ).strip().lower()
+            == str(
+                workspace or ""
+            ).strip().lower()
+            and normalize_registry_name(
+                item.get("client_name")
+            )
+            == normalize_registry_name(
+                client
+            )
+            and normalize_registry_name(
+                item.get("project_name")
+            )
+            == normalize_registry_name(
+                project
+            )
+        ),
+        None,
+    )
+
+    if not matched:
+        return False
+
+    return (
+        matched.get(
+            "client_review_team_visible",
+            False,
+        )
+        is True
+    )
 
 @router.get("/clients-overview")
 def clients_overview(
@@ -376,9 +543,77 @@ def project_users(
     client: str,
     project: str,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    if admin.role not in ALLOWED_ROLES:
+    workspace = str(
+        workspace or ""
+    ).strip().lower()
+
+    client = str(
+        client or ""
+    ).strip()
+
+    project = str(
+        project or ""
+    ).strip()
+
+    if workspace not in {
+        "capture",
+        "discovery",
+        "summaries",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid workspace.",
+        )
+
+    if not client or not project:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Client and project are required."
+            ),
+        )
+
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    external_role = role in {
+        "Client",
+        "Client Admin",
+    }
+
+    internal_allowed = role in {
+        "INSYT Admin",
+        "INSYT Manager",
+    }
+
+    if external_role:
+        _require_external_project_scope(
+            current_user=current_user,
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+
+        if not _client_review_team_is_visible(
+            workspace=workspace,
+            client=client,
+            project=project,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Review Team access is not "
+                    "enabled for Client users "
+                    "on this project."
+                ),
+            )
+
+    elif not internal_allowed:
         raise HTTPException(
             status_code=403,
             detail="Access denied.",
@@ -392,29 +627,38 @@ def project_users(
     assigned_users = []
 
     for user in users:
-        project_access = safe_list(user.project_access)
-        workspace_access = safe_list(user.workspace_access)
+        project_access = safe_list(
+            user.project_access
+        )
+
+        workspace_access = safe_list(
+            user.workspace_access
+        )
 
         if (
             project_key not in project_access
-            and alternate_project_key not in project_access
+            and alternate_project_key
+            not in project_access
         ):
             continue
 
         if (
             workspace not in workspace_access
-            and "ALL" not in workspace_access
+            and "ALL"
+            not in workspace_access
         ):
             continue
 
         assigned_users.append(
             {
                 "username": user.username,
-                "display_name": user.display_name,
+                "display_name":
+                    user.display_name,
                 "email": user.email,
                 "role": user.role,
                 "status": user.status,
-                "auth_provider": user.auth_provider,
+                "auth_provider":
+                    user.auth_provider,
             }
         )
 
@@ -423,6 +667,15 @@ def project_users(
         "workspace": workspace,
         "client": client,
         "project": project,
+        "client_review_team_visible": (
+            True
+            if external_role
+            else _client_review_team_is_visible(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+        ),
         "users": assigned_users,
     }
 
@@ -541,7 +794,12 @@ def update_user_status(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    if admin.role not in ALLOWED_ROLES:
+    if normalize_role(
+        str(admin.role or "")
+    ) not in {
+        "INSYT Admin",
+        "INSYT Manager",
+    }:
         raise HTTPException(
             status_code=403,
             detail="Access denied.",

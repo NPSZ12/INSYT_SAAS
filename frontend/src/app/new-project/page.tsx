@@ -89,6 +89,16 @@ export default function NewProjectPage() {
   const [updatingProjectStatus, setUpdatingProjectStatus] =
     useState(false);
 
+  const [
+    clientReviewTeamVisible,
+    setClientReviewTeamVisible,
+  ] = useState(false);
+
+  const [
+    updatingClientReviewTeamVisibility,
+    setUpdatingClientReviewTeamVisibility,
+  ] = useState(false);
+
   const [overlayView, setOverlayView] =
     useState<"raw" | "final">("raw");
 
@@ -118,6 +128,13 @@ export default function NewProjectPage() {
     );
   }
 
+  function isInsytAdmin() {
+    return (
+      String(
+        loggedInUser?.role || ""
+      ).trim() === "INSYT Admin"
+    );
+  }
 
   function getBoundClientName() {
     if (!isSingleClientRole()) {
@@ -347,6 +364,7 @@ export default function NewProjectPage() {
     setStatusProject("");
     setStatusProjects([]);
     setProjectStatus("Created");
+    setClientReviewTeamVisible(false);
 
     loadStatusClients(
       statusWorkspace
@@ -480,6 +498,10 @@ export default function NewProjectPage() {
           response.project_status ||
           "Created"
         );
+
+        setClientReviewTeamVisible(
+          response.client_review_team_visible === true
+        );
       })
       .catch((error) => {
         console.error(
@@ -488,6 +510,7 @@ export default function NewProjectPage() {
         );
 
         setProjectStatus("Created");
+        setClientReviewTeamVisible(false);
       });
   }
 
@@ -540,6 +563,75 @@ export default function NewProjectPage() {
       })
       .finally(() => {
         setUpdatingProjectStatus(false);
+      });
+  }
+
+  function updateClientReviewTeamVisibility(
+    visible: boolean
+  ) {
+    if (!isInsytAdmin()) {
+      setMessage(
+        "Only INSYT Admin may change Client Review Team visibility."
+      );
+      return;
+    }
+
+    if (
+      !statusWorkspace ||
+      !statusClient ||
+      !statusProject
+    ) {
+      setMessage(
+        "Select workspace, client, and project before changing Review Team visibility."
+      );
+      return;
+    }
+
+    setUpdatingClientReviewTeamVisibility(true);
+    setMessage("");
+
+    apiPost(
+      "/api/registry/workspace-projects/client-review-team-visibility",
+      {
+        workspace: statusWorkspace,
+        client_name: statusClient,
+        project_name: statusProject,
+        visible,
+      }
+    )
+      .then((response) => {
+        const nextVisible =
+          response.client_review_team_visible === true;
+
+        setClientReviewTeamVisible(
+          nextVisible
+        );
+
+        setMessage(
+          `Client Review Team visibility for ${statusProject.replaceAll(
+            "_",
+            " "
+          )} is now ${
+            nextVisible ? "ON" : "OFF"
+          }.`
+        );
+      })
+      .catch((error) => {
+        console.error(
+          "Client Review Team visibility update failed:",
+          error
+        );
+
+        setMessage(
+          "Client Review Team visibility update failed."
+        );
+
+        loadCurrentProjectStatus(
+          statusProject
+        );
+      })
+      .finally(() => {
+        setUpdatingClientReviewTeamVisibility(false);
       });
   }
 
@@ -965,6 +1057,7 @@ export default function NewProjectPage() {
                     setStatusClient(value);
                     setStatusProject("");
                     setProjectStatus("Created");
+                    setClientReviewTeamVisible(false);
 
                     loadStatusProjects(
                       value,
@@ -1008,6 +1101,8 @@ export default function NewProjectPage() {
                       setProjectStatus(
                         "Created"
                       );
+
+                      setClientReviewTeamVisible(false);
                     }
                   }}
                 >
@@ -1050,6 +1145,74 @@ export default function NewProjectPage() {
                   )}
                 </Select>
               </div>
+
+              {isInsytAdmin() ? (
+                <div className="md:col-span-4">
+                  <div className="rounded-xl border border-slate-700 bg-slate-950 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <FormLabel>
+                          Client Review Team Visibility
+                        </FormLabel>
+
+                        <p className="mt-1 text-xs text-slate-400">
+                          Controls whether Client and Client Admin users
+                          can see the Review Team tab and reviewer roster
+                          for this project.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={
+                            clientReviewTeamVisible
+                              ? "text-sm font-semibold text-emerald-400"
+                              : "text-sm font-semibold text-slate-400"
+                          }
+                        >
+                          {clientReviewTeamVisible
+                            ? "ON"
+                            : "OFF"}
+                        </span>
+
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={clientReviewTeamVisible}
+                          disabled={
+                            !statusClient ||
+                            !statusProject ||
+                            updatingClientReviewTeamVisibility
+                          }
+                          onClick={() =>
+                            updateClientReviewTeamVisibility(
+                              !clientReviewTeamVisible
+                            )
+                          }
+                          className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors ${
+                            clientReviewTeamVisible
+                              ? "bg-emerald-600"
+                              : "bg-slate-700"
+                          } disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                          <span
+                            className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                              clientReviewTeamVisible
+                                ? "translate-x-8"
+                                : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-xs text-slate-500">
+                      Default: OFF. When OFF, Review Team is completely
+                      hidden from both Client and Client Admin users.
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="md:col-span-4">
                 <Button

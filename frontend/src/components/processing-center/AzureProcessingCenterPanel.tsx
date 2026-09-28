@@ -772,6 +772,22 @@ export default function AzureProcessingCenterPanel({
     );
   }
 
+  function isClientRole() {
+    const user = getStoredUser();
+
+    const role = String(
+      user?.role ||
+      user?.user_role ||
+      user?.access_role ||
+      user?.type ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+    return role === "client";
+  }
+
   function toggleSelectedUpload(name: string) {
     setSelectedUploadNames((current) =>
       current.includes(name)
@@ -1248,6 +1264,13 @@ export default function AzureProcessingCenterPanel({
   }
 
   async function uploadToAzureProcessingCenter() {
+    if (isClientRole()) {
+      setError(
+        "Client accounts may view Processing Center files and status but may not upload files."
+      );
+      return;
+    }
+
     if (!clientId || !projectId || !selectedFile) {
       setError("Client, project, and file are required before uploading.");
       return;
@@ -1518,8 +1541,9 @@ export default function AzureProcessingCenterPanel({
           </button>
           {!isInsytAdmin() ? (
             <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
-              Files may be uploaded to the Processing Center, but Azure Processing can
-              only be started by an INSYT Admin.
+              {isClientRole()
+                ? "Client access is view-only for Processing Center operations."
+                : "Files may be uploaded to the Processing Center, but Azure Processing can only be started by an INSYT Admin."}
             </div>
           ) : null}
         </div>
@@ -1950,54 +1974,78 @@ export default function AzureProcessingCenterPanel({
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-4">
-        <div className="mb-3">
-          <div className="font-medium">Upload to Azure Processing Center</div>
+      {isClientRole() ? (
+        <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4">
+          <div className="font-medium text-[var(--insyt-text-primary)]">
+            Processing Center — View Only
+          </div>
+
           <div className="mt-1 text-sm text-[var(--insyt-text-muted)]">
-            Files are uploaded to source/processing_center/uploads. Processing can only be started by INSYT Admin.
+            You may view uploaded files, processing status, OCR results,
+            processing history, and reports for this project. Uploading files
+            and starting processing are restricted.
           </div>
         </div>
+      ) : (
+        <div className="rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-4">
+          <div className="mb-3">
+            <div className="font-medium">
+              Upload to Azure Processing Center
+            </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <input
-            id="azure-processing-center-file-input"
-            type="file"
-            className="hidden"
-            onChange={(event) =>
-              setSelectedFile(event.target.files?.[0] || null)
-            }
-          />
-
-          <label
-            htmlFor="azure-processing-center-file-input"
-            className="inline-flex min-h-10 min-w-[210px] cursor-pointer items-center justify-center rounded-xl border border-emerald-600 bg-emerald-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-emerald-500 hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-[var(--insyt-bg)]"
-          >
-            Choose File
-          </label>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (!selectedFile || uploading) return;
-              uploadToAzureProcessingCenter();
-            }}
-            disabled={!selectedFile || uploading}
-            className="inline-flex min-h-10 min-w-[230px] items-center justify-center rounded-xl border border-sky-500 bg-sky-500 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-sky-400 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {uploading ? "Uploading..." : "Upload to Processing Center"}
-          </button>
-        </div>
-
-        <div className="mt-2 min-h-5 truncate text-xs leading-5 text-[var(--insyt-text-muted)]">
-          {selectedFile ? selectedFile.name : "No file selected"}
-        </div>
-
-        {uploadMessage ? (
-          <div className="mt-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-600">
-            {uploadMessage}
+            <div className="mt-1 text-sm text-[var(--insyt-text-muted)]">
+              Files are uploaded to source/processing_center/uploads.
+              Processing can only be started by INSYT Admin.
+            </div>
           </div>
-        ) : null}
-      </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <input
+              id="azure-processing-center-file-input"
+              type="file"
+              className="hidden"
+              onChange={(event) =>
+                setSelectedFile(
+                  event.target.files?.[0] || null
+                )
+              }
+            />
+
+            <label
+              htmlFor="azure-processing-center-file-input"
+              className="inline-flex min-h-10 min-w-[210px] cursor-pointer items-center justify-center rounded-xl border border-emerald-600 bg-emerald-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-emerald-500 hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-[var(--insyt-bg)]"
+            >
+              Choose File
+            </label>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedFile || uploading) return;
+                uploadToAzureProcessingCenter();
+              }}
+              disabled={!selectedFile || uploading}
+              className="inline-flex min-h-10 min-w-[230px] items-center justify-center rounded-xl border border-sky-500 bg-sky-500 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-sky-400 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {uploading
+                ? "Uploading..."
+                : "Upload to Processing Center"}
+            </button>
+          </div>
+
+          <div className="mt-2 min-h-5 truncate text-xs leading-5 text-[var(--insyt-text-muted)]">
+            {selectedFile
+              ? selectedFile.name
+              : "No file selected"}
+          </div>
+
+          {uploadMessage ? (
+            <div className="mt-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-600">
+              {uploadMessage}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <div className="rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

@@ -173,6 +173,22 @@ function isInsytAdmin() {
   );
 }
 
+function isClientRole() {
+  const user = getStoredUser();
+
+  const role = String(
+    user?.role ||
+    user?.user_role ||
+    user?.access_role ||
+    user?.type ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return role === "client";
+}
+
 function isPromotedValue(value?: string) {
   const clean = String(value || "").toLowerCase().trim();
 
@@ -527,6 +543,14 @@ export default function AzureProcessingCenterPromotionPanel({
         </button>
       </div>
 
+      {isClientRole() ? (
+        <div className="insyt-message insyt-message-info mb-3">
+          Client access is view-only for Processing Center promotion.
+          You may review staged and promoted documents, processing results,
+          OCR status, and promotion history, but you cannot select or promote documents.
+        </div>
+      ) : null}
+
       {error ? (
         <div className="insyt-message insyt-message-danger mb-3">
           {error}
@@ -700,71 +724,73 @@ export default function AzureProcessingCenterPromotionPanel({
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={selectAllReadyDocs}
-                      disabled={readyDocs.length === 0 || promoting}
-                      className="insyt-btn insyt-btn-secondary insyt-btn-sm"
-                    >
-                      Select All Ready
-                    </button>
+                  {!isClientRole() ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={selectAllReadyDocs}
+                        disabled={readyDocs.length === 0 || promoting}
+                        className="insyt-btn insyt-btn-secondary insyt-btn-sm"
+                      >
+                        Select All Ready
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={clearSelection}
-                      disabled={selectedDocIds.length === 0 || promoting}
-                      className="insyt-btn insyt-btn-secondary insyt-btn-sm"
-                    >
-                      Clear
-                    </button>
+                      <button
+                        type="button"
+                        onClick={clearSelection}
+                        disabled={selectedDocIds.length === 0 || promoting}
+                        className="insyt-btn insyt-btn-secondary insyt-btn-sm"
+                      >
+                        Clear
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        isSummaries
-                          ? uploadToSummaryExtraction(false)
-                          : promoteDocs(false)
-                      }
-                      disabled={
-                        promoting ||
-                        selectedDocIds.length === 0 ||
-                        !isInsytAdmin()
-                      }
-                      className="insyt-btn insyt-btn-success insyt-btn-sm"
-                    >
-                      {promoting
-                        ? isSummaries
-                          ? "Uploading..."
-                          : "Promoting..."
-                        : isSummaries
-                          ? "Upload Selected to Summary Extraction"
-                          : "Promote Selected"}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          isSummaries
+                            ? uploadToSummaryExtraction(false)
+                            : promoteDocs(false)
+                        }
+                        disabled={
+                          promoting ||
+                          selectedDocIds.length === 0 ||
+                          !isInsytAdmin()
+                        }
+                        className="insyt-btn insyt-btn-success insyt-btn-sm"
+                      >
+                        {promoting
+                          ? isSummaries
+                            ? "Uploading..."
+                            : "Promoting..."
+                          : isSummaries
+                            ? "Upload Selected to Summary Extraction"
+                            : "Promote Selected"}
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        isSummaries
-                          ? uploadToSummaryExtraction(true)
-                          : promoteDocs(true)
-                      }
-                      disabled={
-                        promoting ||
-                        readyDocs.length === 0 ||
-                        !isInsytAdmin()
-                      }
-                      className="insyt-btn insyt-btn-info insyt-btn-sm"
-                    >
-                      {promoting
-                        ? isSummaries
-                          ? "Uploading..."
-                          : "Promoting..."
-                        : isSummaries
-                          ? "Upload All to Summary Extraction"
-                          : "Promote All Review-Ready"}
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          isSummaries
+                            ? uploadToSummaryExtraction(true)
+                            : promoteDocs(true)
+                        }
+                        disabled={
+                          promoting ||
+                          readyDocs.length === 0 ||
+                          !isInsytAdmin()
+                        }
+                        className="insyt-btn insyt-btn-info insyt-btn-sm"
+                      >
+                        {promoting
+                          ? isSummaries
+                            ? "Uploading..."
+                            : "Promoting..."
+                          : isSummaries
+                            ? "Upload All to Summary Extraction"
+                            : "Promote All Review-Ready"}
+                      </button>
+                    </div>
+                  ) : null}
 
                   {isSummaries ? (
                     <div className="insyt-message insyt-message-warning w-full text-xs leading-5">
@@ -843,7 +869,11 @@ export default function AzureProcessingCenterPromotionPanel({
                     <table className="insyt-table min-w-full text-left text-xs">
                       <thead className="insyt-table-header sticky top-0">
                         <tr>
-                          <th className="px-3 py-2">Select</th>
+                          {!isClientRole() ? (
+                            <th className="px-3 py-2">
+                              Select
+                            </th>
+                          ) : null}
                           <th className="px-3 py-2">Doc ID</th>
                           <th className="px-3 py-2">Original File</th>
                           <th className="px-3 py-2">Ext</th>
@@ -859,15 +889,17 @@ export default function AzureProcessingCenterPromotionPanel({
                             key={doc.doc_id}
                             className="insyt-table-row"
                           >
-                            <td className="px-3 py-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedDocIds.includes(doc.doc_id)}
-                                disabled={!doc.ready_to_promote || promoting}
-                                onChange={() => toggleDoc(doc.doc_id)}
-                                className="insyt-check"
-                              />
-                            </td>
+                            {!isClientRole() ? (
+                              <td className="px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedDocIds.includes(doc.doc_id)}
+                                  disabled={!doc.ready_to_promote || promoting}
+                                  onChange={() => toggleDoc(doc.doc_id)}
+                                  className="insyt-check"
+                                />
+                              </td>
+                            ) : null}
                             <td className="whitespace-nowrap px-3 py-2 font-semibold insyt-text-primary">
                               {doc.doc_id}
                             </td>

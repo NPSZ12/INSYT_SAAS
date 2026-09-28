@@ -19,6 +19,11 @@ type ProjectUser = {
   auth_provider: string;
 };
 
+type StoredUser = {
+  username?: string;
+  role?: string;
+};
+
 function prettyWorkspace(workspace: string) {
   if (workspace === "capture") return "INSYT Capture";
   if (workspace === "discovery") return "INSYT Discovery";
@@ -37,6 +42,103 @@ function ProjectUsersPageContent() {
 
   const [users, setUsers] = useState<ProjectUser[]>([]);
   const [message, setMessage] = useState("");
+
+  const [currentUser, setCurrentUser] =
+    useState<StoredUser | null>(null);
+
+  const [accessChecked, setAccessChecked] =
+    useState(false);
+
+  const [reviewTeamAllowed, setReviewTeamAllowed] =
+    useState(false);
+
+  function isExternalClientRole() {
+    const role = String(
+      currentUser?.role || ""
+    ).trim();
+
+    return (
+      role === "Client" ||
+      role === "Client Admin"
+    );
+  }
+
+  function canManageReviewTeam() {
+    const role = String(
+      currentUser?.role || ""
+    ).trim();
+
+    return (
+      role === "INSYT Admin" ||
+      role === "INSYT Manager" ||
+      role === "RM"
+    );
+  }
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(
+        "insyt_user"
+      );
+
+      setCurrentUser(
+        raw ? JSON.parse(raw) : null
+      );
+    } catch {
+      setCurrentUser(null);
+    }
+  }, []);
+
+  async function checkReviewTeamAccess() {
+    if (!workspace || !client || !project) {
+      setReviewTeamAllowed(false);
+      setAccessChecked(true);
+      return false;
+    }
+
+    const role = String(
+      currentUser?.role || ""
+    ).trim();
+
+    if (
+      role !== "Client" &&
+      role !== "Client Admin"
+    ) {
+      setReviewTeamAllowed(true);
+      setAccessChecked(true);
+      return true;
+    }
+
+    try {
+      const query = new URLSearchParams({
+        workspace,
+        client_name: client,
+        project_name: project,
+      });
+
+      const response = await apiGet(
+        `/api/registry/workspace-projects/status?${query.toString()}`
+      );
+
+      const allowed =
+        response?.client_review_team_visible === true;
+
+      setReviewTeamAllowed(allowed);
+      setAccessChecked(true);
+
+      return allowed;
+    } catch (error) {
+      console.error(
+        "Failed to verify Review Team visibility:",
+        error
+      );
+
+      setReviewTeamAllowed(false);
+      setAccessChecked(true);
+
+      return false;
+    }
+  }
 
   function loadUsers() {
     if (!workspace || !client || !project) {
@@ -61,26 +163,121 @@ function ProjectUsersPageContent() {
   }
 
   useEffect(() => {
-    loadUsers();
-  }, [workspace, client, project]);
+    if (!currentUser) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function initializeReviewTeam() {
+      setAccessChecked(false);
+
+      const allowed =
+        await checkReviewTeamAccess();
+
+      if (
+        cancelled ||
+        !allowed
+      ) {
+        setUsers([]);
+        return;
+      }
+
+      loadUsers();
+    }
+
+    initializeReviewTeam();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    workspace,
+    client,
+    project,
+    currentUser?.role,
+  ]);
 
   function updateUserStatus(
     user: ProjectUser,
     nextStatus: "Active" | "Inactive"
   ) {
+    if (!canManageReviewTeam()) {
+      setMessage(
+        "You may view the Review Team, but you do not have permission to change reviewer status."
+      );
+      return;
+    }
+
     apiPost("/api/admin/users/status", {
       username: user.username,
       status: nextStatus,
     })
       .then(() => {
-        setMessage(`${user.display_name} set to ${nextStatus}.`);
+        setMessage(
+          `${user.display_name} set to ${nextStatus}.`
+        );
+
         loadUsers();
       })
       .catch((error) => {
         console.error(error);
-        setMessage("Failed to update user status.");
+
+        setMessage(
+          "Failed to update user status."
+        );
       });
   }
+
+if (!accessChecked) {
+  return (
+    <AppShell>
+      <PageContainer>
+        <PageHeader
+          title="Review Team"
+          subtitle="Checking project access..."
+        />
+
+        <ContentCard title="Review Team">
+          <p className="text-sm text-slate-400">
+            Loading Review Team access...
+          </p>
+        </ContentCard>
+      </PageContainer>
+    </AppShell>
+  );
+}
+
+if (
+  isExternalClientRole() &&
+  !reviewTeamAllowed
+) {
+  return (
+    <AppShell>
+      <PageContainer>
+        <PageHeader
+          title="Review Team"
+          subtitle={`${prettyWorkspace(
+            workspace
+          )} • ${
+            client || "Client"
+          } • ${
+            project
+              ? project.replaceAll("_", " ")
+              : "Project"
+          }`}
+        />
+
+        <ContentCard title="Review Team">
+          <p className="text-sm text-slate-400">
+            Review Team access is not enabled for
+            Client users on this project.
+          </p>
+        </ContentCard>
+      </PageContainer>
+    </AppShell>
+  );
+}  
 
   return (
     <AppShell>
@@ -149,25 +346,31 @@ function ProjectUsersPageContent() {
                     </td>
 
                     <td className="p-3">
-                      <Button
-                        variant={
-                          user.status === "Active"
-                            ? "danger"
-                            : "secondary"
-                        }
-                        onClick={() =>
-                          updateUserStatus(
-                            user,
+                      {canManageReviewTeam() ? (
+                        <Button
+                          variant={
                             user.status === "Active"
-                              ? "Inactive"
-                              : "Active"
-                          )
-                        }
-                      >
-                        {user.status === "Active"
-                          ? "Set Inactive"
-                          : "Set Active"}
-                      </Button>
+                              ? "danger"
+                              : "secondary"
+                          }
+                          onClick={() =>
+                            updateUserStatus(
+                              user,
+                              user.status === "Active"
+                                ? "Inactive"
+                                : "Active"
+                            )
+                          }
+                        >
+                          {user.status === "Active"
+                            ? "Set Inactive"
+                            : "Set Active"}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          View only
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

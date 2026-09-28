@@ -131,6 +131,12 @@ class UpdateProjectStatusRequest(BaseModel):
     project_name: str
     status: str
 
+class UpdateClientReviewTeamVisibilityRequest(BaseModel):
+    workspace: str
+    client_name: str
+    project_name: str
+    visible: bool
+
 class CreateProjectRequest(BaseModel):
     project_name: str | None = None
     project_id: str | None = None
@@ -304,6 +310,7 @@ def register_project(
                 "project_name": project_name,
                 "workspace": workspace,
                 "status": "Created",
+                "client_review_team_visible": False,
                 "created_at": now,
             }
         )
@@ -382,6 +389,12 @@ def get_registered_project_status(
         "project_status": (
             matched.get("status")
             or "Created"
+        ),
+        "client_review_team_visible": bool(
+            matched.get(
+                "client_review_team_visible",
+                False,
+            )
         ),
     }
 
@@ -569,6 +582,172 @@ def update_registered_project_status(
         "updated_targets": updated_targets,
     }
 
+@router.post(
+    "/registry/workspace-projects/client-review-team-visibility"
+)
+def update_client_review_team_visibility(
+    payload: UpdateClientReviewTeamVisibilityRequest,
+    current_user: User = Depends(get_current_user),
+):
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role != "INSYT Admin":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Only INSYT Admin may change "
+                "Client Review Team visibility."
+            ),
+        )
+
+    workspace = str(
+        payload.workspace or ""
+    ).strip().lower()
+
+    client_name = str(
+        payload.client_name or ""
+    ).strip()
+
+    project_name = str(
+        payload.project_name or ""
+    ).strip()
+
+    if workspace not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Workspace must be capture, "
+                "summaries, or discovery."
+            ),
+        )
+
+    projects = load_registry_list(
+        PROJECT_REGISTRY_BLOB
+    )
+
+    matched = next(
+        (
+            item
+            for item in projects
+            if item.get("workspace") == workspace
+            and normalize_registry_name(
+                item.get("client_name")
+            )
+            == normalize_registry_name(
+                client_name
+            )
+            and normalize_registry_name(
+                item.get("project_name")
+            )
+            == normalize_registry_name(
+                project_name
+            )
+        ),
+        None,
+    )
+
+    if not matched:
+        raise HTTPException(
+            status_code=404,
+            detail="Project registry record not found.",
+        )
+
+    matched[
+        "client_review_team_visible"
+    ] = bool(payload.visible)
+
+    matched["updated_at"] = (
+        datetime.now(
+            timezone.utc
+        ).isoformat()
+    )
+
+    save_registry_list(
+        PROJECT_REGISTRY_BLOB,
+        projects,
+    )
+
+    project_root = build_project_base_path(
+        workspace=workspace,
+        client=client_name,
+        project=project_name,
+    )
+
+    marker_blob = (
+        f"{project_root}/project.json"
+    )
+
+    updated_targets = []
+
+    for target in get_project_storage_targets(
+        workspace
+    ):
+        container = target["container"]
+
+        blob_client = (
+            container.get_blob_client(
+                marker_blob
+            )
+        )
+
+        if not blob_client.exists():
+            continue
+
+        try:
+            existing_bytes = (
+                blob_client
+                .download_blob()
+                .readall()
+            )
+
+            metadata = json.loads(
+                existing_bytes.decode("utf-8")
+            )
+
+            if not isinstance(
+                metadata,
+                dict,
+            ):
+                metadata = {}
+
+        except Exception:
+            metadata = {}
+
+        metadata[
+            "client_review_team_visible"
+        ] = bool(payload.visible)
+
+        metadata["updated_at"] = (
+            datetime.now(
+                timezone.utc
+            ).isoformat()
+        )
+
+        blob_client.upload_blob(
+            json.dumps(
+                metadata,
+                indent=2,
+            ).encode("utf-8"),
+            overwrite=True,
+            content_type="application/json",
+        )
+
+        updated_targets.append(
+            target["target"]
+        )
+
+    return {
+        "status": "updated",
+        "workspace": workspace,
+        "client": client_name,
+        "project": project_name,
+        "client_review_team_visible":
+            bool(payload.visible),
+        "updated_targets": updated_targets,
+    }
+
 def build_project_metadata(
     workspace: str,
     client_name: str,
@@ -584,6 +763,7 @@ def build_project_metadata(
         "workspace": workspace,
         "status": "Created",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "client_review_team_visible": False,
     }
 
 def get_workspace_container_name(workspace: str):
