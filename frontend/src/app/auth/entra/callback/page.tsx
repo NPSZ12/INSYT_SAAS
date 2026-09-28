@@ -5,49 +5,6 @@ import { useEffect, useState } from "react";
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.insyt360.com";
 
-function getClaim(claims: any[], names: string[]) {
-  return claims?.find((claim: any) =>
-    names.includes(String(claim.typ || claim.name || "").toLowerCase())
-  )?.val;
-}
-
-function extractEmailFromAuthMe(meData: any) {
-  // Azure App Service Easy Auth usually returns an array:
-  // [{ provider_name, user_id, user_claims, user_claims... }]
-  if (Array.isArray(meData)) {
-    const identity = meData[0];
-    const claims = identity?.user_claims || identity?.claims || [];
-
-    return (
-      identity?.user_id ||
-      getClaim(claims, [
-        "preferred_username",
-        "email",
-        "emails",
-        "upn",
-        "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
-        "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn",
-      ])
-    );
-  }
-
-  // Static Web Apps-style shape, just in case
-  const principal = meData?.clientPrincipal;
-  const claims = principal?.claims || [];
-
-  return (
-    principal?.userDetails ||
-    getClaim(claims, [
-      "preferred_username",
-      "email",
-      "emails",
-      "upn",
-      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
-      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn",
-    ])
-  );
-}
-
 export default function EntraCallbackPage() {
   const [message, setMessage] = useState("Completing secure login...");
 
@@ -63,24 +20,34 @@ export default function EntraCallbackPage() {
         }
 
         const meData = await meResponse.json();
-        console.log("Easy Auth /.auth/me:", meData);
 
-        const email = extractEmailFromAuthMe(meData);
+        const identity =
+          Array.isArray(meData)
+            ? meData[0]
+            : null;
 
-        if (!email) {
-          throw new Error("Microsoft Entra login did not return an email.");
+        const idToken =
+          identity?.id_token;
+
+        if (!idToken) {
+          throw new Error(
+            "Microsoft Entra login did not return an identity token."
+          );
         }
 
-        const loginResponse = await fetch(`${API_BASE}/api/auth/entra-login`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            email,
-          }),
-        });
+        const loginResponse = await fetch(
+          `${API_BASE}/api/auth/entra-verified-login`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              id_token: idToken,
+            }),
+          }
+        );
 
         if (!loginResponse.ok) {
           const errorText = await loginResponse.text();
