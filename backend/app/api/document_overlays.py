@@ -6,11 +6,14 @@ from uuid import uuid4
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 from app.services.batch_service import get_container_client
 from app.services.storage_paths import build_project_base_path, build_project_path
 
+from app.models.user import User
+from app.services.authorization import normalize_role
+from app.services.security import get_current_user, safe_json_list
 
 router = APIRouter(
     prefix="/api/document-overlays",
@@ -20,6 +23,84 @@ router = APIRouter(
 
 VALID_WORKSPACES = {"capture", "summaries", "discovery"}
 VALID_OVERLAY_VIEWS = {"raw", "final"}
+
+def require_bound_client_scope(
+    current_user: User,
+    client_name: str | None,
+) -> None:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role not in {
+        "Client",
+        "Client Admin",
+    }:
+        return
+
+    client_names: set[str] = set()
+
+    for value in safe_json_list(
+        current_user.client_access
+    ):
+        raw = str(value or "").strip()
+
+        if not raw or raw == "ALL":
+            continue
+
+        parts = raw.split("/")
+
+        if len(parts) >= 2:
+            client_names.add(
+                "/".join(parts[1:]).strip()
+            )
+        else:
+            client_names.add(raw)
+
+    client_names = {
+        value
+        for value in client_names
+        if value
+    }
+
+    if len(client_names) != 1:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Client and Client Admin accounts "
+                "must be assigned to exactly one "
+                "Client / DBA."
+            ),
+        )
+
+    requested_client = clean_path(
+        client_name
+    )
+
+    if not requested_client:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Client is required for this account."
+            ),
+        )
+
+    bound_client = next(
+        iter(client_names)
+    )
+
+    if (
+        bound_client.strip().lower()
+        != requested_client.strip().lower()
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Access denied. This account may "
+                "only access overlays for its "
+                "assigned Client / DBA."
+            ),
+        )
 
 DOC_ID_FIELD_CANDIDATES = [
     "Doc ID",
@@ -607,9 +688,15 @@ async def preview_document_overlay(
     overlay_view: str = Form(...),
     file: UploadFile = File(...),
     doc_id_field: str | None = Form(None),
+    current_user: User = Depends(get_current_user),
 ):
     validate_workspace(workspace)
     validate_overlay_view(overlay_view)
+
+    require_bound_client_scope(
+        current_user,
+        client,
+    )
 
     content = await file.read()
 
@@ -758,9 +845,15 @@ async def commit_document_overlay(
     overlay_view: str = Form(...),
     file: UploadFile = File(...),
     doc_id_field: str | None = Form(None),
+    current_user: User = Depends(get_current_user),
 ):
     validate_workspace(workspace)
     validate_overlay_view(overlay_view)
+
+    require_bound_client_scope(
+        current_user,
+        client,
+    )
 
     content = await file.read()
 
@@ -990,8 +1083,14 @@ def list_document_overlays(
     workspace: str = Query(default="capture"),
     client: str | None = Query(default=None),
     overlay_view: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
 ):
     validate_workspace(workspace)
+
+    require_bound_client_scope(
+        current_user,
+        client,
+    )
 
     if overlay_view:
         validate_overlay_view(overlay_view)
@@ -1052,9 +1151,15 @@ def get_latest_document_overlay(
     workspace: str = Query(default="capture"),
     client: str | None = Query(default=None),
     overlay_view: str = Query(default="raw"),
+    current_user: User = Depends(get_current_user),
 ):
     validate_workspace(workspace)
     validate_overlay_view(overlay_view)
+
+    require_bound_client_scope(
+        current_user,
+        client,
+    )
 
     try:
         container = get_container_client(workspace)

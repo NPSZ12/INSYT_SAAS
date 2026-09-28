@@ -4,12 +4,15 @@ import os
 
 import pandas as pd
 from azure.storage.blob import BlobServiceClient
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
 from app.services.storage_paths import build_project_path
 
+from app.models.user import User
+from app.services.authorization import normalize_role
+from app.services.security import get_current_user, safe_json_list
 
 class SaveProtocolRequest(BaseModel):
     protocol_template: str
@@ -22,6 +25,72 @@ router = APIRouter(
     prefix="/api",
     tags=["workspace-protocols"],
 )
+
+def require_bound_client_scope(
+    current_user: User,
+    client_name: str,
+) -> None:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role not in {
+        "Client",
+        "Client Admin",
+    }:
+        return
+
+    client_names: set[str] = set()
+
+    for value in safe_json_list(
+        current_user.client_access
+    ):
+        raw = str(value or "").strip()
+
+        if not raw or raw == "ALL":
+            continue
+
+        parts = raw.split("/")
+
+        if len(parts) >= 2:
+            client_names.add(
+                "/".join(parts[1:]).strip()
+            )
+        else:
+            client_names.add(raw)
+
+    client_names = {
+        value
+        for value in client_names
+        if value
+    }
+
+    if len(client_names) != 1:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Client and Client Admin accounts "
+                "must be assigned to exactly one "
+                "Client / DBA."
+            ),
+        )
+
+    bound_client = next(
+        iter(client_names)
+    )
+
+    if (
+        normalize_name(bound_client)
+        != normalize_name(client_name)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Access denied. This account may "
+                "only access protocols for its "
+                "assigned Client / DBA."
+            ),
+        )
 
 def normalize_name(value: str | None) -> str:
     return (
@@ -135,6 +204,7 @@ def get_workspace_protocol(
     workspace: str,
     project_id: str,
     client: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
 ):
     workspace = workspace.lower().strip()
 
@@ -148,6 +218,11 @@ def get_workspace_protocol(
         workspace=workspace,
         project_id=project_id,
         client=client,
+    )
+
+    require_bound_client_scope(
+        current_user,
+        client,
     )
 
     try:
@@ -339,6 +414,7 @@ def save_workspace_protocol(
     project_id: str,
     payload: SaveProtocolRequest,
     client: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
 ):
     workspace = workspace.lower().strip()
 
@@ -352,6 +428,11 @@ def save_workspace_protocol(
         workspace=workspace,
         project_id=project_id,
         client=client or payload.client,
+    )
+
+    require_bound_client_scope(
+        current_user,
+        client,
     )
 
     container = get_live_source_container_client(workspace)

@@ -28,6 +28,13 @@ type RegistryClient = {
   workspaces?: string[];
 };
 
+type StoredUser = {
+  username?: string;
+  role?: string;
+  client_access?: string[];
+  workspace_access?: string[];
+};
+
 const PROJECT_STATUSES = [
   "Created",
   "Docs Processing",
@@ -85,13 +92,135 @@ export default function NewProjectPage() {
   const [overlayView, setOverlayView] =
     useState<"raw" | "final">("raw");
 
+  const [loggedInUser] = useState<StoredUser | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    try {
+      return JSON.parse(
+        localStorage.getItem("insyt_user") || "null"
+      );
+    } catch {
+      return null;
+    }
+  });
+
+
+  function isSingleClientRole() {
+    const role = String(
+      loggedInUser?.role || ""
+    ).trim();
+
+    return (
+      role === "Client" ||
+      role === "Client Admin"
+    );
+  }
+
+
+  function getBoundClientName() {
+    if (!isSingleClientRole()) {
+      return "";
+    }
+
+    const clientNames = new Set<string>();
+
+    for (
+      const value of
+      loggedInUser?.client_access || []
+    ) {
+      const raw = String(value || "").trim();
+
+      if (!raw || raw === "ALL") {
+        continue;
+      }
+
+      const parts = raw.split("/");
+
+      if (parts.length >= 2) {
+        clientNames.add(
+          parts.slice(1).join("/")
+        );
+      } else {
+        clientNames.add(raw);
+      }
+    }
+
+    return clientNames.size === 1
+      ? Array.from(clientNames)[0]
+      : "";
+  }
+
+
+  function restrictClientsToLoggedInUser(
+    availableClients: string[]
+  ) {
+    if (!isSingleClientRole()) {
+      return availableClients;
+    }
+
+    const boundClient =
+      getBoundClientName();
+
+    if (!boundClient) {
+      return [];
+    }
+
+    return availableClients.filter(
+      (client) => client === boundClient
+    );
+  }
   function loadRegistryClients() {
     apiGet("/api/registry/workspace-clients")
       .then((response) => {
-        setRegistryClients(response.clients || []);
+        const loadedRegistryClients: RegistryClient[] =
+          response.clients || [];
+
+        if (!isSingleClientRole()) {
+          setRegistryClients(
+            loadedRegistryClients
+          );
+          return;
+        }
+
+        const boundClient =
+          getBoundClientName();
+
+        const authorizedRegistryClients =
+          loadedRegistryClients.filter(
+            (client) =>
+              client.client_name === boundClient
+          );
+
+        setRegistryClients(
+          authorizedRegistryClients
+        );
+
+        const authorizedClient =
+          authorizedRegistryClients[0];
+
+        if (authorizedClient) {
+          setSelectedClientUuid(
+            authorizedClient.client_uuid
+          );
+
+          setSelectedClient(
+            authorizedClient.client_name
+          );
+
+          setNewClientName("");
+        } else {
+          setSelectedClientUuid("");
+          setSelectedClient("");
+        }
       })
       .catch((error) => {
-        console.error("Failed to load registered clients:", error);
+        console.error(
+          "Failed to load registered clients:",
+          error
+        );
+
         setRegistryClients([]);
       });
   }
@@ -149,13 +278,44 @@ export default function NewProjectPage() {
   useEffect(() => {
     apiGet(`/api/${workspace}/clients`)
       .then((response) => {
-        const loadedClients = response.clients || [];
+        const loadedClients =
+          response.clients || [];
 
-        setClients(loadedClients);
+        const authorizedClients =
+          restrictClientsToLoggedInUser(
+            loadedClients
+          );
+
+        setClients(authorizedClients);
+
+        if (isSingleClientRole()) {
+          const boundClient =
+            getBoundClientName();
+
+          if (
+            boundClient &&
+            authorizedClients.includes(
+              boundClient
+            )
+          ) {
+            setSelectedClient(
+              boundClient
+            );
+
+            setSelectedProject("");
+          } else {
+            setSelectedClient("");
+            setSelectedProject("");
+          }
+
+          return;
+        }
 
         if (
           selectedClient &&
-          !loadedClients.includes(selectedClient)
+          !authorizedClients.includes(
+            selectedClient
+          )
         ) {
           setSelectedClient("");
           setSelectedProject("");
@@ -203,9 +363,44 @@ export default function NewProjectPage() {
       `/api/${targetWorkspace}/clients`
     )
       .then((response) => {
+        const loadedClients =
+          response.clients || [];
+
+        const authorizedClients =
+          restrictClientsToLoggedInUser(
+            loadedClients
+          );
+
         setStatusClients(
-          response.clients || []
+          authorizedClients
         );
+
+        if (isSingleClientRole()) {
+          const boundClient =
+            getBoundClientName();
+
+          if (
+            boundClient &&
+            authorizedClients.includes(
+              boundClient
+            )
+          ) {
+            setStatusClient(
+              boundClient
+            );
+
+            setStatusProject("");
+
+            loadStatusProjects(
+              boundClient,
+              targetWorkspace
+            );
+          } else {
+            setStatusClient("");
+            setStatusProject("");
+            setStatusProjects([]);
+          }
+        }
       })
       .catch((error) => {
         console.error(
@@ -214,9 +409,11 @@ export default function NewProjectPage() {
         );
 
         setStatusClients([]);
+        setStatusClient("");
+        setStatusProject("");
+        setStatusProjects([]);
       });
   }
-
 
   function loadStatusProjects(
     clientOverride?: string,
@@ -348,6 +545,28 @@ export default function NewProjectPage() {
 
   function createProject() {
     setMessage("");
+
+    if (isSingleClientRole()) {
+      const boundClient =
+        getBoundClientName();
+
+      if (!boundClient) {
+        setMessage(
+          "Your account does not have a valid Client / DBA assignment."
+        );
+        return;
+      }
+
+      if (
+        selectedClient &&
+        selectedClient !== boundClient
+      ) {
+        setMessage(
+          "You may only create projects for your assigned Client / DBA."
+        );
+        return;
+      }
+    }
 
     const selectedRegistryClient = registryClients.find(
       (client) => client.client_uuid === selectedClientUuid
@@ -649,22 +868,37 @@ export default function NewProjectPage() {
             </div>
 
             <div>
-              <FormLabel>Or Create New Client</FormLabel>
+              <FormLabel>
+                {isSingleClientRole()
+                  ? "Client / DBA"
+                  : "Or Create New Client"}
+              </FormLabel>
 
-              <Input
-                value={newClientName}
-                onChange={(value) => {
-                  setNewClientName(value);
+              {isSingleClientRole() ? (
+                <div className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300">
+                  {getBoundClientName()
+                    ? getBoundClientName().replaceAll(
+                        "_",
+                        " "
+                      )
+                    : "No Client / DBA assigned"}
+                </div>
+              ) : (
+                <Input
+                  value={newClientName}
+                  onChange={(value) => {
+                    setNewClientName(value);
 
-                  if (value.trim()) {
-                    setSelectedClient("");
-                    setSelectedClientUuid("");
-                    setProjects([]);
-                    setSelectedProject("");
-                  }
-                }}
-                placeholder="Example: Client_1"
-              />
+                    if (value.trim()) {
+                      setSelectedClient("");
+                      setSelectedClientUuid("");
+                      setProjects([]);
+                      setSelectedProject("");
+                    }
+                  }}
+                  placeholder="Example: Client_1"
+                />
+              )}
             </div>
 
             <div>

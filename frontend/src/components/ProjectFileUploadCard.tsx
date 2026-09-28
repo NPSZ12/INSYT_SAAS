@@ -19,6 +19,8 @@ type StoredUser = {
   username: string;
   display_name: string;
   role: string;
+  client_access?: string[];
+  workspace_access?: string[];
 };
 
 const workspaceOptions = [
@@ -91,6 +93,42 @@ export default function ProjectFileUploadCard({
   const isClientUser =
     normalizedRole === "client";
 
+  const isSingleClientRole =
+    normalizedRole === "client" ||
+    normalizedRole === "client admin";
+
+
+  function getBoundClientName() {
+    if (!isSingleClientRole) {
+      return "";
+    }
+
+    const clientNames = new Set<string>();
+
+    for (const value of user?.client_access || []) {
+      const raw = String(value || "").trim();
+
+      if (!raw || raw === "ALL") {
+        continue;
+      }
+
+      const parts = raw.split("/");
+
+      if (parts.length >= 2) {
+        clientNames.add(
+          parts.slice(1).join("/")
+        );
+      } else {
+        clientNames.add(raw);
+      }
+    }
+
+    return clientNames.size === 1
+      ? Array.from(clientNames)[0]
+      : "";
+  }
+
+
   const canSeeAllFolders =
     normalizedRole.includes("admin") ||
     normalizedRole === "rm";
@@ -120,15 +158,65 @@ export default function ProjectFileUploadCard({
       `/api/${selectedWorkspace}/clients`
     )
       .then((response) => {
-        setClients(response.clients || []);
+        const loadedClients: string[] =
+          response.clients || [];
+
+        if (!isSingleClientRole) {
+          setClients(loadedClients);
+          return;
+        }
+
+        const boundClient =
+          getBoundClientName();
+
+        if (!boundClient) {
+          setClients([]);
+          setSelectedClient("");
+          setWorkspaceProjects([]);
+          setSelectedProject("");
+
+          setMessage(
+            "Your account does not have a valid Client / DBA assignment."
+          );
+
+          return;
+        }
+
+        const authorizedClients =
+          loadedClients.filter(
+            (client) =>
+              client === boundClient
+          );
+
+        setClients(
+          authorizedClients
+        );
+
+        if (
+          authorizedClients.includes(
+            boundClient
+          )
+        ) {
+          setSelectedClient(
+            boundClient
+          );
+        } else {
+          setSelectedClient("");
+          setWorkspaceProjects([]);
+          setSelectedProject("");
+        }
       })
       .catch((error) => {
         console.error(error);
         setClients([]);
+        setSelectedClient("");
+        setWorkspaceProjects([]);
+        setSelectedProject("");
         setMessage("Failed to load clients.");
       });
   }, [
     selectedWorkspace,
+    user,
     setSelectedProject,
     setMessage,
   ]);
@@ -183,6 +271,21 @@ export default function ProjectFileUploadCard({
           "Select a client before uploading files."
         );
         return;
+      }
+
+      if (isSingleClientRole) {
+        const boundClient =
+          getBoundClientName();
+
+        if (
+          !boundClient ||
+          selectedClient !== boundClient
+        ) {
+          setMessage(
+            "You may only upload files to your assigned Client / DBA."
+          );
+          return;
+        }
       }
 
       if (!selectedProject) {
@@ -339,6 +442,7 @@ export default function ProjectFileUploadCard({
 
             <Select
               value={selectedClient}
+              disabled={isSingleClientRole}
               onChange={(value) => {
                 setSelectedClient(value);
                 setSelectedProject("");

@@ -1,8 +1,12 @@
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.services.batch_service import get_container_client
 from app.services.summary_text_service import create_summary_text_file
 from app.services.storage_paths import build_project_path
+
+from app.models.user import User
+from app.services.authorization import normalize_role
+from app.services.security import get_current_user, safe_json_list
 
 router = APIRouter(
     prefix="/api",
@@ -15,6 +19,72 @@ VALID_WORKSPACES = {
     "discovery",
     "development",
 }
+
+def require_bound_client_scope(
+    current_user: User,
+    client_name: str,
+) -> None:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role not in {
+        "Client",
+        "Client Admin",
+    }:
+        return
+
+    client_names: set[str] = set()
+
+    for value in safe_json_list(
+        current_user.client_access
+    ):
+        raw = str(value or "").strip()
+
+        if not raw or raw == "ALL":
+            continue
+
+        parts = raw.split("/")
+
+        if len(parts) >= 2:
+            client_names.add(
+                "/".join(parts[1:]).strip()
+            )
+        else:
+            client_names.add(raw)
+
+    client_names = {
+        value
+        for value in client_names
+        if value
+    }
+
+    if len(client_names) != 1:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Client and Client Admin accounts "
+                "must be assigned to exactly one "
+                "Client / DBA."
+            ),
+        )
+
+    bound_client = next(
+        iter(client_names)
+    )
+
+    if (
+        bound_client.strip().lower()
+        != client_name.strip().lower()
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Access denied. This account may "
+                "only upload files to its assigned "
+                "Client / DBA."
+            ),
+        )
 
 
 def clean_folder(value: str) -> str:
@@ -38,6 +108,7 @@ async def upload_workspace_files(
     project_id: str = Form(...),
     folder: str = Form(...),
     files: list[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
 ):
     container = get_workspace_container(workspace)
 
@@ -50,6 +121,11 @@ async def upload_workspace_files(
             status_code=400,
             detail="Client is required.",
         )
+
+    require_bound_client_scope(
+        current_user,
+        client_name,
+    )
 
     if not project_name:
         raise HTTPException(

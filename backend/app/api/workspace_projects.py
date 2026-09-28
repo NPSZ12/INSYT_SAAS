@@ -4,11 +4,15 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.services.batch_service import get_container_client
 from app.services.storage_paths import build_project_base_path
+from app.models.user import User
+from app.services.authorization import normalize_role
+from app.services.security import get_current_user, safe_json_list
+
 
 router = APIRouter(prefix="/api", tags=["workspace-projects"])
 
@@ -32,6 +36,94 @@ PROJECT_STATUSES = [
     "Purged",
 ]
 
+def _bound_client_name_for_user(
+    current_user: User,
+) -> str:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role not in {
+        "Client",
+        "Client Admin",
+    }:
+        return ""
+
+    client_names: set[str] = set()
+
+    for value in safe_json_list(
+        current_user.client_access
+    ):
+        raw = str(value or "").strip()
+
+        if not raw or raw == "ALL":
+            continue
+
+        parts = raw.split("/")
+
+        if len(parts) >= 2:
+            client_names.add(
+                "/".join(parts[1:]).strip()
+            )
+        else:
+            client_names.add(raw)
+
+    client_names = {
+        value
+        for value in client_names
+        if value
+    }
+
+    if len(client_names) != 1:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Client and Client Admin accounts "
+                "must be assigned to exactly one "
+                "Client / DBA."
+            ),
+        )
+
+    return next(iter(client_names))
+
+
+def _require_client_scope(
+    current_user: User,
+    client_name: str,
+) -> None:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role not in {
+        "Client",
+        "Client Admin",
+    }:
+        return
+
+    bound_client = _bound_client_name_for_user(
+        current_user
+    )
+
+    requested_client = str(
+        client_name or ""
+    ).strip()
+
+    if (
+        normalize_registry_name(
+            requested_client
+        )
+        != normalize_registry_name(
+            bound_client
+        )
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Access denied. This account may "
+                "only access its assigned Client / DBA."
+            ),
+        )
 
 class UpdateProjectStatusRequest(BaseModel):
     workspace: str
@@ -223,6 +315,7 @@ def get_registered_project_status(
     workspace: str,
     client_name: str,
     project_name: str,
+    current_user: User = Depends(get_current_user),
 ):
     workspace = str(
         workspace or ""
@@ -231,6 +324,11 @@ def get_registered_project_status(
     client_name = str(
         client_name or ""
     ).strip()
+
+    _require_client_scope(
+        current_user,
+        client_name,
+    )
 
     project_name = str(
         project_name or ""
@@ -291,6 +389,7 @@ def get_registered_project_status(
 @router.post("/registry/workspace-projects/status")
 def update_registered_project_status(
     payload: UpdateProjectStatusRequest,
+    current_user: User = Depends(get_current_user),
 ):
     workspace = str(
         payload.workspace or ""
@@ -299,6 +398,11 @@ def update_registered_project_status(
     client_name = str(
         payload.client_name or ""
     ).strip()
+
+    _require_client_scope(
+        current_user,
+        client_name,
+    )
 
     project_name = str(
         payload.project_name or ""
@@ -681,20 +785,35 @@ def get_project_storage_targets(workspace: str):
     return targets
   
 @router.get("/registry/workspace-clients")
-def list_registered_clients():
-    clients = load_registry_list(CLIENT_REGISTRY_BLOB)
-    projects = load_registry_list(PROJECT_REGISTRY_BLOB)
+def list_registered_clients(
+    current_user: User = Depends(get_current_user),
+):
+    clients = load_registry_list(
+        CLIENT_REGISTRY_BLOB
+    )
+
+    projects = load_registry_list(
+        PROJECT_REGISTRY_BLOB
+    )
 
     clients_by_name: dict[str, dict] = {}
 
-    # Start with existing client registry, but clean bad/junk entries.
+    # Start with existing client registry,
+    # but clean bad/junk entries.
     for client in clients:
-        client_name = client.get("client_name") or ""
+        client_name = (
+            client.get("client_name")
+            or ""
+        )
 
-        if not is_valid_registry_client_name(client_name):
+        if not is_valid_registry_client_name(
+            client_name
+        ):
             continue
 
-        normalized = normalize_registry_name(client_name)
+        normalized = normalize_registry_name(
+            client_name
+        )
 
         if normalized not in clients_by_name:
             clients_by_name[normalized] = {
@@ -702,51 +821,83 @@ def list_registered_clients():
                 "client_name": client_name,
                 "normalized_name": normalized,
                 "workspaces": sorted(
-                    set(client.get("workspaces") or [])
+                    set(
+                        client.get("workspaces")
+                        or []
+                    )
                 ),
             }
 
     # Merge from project registry.
     for project in projects:
-        client_name = project.get("client_name") or ""
-        workspace = project.get("workspace") or ""
+        client_name = (
+            project.get("client_name")
+            or ""
+        )
+
+        workspace = (
+            project.get("workspace")
+            or ""
+        )
 
         if workspace not in VALID_WORKSPACES:
             continue
 
-        if not is_valid_registry_client_name(client_name):
+        if not is_valid_registry_client_name(
+            client_name
+        ):
             continue
 
-        normalized = normalize_registry_name(client_name)
+        normalized = normalize_registry_name(
+            client_name
+        )
 
         if normalized not in clients_by_name:
             clients_by_name[normalized] = {
-                "client_uuid": project.get("client_uuid") or str(uuid.uuid4()),
+                "client_uuid":
+                    project.get("client_uuid")
+                    or str(uuid.uuid4()),
                 "client_name": client_name,
                 "normalized_name": normalized,
-                "created_at": (
+                "created_at":
                     project.get("created_at")
-                    or datetime.now(timezone.utc).isoformat()
-                ),
+                    or datetime.now(
+                        timezone.utc
+                    ).isoformat(),
                 "workspaces": [],
             }
 
-        workspaces = clients_by_name[normalized].get("workspaces") or []
+        workspaces = (
+            clients_by_name[normalized]
+            .get("workspaces")
+            or []
+        )
 
         if workspace not in workspaces:
-            workspaces.append(workspace)
+            workspaces.append(
+                workspace
+            )
 
-        clients_by_name[normalized]["workspaces"] = sorted(workspaces)
+        clients_by_name[
+            normalized
+        ]["workspaces"] = sorted(
+            workspaces
+        )
 
-    # Also discover existing clients from canonical INSYT project markers only:
+    # Also discover existing clients from
+    # canonical INSYT project markers only:
     # {client}/{workspace}/{project}/project.json
     for workspace in VALID_WORKSPACES:
-        container = get_container_client(workspace)
+        container = get_container_client(
+            workspace
+        )
 
         for blob in container.list_blobs():
-            parsed = parse_insyt_project_marker_path(
-                blob_name=blob.name,
-                workspace=workspace,
+            parsed = (
+                parse_insyt_project_marker_path(
+                    blob_name=blob.name,
+                    workspace=workspace,
+                )
             )
 
             if not parsed:
@@ -754,62 +905,161 @@ def list_registered_clients():
 
             client_name = parsed["client"]
 
-            if not is_valid_registry_client_name(client_name):
+            if not is_valid_registry_client_name(
+                client_name
+            ):
                 continue
 
-            normalized = normalize_registry_name(client_name)
+            normalized = (
+                normalize_registry_name(
+                    client_name
+                )
+            )
 
             if normalized not in clients_by_name:
                 clients_by_name[normalized] = {
-                    "client_uuid": str(uuid.uuid4()),
-                    "client_name": client_name,
-                    "normalized_name": normalized,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "client_uuid":
+                        str(uuid.uuid4()),
+                    "client_name":
+                        client_name,
+                    "normalized_name":
+                        normalized,
+                    "created_at":
+                        datetime.now(
+                            timezone.utc
+                        ).isoformat(),
                     "workspaces": [],
                 }
 
-            workspaces = clients_by_name[normalized].get("workspaces") or []
+            workspaces = (
+                clients_by_name[normalized]
+                .get("workspaces")
+                or []
+            )
 
             if workspace not in workspaces:
-                workspaces.append(workspace)
+                workspaces.append(
+                    workspace
+                )
 
-            clients_by_name[normalized]["workspaces"] = sorted(workspaces)
+            clients_by_name[
+                normalized
+            ]["workspaces"] = sorted(
+                workspaces
+            )
 
-    cleaned_clients = list(clients_by_name.values())
-
-    cleaned_clients.sort(
-        key=lambda item: normalize_registry_name(item.get("client_name"))
+    cleaned_clients = list(
+        clients_by_name.values()
     )
 
-    save_registry_list(CLIENT_REGISTRY_BLOB, cleaned_clients)
+    cleaned_clients.sort(
+        key=lambda item:
+            normalize_registry_name(
+                item.get("client_name")
+            )
+    )
+
+    # Preserve the complete canonical registry.
+    save_registry_list(
+        CLIENT_REGISTRY_BLOB,
+        cleaned_clients,
+    )
+
+    response_clients = cleaned_clients
+
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role in {
+        "Client",
+        "Client Admin",
+    }:
+        bound_client = (
+            _bound_client_name_for_user(
+                current_user
+            )
+        )
+
+        response_clients = [
+            client
+            for client in cleaned_clients
+            if normalize_registry_name(
+                client.get("client_name")
+            )
+            == normalize_registry_name(
+                bound_client
+            )
+        ]
 
     return {
         "status": "success",
-        "clients": cleaned_clients,
+        "clients": response_clients,
     }
 
 @router.get("/{workspace}/clients")
-def list_workspace_clients(workspace: str):
-    if workspace not in ["capture", "summaries", "discovery"]:
+def list_workspace_clients(
+    workspace: str,
+    current_user: User = Depends(get_current_user),
+):
+    if workspace not in [
+        "capture",
+        "summaries",
+        "discovery",
+    ]:
         raise HTTPException(
             status_code=400,
-            detail="Workspace must be capture, summaries, or discovery.",
+            detail=(
+                "Workspace must be capture, "
+                "summaries, or discovery."
+            ),
         )
 
-    container = get_container_client(workspace)
+    container = get_container_client(
+        workspace
+    )
 
     clients = set()
 
     for blob in container.list_blobs():
-        parsed = parse_insyt_project_marker_path(
-            blob_name=blob.name,
-            workspace=workspace,
+        parsed = (
+            parse_insyt_project_marker_path(
+                blob_name=blob.name,
+                workspace=workspace,
+            )
         )
 
         if not parsed:
             continue
 
-        clients.add(parsed["client"])
+        clients.add(
+            parsed["client"]
+        )
+
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role in {
+        "Client",
+        "Client Admin",
+    }:
+        bound_client = (
+            _bound_client_name_for_user(
+                current_user
+            )
+        )
+
+        clients = {
+            client
+            for client in clients
+            if normalize_registry_name(
+                client
+            )
+            == normalize_registry_name(
+                bound_client
+            )
+        }
 
     return {
         "status": "success",
@@ -822,12 +1072,18 @@ def list_workspace_clients(workspace: str):
 def list_workspace_client_projects(
     workspace: str,
     client_name: str,
+    current_user: User = Depends(get_current_user),
 ):
     if workspace not in ["capture", "summaries", "discovery"]:
         raise HTTPException(
             status_code=400,
             detail="Workspace must be capture, summaries, or discovery.",
         )
+
+    _require_client_scope(
+        current_user,
+        client_name,
+    )
 
     container = get_container_client(workspace)
 
@@ -860,12 +1116,18 @@ def list_workspace_client_projects(
 @router.post("/registry/workspace-projects/create")
 def create_registered_workspace_project(
     payload: RegistryCreateProjectRequest,
+    current_user: User = Depends(get_current_user),
 ):
     if payload.workspace not in VALID_WORKSPACES:
         raise HTTPException(
             status_code=400,
             detail="Workspace must be capture, summaries, or discovery.",
         )
+
+    _require_client_scope(
+        current_user,
+        payload.client_name,
+    )
 
     client_uuid, client_name = get_or_create_client_uuid(
         payload.client_name
@@ -888,6 +1150,7 @@ def create_registered_workspace_project(
     result = create_workspace_project(
         workspace=payload.workspace,
         payload=create_payload,
+        current_user=current_user,
     )
 
     update_client_workspace(
@@ -918,6 +1181,7 @@ def create_registered_workspace_project(
 def create_workspace_project(
     workspace: str,
     payload: CreateProjectRequest,
+    current_user: User = Depends(get_current_user),
 ):
     workspace = workspace.lower().strip()
 
@@ -943,6 +1207,11 @@ def create_workspace_project(
                 status_code=400,
                 detail="Client name is required.",
             )
+
+        _require_client_scope(
+            current_user,
+            incoming_client_name,
+        )
 
         if not incoming_project_name:
             raise HTTPException(
