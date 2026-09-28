@@ -27,16 +27,7 @@ type StoredUser = {
 };
 
 function isAdminUser(user: StoredUser | null) {
-  const role = user?.role?.toLowerCase() || "";
-
-  return (
-    role.includes("admin") ||
-    role === "rm" ||
-    role === "tl" ||
-    role === "qc" ||
-    role.includes("review manager") ||
-    role.includes("team lead")
-  );
+  return user?.role === "INSYT Admin";
 }
 
 function ProjectsPageContent() {
@@ -63,11 +54,11 @@ function ProjectsPageContent() {
       currentUser?.workspace_access || [];
 
     return (
-      allowedWorkspaces.includes("capture") ||
-      allowedWorkspaces.includes("discovery") ||
-      allowedWorkspaces.includes("summaries")
+      allowedWorkspaces.includes("ALL") ||
+      allowedWorkspaces.includes(workspace)
     );
   }
+
   function userCanAccessClient(
     currentUser: StoredUser | null,
     client: string
@@ -77,7 +68,14 @@ function ProjectsPageContent() {
     const allowedClients =
       currentUser?.client_access || [];
 
-    return allowedClients.includes(client);
+    const scopedClient =
+      `${workspace}/${client}`;
+
+    return (
+      allowedClients.includes("ALL") ||
+      allowedClients.includes(scopedClient) ||
+      allowedClients.includes(client)
+    );
   }
 
   function userCanAccessProject(
@@ -90,8 +88,16 @@ function ProjectsPageContent() {
     const allowedProjects =
       currentUser?.project_access || [];
 
-    return allowedProjects.includes(
-      `${client}/${projectId}`
+    const scopedProject =
+      `${workspace}/${client}/${projectId}`;
+
+    const legacyProject =
+      `${client}/${projectId}`;
+
+    return (
+      allowedProjects.includes("ALL") ||
+      allowedProjects.includes(scopedProject) ||
+      allowedProjects.includes(legacyProject)
     );
   }
 

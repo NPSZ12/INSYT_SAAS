@@ -373,6 +373,11 @@ function UserAccessPageContent() {
     useState<Record<string, boolean>>({});
   const [permissionsExpanded, setPermissionsExpanded] =
     useState(false);
+  const [addEditExpanded, setAddEditExpanded] =
+    useState(true);
+
+  const [existingUsersExpanded, setExistingUsersExpanded] =
+    useState(true);
 
   const [selectedUsers, setSelectedUsers] =
     useState<Record<string, boolean>>({});
@@ -1010,7 +1015,27 @@ const filteredUsers = users.filter((user) => {
         )}
 
         <ContentCard title="Add / Edit User Access">
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 mb-6">
+          <button
+            type="button"
+            onClick={() =>
+              setAddEditExpanded((current) => !current)
+            }
+            className="mb-4 flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-4 py-3 text-left text-sm font-semibold text-white hover:border-slate-700"
+          >
+            <span>
+              {addEditExpanded
+                ? "Collapse Add / Edit User Access"
+                : "Expand Add / Edit User Access"}
+            </span>
+
+            <span className="text-slate-400">
+              {addEditExpanded ? "▾" : "▸"}
+            </span>
+          </button>
+
+          {addEditExpanded && (
+            <>
+              <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 mb-6">
             <div>
               <FormLabel>User</FormLabel>
               <Input
@@ -1425,11 +1450,33 @@ const filteredUsers = users.filter((user) => {
               Update User Access
             </Button>
           </div>
-        </ContentCard>
+              </>
+            )}
+          </ContentCard>
 
         <div className="mt-6">
           <ContentCard title="Existing Users">
-            <div className="mb-4 flex gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                setExistingUsersExpanded((current) => !current)
+              }
+              className="mb-4 flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-4 py-3 text-left text-sm font-semibold text-white hover:border-slate-700"
+            >
+              <span>
+                {existingUsersExpanded
+                  ? "Collapse Existing Users"
+                  : "Expand Existing Users"}
+              </span>
+
+              <span className="text-slate-400">
+                {existingUsersExpanded ? "▾" : "▸"}
+              </span>
+            </button>
+
+            {existingUsersExpanded && (
+              <>
+                <div className="mb-4 flex gap-3">
               <Button
                 variant="secondary"
                 onClick={editSelectedUsers}
@@ -1679,7 +1726,9 @@ const filteredUsers = users.filter((user) => {
                 </tbody>
               </table>
             </div>
-          </ContentCard>
+                </>
+              )}
+            </ContentCard>
         </div>
       </PageContainer>
 
