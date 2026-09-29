@@ -25,7 +25,38 @@ type AccessUser = {
   permissions?: string[];
 };
 
-const levels = ["1L", "QC", "TL", "Client", "Admin"];
+const levels = [
+  "Reviewer",
+  "QC",
+  "TL",
+  "Client",
+  "Client Admin",
+  "INSYT Manager",
+];
+
+function displayRole(role: string) {
+  const clean = String(role || "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    clean === "1l" ||
+    clean === "1l reviewer" ||
+    clean === "reviewer 1l"
+  ) {
+    return "Reviewer";
+  }
+
+  if (clean === "rm") {
+    return "INSYT Manager";
+  }
+
+  if (clean === "admin") {
+    return "Client Admin";
+  }
+
+  return role;
+}
 
 const launches = [
   "INSYT™ Capture",
@@ -55,7 +86,7 @@ export default function UserAccessPage() {
     email: "",
     username: "",
     password: "",
-    role: "1L",
+    role: "Reviewer",
     project_access: [] as string[],
     launches: ["INSYT™ Summaries"] as string[],
     permissions: [] as string[],
@@ -119,7 +150,7 @@ export default function UserAccessPage() {
           display_name: "",
           username: "",
           password: "",
-          role: "1L",
+          role: "Reviewer",
           project_access: [],
           launches: ["INSYT™ Summaries"],
           permissions: [],
@@ -148,7 +179,7 @@ export default function UserAccessPage() {
           display_name: "",
           username: "",
           password: "",
-          role: "1L",
+          role: "Reviewer",
           project_access: [],
           launches: ["INSYT™ Summaries"],
           permissions: [],
@@ -180,7 +211,7 @@ export default function UserAccessPage() {
       display_name: selectedUser.display_name,
       username: selectedUser.username,
       password: "",
-      role: selectedUser.role,
+      role: displayRole(selectedUser.role),
       project_access: selectedUser.project_access || [],
       launches: selectedUser.launches || [],
       permissions: selectedUser.permissions || [],
@@ -388,7 +419,7 @@ export default function UserAccessPage() {
                       </td>
 
                       <td className="p-3 text-slate-300">
-                        {user.role}
+                        {displayRole(user.role)}
                       </td>
 
                       <td className="p-3 text-slate-300">
