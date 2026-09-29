@@ -21,6 +21,12 @@ from app.services.summary_outline_service import parse_summary_outline
 from app.services.pdf_text_service import get_text_blob_path
 from app.services.storage_paths import build_project_base_path, build_project_path
 from app.services.review_metrics import build_project_review_metrics
+from app.services.qc_scoring import (
+    calculate_qc_score,
+    load_qc_scoring_model,
+    serialize_qc_scoring_model,
+    load_qc_scoring_guide,
+)
 
 from app.api.processing_center_azure import (
     _processing_container_client,
@@ -795,6 +801,7 @@ def save_document_review_state(
     further_review_reason: str,
     qc_coding: str = "",
     qc_questions: str = "",
+    qc_scoring: dict | None = None,
     values: dict = {},
     reviewed_by: str = "",
     action: str = "save",
@@ -834,9 +841,24 @@ def save_document_review_state(
     state["further_review_reason"] = further_review_reason or ""
     state["qc_coding"] = qc_coding or ""
     state["qc_questions"] = qc_questions or ""
+    if qc_scoring is not None:
+        state["qc_scoring"] = qc_scoring
+        state["qc_weighted_error_points"] = (
+            qc_scoring.get(
+                "weighted_error_points",
+                0,
+            )
+        )
+        state["qc_weighted_score"] = (
+            qc_scoring.get(
+                "weighted_qc_score",
+                100,
+            )
+        )
     state["last_batch_id"] = batch_id or ""
     state["last_reviewed_by"] = reviewed_by
     state["last_reviewed_at"] = now
+    
 
     has_values = any(
         value is not None and str(value).strip() != ""
@@ -857,18 +879,42 @@ def save_document_review_state(
             }
         )
 
-    state.setdefault("review_history", []).append(
-        {
-            "batch_id": batch_id or "",
-            "reviewed_by": reviewed_by,
-            "reviewed_at": now,
-            "action": action,
-            "document_coding": document_coding,
-            "further_review_reason": further_review_reason or "",
-            "qc_coding": qc_coding or "",
-            "qc_questions": qc_questions or "",
-        }
-    )
+    history_entry = {
+        "batch_id": batch_id or "",
+        "reviewed_by": reviewed_by,
+        "reviewed_at": now,
+        "action": action,
+        "document_coding": document_coding,
+        "further_review_reason": (
+            further_review_reason or ""
+        ),
+        "qc_coding": qc_coding or "",
+        "qc_questions": qc_questions or "",
+    }
+
+    if qc_scoring is not None:
+        history_entry[
+            "qc_scoring"
+        ] = qc_scoring
+
+        history_entry[
+            "qc_weighted_error_points"
+        ] = qc_scoring.get(
+            "weighted_error_points",
+            0,
+        )
+
+        history_entry[
+            "qc_weighted_score"
+        ] = qc_scoring.get(
+            "weighted_qc_score",
+            100,
+        )
+
+    state.setdefault(
+        "review_history",
+        [],
+    ).append(history_entry)
 
     blob_client.upload_blob(
         json.dumps(state, indent=2),
@@ -1733,6 +1779,12 @@ class CaptureSaveRequest(BaseModel):
     further_review_reason: str = ""
     qc_coding: str = ""
     qc_questions: str = ""
+
+    qc_critical_count: int = 0
+    qc_important_count: int = 0
+    qc_minimal_count: int = 0
+    qc_informational_count: int = 0
+
     discovery_tags: dict = {}
     discovery_notes: dict = {}
 
@@ -1748,6 +1800,43 @@ def save_capture(
         else "capture"
     )
 
+    is_qc_submission = (
+        bool(payload.qc_coding)
+        or payload.qc_critical_count > 0
+        or payload.qc_important_count > 0
+        or payload.qc_minimal_count > 0
+        or payload.qc_informational_count > 0
+    )
+
+    qc_scoring = None
+
+    if is_qc_submission:
+        scoring_model = (
+            load_qc_scoring_model(
+                workspace=workspace,
+                client=payload.client_id,
+                project=payload.project_id,
+            )
+        )
+
+        qc_scoring = calculate_qc_score(
+            counts={
+                "Critical": (
+                    payload.qc_critical_count
+                ),
+                "Important": (
+                    payload.qc_important_count
+                ),
+                "Minimal": (
+                    payload.qc_minimal_count
+                ),
+                "Informational": (
+                    payload.qc_informational_count
+                ),
+            },
+            scoring_model=scoring_model,
+        )
+
     state = save_document_review_state(
         workspace=workspace,
         client=payload.client_id,
@@ -1758,6 +1847,7 @@ def save_capture(
         further_review_reason=payload.further_review_reason,
         qc_coding=payload.qc_coding,
         qc_questions=payload.qc_questions,
+        qc_scoring=qc_scoring,
         values=payload.values,
         reviewed_by=x_username,
         action="save",
@@ -1797,14 +1887,47 @@ def save_capture(
             ).isoformat()
 
             batch_history = batch.get("review_history_by_doc", {})
-            batch_history[payload.doc_id] = {
-                "document_coding": payload.document_coding,
-                "further_review_reason": payload.further_review_reason,
-                "qc_coding": payload.qc_coding,
-                "qc_questions": payload.qc_questions,
+            batch_history_entry = {
+                "document_coding": (
+                    payload.document_coding
+                ),
+                "further_review_reason": (
+                    payload.further_review_reason
+                ),
+                "qc_coding": (
+                    payload.qc_coding
+                ),
+                "qc_questions": (
+                    payload.qc_questions
+                ),
                 "reviewed_by": x_username,
-                "reviewed_at": batch["last_reviewed_at"],
+                "reviewed_at": (
+                    batch["last_reviewed_at"]
+                ),
             }
+
+            if qc_scoring is not None:
+                batch_history_entry[
+                    "qc_scoring"
+                ] = qc_scoring
+
+                batch_history_entry[
+                    "qc_weighted_error_points"
+                ] = qc_scoring.get(
+                    "weighted_error_points",
+                    0,
+                )
+
+                batch_history_entry[
+                    "qc_weighted_score"
+                ] = qc_scoring.get(
+                    "weighted_qc_score",
+                    100,
+                )
+
+            batch_history[
+                payload.doc_id
+            ] = batch_history_entry
             batch["review_history_by_doc"] = batch_history
 
             if batch["completed_count"] >= batch.get("document_count", 0):
@@ -1819,9 +1942,25 @@ def save_capture(
         "status": "saved",
         "doc_id": payload.doc_id,
         "values": payload.values,
-        "document_coding": state.get("document_coding", ""),
-        "qc_coding": state.get("qc_coding", ""),
-        "qc_questions": state.get("qc_questions", ""),
+        "document_coding": state.get(
+            "document_coding",
+            "",
+        ),
+        "qc_coding": state.get(
+            "qc_coding",
+            "",
+        ),
+        "qc_questions": state.get(
+            "qc_questions",
+            "",
+        ),
+        "qc_scoring": (
+            state.get(
+                "qc_scoring"
+            )
+            if qc_scoring is not None
+            else None
+        ),
     }
 
 
@@ -1835,6 +1974,51 @@ def save_and_next(
     return {
         "status": "saved_next",
         "message": f"Saved {payload.doc_id}. Next document ready.",
+    }
+
+@router.get("/review/qc-scoring-model")
+def get_qc_scoring_model(
+    workspace: str = Query(
+        default="capture"
+    ),
+    client: str = Query(
+        default=""
+    ),
+    project: str = Query(
+        default=""
+    ),
+):
+    workspace_clean = str(
+        workspace or ""
+    ).strip().lower()
+
+    if workspace_clean not in VALID_WORKSPACES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Workspace must be capture, "
+                "summaries, or discovery."
+            ),
+        )
+
+    model = serialize_qc_scoring_model(
+        workspace=workspace_clean,
+        client=client,
+        project=project,
+    )
+
+    guide = load_qc_scoring_guide(
+        workspace=workspace_clean,
+        client=client,
+        project=project,
+    )
+
+    return {
+        "workspace": workspace_clean,
+        "client": client,
+        "project": project,
+        "model": model,
+        "guide": guide,
     }
 
 @router.get("/review/metrics")

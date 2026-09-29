@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-import { apiPost } from "../lib/api";
+import {
+  apiGet,
+  apiPost,
+} from "../lib/api";
 
 import Button from "./Button";
 import Input from "./Input";
@@ -32,6 +35,27 @@ type AiEntityCandidate = {
 type AiEntityApprovalResult = {
   candidateId: string;
   values: Record<string, string | boolean>;
+};
+
+type QcSeverityModel = {
+  severity: string;
+  weight: number;
+  description?: string;
+};
+
+type QcScoringModel = {
+  Critical?: QcSeverityModel;
+  Important?: QcSeverityModel;
+  Minimal?: QcSeverityModel;
+  Informational?: QcSeverityModel;
+};
+
+type QcGuideItem = {
+  severity: string;
+  weight: number;
+  category: string;
+  error_type: string;
+  description: string;
 };
 
 type ReviewCapturePanelProps = {
@@ -109,6 +133,76 @@ export default function ReviewCapturePanel({
   const [qcCoding, setQcCoding] = useState("");
   const [qcQuestions, setQcQuestions] = useState("");
 
+  const [qcCriticalCount, setQcCriticalCount] =
+    useState(0);
+
+  const [qcImportantCount, setQcImportantCount] =
+    useState(0);
+
+  const [qcMinimalCount, setQcMinimalCount] =
+    useState(0);
+
+  const [qcInformationalCount, setQcInformationalCount] =
+    useState(0);
+
+  const [showQcSeverityGuide, setShowQcSeverityGuide] =
+    useState(false);
+
+  const [
+    qcScoringModel,
+    setQcScoringModel,
+  ] = useState<QcScoringModel>({});
+
+  const [
+    qcScoringGuide,
+    setQcScoringGuide,
+  ] = useState<QcGuideItem[]>([]);
+
+  const [
+    qcScoringLoading,
+    setQcScoringLoading,
+  ] = useState(false);
+
+  const [
+    qcScoringError,
+    setQcScoringError,
+  ] = useState("");
+
+  const qcCriticalWeight =
+    Number(
+      qcScoringModel.Critical?.weight
+    ) || 0;
+
+  const qcImportantWeight =
+    Number(
+      qcScoringModel.Important?.weight
+    ) || 0;
+
+  const qcMinimalWeight =
+    Number(
+      qcScoringModel.Minimal?.weight
+    ) || 0;
+
+  const qcInformationalWeight =
+    Number(
+      qcScoringModel.Informational?.weight
+    ) || 0;
+
+  const qcWeightedErrorPoints =
+    qcCriticalCount *
+      qcCriticalWeight +
+    qcImportantCount *
+      qcImportantWeight +
+    qcMinimalCount *
+      qcMinimalWeight +
+    qcInformationalCount *
+      qcInformationalWeight;
+
+  const qcWeightedScore = Math.max(
+    0,
+    100 - qcWeightedErrorPoints
+  );
+
   useEffect(() => {
     const initialOpenState: Record<string, boolean> = {};
 
@@ -135,7 +229,87 @@ export default function ReviewCapturePanel({
     String(batchId || "").startsWith("QC_");
 
   useEffect(() => {
+    if (!isQcBatch) {
+      setQcScoringModel({});
+      setQcScoringGuide([]);
+      setQcScoringError("");
+      setQcScoringLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadQcScoringModel() {
+      setQcScoringLoading(true);
+      setQcScoringError("");
+
+      try {
+        const params =
+          new URLSearchParams({
+            workspace,
+            client: clientId,
+            project: projectId,
+          });
+
+        const response =
+          await apiGet(
+            `/api/review/qc-scoring-model?${params.toString()}`
+          );
+
+        if (cancelled) {
+          return;
+        }
+
+        setQcScoringModel(
+          response?.model || {}
+        );
+
+        setQcScoringGuide(
+          Array.isArray(response?.guide)
+            ? response.guide
+            : []
+        );
+
+      } catch (error) {
+        console.error(
+          "Failed to load QC scoring model:",
+          error
+        );
+
+        if (!cancelled) {
+          setQcScoringModel({});
+          setQcScoringGuide([]);
+          setQcScoringError(
+            "Unable to load QC scoring model."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setQcScoringLoading(false);
+        }
+      }
+    }
+
+    loadQcScoringModel();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isQcBatch,
+    workspace,
+    clientId,
+    projectId,
+  ]);
+
+  useEffect(() => {
     setLocalLinkedEntityAttached(false);
+
+    setQcCriticalCount(0);
+    setQcImportantCount(0);
+    setQcMinimalCount(0);
+    setQcInformationalCount(0);
+    setShowQcSeverityGuide(false);
   }, [docId]);
 
   useEffect(() => {
@@ -308,6 +482,25 @@ export default function ReviewCapturePanel({
       return false;
     }
 
+    if (
+      isQcBatch &&
+      (
+        qcScoringLoading ||
+        !qcScoringModel.Critical ||
+        !qcScoringModel.Important ||
+        !qcScoringModel.Minimal ||
+        !qcScoringModel.Informational
+      )
+    ) {
+      setMessage(
+        qcScoringLoading
+          ? "QC scoring model is still loading."
+          : "QC scoring model is unavailable."
+      );
+
+      return false;
+    }
+
     if (isQcBatch && !qcCoding) {
       setMessage("QC Coding selection is required.");
 
@@ -436,6 +629,25 @@ export default function ReviewCapturePanel({
       further_review_reason: furtherReviewReason,
       qc_coding: isQcBatch ? qcCoding : "",
       qc_questions: isQcBatch ? qcQuestions : "",
+      qc_critical_count:
+        isQcBatch
+          ? qcCriticalCount
+          : 0,
+
+      qc_important_count:
+        isQcBatch
+          ? qcImportantCount
+          : 0,
+
+      qc_minimal_count:
+        isQcBatch
+          ? qcMinimalCount
+          : 0,
+
+      qc_informational_count:
+        isQcBatch
+          ? qcInformationalCount
+          : 0,
     })
       .then(() => {
         setMessage(
@@ -449,7 +661,11 @@ export default function ReviewCapturePanel({
         setFurtherReviewReason("");
         setQcCoding("");
         setQcQuestions("");
-
+        setQcCriticalCount(0);
+        setQcImportantCount(0);
+        setQcMinimalCount(0);
+        setQcInformationalCount(0);
+        setShowQcSeverityGuide(false);
         onSaveComplete?.();
       })
       .catch(() => {
@@ -494,6 +710,25 @@ export default function ReviewCapturePanel({
       document_coding: documentCoding,
       further_review_reason: furtherReviewReason,
       qc_coding: isQcBatch ? qcCoding : "",
+      qc_critical_count:
+        isQcBatch
+          ? qcCriticalCount
+          : 0,
+
+      qc_important_count:
+        isQcBatch
+          ? qcImportantCount
+          : 0,
+
+      qc_minimal_count:
+        isQcBatch
+          ? qcMinimalCount
+          : 0,
+
+      qc_informational_count:
+        isQcBatch
+          ? qcInformationalCount
+          : 0,
       qc_questions: isQcBatch ? qcQuestions : "",
     })
       .then(() => {
@@ -502,7 +737,11 @@ export default function ReviewCapturePanel({
         setValues({});
         setQcCoding("");
         setQcQuestions("");
-
+        setQcCriticalCount(0);
+        setQcImportantCount(0);
+        setQcMinimalCount(0);
+        setQcInformationalCount(0);
+        setShowQcSeverityGuide(false);
         onSaveComplete?.();
       })
       .catch(() => {
@@ -566,7 +805,9 @@ export default function ReviewCapturePanel({
                     type="radio"
                     name="qcCoding"
                     checked={qcCoding === option}
-                    onChange={() => setQcCoding(option)}
+                    onChange={() =>
+                      setQcCoding(option)
+                    }
                     className="accent-sky-600"
                   />
 
@@ -575,9 +816,163 @@ export default function ReviewCapturePanel({
               ))}
             </div>
 
+            <div className="mt-5 border-t border-[var(--insyt-border)] pt-4">
+              <h4 className="mb-3 text-sm font-semibold text-[var(--insyt-text-primary)]">
+                Weighted QC Findings
+              </h4>
+              {qcScoringLoading && (
+                <p className="mb-3 text-xs text-[var(--insyt-text-muted)]">
+                  Loading QC scoring model...
+                </p>
+              )}
+
+              {qcScoringError && (
+                <p className="mb-3 text-xs font-medium text-red-400">
+                  {qcScoringError}
+                </p>
+              )}
+
+              <div className="space-y-3">
+                <QcCountRow
+                  label="Critical"
+                  weight={qcCriticalWeight}
+                  value={qcCriticalCount}
+                  onChange={setQcCriticalCount}
+                />
+
+                <QcCountRow
+                  label="Important"
+                  weight={qcImportantWeight}
+                  value={qcImportantCount}
+                  onChange={setQcImportantCount}
+                />
+
+                <QcCountRow
+                  label="Minimal"
+                  weight={qcMinimalWeight}
+                  value={qcMinimalCount}
+                  onChange={setQcMinimalCount}
+                />
+
+                <QcCountRow
+                  label="Informational"
+                  weight={qcInformationalWeight}
+                  value={qcInformationalCount}
+                  onChange={setQcInformationalCount}
+                />
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] p-3">
+                  <div className="text-xs text-[var(--insyt-text-muted)]">
+                    Weighted Deduction
+                  </div>
+
+                  <div className="mt-1 text-lg font-semibold text-[var(--insyt-text-primary)]">
+                    {qcWeightedErrorPoints}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] p-3">
+                  <div className="text-xs text-[var(--insyt-text-muted)]">
+                    QC Score
+                  </div>
+
+                  <div className="mt-1 text-lg font-semibold text-[var(--insyt-text-primary)]">
+                    {qcWeightedScore.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setShowQcSeverityGuide(
+                    (current) => !current
+                  )
+                }
+                className="mt-4 text-sm font-semibold text-sky-400 hover:text-sky-300"
+              >
+                {showQcSeverityGuide
+                  ? "Hide Severity Guide"
+                  : "Show Severity Guide"}
+              </button>
+
+              {showQcSeverityGuide && (
+                <div className="mt-3 space-y-4 rounded-lg border border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] p-3 text-xs text-[var(--insyt-text-secondary)]">
+                  {qcScoringGuide.length === 0 ? (
+                    <div className="text-[var(--insyt-text-muted)]">
+                      No active QC severity guide entries found.
+                    </div>
+                  ) : (
+                    [
+                      "Critical",
+                      "Important",
+                      "Minimal",
+                      "Informational",
+                    ].map((severity) => {
+                      const items =
+                        qcScoringGuide.filter(
+                          (item) =>
+                            item.severity === severity
+                        );
+
+                      if (items.length === 0) {
+                        return null;
+                      }
+
+                      const weight =
+                        items[0]?.weight ?? 0;
+
+                      return (
+                        <div key={severity}>
+                          <div className="mb-2 font-semibold text-[var(--insyt-text-primary)]">
+                            {severity} ×{weight}
+                          </div>
+
+                          <div className="space-y-2">
+                            {items.map(
+                              (
+                                item,
+                                index
+                              ) => (
+                                <div
+                                  key={`${severity}-${item.error_type}-${index}`}
+                                  className="rounded-md border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-2"
+                                >
+                                  <div className="font-medium text-[var(--insyt-text-primary)]">
+                                    {item.error_type}
+                                  </div>
+
+                                  {item.category && (
+                                    <div className="mt-0.5 text-[var(--insyt-text-muted)]">
+                                      {item.category}
+                                    </div>
+                                  )}
+
+                                  {item.description && (
+                                    <div className="mt-1">
+                                      {item.description}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
             {qcCoding === "QC-NFR" && (
               <div className="mt-4">
-                <FormLabel>QC Questions</FormLabel>
+                <FormLabel>
+                  QC Questions
+                </FormLabel>
+
                 <TextArea
                   rows={3}
                   value={qcQuestions}
@@ -1055,5 +1450,49 @@ export default function ReviewCapturePanel({
         )}
       </div>
     </aside>
+  );
+}
+
+function QcCountRow({
+  label,
+  weight,
+  value,
+  onChange,
+}: {
+  label: string;
+  weight: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="grid grid-cols-[1fr_auto_90px] items-center gap-3">
+      <div className="text-sm font-medium text-[var(--insyt-text-secondary)]">
+        {label}
+      </div>
+
+      <div className="text-xs text-[var(--insyt-text-muted)]">
+        × {weight}
+      </div>
+
+      <input
+        type="number"
+        min={0}
+        step={1}
+        value={value}
+        onChange={(event) => {
+          const parsed = Number.parseInt(
+            event.target.value,
+            10
+          );
+
+          onChange(
+            Number.isNaN(parsed)
+              ? 0
+              : Math.max(parsed, 0)
+          );
+        }}
+        className="w-full rounded-lg border border-[var(--insyt-border)] bg-[var(--insyt-surface-2)] px-3 py-2 text-right text-sm text-[var(--insyt-text-primary)] outline-none focus:border-sky-500"
+      />
+    </div>
   );
 }
