@@ -2,7 +2,14 @@ import json
 import os
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+)
+
 from pydantic import BaseModel
 
 
@@ -19,6 +26,9 @@ from app.api.processing_center_azure import (
     _processing_container_client,
 )
 
+from sqlalchemy.orm import Session
+
+from app.database.connection import get_db
 
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -1841,6 +1851,9 @@ def get_review_metrics(
         default="",
         alias="date",
     ),
+    db: Session = Depends(
+        get_db
+    ),
 ):
     workspace_clean = str(
         workspace or ""
@@ -1875,6 +1888,7 @@ def get_review_metrics(
         )
 
     return build_project_review_metrics(
+        db=db,
         workspace=workspace_clean,
         client=client,
         project=project,

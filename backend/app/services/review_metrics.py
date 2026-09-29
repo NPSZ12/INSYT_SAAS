@@ -6,6 +6,13 @@ from fastapi import HTTPException
 from app.services.batch_service import get_container_client
 from app.services.storage_paths import build_project_base_path
 
+from sqlalchemy.orm import Session
+
+from app.models.user import User
+from app.services.authorization import (
+    has_scoped_project_access,
+    normalize_role,
+)
 
 VALID_PERIODS = {
     "day",
@@ -14,6 +21,34 @@ VALID_PERIODS = {
     "project",
 }
 
+def display_metric_role(
+    role: str,
+) -> str:
+    normalized = normalize_role(
+        role
+    )
+
+    if normalized == "Reviewer":
+        return "Reviewer"
+
+    if normalized == "QC":
+        return "QC"
+
+    if normalized == "TL":
+        return "TL"
+
+    if normalized == "INSYT Manager":
+        return "INSYT Manager"
+
+    if normalized == "Client Admin":
+        return "Client Admin"
+
+    if normalized == "Client":
+        return "Client"
+
+    return normalized or str(
+        role or ""
+    ).strip()
 
 def parse_metric_date(
     value: str | None,
@@ -153,11 +188,18 @@ def event_in_period(
 
 def empty_reviewer_metrics(
     username: str,
+    display_name: str = "",
+    role: str = "Reviewer",
 ):
     return {
         "username": username,
-        "display_name": username,
-        "role": "Reviewer",
+        "display_name": (
+            display_name
+            or username
+        ),
+        "role": display_metric_role(
+            role
+        ),
 
         "review_hours": 0.0,
 
@@ -192,6 +234,40 @@ def empty_reviewer_metrics(
         "_activity_times": [],
     }
 
+def load_assigned_project_users(
+    db: Session,
+    workspace: str,
+    client: str,
+    project: str,
+):
+    users = (
+        db.query(User)
+        .filter(User.status == "Active")
+        .all()
+    )
+
+    assigned = []
+
+    for user in users:
+        if not has_scoped_project_access(
+            user,
+            workspace,
+            client,
+            project,
+        ):
+            continue
+
+        assigned.append(user)
+
+    assigned.sort(
+        key=lambda user: (
+            user.display_name
+            or user.username
+            or ""
+        ).lower()
+    )
+
+    return assigned
 
 def load_review_hours_for_period(
     workspace: str,
@@ -383,6 +459,7 @@ def finalize_reviewer_metrics(
 
 
 def build_project_review_metrics(
+    db: Session,
     workspace: str,
     client: str,
     project: str,
@@ -420,6 +497,32 @@ def build_project_review_metrics(
     )
 
     reviewers: dict[str, dict] = {}
+
+    assigned_users = load_assigned_project_users(
+        db=db,
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    for user in assigned_users:
+        username = str(
+            user.username or ""
+        ).strip()
+
+        if not username:
+            continue
+
+        reviewers[username] = (
+            empty_reviewer_metrics(
+                username=username,
+                display_name=(
+                    user.display_name
+                    or username
+                ),
+                role=user.role,
+            )
+        )
 
     for blob in container.list_blobs(
         name_starts_with=document_prefix
@@ -489,7 +592,7 @@ def build_project_review_metrics(
             if username not in reviewers:
                 reviewers[username] = (
                     empty_reviewer_metrics(
-                        username
+                        username=username,
                     )
                 )
 
@@ -650,7 +753,7 @@ def build_project_review_metrics(
 
     project_summary = {
         "assigned_reviewers": len(
-            finalized
+            assigned_users
         ),
         "active_reviewers": sum(
             1
