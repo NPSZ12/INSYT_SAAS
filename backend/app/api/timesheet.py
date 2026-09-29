@@ -230,7 +230,7 @@ def normalize_reviewer_role(role: str):
         "reviewer",
         "reviewer 1l",
     ]:
-        return "1L"
+        return "Reviewer"
 
     if clean == "qc":
         return "QC"
@@ -238,15 +238,20 @@ def normalize_reviewer_role(role: str):
     if clean == "tl":
         return "TL"
 
-    if clean == "rm":
-        return "RM"
+    if clean in [
+        "rm",
+        "insyt manager",
+    ]:
+        return "INSYT Manager"
 
     return str(role or "").strip()
 
 
 def is_review_hours_reviewer_role(role: str):
-    return normalize_reviewer_role(role) == "1L"
-
+    return (
+        normalize_reviewer_role(role)
+        == "Reviewer"
+    )
 
 def parse_project_access_item(value: str):
     clean = str(value or "").strip().strip("/")
@@ -342,7 +347,7 @@ def make_empty_review_hours_row(user: User):
     }
 
 
-def load_project_1l_reviewers(
+def load_project_reviewers(
     db: Session,
     workspace: str,
     client_id: str,
@@ -357,9 +362,9 @@ def load_project_1l_reviewers(
     reviewers = []
 
     for user in users:
-        role = str(user.role or "").strip()
-
-        if role not in ["1L", "1L Reviewer"]:
+        if not is_review_hours_reviewer_role(
+            user.role
+        ):
             continue
 
         if user_has_project_access(
@@ -379,22 +384,23 @@ def load_project_1l_reviewers(
     return reviewers
 
 def get_role_bucket(role: str):
-    clean = str(role or "").strip()
+    normalized = normalize_reviewer_role(
+        role
+    )
 
-    if clean in ["1L", "1L Reviewer"]:
+    if normalized == "Reviewer":
         return "one_l"
 
-    if clean == "QC":
+    if normalized == "QC":
         return "qc"
 
-    if clean == "TL":
+    if normalized == "TL":
         return "tl"
 
-    if clean == "RM":
+    if normalized == "INSYT Manager":
         return "rm"
 
     return "other"
-
 
 def make_empty_project_hours_row(
     workspace: str,
@@ -948,7 +954,7 @@ def review_hours(
 
     grouped: dict[str, dict] = {}
 
-    assigned_reviewers = load_project_1l_reviewers(
+    assigned_reviewers = load_project_reviewers(
         db=db,
         workspace=workspace,
         client_id=client,
