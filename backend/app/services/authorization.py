@@ -340,6 +340,165 @@ def has_project_access(
         project,
     )
 
+def has_scoped_project_access(
+    user: User,
+    workspace: str,
+    client: str,
+    project: str,
+) -> bool:
+    """
+    Canonical Auth Core project-scope check.
+
+    INSYT Admin:
+        unrestricted.
+
+    All other roles:
+        must have matching workspace, client, and project scope.
+
+    Client / Client Admin:
+        global ALL scope is never accepted.
+
+    Project scope must be client-qualified. Bare project names are
+    intentionally not accepted because identical project names may
+    exist beneath different clients.
+    """
+    role = normalize_role(user.role)
+
+    if role == ROLE_INSYT_ADMIN:
+        return True
+
+    requested_workspace = str(
+        workspace or ""
+    ).strip()
+
+    requested_client = str(
+        client or ""
+    ).strip()
+
+    requested_project = str(
+        project or ""
+    ).strip()
+
+    if (
+        not requested_workspace
+        or not requested_client
+        or not requested_project
+    ):
+        return False
+
+    workspace_scope = {
+        str(value or "").strip()
+        for value in _json_list(
+            user.workspace_access
+        )
+        if str(value or "").strip()
+    }
+
+    client_scope = {
+        str(value or "").strip()
+        for value in _json_list(
+            user.client_access
+        )
+        if str(value or "").strip()
+    }
+
+    project_scope = {
+        str(value or "").strip()
+        for value in _json_list(
+            user.project_access
+        )
+        if str(value or "").strip()
+    }
+
+    external_roles = {
+        ROLE_CLIENT,
+        ROLE_CLIENT_ADMIN,
+    }
+
+    if role in external_roles:
+        if (
+            "ALL" in workspace_scope
+            or "ALL" in client_scope
+            or "ALL" in project_scope
+        ):
+            return False
+
+    workspace_allowed = (
+        "ALL" in workspace_scope
+        or requested_workspace
+        in workspace_scope
+    )
+
+    client_candidates = {
+        requested_client,
+        (
+            f"{requested_workspace}/"
+            f"{requested_client}"
+        ),
+    }
+
+    client_allowed = (
+        "ALL" in client_scope
+        or bool(
+            client_candidates
+            & client_scope
+        )
+    )
+
+    project_candidates = {
+        (
+            f"{requested_workspace}/"
+            f"{requested_client}/"
+            f"{requested_project}"
+        ),
+        (
+            f"{requested_client}/"
+            f"{requested_project}"
+        ),
+        (
+            f"{requested_client}/"
+            f"{requested_workspace}/"
+            f"{requested_project}"
+        ),
+    }
+
+    project_allowed = (
+        "ALL" in project_scope
+        or bool(
+            project_candidates
+            & project_scope
+        )
+    )
+
+    return (
+        workspace_allowed
+        and client_allowed
+        and project_allowed
+    )
+
+
+def require_scoped_project_access(
+    user: User,
+    workspace: str,
+    client: str,
+    project: str,
+) -> None:
+    if has_scoped_project_access(
+        user,
+        workspace,
+        client,
+        project,
+    ):
+        return
+
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Access denied. This account is not "
+            "authorized for the requested "
+            "workspace, client, and project."
+        ),
+    )
 
 # ---------------------------------------------------------------------------
 # Authentication policy

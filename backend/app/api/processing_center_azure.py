@@ -53,7 +53,11 @@ from app.services.security import (
     require_admin,
     safe_json_list,
 )
-from app.services.authorization import normalize_role
+from app.services.authorization import (
+    ROLE_INSYT_ADMIN,
+    normalize_role,
+    require_scoped_project_access,
+)
 from app.services.azure_pricing import (
     calculate_document_intelligence_read_quote,
     lookup_document_intelligence_read_price,
@@ -1409,7 +1413,15 @@ def list_processing_uploads(
     workspace: Literal["capture", "discovery", "summaries"],
     client: str = Query(...),
     project: str = Query(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        client,
+        project,
+    )
+
     try:
         processing_account = _processing_account()
         processing_container = _processing_container()
@@ -1783,7 +1795,15 @@ def get_tracked_azure_processing_job_status(
     job_id: str,
     client: str = Query(...),
     project: str = Query(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        client,
+        project,
+    )
+
     status_blob_path = _job_status_path(
         workspace=workspace,
         client=client,
@@ -2543,7 +2563,15 @@ def get_processing_job_history(
     workspace: Literal["capture", "discovery", "summaries"],
     client: str = Query(...),
     project: str = Query(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        client,
+        project,
+    )
+
     try:
         history = _list_processing_job_history(
             workspace=workspace,
@@ -2584,8 +2612,20 @@ def get_processing_job(
     client: str = Query(...),
     project: str = Query(...),
     source: Literal["db", "azure"] = Query("db"),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    routing = _routing(workspace=workspace, client=client, project=project)
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        client,
+        project,
+    )
+
+    routing = _routing(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
 
     if source == "azure":
         try:
@@ -2599,12 +2639,25 @@ def get_processing_job(
         db.init_schema()
 
         row = db.query_one(
-            "SELECT * FROM processing_job WHERE job_id=?",
-            (job_id,),
+            """
+            SELECT *
+            FROM processing_job
+            WHERE job_id=?
+            AND matter_id=?
+            AND client_id=?
+            """,
+            (
+                job_id,
+                project,
+                client,
+            ),
         )
 
         if not row:
-            raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"job not found: {job_id}",
+            )
 
         return dict(row)
     finally:
@@ -3437,7 +3490,15 @@ def list_processing_center_staged_results(
     workspace: Literal["capture", "discovery", "summaries"],
     client: str = Query(...),
     project: str = Query(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        client,
+        project,
+    )
+
     try:
         history = _list_processing_job_history(
             workspace=workspace,
@@ -3495,7 +3556,15 @@ def get_processing_center_staged_results(
     job_id: str,
     client: str = Query(...),
     project: str = Query(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        client,
+        project,
+    )
+
     try:
         return _build_staged_results_payload(
             workspace=workspace,
@@ -3512,6 +3581,7 @@ def list_data_element_detection_ready(
     workspace: Literal["capture", "discovery", "summaries"],
     client: str = Query(...),
     project: str = Query(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """
     Return documents that completed Initial Ingestion and have staged text
@@ -3520,6 +3590,13 @@ def list_data_element_detection_ready(
     This does not run detection. It is the staging population shown in the
     Processing Center - Data Element Detection page.
     """
+
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        client,
+        project,
+    )
 
     try:
         history = _list_processing_job_history(
@@ -12696,7 +12773,29 @@ def get_processing_job_report(
     job_id: str,
     client: str | None = Query(default=None),
     project: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    role = normalize_role(
+        str(current_user.role or "")
+    )
+
+    if role != ROLE_INSYT_ADMIN:
+        if not client or not project:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Client and project scope are required "
+                    "to access this processing report."
+                ),
+            )
+
+        require_scoped_project_access(
+            current_user,
+            workspace,
+            client,
+            project,
+        )
+
     review_container = _review_container(workspace)
 
     # New worker-generated report location:
