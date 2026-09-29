@@ -30,6 +30,7 @@ import {
   HardDriveUpload,
   UploadCloud,
   ScanSearch,
+  BarChart3,
 } from "lucide-react";
 
 type NavItem = {
@@ -594,6 +595,17 @@ export default function ProjectSidebar() {
       icon: LayoutDashboard,
     },
     {
+      label: isSummaries
+        ? "Completed QC Summaries"
+        : isDiscovery
+          ? "Captured Coding"
+          : "Captured Entities",
+      href: isSummaries
+        ? `/summaries/summary-data${projectQuery}&view=raw`
+        : `${workspaceBase}/captured-entities${projectQuery}&view=raw`,
+      icon: Database,
+    },
+    {
       label: "Protocol",
       href: `${workspaceBase}/protocol${projectQuery}`,
       icon: FileText,
@@ -606,6 +618,64 @@ export default function ProjectSidebar() {
           ? `/discovery/files${projectQuery}`
           : `/capture/files${projectQuery}`,
       icon: FileText,
+    },
+    ...(isCapture
+      ? [
+          {
+            label: "Cyber²",
+            href: `/cyber-utility${projectQuery}`,
+            icon: Database,
+          },
+        ]
+      : []),
+    {
+      label: "Search Folders",
+      href: `${workspaceBase}/search-folders${projectQuery}`,
+      icon: Search,
+    },
+    {
+      label: "Review",
+      href: isSummaries
+        ? `/summaries/review${reviewQuery}`
+        : isDiscovery
+          ? `/discovery/review${reviewQuery}`
+          : `/capture/review${reviewQuery}`,
+      icon: FileSearch,
+    },
+    {
+      label: "QC Review",
+      href: `${workspaceBase}/qc-review${projectQuery}`,
+      icon: ClipboardList,
+    },
+    {
+      label: "Batches",
+      href: `${workspaceBase}/batches${projectQuery}`,
+      icon: Layers,
+    },
+    {
+      label: "Batch Management",
+      href: `${workspaceBase}/batch-management${projectQuery}`,
+      icon: FolderTree,
+    },
+    {
+      label: "Messaging",
+      href: `${workspaceBase}/messaging${projectQuery}`,
+      icon: MessageSquare,
+    },
+    {
+      label: "Review Team",
+      href: `/project-users${projectQuery}`,
+      icon: Users,
+    },
+    {
+      label: "Review Hours",
+      href: `/review-hours${projectQuery}`,
+      icon: Clock,
+    },
+    {
+      label: "Review Metrics",
+      href: `/review-metrics${projectQuery}`,
+      icon: BarChart3,
     },
     {
       label: "Processing Center - Initial Ingestion",
@@ -638,70 +708,6 @@ export default function ProjectSidebar() {
       label: "Overlays / Final Deliverables",
       href: `/project-management/upload-overlay${overlaysQuery}`,
       icon: UploadCloud,
-    },
-    {
-      label: "Batches",
-      href: `${workspaceBase}/batches${projectQuery}`,
-      icon: Layers,
-    },
-    {
-      label: "Batch Management",
-      href: `${workspaceBase}/batch-management${projectQuery}`,
-      icon: FolderTree,
-    },
-    {
-      label: "Search Folders",
-      href: `${workspaceBase}/search-folders${projectQuery}`,
-      icon: Search,
-    },
-    {
-      label: "Review",
-      href: isSummaries
-        ? `/summaries/review${reviewQuery}`
-        : isDiscovery
-          ? `/discovery/review${reviewQuery}`
-          : `/capture/review${reviewQuery}`,
-      icon: FileSearch,
-    },
-    ...(isCapture
-      ? [
-          {
-            label: "Cyber²",
-            href: `/cyber-utility${projectQuery}`,
-            icon: Database,
-          },
-        ]
-      : []),
-    {
-      label: "QC Review",
-      href: `${workspaceBase}/qc-review${projectQuery}`,
-      icon: ClipboardList,
-    },
-    {
-      label: isSummaries
-        ? "Completed QC Summaries"
-        : isDiscovery
-          ? "Captured Coding"
-          : "Captured Entities",
-      href: isSummaries
-        ? `/summaries/summary-data${projectQuery}&view=raw`
-        : `${workspaceBase}/captured-entities${projectQuery}&view=raw`,
-      icon: Database,
-    },
-    {
-      label: "Review Hours",
-      href: `/review-hours${projectQuery}`,
-      icon: Clock,
-    },
-    {
-      label: "Messaging",
-      href: `${workspaceBase}/messaging${projectQuery}`,
-      icon: MessageSquare,
-    },
-    {
-      label: "Review Team",
-      href: `/project-users${projectQuery}`,
-      icon: Users,
     },
     {
       label: "Admin",

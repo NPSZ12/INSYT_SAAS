@@ -2,7 +2,7 @@ import json
 import os
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
 
@@ -13,6 +13,7 @@ from app.services.project_store import CAPTURED_ENTITIES
 from app.services.summary_outline_service import parse_summary_outline
 from app.services.pdf_text_service import get_text_blob_path
 from app.services.storage_paths import build_project_base_path, build_project_path
+from app.services.review_metrics import build_project_review_metrics
 
 from app.api.processing_center_azure import (
     _processing_container_client,
@@ -1825,7 +1826,64 @@ def save_and_next(
         "status": "saved_next",
         "message": f"Saved {payload.doc_id}. Next document ready.",
     }
-    
+
+@router.get("/review/metrics")
+def get_review_metrics(
+    workspace: str = Query(
+        default="capture"
+    ),
+    client: str = Query(...),
+    project: str = Query(...),
+    period: str = Query(
+        default="project"
+    ),
+    date_value: str = Query(
+        default="",
+        alias="date",
+    ),
+):
+    workspace_clean = str(
+        workspace or ""
+    ).strip().lower()
+
+    if (
+        workspace_clean
+        not in VALID_WORKSPACES
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Workspace must be capture, "
+                "summaries, or discovery."
+            ),
+        )
+
+    if not str(
+        client or ""
+    ).strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Client is required.",
+        )
+
+    if not str(
+        project or ""
+    ).strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Project is required.",
+        )
+
+    return build_project_review_metrics(
+        workspace=workspace_clean,
+        client=client,
+        project=project,
+        period=period,
+        selected_date=(
+            date_value or None
+        ),
+    )
+
 @router.get("/review/coding-map")
 def get_review_coding_map(
     project: str,
