@@ -15,6 +15,7 @@ from app.services.authorization import (
     ROLE_INSYT_ADMIN,
     ROLE_INSYT_MANAGER,
     default_permissions_for_role,
+    has_scoped_project_access,
     may_manage_role,
     normalize_role,
     require_user_scope_assignment,
@@ -29,7 +30,7 @@ from app.services.authorization import (
 )
 from app.services.entra_service import invite_external_user
 from app.services.security import hash_password, require_admin
-
+from app.services.review_metrics import build_project_review_metrics
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
@@ -128,6 +129,46 @@ def serialize_user(user: User):
         "client_access": json.loads(user.client_access or "[]"),
         "project_access": json.loads(user.project_access or "[]"),
         "permissions": json.loads(user.permissions or "[]"),
+    }
+
+def _parse_staffing_project_key(
+    value: str,
+):
+    raw = str(
+        value or ""
+    ).strip()
+
+    if (
+        not raw
+        or raw == "ALL"
+    ):
+        return None
+
+    parts = raw.split("/")
+
+    if len(parts) < 3:
+        return None
+
+    workspace = parts[0].strip()
+    client = parts[1].strip()
+    project = "/".join(
+        parts[2:]
+    ).strip()
+
+    if (
+        not workspace
+        or not client
+        or not project
+    ):
+        return None
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "project_id": (
+            f"{workspace}/{client}/{project}"
+        ),
     }
 
 def _clean_string_set(values: List[str]) -> set[str]:
@@ -1059,6 +1100,419 @@ def reset_password(
         "username": payload.username,
     }
 
+@router.get("/staffing-metrics")
+def get_staffing_metrics(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    require_permission(
+        admin,
+        PERMISSION_MANAGE_PROJECT_ACCESS,
+    )
+
+    users = (
+        db.query(User)
+        .order_by(User.display_name, User.username)
+        .all()
+    )
+
+    metrics_by_username = {}
+
+    for user in users:
+        username = str(
+            user.username or ""
+        ).strip()
+
+        if not username:
+            continue
+
+        metrics_by_username[
+            username
+        ] = {
+            "username": username,
+            "display_name": (
+                user.display_name
+                or username
+            ),
+            "email": user.email or "",
+            "role": normalize_role(
+                user.role
+            ),
+            "status": user.status or "",
+            "review_hours": 0.0,
+            "documents_reviewed": 0,
+            "documents_coded": 0,
+            "responsive": 0,
+            "not_responsive": 0,
+            "further_review": 0,
+            "qc_reviewed": 0,
+            "qc_no_change": 0,
+            "qc_changes": 0,
+            "qc_nfr": 0,
+            "batches_touched": 0,
+            "projects_touched": 0,
+            "documents_per_hour": 0.0,
+            "qc_accuracy": 0.0,
+            "first_activity": "",
+            "last_activity": "",
+        }
+
+    unique_projects = {}
+
+    for user in users:
+        try:
+            project_access = json.loads(
+                user.project_access or "[]"
+            )
+        except Exception:
+            project_access = []
+
+        for project_key in project_access:
+            parsed = (
+                _parse_staffing_project_key(
+                    project_key
+                )
+            )
+
+            if not parsed:
+                continue
+
+            project_id = parsed[
+                "project_id"
+            ]
+
+            unique_projects[
+                project_id
+            ] = parsed
+
+    skipped_projects = []
+
+    for project_id in sorted(
+        unique_projects
+    ):
+        parsed = unique_projects[
+            project_id
+        ]
+
+        workspace = parsed[
+            "workspace"
+        ]
+
+        client = parsed[
+            "client"
+        ]
+
+        project = parsed[
+            "project"
+        ]
+
+        if not has_scoped_project_access(
+            admin,
+            workspace,
+            client,
+            project,
+        ):
+            continue
+
+        try:
+            result = (
+                build_project_review_metrics(
+                    db=db,
+                    workspace=workspace,
+                    client=client,
+                    project=project,
+                    period="project",
+                    selected_date=None,
+                )
+            )
+        except Exception as error:
+            skipped_projects.append(
+                {
+                    "project_id": project_id,
+                    "error": str(error),
+                }
+            )
+            continue
+
+        reviewer_rows = (
+            result.get(
+                "reviewers",
+                [],
+            )
+            or []
+        )
+
+        for reviewer in reviewer_rows:
+            username = str(
+                reviewer.get(
+                    "username"
+                )
+                or ""
+            ).strip()
+
+            if not username:
+                continue
+
+            row = (
+                metrics_by_username.get(
+                    username
+                )
+            )
+
+            if row is None:
+                row = {
+                    "username": username,
+                    "display_name": (
+                        reviewer.get(
+                            "display_name"
+                        )
+                        or username
+                    ),
+                    "email": "",
+                    "role": reviewer.get(
+                        "role",
+                        "",
+                    ),
+                    "status": "",
+                    "review_hours": 0.0,
+                    "documents_reviewed": 0,
+                    "documents_coded": 0,
+                    "responsive": 0,
+                    "not_responsive": 0,
+                    "further_review": 0,
+                    "qc_reviewed": 0,
+                    "qc_no_change": 0,
+                    "qc_changes": 0,
+                    "qc_nfr": 0,
+                    "batches_touched": 0,
+                    "projects_touched": 0,
+                    "documents_per_hour": 0.0,
+                    "qc_accuracy": 0.0,
+                    "first_activity": "",
+                    "last_activity": "",
+                }
+
+                metrics_by_username[
+                    username
+                ] = row
+
+            numeric_fields = [
+                "review_hours",
+                "documents_reviewed",
+                "documents_coded",
+                "responsive",
+                "not_responsive",
+                "further_review",
+                "qc_reviewed",
+                "qc_no_change",
+                "qc_changes",
+                "qc_nfr",
+                "batches_touched",
+            ]
+
+            for field in numeric_fields:
+                row[field] = (
+                    float(
+                        row.get(
+                            field,
+                            0,
+                        )
+                        or 0
+                    )
+                    + float(
+                        reviewer.get(
+                            field,
+                            0,
+                        )
+                        or 0
+                    )
+                )
+
+            project_has_activity = (
+                float(
+                    reviewer.get(
+                        "review_hours",
+                        0,
+                    )
+                    or 0
+                )
+                > 0
+                or int(
+                    reviewer.get(
+                        "documents_reviewed",
+                        0,
+                    )
+                    or 0
+                )
+                > 0
+                or int(
+                    reviewer.get(
+                        "qc_reviewed",
+                        0,
+                    )
+                    or 0
+                )
+                > 0
+            )
+
+            if project_has_activity:
+                row[
+                    "projects_touched"
+                ] += 1
+
+            first_activity = str(
+                reviewer.get(
+                    "first_activity"
+                )
+                or ""
+            ).strip()
+
+            last_activity = str(
+                reviewer.get(
+                    "last_activity"
+                )
+                or ""
+            ).strip()
+
+            if first_activity:
+                if (
+                    not row[
+                        "first_activity"
+                    ]
+                    or first_activity
+                    < row[
+                        "first_activity"
+                    ]
+                ):
+                    row[
+                        "first_activity"
+                    ] = first_activity
+
+            if last_activity:
+                if (
+                    not row[
+                        "last_activity"
+                    ]
+                    or last_activity
+                    > row[
+                        "last_activity"
+                    ]
+                ):
+                    row[
+                        "last_activity"
+                    ] = last_activity
+
+    rows = []
+
+    integer_fields = [
+        "documents_reviewed",
+        "documents_coded",
+        "responsive",
+        "not_responsive",
+        "further_review",
+        "qc_reviewed",
+        "qc_no_change",
+        "qc_changes",
+        "qc_nfr",
+        "batches_touched",
+        "projects_touched",
+    ]
+
+    for row in metrics_by_username.values():
+        row[
+            "review_hours"
+        ] = round(
+            float(
+                row[
+                    "review_hours"
+                ]
+                or 0
+            ),
+            2,
+        )
+
+        for field in integer_fields:
+            row[field] = int(
+                row[field]
+                or 0
+            )
+
+        if (
+            row[
+                "review_hours"
+            ]
+            > 0
+        ):
+            row[
+                "documents_per_hour"
+            ] = round(
+                (
+                    row[
+                        "documents_reviewed"
+                    ]
+                    / row[
+                        "review_hours"
+                    ]
+                ),
+                2,
+            )
+        else:
+            row[
+                "documents_per_hour"
+            ] = 0.0
+
+        if (
+            row[
+                "qc_reviewed"
+            ]
+            > 0
+        ):
+            row[
+                "qc_accuracy"
+            ] = round(
+                (
+                    row[
+                        "qc_no_change"
+                    ]
+                    / row[
+                        "qc_reviewed"
+                    ]
+                )
+                * 100,
+                2,
+            )
+        else:
+            row[
+                "qc_accuracy"
+            ] = 0.0
+
+        rows.append(row)
+
+    rows.sort(
+        key=lambda row: (
+            str(
+                row.get(
+                    "display_name"
+                )
+                or row.get(
+                    "username"
+                )
+                or ""
+            ).lower()
+        )
+    )
+
+    return {
+        "status": "success",
+        "users": rows,
+        "user_count": len(rows),
+        "project_count": len(
+            unique_projects
+        ),
+        "skipped_projects": (
+            skipped_projects
+        ),
+    }
 
 @router.post("/project-access")
 def update_project_access(
