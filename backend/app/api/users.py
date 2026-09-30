@@ -87,6 +87,11 @@ class ProjectAccessRequest(BaseModel):
     project_id: str
     allowed: bool
 
+class BulkProjectAccessRequest(BaseModel):
+    project_id: str
+    assign: List[str] = Field(default_factory=list)
+    remove: List[str] = Field(default_factory=list)
+
 def _is_root_admin(user: User) -> bool:
     if not ROOT_ADMIN_USERNAME:
         return False
@@ -1084,8 +1089,60 @@ def update_project_access(
         user,
     )
 
+    project_id = str(
+        payload.project_id or ""
+    ).strip()
+
+    if not project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Project ID is required.",
+        )
+
+    project_parts = project_id.split("/")
+
+    if len(project_parts) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Project access must use the canonical "
+                "workspace/client/project format."
+            ),
+        )
+
+    workspace = project_parts[0].strip()
+    client = project_parts[1].strip()
+    project = "/".join(
+        project_parts[2:]
+    ).strip()
+
+    if (
+        not workspace
+        or not client
+        or not project
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Project access must include workspace, "
+                "client, and project."
+            ),
+        )
+
+    canonical_project_id = (
+        f"{workspace}/{client}/{project}"
+    )
+
+    canonical_client_id = (
+        f"{workspace}/{client}"
+    )
+
     actor_role = normalize_role(
         admin.role
+    )
+
+    target_role = normalize_role(
+        user.role
     )
 
     if actor_role == ROLE_CLIENT_ADMIN:
@@ -1103,20 +1160,178 @@ def update_project_access(
 
         _require_safe_scope_assignment(
             admin,
-            json.loads(user.workspace_access or "[]"),
-            json.loads(user.client_access or "[]"),
-            [payload.project_id],
+            json.loads(
+                user.workspace_access or "[]"
+            ),
+            json.loads(
+                user.client_access or "[]"
+            ),
+            [canonical_project_id],
         )
 
-    access = json.loads(user.project_access or "[]")
+    project_access = json.loads(
+        user.project_access or "[]"
+    )
 
-    if payload.allowed and payload.project_id not in access:
-        access.append(payload.project_id)
+    workspace_access = json.loads(
+        user.workspace_access or "[]"
+    )
 
-    if not payload.allowed and payload.project_id in access:
-        access.remove(payload.project_id)
+    client_access = json.loads(
+        user.client_access or "[]"
+    )
 
-    user.project_access = json.dumps(access)
+    if payload.allowed:
+        if (
+            canonical_project_id
+            not in project_access
+        ):
+            project_access.append(
+                canonical_project_id
+            )
+
+        if (
+            workspace
+            not in workspace_access
+        ):
+            workspace_access.append(
+                workspace
+            )
+
+        if (
+            canonical_client_id
+            not in client_access
+        ):
+            client_access.append(
+                canonical_client_id
+            )
+
+    else:
+        if (
+            canonical_project_id
+            in project_access
+        ):
+            project_access.remove(
+                canonical_project_id
+            )
+
+        remaining_project_parts = []
+
+        for project_key in project_access:
+            raw_key = str(
+                project_key or ""
+            ).strip()
+
+            parts = raw_key.split("/")
+
+            if len(parts) < 3:
+                continue
+
+            remaining_workspace = (
+                parts[0].strip()
+            )
+
+            remaining_client = (
+                parts[1].strip()
+            )
+
+            remaining_project_parts.append(
+                (
+                    remaining_workspace,
+                    remaining_client,
+                )
+            )
+
+        workspace_still_needed = any(
+            remaining_workspace
+            == workspace
+            for (
+                remaining_workspace,
+                _remaining_client,
+            ) in remaining_project_parts
+        )
+
+        client_still_needed = any(
+            (
+                remaining_workspace
+                == workspace
+                and remaining_client
+                == client
+            )
+            for (
+                remaining_workspace,
+                remaining_client,
+            ) in remaining_project_parts
+        )
+
+        preserve_account_binding = (
+            target_role
+            in {
+                ROLE_CLIENT_ADMIN,
+                "Client",
+            }
+        )
+
+        if (
+            not client_still_needed
+            and not preserve_account_binding
+        ):
+            client_access = [
+                value
+                for value in client_access
+                if str(value).strip()
+                not in {
+                    client,
+                    canonical_client_id,
+                }
+            ]
+
+        if (
+            not workspace_still_needed
+            and not preserve_account_binding
+        ):
+            workspace_access = [
+                value
+                for value in workspace_access
+                if str(value).strip()
+                != workspace
+            ]
+
+    project_access = list(
+        dict.fromkeys(
+            str(value).strip()
+            for value in project_access
+            if str(value).strip()
+        )
+    )
+
+    workspace_access = list(
+        dict.fromkeys(
+            str(value).strip()
+            for value in workspace_access
+            if str(value).strip()
+        )
+    )
+
+    client_access = list(
+        dict.fromkeys(
+            str(value).strip()
+            for value in client_access
+            if str(value).strip()
+        )
+    )
+
+    user.project_access = json.dumps(
+        project_access
+    )
+
+    user.workspace_access = json.dumps(
+        workspace_access
+    )
+
+    user.client_access = json.dumps(
+        client_access
+    )
 
     db.commit()
     db.refresh(user)
@@ -1124,5 +1339,425 @@ def update_project_access(
     return {
         "status": "updated",
         "username": payload.username,
-        "project_access": access,
+        "workspace_access": workspace_access,
+        "client_access": client_access,
+        "project_access": project_access,
+    }
+
+@router.post("/project-access/bulk")
+def update_project_access_bulk(
+    payload: BulkProjectAccessRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    require_permission(
+        admin,
+        PERMISSION_MANAGE_PROJECT_ACCESS,
+    )
+
+    project_id = str(
+        payload.project_id or ""
+    ).strip()
+
+    if not project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Project ID is required.",
+        )
+
+    project_parts = project_id.split("/")
+
+    if len(project_parts) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Project access must use the canonical "
+                "workspace/client/project format."
+            ),
+        )
+
+    workspace = project_parts[0].strip()
+    client = project_parts[1].strip()
+    project = "/".join(
+        project_parts[2:]
+    ).strip()
+
+    if (
+        not workspace
+        or not client
+        or not project
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Project access must include workspace, "
+                "client, and project."
+            ),
+        )
+
+    canonical_project_id = (
+        f"{workspace}/{client}/{project}"
+    )
+
+    canonical_client_id = (
+        f"{workspace}/{client}"
+    )
+
+    assign_usernames = {
+        str(username or "").strip()
+        for username in payload.assign
+        if str(username or "").strip()
+    }
+
+    remove_usernames = {
+        str(username or "").strip()
+        for username in payload.remove
+        if str(username or "").strip()
+    }
+
+    overlap = (
+        assign_usernames
+        & remove_usernames
+    )
+
+    if overlap:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The same user cannot be both assigned "
+                "and removed in one bulk request."
+            ),
+        )
+
+    requested_usernames = (
+        assign_usernames
+        | remove_usernames
+    )
+
+    if not requested_usernames:
+        return {
+            "status": "no_changes",
+            "project_id": canonical_project_id,
+            "assigned": [],
+            "removed": [],
+            "unchanged": [],
+            "not_found": [],
+            "assigned_count": 0,
+            "removed_count": 0,
+            "unchanged_count": 0,
+            "not_found_count": 0,
+        }
+
+    users = (
+        db.query(User)
+        .filter(
+            User.username.in_(
+                requested_usernames
+            )
+        )
+        .all()
+    )
+
+    users_by_username = {
+        str(user.username or "").strip():
+        user
+        for user in users
+    }
+
+    not_found = sorted(
+        requested_usernames
+        - set(users_by_username)
+    )
+
+    if not_found:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "Bulk project staffing aborted because "
+                    "one or more users were not found."
+                ),
+                "not_found": not_found,
+            },
+        )
+
+    assigned = []
+    removed = []
+    unchanged = []
+
+    for username in sorted(
+        requested_usernames
+    ):
+        user = users_by_username.get(
+            username
+        )
+
+        _require_root_admin_immutable(
+            user,
+        )
+
+        _require_target_in_actor_scope(
+            admin,
+            user,
+        )
+
+        actor_role = normalize_role(
+            admin.role
+        )
+
+        target_role = normalize_role(
+            user.role
+        )
+
+        if actor_role == ROLE_CLIENT_ADMIN:
+            if not user_is_within_actor_client_scope(
+                admin,
+                user,
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Client Admin may only manage "
+                        "users within their own client."
+                    ),
+                )
+
+            _require_safe_scope_assignment(
+                admin,
+                json.loads(
+                    user.workspace_access or "[]"
+                ),
+                json.loads(
+                    user.client_access or "[]"
+                ),
+                [canonical_project_id],
+            )
+
+        project_access = json.loads(
+            user.project_access or "[]"
+        )
+
+        workspace_access = json.loads(
+            user.workspace_access or "[]"
+        )
+
+        client_access = json.loads(
+            user.client_access or "[]"
+        )
+
+        changed = False
+
+        if username in assign_usernames:
+            if (
+                canonical_project_id
+                not in project_access
+            ):
+                project_access.append(
+                    canonical_project_id
+                )
+                changed = True
+
+            if (
+                workspace
+                not in workspace_access
+            ):
+                workspace_access.append(
+                    workspace
+                )
+                changed = True
+
+            if (
+                canonical_client_id
+                not in client_access
+            ):
+                client_access.append(
+                    canonical_client_id
+                )
+                changed = True
+
+            if changed:
+                assigned.append(
+                    username
+                )
+            else:
+                unchanged.append(
+                    username
+                )
+
+        elif username in remove_usernames:
+            if (
+                canonical_project_id
+                in project_access
+            ):
+                project_access.remove(
+                    canonical_project_id
+                )
+                changed = True
+
+            remaining_project_parts = []
+
+            for project_key in project_access:
+                raw_key = str(
+                    project_key or ""
+                ).strip()
+
+                parts = raw_key.split("/")
+
+                if len(parts) < 3:
+                    continue
+
+                remaining_workspace = (
+                    parts[0].strip()
+                )
+
+                remaining_client = (
+                    parts[1].strip()
+                )
+
+                remaining_project_parts.append(
+                    (
+                        remaining_workspace,
+                        remaining_client,
+                    )
+                )
+
+            workspace_still_needed = any(
+                remaining_workspace
+                == workspace
+                for (
+                    remaining_workspace,
+                    _remaining_client,
+                ) in remaining_project_parts
+            )
+
+            client_still_needed = any(
+                (
+                    remaining_workspace
+                    == workspace
+                    and remaining_client
+                    == client
+                )
+                for (
+                    remaining_workspace,
+                    remaining_client,
+                ) in remaining_project_parts
+            )
+
+            preserve_account_binding = (
+                target_role
+                in {
+                    ROLE_CLIENT_ADMIN,
+                    "Client",
+                }
+            )
+
+            if (
+                not client_still_needed
+                and not preserve_account_binding
+            ):
+                next_client_access = [
+                    value
+                    for value in client_access
+                    if str(value).strip()
+                    not in {
+                        client,
+                        canonical_client_id,
+                    }
+                ]
+
+                if (
+                    next_client_access
+                    != client_access
+                ):
+                    client_access = (
+                        next_client_access
+                    )
+                    changed = True
+
+            if (
+                not workspace_still_needed
+                and not preserve_account_binding
+            ):
+                next_workspace_access = [
+                    value
+                    for value in workspace_access
+                    if str(value).strip()
+                    != workspace
+                ]
+
+                if (
+                    next_workspace_access
+                    != workspace_access
+                ):
+                    workspace_access = (
+                        next_workspace_access
+                    )
+                    changed = True
+
+            if changed:
+                removed.append(
+                    username
+                )
+            else:
+                unchanged.append(
+                    username
+                )
+
+        project_access = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in project_access
+                if str(value).strip()
+            )
+        )
+
+        workspace_access = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in workspace_access
+                if str(value).strip()
+            )
+        )
+
+        client_access = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in client_access
+                if str(value).strip()
+            )
+        )
+
+        user.project_access = json.dumps(
+            project_access
+        )
+
+        user.workspace_access = json.dumps(
+            workspace_access
+        )
+
+        user.client_access = json.dumps(
+            client_access
+        )
+
+    db.commit()
+
+    return {
+        "status": "updated",
+        "project_id": canonical_project_id,
+        "assigned": assigned,
+        "removed": removed,
+        "unchanged": unchanged,
+        "not_found": not_found,
+        "assigned_count": len(
+            assigned
+        ),
+        "removed_count": len(
+            removed
+        ),
+        "unchanged_count": len(
+            unchanged
+        ),
+        "not_found_count": len(
+            not_found
+        ),
     }

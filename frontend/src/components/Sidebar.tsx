@@ -132,6 +132,16 @@ export default function Sidebar({
           icon: FolderPlus,
         },
         {
+          label: "Project Staffing",
+          href: "/project-staffing",
+          icon: Users,
+        },
+        {
+          label: "Project Hours",
+          href: "/project-hours",
+          icon: Clock,
+        },
+        {
           label: "Clients",
           href: "/clients",
           icon: Building2,
@@ -140,11 +150,6 @@ export default function Sidebar({
           label: "User Accounts",
           href: `/user-access`,
           icon: Users,
-        },
-        {
-          label: "Project Hours",
-          href: "/project-hours",
-          icon: Clock,
         },
       ]
     : [
