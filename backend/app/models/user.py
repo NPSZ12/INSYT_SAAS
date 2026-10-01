@@ -32,3 +32,18 @@ class User(Base):
     project_access = Column(Text, default="[]")
     launches = Column(Text, default="[]")
     permissions = Column(Text, default="[]")
+
+    staffing_groups = Column(Text, default="[]")
+
+    performance_score = Column(Integer, nullable=True)
+    performance_band = Column(String, default="Unrated", nullable=False)
+
+    performance_rating_source = Column(
+        String,
+        default="metrics",
+    )
+
+    performance_rating_updated_at = Column(
+        DateTime,
+        nullable=True,
+    )
