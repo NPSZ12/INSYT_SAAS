@@ -12,6 +12,7 @@ import {
   Building2,
   FolderPlus,
   Rocket,
+  ChartNoAxesCombined,
 } from "lucide-react";
 
 type StoredUser = {
@@ -135,6 +136,11 @@ export default function Sidebar({
           label: "Project Staffing",
           href: "/project-staffing",
           icon: Users,
+        },
+        {
+          label: "Reviewer Metrics",
+          href: "/review-metrics",
+          icon: ChartNoAxesCombined,
         },
         {
           label: "Project Hours",

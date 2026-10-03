@@ -32,6 +32,9 @@ type AccessUser = {
   project_access?: string[];
   permissions?: string[];
   auth_provider?: string;
+  staffing_groups?: string[];
+  performance_score?: number | null;
+  performance_band?: string;
 };
 
 type ProjectRow = {
@@ -91,7 +94,11 @@ function normalizeRole(role: string) {
     clean === "rm" ||
     clean === "review manager"
   ) {
-    return "INSYT Manager";
+    return "RM";
+  }
+
+  if (clean === "insyt manager") {
+    return "SRM";
   }
 
   if (
@@ -189,27 +196,20 @@ function ProjectStaffingContent() {
   const [nameSearch, setNameSearch] =
     useState("");
 
-  const [emailSearch, setEmailSearch] =
-    useState("");
-
   const [roleFilter, setRoleFilter] =
     useState("");
 
   const [statusFilter, setStatusFilter] =
     useState("");
 
-  const [clientFilter, setClientFilter] =
+  const [groupFilter, setGroupFilter] =
     useState("");
 
-  const [
-    workspaceFilter,
-    setWorkspaceFilter,
-  ] = useState("");
+  const [scoreMin, setScoreMin] =
+    useState("");
 
-  const [
-    priorProjectFilter,
-    setPriorProjectFilter,
-  ] = useState("");
+  const [scoreMax, setScoreMax] =
+    useState("");
 
   const [
     copyFromProject,
@@ -464,80 +464,20 @@ function ProjectStaffingContent() {
       );
     }, [users]);
 
-  const clientOptions =
-    useMemo(() => {
-      const values =
-        new Set<string>();
-
-      users.forEach((user) => {
-        (
-          user.client_access || []
-        ).forEach((value) => {
-          if (
-            value &&
-            value !== "ALL"
-          ) {
-            values.add(value);
-          }
-        });
-      });
-
-      return Array.from(
-        values
-      ).sort((a, b) =>
-        a.localeCompare(b)
-      );
-    }, [users]);
-
-  const workspaceOptions =
-    useMemo(() => {
-      const values =
-        new Set<string>();
-
-      users.forEach((user) => {
-        (
-          user.workspace_access || []
-        ).forEach((value) => {
-          if (
-            value &&
-            value !== "ALL"
-          ) {
-            values.add(value);
-          }
-        });
-      });
-
-      return Array.from(
-        values
-      ).sort((a, b) =>
-        a.localeCompare(b)
-      );
-    }, [users]);
-
-  const priorProjectOptions =
-    useMemo(() => {
-      const values =
-        new Set<string>();
-
-      users.forEach((user) => {
-        (
-          user.project_access || []
-        ).forEach((value) => {
-          if (
-            value &&
-            value !== "ALL"
-          ) {
-            values.add(value);
-          }
-        });
-      });
-
-      return Array.from(
-        values
-      ).sort((a, b) =>
-        a.localeCompare(b)
-      );
-    }, [users]);
+  const groupOptions =
+  useMemo(() => {
+    return Array.from(
+      new Set(
+        users.flatMap(
+          (user) =>
+            user.staffing_groups ||
+            []
+        )
+      )
+    ).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [users]);
 
   const filteredUsers =
     useMemo(() => {
@@ -546,10 +486,15 @@ function ProjectStaffingContent() {
           .trim()
           .toLowerCase();
 
-      const emailNeedle =
-        emailSearch
-          .trim()
-          .toLowerCase();
+      const minimumScore =
+        scoreMin === ""
+          ? null
+          : Number(scoreMin);
+
+      const maximumScore =
+        scoreMax === ""
+          ? null
+          : Number(scoreMax);
 
       return users.filter(
         (user) => {
@@ -576,15 +521,9 @@ function ProjectStaffingContent() {
             ) &&
             !username.includes(
               nameNeedle
-            )
-          ) {
-            return false;
-          }
-
-          if (
-            emailNeedle &&
+            ) &&
             !email.includes(
-              emailNeedle
+              nameNeedle
             )
           ) {
             return false;
@@ -608,36 +547,39 @@ function ProjectStaffingContent() {
           }
 
           if (
-            clientFilter &&
+            groupFilter &&
             !(
-              user.client_access ||
+              user.staffing_groups ||
               []
             ).includes(
-              clientFilter
+              groupFilter
+            )
+          ) {
+            return false;
+          }
+
+          const score =
+            user.performance_score;
+
+          if (
+            minimumScore !== null &&
+            (
+              score === null ||
+              score === undefined ||
+              score <
+                minimumScore
             )
           ) {
             return false;
           }
 
           if (
-            workspaceFilter &&
-            !(
-              user.workspace_access ||
-              []
-            ).includes(
-              workspaceFilter
-            )
-          ) {
-            return false;
-          }
-
-          if (
-            priorProjectFilter &&
-            !(
-              user.project_access ||
-              []
-            ).includes(
-              priorProjectFilter
+            maximumScore !== null &&
+            (
+              score === null ||
+              score === undefined ||
+              score >
+                maximumScore
             )
           ) {
             return false;
@@ -649,12 +591,11 @@ function ProjectStaffingContent() {
     }, [
       users,
       nameSearch,
-      emailSearch,
       roleFilter,
       statusFilter,
-      clientFilter,
-      workspaceFilter,
-      priorProjectFilter,
+      groupFilter,
+      scoreMin,
+      scoreMax,
     ]);
 
   const currentlyStaffedCount =
@@ -790,12 +731,11 @@ function ProjectStaffingContent() {
 
   function clearFilters() {
     setNameSearch("");
-    setEmailSearch("");
     setRoleFilter("");
     setStatusFilter("");
-    setClientFilter("");
-    setWorkspaceFilter("");
-    setPriorProjectFilter("");
+    setGroupFilter("");
+    setScoreMin("");
+    setScoreMax("");
   }
 
   async function saveStaffing() {
@@ -1246,18 +1186,7 @@ function ProjectStaffingContent() {
                         event.target.value
                       )
                     }
-                    placeholder="Search name / username"
-                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-500"
-                  />
-
-                  <input
-                    value={emailSearch}
-                    onChange={(event) =>
-                      setEmailSearch(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Search email"
+                    placeholder="Search name, email, username"
                     className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-500"
                   />
 
@@ -1281,6 +1210,31 @@ function ProjectStaffingContent() {
                           value={role}
                         >
                           {role}
+                        </option>
+                      )
+                    )}
+                  </select>
+
+                  <select
+                    value={groupFilter}
+                    onChange={(event) =>
+                      setGroupFilter(
+                        event.target.value
+                      )
+                    }
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  >
+                    <option value="">
+                      All Groups
+                    </option>
+
+                    {groupOptions.map(
+                      (group) => (
+                        <option
+                          key={group}
+                          value={group}
+                        >
+                          Group {group}
                         </option>
                       )
                     )}
@@ -1311,90 +1265,33 @@ function ProjectStaffingContent() {
                     )}
                   </select>
 
-                  <select
-                    value={
-                      workspaceFilter
-                    }
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={scoreMin}
                     onChange={(event) =>
-                      setWorkspaceFilter(
+                      setScoreMin(
                         event.target.value
                       )
                     }
-                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
-                  >
-                    <option value="">
-                      All Workspace Access
-                    </option>
+                    placeholder="Overall Score Min"
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-500"
+                  />
 
-                    {workspaceOptions.map(
-                      (workspace) => (
-                        <option
-                          key={workspace}
-                          value={workspace}
-                        >
-                          {prettyName(
-                            workspace
-                          )}
-                        </option>
-                      )
-                    )}
-                  </select>
-
-                  <select
-                    value={clientFilter}
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={scoreMax}
                     onChange={(event) =>
-                      setClientFilter(
+                      setScoreMax(
                         event.target.value
                       )
                     }
-                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
-                  >
-                    <option value="">
-                      All Client Access
-                    </option>
-
-                    {clientOptions.map(
-                      (client) => (
-                        <option
-                          key={client}
-                          value={client}
-                        >
-                          {prettyName(
-                            client
-                          )}
-                        </option>
-                      )
-                    )}
-                  </select>
-
-                  <select
-                    value={
-                      priorProjectFilter
-                    }
-                    onChange={(event) =>
-                      setPriorProjectFilter(
-                        event.target.value
-                      )
-                    }
-                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
-                  >
-                    <option value="">
-                      All Prior / Current Projects
-                    </option>
-
-                    {priorProjectOptions.map(
-                      (project) => (
-                        <option
-                          key={project}
-                          value={project}
-                        >
-                          {prettyName(
-                            project
-                          )}
-                        </option>
-                      )
-                    )}
-                  </select>
+                    placeholder="Overall Score Max"
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-500"
+                  />
 
                   <button
                     type="button"
@@ -1480,11 +1377,7 @@ function ProjectStaffingContent() {
                       </th>
 
                       <th className="p-3 text-left">
-                        User
-                      </th>
-
-                      <th className="p-3 text-left">
-                        Email
+                        Name
                       </th>
 
                       <th className="p-3 text-left">
@@ -1492,15 +1385,19 @@ function ProjectStaffingContent() {
                       </th>
 
                       <th className="p-3 text-left">
+                        Group
+                      </th>
+
+                      <th className="p-3 text-right">
+                        Overall Score
+                      </th>
+
+                      <th className="p-3 text-left">
                         Status
                       </th>
 
                       <th className="p-3 text-left">
-                        Currently Assigned
-                      </th>
-
-                      <th className="p-3 text-left">
-                        Project Count
+                        Assigned
                       </th>
                     </tr>
                   </thead>
@@ -1561,21 +1458,34 @@ function ProjectStaffingContent() {
                               </div>
 
                               <div className="text-xs text-slate-500">
-                                {
-                                  user.username
-                                }
+                                {user.email ||
+                                  user.username}
                               </div>
-                            </td>
-
-                            <td className="p-3 text-slate-300">
-                              {user.email ||
-                                "—"}
                             </td>
 
                             <td className="p-3 text-slate-300">
                               {normalizeRole(
                                 user.role
                               )}
+                            </td>
+
+                            <td className="p-3 text-slate-300">
+                              {(user.staffing_groups || [])
+                                .length > 0
+                                ? (
+                                    user.staffing_groups ||
+                                    []
+                                  ).join(", ")
+                                : "—"}
+                            </td>
+
+                            <td className="p-3 text-right font-semibold text-white">
+                              {user.performance_score ===
+                                null ||
+                              user.performance_score ===
+                                undefined
+                                ? "N/A"
+                                : user.performance_score}
                             </td>
 
                             <td className="p-3">
@@ -1612,19 +1522,6 @@ function ProjectStaffingContent() {
                                   No
                                 </span>
                               )}
-                            </td>
-
-                            <td className="p-3 text-slate-300">
-                              {
-                                (
-                                  user.project_access ||
-                                  []
-                                ).filter(
-                                  (value) =>
-                                    value !==
-                                    "ALL"
-                                ).length
-                              }
                             </td>
                           </tr>
                         );

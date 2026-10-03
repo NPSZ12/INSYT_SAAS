@@ -2,6 +2,7 @@ import json
 import secrets
 from typing import List
 import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -93,6 +94,13 @@ class BulkProjectAccessRequest(BaseModel):
     assign: List[str] = Field(default_factory=list)
     remove: List[str] = Field(default_factory=list)
 
+class ReviewerMetricsProfileRequest(BaseModel):
+    username: str
+    staffing_groups: List[str] = Field(default_factory=list)
+    performance_score: int | None = None
+    performance_band: str = "Unrated"
+    performance_rating_source: str = "metrics"
+
 def _is_root_admin(user: User) -> bool:
     if not ROOT_ADMIN_USERNAME:
         return False
@@ -129,6 +137,17 @@ def serialize_user(user: User):
         "client_access": json.loads(user.client_access or "[]"),
         "project_access": json.loads(user.project_access or "[]"),
         "permissions": json.loads(user.permissions or "[]"),
+        "staffing_groups": json.loads(user.staffing_groups or "[]"),
+        "performance_score": user.performance_score,
+        "performance_band": user.performance_band or "Unrated",
+        "performance_rating_source": (
+            user.performance_rating_source or "metrics"
+        ),
+        "performance_rating_updated_at": (
+            user.performance_rating_updated_at.isoformat()
+            if user.performance_rating_updated_at
+            else None
+        ),
     }
 
 def _parse_staffing_project_key(
@@ -1139,6 +1158,21 @@ def get_staffing_metrics(
                 user.role
             ),
             "status": user.status or "",
+            "staffing_groups": json.loads(
+                user.staffing_groups or "[]"
+            ),
+            "performance_score": user.performance_score,
+            "performance_band": (
+                user.performance_band or "Unrated"
+            ),
+            "performance_rating_source": (
+                user.performance_rating_source or "metrics"
+            ),
+            "performance_rating_updated_at": (
+                user.performance_rating_updated_at.isoformat()
+                if user.performance_rating_updated_at
+                else None
+            ),
             "review_hours": 0.0,
             "documents_reviewed": 0,
             "documents_coded": 0,
@@ -1274,6 +1308,13 @@ def get_staffing_metrics(
                         "",
                     ),
                     "status": "",
+
+                    "staffing_groups": [],
+                    "performance_score": None,
+                    "performance_band": "Unrated",
+                    "performance_rating_source": "metrics",
+                    "performance_rating_updated_at": None,
+
                     "review_hours": 0.0,
                     "documents_reviewed": 0,
                     "documents_coded": 0,
@@ -1512,6 +1553,107 @@ def get_staffing_metrics(
         "skipped_projects": (
             skipped_projects
         ),
+    }
+
+@router.post("/reviewer-metrics-profile")
+def update_reviewer_metrics_profile(
+    payload: ReviewerMetricsProfileRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    require_permission(
+        admin,
+        PERMISSION_MANAGE_PROJECT_ACCESS,
+    )
+
+    username = str(
+        payload.username or ""
+    ).strip()
+
+    if not username:
+        raise HTTPException(
+            status_code=400,
+            detail="Username is required.",
+        )
+
+    user = (
+        db.query(User)
+        .filter(User.username == username)
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found.",
+        )
+
+    _require_root_admin_immutable(
+        user,
+    )
+
+    _require_target_in_actor_scope(
+        admin,
+        user,
+    )
+
+    groups = list(
+        dict.fromkeys(
+            str(value).strip()
+            for value in payload.staffing_groups
+            if str(value).strip()
+        )
+    )
+
+    score = payload.performance_score
+
+    if score is not None:
+        if score < 0 or score > 100:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Performance score must be "
+                    "between 0 and 100."
+                ),
+            )
+
+    band = str(
+        payload.performance_band
+        or "Unrated"
+    ).strip()
+
+    if not band:
+        band = "Unrated"
+
+    source = str(
+        payload.performance_rating_source
+        or "metrics"
+    ).strip()
+
+    if not source:
+        source = "metrics"
+
+    user.staffing_groups = json.dumps(
+        groups
+    )
+
+    user.performance_score = score
+    user.performance_band = band
+
+    user.performance_rating_source = (
+        source
+    )
+
+    user.performance_rating_updated_at = (
+        datetime.now(timezone.utc)
+    )
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "status": "updated",
+        "user": serialize_user(user),
     }
 
 @router.post("/project-access")
