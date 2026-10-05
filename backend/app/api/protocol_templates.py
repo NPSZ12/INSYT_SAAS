@@ -37,6 +37,22 @@ TEMPLATE_BLOB_PATHS = {
     ],
 }
 
+DISCOVERY_SUPPORT_SHEETS = {
+    "README",
+    "Field Registry",
+    "Review Rules",
+    "Detection Alignment",
+    "Privilege Log",
+    "QC Scoring",
+    "Reviewer Metrics",
+    "Production Controls",
+    "Competitor Parity",
+    "Sources",
+    "Issue Library",
+    "Privilege People",
+    "Confidentiality",
+    "Redaction Reasons",
+}
 
 def get_container_name(workspace: str) -> str:
     workspace_clean = workspace.lower().strip()
@@ -147,6 +163,13 @@ def parse_protocol_templates(workspace: str):
     protocols = []
 
     for sheet_name in workbook.sheet_names:
+        if (
+            workspace == "discovery"
+            and sheet_name
+            in DISCOVERY_SUPPORT_SHEETS
+        ):
+            continue
+
         df = pd.read_excel(
             io.BytesIO(blob_data),
             sheet_name=sheet_name,
@@ -202,13 +225,23 @@ def parse_protocol_templates(workspace: str):
                 }
             )
 
-        templates_by_name[sheet_name] = fields
+        display_name = sheet_name
+
+        if (
+            workspace == "discovery"
+            and sheet_name == "Protocol Fields"
+        ):
+            display_name = "Standard Discovery"
+
+        templates_by_name[
+            display_name
+        ] = fields
 
         protocols.append(
             {
-                "name": sheet_name,
-                "protocol_name": sheet_name,
-                "protocol_template": sheet_name,
+                "name": display_name,
+                "protocol_name": display_name,
+                "protocol_template": display_name,
                 "fields": fields,
                 "field_count": len(fields),
             }
