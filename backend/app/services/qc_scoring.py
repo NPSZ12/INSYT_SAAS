@@ -41,13 +41,13 @@ def get_workspace_qc_scoring_blob_name(
 
     if workspace_clean == "capture":
         return (
-            "config/qc/"
+            "_config/qc/"
             "INSYT_QC_Scoring_Capture.csv"
         )
 
     if workspace_clean == "discovery":
         return (
-            "config/qc/"
+            "_config/qc/"
             "INSYT_QC_Scoring_Discovery.csv"
         )
 
@@ -55,7 +55,7 @@ def get_workspace_qc_scoring_blob_name(
     # scoring model. Use Capture until a
     # Summaries-specific model is created.
     return (
-        "config/qc/"
+        "_config/qc/"
         "INSYT_QC_Scoring_Capture.csv"
     )
 
