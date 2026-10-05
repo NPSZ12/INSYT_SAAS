@@ -23,25 +23,6 @@ def get_workspace_container(workspace: str):
 
     return get_container_client(workspace)
 
-
-@router.get("/{workspace}/clients")
-def list_workspace_clients(workspace: str):
-    container = get_workspace_container(workspace)
-
-    clients = set()
-
-    for blob in container.list_blobs():
-        parts = blob.name.strip("/").split("/")
-
-        if len(parts) >= 2:
-            clients.add(parts[0])
-
-    return {
-        "workspace": workspace,
-        "clients": sorted(clients),
-    }
-
-
 @router.get("/{workspace}/projects")
 def list_workspace_projects_by_client(
     workspace: str,

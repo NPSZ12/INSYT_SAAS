@@ -802,7 +802,9 @@ def save_document_review_state(
     qc_coding: str = "",
     qc_questions: str = "",
     qc_scoring: dict | None = None,
-    values: dict = {},
+    values: dict | None = None,
+    discovery_tags: dict | None = None,
+    discovery_notes: dict | None = None,
     reviewed_by: str = "",
     action: str = "save",
 ) -> dict:
@@ -835,12 +837,24 @@ def save_document_review_state(
 
     now = datetime.now(timezone.utc).isoformat()
 
+    values = values or {}
+    discovery_tags = discovery_tags or {}
+    discovery_notes = discovery_notes or {}
+
     if document_coding:
         state["document_coding"] = document_coding
 
     state["further_review_reason"] = further_review_reason or ""
     state["qc_coding"] = qc_coding or ""
     state["qc_questions"] = qc_questions or ""
+    if workspace == "discovery":
+        state["discovery_tags"] = (
+            discovery_tags
+        )
+
+        state["discovery_notes"] = (
+            discovery_notes
+        )
     if qc_scoring is not None:
         state["qc_scoring"] = qc_scoring
         state["qc_weighted_error_points"] = (
@@ -890,6 +904,16 @@ def save_document_review_state(
         ),
         "qc_coding": qc_coding or "",
         "qc_questions": qc_questions or "",
+        "discovery_tags": (
+            discovery_tags
+            if workspace == "discovery"
+            else {}
+        ),
+        "discovery_notes": (
+            discovery_notes
+            if workspace == "discovery"
+            else {}
+        ),
     }
 
     if qc_scoring is not None:
@@ -1849,6 +1873,12 @@ def save_capture(
         qc_questions=payload.qc_questions,
         qc_scoring=qc_scoring,
         values=payload.values,
+        discovery_tags=(
+            payload.discovery_tags
+        ),
+        discovery_notes=(
+            payload.discovery_notes
+        ),
         reviewed_by=x_username,
         action="save",
     )
@@ -1899,6 +1929,16 @@ def save_capture(
                 ),
                 "qc_questions": (
                     payload.qc_questions
+                ),
+                "discovery_tags": (
+                    payload.discovery_tags
+                    if workspace == "discovery"
+                    else {}
+                ),
+                "discovery_notes": (
+                    payload.discovery_notes
+                    if workspace == "discovery"
+                    else {}
                 ),
                 "reviewed_by": x_username,
                 "reviewed_at": (
@@ -1953,6 +1993,14 @@ def save_capture(
         "qc_questions": state.get(
             "qc_questions",
             "",
+        ),
+        "discovery_tags": state.get(
+            "discovery_tags",
+            {},
+        ),
+        "discovery_notes": state.get(
+            "discovery_notes",
+            {},
         ),
         "qc_scoring": (
             state.get(

@@ -1212,9 +1212,18 @@ def list_workspace_clients(
         if not parsed:
             continue
 
-        clients.add(
-            parsed["client"]
-        )
+        client = str(
+            parsed.get("client")
+            or ""
+        ).strip()
+
+        if not client:
+            continue
+
+        if client.startswith("_"):
+            continue
+
+        clients.add(client)
 
     role = normalize_role(
         str(current_user.role or "")
