@@ -157,10 +157,19 @@ def parse_protocol_templates(workspace: str):
         ):
             continue
 
+        header_row = 0
+
+        if (
+            workspace == "discovery"
+            and sheet_name == "Protocol Fields"
+        ):
+            header_row = 1
+
         df = pd.read_excel(
             io.BytesIO(blob_data),
             sheet_name=sheet_name,
             dtype=str,
+            header=header_row,
         ).fillna("")
 
         df.columns = [str(col).strip() for col in df.columns]
@@ -184,9 +193,13 @@ def parse_protocol_templates(workspace: str):
                 row,
                 [
                     "Format",
+                    "format",
                     "Default Format",
+                    "default_format",
                     "Capture Type",
+                    "capture_type",
                     "Type",
+                    "type",
                 ],
             )
 
@@ -194,8 +207,11 @@ def parse_protocol_templates(workspace: str):
                 row,
                 [
                     "Notes",
+                    "notes",
                     "Note",
+                    "note",
                     "Description",
+                    "description",
                 ],
             )
 
