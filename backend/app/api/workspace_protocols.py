@@ -230,28 +230,28 @@ def get_workspace_protocol(
 
         possible_protocol_files = [
             build_project_path(
-                client,
                 workspace,
+                client,
                 project_id,
                 "source/protocol",
                 f"{project_id}_Protocol.json",
             ),
             build_project_path(
-                client,
                 workspace,
+                client,
                 project_id,
                 "source/protocol",
                 f"{project_id}_Protocol.xlsx",
             ),
             build_project_path(
-                client,
                 workspace,
+                client,
                 project_id,
                 "protocol.json",
             ),
             build_project_path(
-                client,
                 workspace,
+                client,
                 project_id,
                 "protocol.xlsx",
             ),
@@ -438,8 +438,8 @@ def save_workspace_protocol(
     container = get_live_source_container_client(workspace)
 
     protocol_blob = build_project_path(
-        client,
         workspace,
+        client,
         project_id,
         "source/protocol",
         f"{project_id}_Protocol.json",
