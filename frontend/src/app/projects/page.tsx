@@ -43,6 +43,8 @@ function ProjectsPageContent() {
       "capture"
   );
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState("");
   const [accessDenied, setAccessDenied] = useState(false);
 
   const isAdmin = isAdminUser(user);
@@ -136,8 +138,14 @@ function ProjectsPageContent() {
   function loadProjects(client: string) {
     if (!client || !user) {
       setProjects([]);
+      setProjectsLoading(false);
+      setProjectsError("");
       return;
     }
+
+    setProjectsLoading(true);
+    setProjectsError("");
+    setProjects([]);
 
     apiGet(
       `/api/${workspace}/clients/${encodeURIComponent(
@@ -214,12 +222,12 @@ function ProjectsPageContent() {
         );
       })
       .catch((error) => {
-        console.error(
-          "Failed to load projects:",
-          error
-        );
-
+        console.error("Failed to load projects:", error);
         setProjects([]);
+        setProjectsError("Unable to load projects. Please try again.");
+      })
+      .finally(() => {
+        setProjectsLoading(false);
       });
   }
 
@@ -313,6 +321,18 @@ function ProjectsPageContent() {
             <ContentCard title="Projects">
               <p className="text-sm text-slate-400">
                 Select a client to load projects.
+              </p>
+            </ContentCard>
+          ) : projectsLoading ? (
+            <ContentCard title="Projects">
+              <p className="text-sm text-slate-400" role="status">
+                Confirming Available Projects...
+              </p>
+            </ContentCard>
+          ) : projectsError ? (
+            <ContentCard title="Projects">
+              <p className="text-sm text-red-400" role="alert">
+                {projectsError}
               </p>
             </ContentCard>
           ) : projects.length === 0 ? (
