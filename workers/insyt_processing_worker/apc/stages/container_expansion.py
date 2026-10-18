@@ -2895,9 +2895,11 @@ def run_container_expansion(
                         extension
                     ):
                         result = (
-                            _expand_msg_container(
+                            _expand_registered_adapter(
                                 db=db,
                                 row=row,
+                                job_id=job_id,
+                                matter_id=matter_id,
                                 expansion_root=(
                                     expansion_root
                                 ),

@@ -55,21 +55,65 @@ def _file_route_status(row: Any) -> str:
     if not isinstance(routing, dict):
         return "continue"
 
-    return str(
+    route_status = str(
         routing.get("status")
         or "continue"
     ).strip().lower()
 
+    if route_status != "train_station":
+        return route_status
+
+    extension = str(
+        row["extension"]
+        or ""
+    ).strip().lower().lstrip(".")
+
+    if extension != "msg":
+        return route_status
+
+    expansion = (
+        status.get("container_expansion")
+        or {}
+    )
+
+    adapter = (
+        status.get("adapter_expansion")
+        or {}
+    )
+
+    if (
+        isinstance(expansion, dict)
+        and isinstance(adapter, dict)
+        and expansion.get("status")
+        in {"completed", "completed_with_warnings"}
+        and adapter.get("adapter_name") == "msg"
+        and adapter.get("status")
+        in {"completed", "completed_with_warnings"}
+    ):
+        return "continue"
+
+    return route_status
+
 def _workbook_parent_file_id(row: Any) -> str:
-    status = _stage_status(row["stage_status_json"])
+    status = _stage_status(
+        row["stage_status_json"]
+    )
 
-    workbook_sheet = status.get("workbook_sheet") or {}
+    workbook_sheet = (
+        status.get("workbook_sheet")
+        or {}
+    )
 
-    if not isinstance(workbook_sheet, dict):
+    if (
+        not isinstance(workbook_sheet, dict)
+        or not workbook_sheet
+    ):
         return ""
 
     return str(
-        workbook_sheet.get("original_workbook_file_id")
+        workbook_sheet.get(
+            "original_workbook_file_id"
+        )
         or row["parent_file_id"]
         or ""
     ).strip()
