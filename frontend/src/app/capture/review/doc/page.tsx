@@ -12,6 +12,7 @@ import PageHeader from "../../../../components/PageHeader";
 import ContentCard from "../../../../components/ContentCard";
 import LinkedEntitiesStrip from "../../../../components/LinkedEntitiesStrip";
 
+import { useWorkspaceReviewNavigation } from "../../../../components/workspaces/useWorkspaceReviewNavigation";
 import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
@@ -507,6 +508,22 @@ function ReviewPageContent() {
       });
   }, [clientId, projectId]);
 
+  const reviewNav = reviewDoc as ReviewDocument & {
+    previous_doc_id?: string;
+    next_doc_id?: string;
+    is_first_doc?: boolean;
+    is_last_doc?: boolean;
+    batch_doc_index?: number;
+    batch_doc_count?: number;
+  };
+
+  const sharedNavigation = useWorkspaceReviewNavigation({
+    workspace: "capture", client: clientId, project: projectId,
+    batch: batchId, doc: docId, reviewDocId: reviewDoc?.doc_id,
+    reviewNav,
+    fixedDocIds: isFinalSourceView ? finalSourceDocIds : undefined,
+  });
+
   if (!projectId) {
     return (
       <AppShell>
@@ -630,14 +647,7 @@ function ReviewPageContent() {
     };
   });
 
-  const reviewNav = reviewDoc as ReviewDocument & {
-    previous_doc_id?: string;
-    next_doc_id?: string;
-    is_first_doc?: boolean;
-    is_last_doc?: boolean;
-    batch_doc_index?: number;
-    batch_doc_count?: number;
-  };
+
 
   function buildReviewDocUrl(targetDocId: string) {
     const params = new URLSearchParams();
@@ -854,12 +864,12 @@ function ReviewPageContent() {
       return;
     }
 
-    if (reviewNav.is_last_doc) {
+    if (sharedNavigation.isLast) {
       exitReview();
       return;
     }
 
-    goNextDoc();
+    navigateShared(sharedNavigation.next);
   }
 
   const fileDocIndex = fileDocIds.findIndex(
@@ -914,6 +924,24 @@ function ReviewPageContent() {
     if (fileDocIds.length > 0) {
       openFileViewDoc(fileDocIds[fileDocIds.length - 1]);
     }
+  }
+
+
+
+  function navigateShared(target: { docId: string; nativeBlob: string } | null) {
+    if (!target) return;
+    const params = new URLSearchParams({client: clientId, project: projectId, doc: target.docId});
+    if (batchId) params.set("batch", batchId);
+    if (!batchId && target.nativeBlob) params.set("native_blob", target.nativeBlob);
+    if (isFinalSourceView) {
+      params.set("source", "final");
+      params.set("docSet", finalSourceDocIds.join(";"));
+      if (entityParam) params.set("entity", entityParam);
+      if (entityUidParam) params.set("entityUid", entityUidParam);
+    }
+    if (returnTo) params.set("return_to", returnTo);
+    if (returnLabel) params.set("return_label", returnLabel);
+    router.push(`/capture/review/doc?${params.toString()}`);
   }
 
   function editLinkedEntity(entity: any) {
@@ -1012,15 +1040,15 @@ function ReviewPageContent() {
                 : reviewDoc.batch
           }
           docId={reviewDoc.doc_id}
-          isFirstDoc={effectiveIsFirstDoc}
-          isLastDoc={effectiveIsLastDoc}
-          docPositionLabel={effectiveDocPositionLabel}
-          currentDocIndex={effectiveCurrentDocIndex}
-          batchDocCount={effectiveDocCount}
-          onFirstDoc={isFileView ? goFileFirstDoc : goFirstDoc}
-          onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
-          onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
-          onLastDoc={isFileView ? goFileLastDoc : goLastDoc}
+          isFirstDoc={sharedNavigation.isFirst}
+          isLastDoc={sharedNavigation.isLast}
+          docPositionLabel={sharedNavigation.label}
+          currentDocIndex={sharedNavigation.index}
+          batchDocCount={sharedNavigation.count}
+          onFirstDoc={() => navigateShared(sharedNavigation.first)}
+          onPreviousDoc={() => navigateShared(sharedNavigation.previous)}
+          onNextDoc={() => navigateShared(sharedNavigation.next)}
+          onLastDoc={() => navigateShared(sharedNavigation.last)}
         />
 
         {returnTo && (
@@ -1210,11 +1238,11 @@ function ReviewPageContent() {
                       }
                     );
                 }}
-                isFirstDoc={effectiveIsFirstDoc}
-                isLastDoc={effectiveIsLastDoc}
+                isFirstDoc={sharedNavigation.isFirst}
+                isLastDoc={sharedNavigation.isLast}
                 hasLinkedEntities={linkedEntities.some((entity) => entity.linked !== false)}
-                onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
-                onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
+                onPreviousDoc={() => navigateShared(sharedNavigation.previous)}
+                onNextDoc={() => navigateShared(sharedNavigation.next)}
                 onSaveComplete={handleSaveComplete}
                 onLinkedEntitySaved={loadLinkedEntities}
                 editingEntity={editingEntity}

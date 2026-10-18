@@ -173,9 +173,9 @@ export default function DiscoveryReviewPanel({
                         >
                           <option value="">Select one...</option>
 
-                          {sectionFields.map((field) => (
+                          {sectionFields.map((field, index) => (
                             <option
-                              key={`${section}-${field.label}`}
+                              key={`${section}-${field.label}-${index}`}
                               value={field.label}
                             >
                               {field.label}
