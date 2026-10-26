@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import csv
 import json
 import mimetypes
@@ -943,6 +945,8 @@ def _expand_registered_adapter(
     matter_id: str,
     expansion_root: Path,
     queue: list[dict[str, Any]],
+    zip_remaining_bytes: int | None = None,
+    zip_remaining_files: int | None = None,
 ) -> dict[str, Any]:
     """
     Run one registered file adapter and return its prepared
@@ -1015,6 +1019,10 @@ def _expand_registered_adapter(
             )
             or None
         ),
+        metadata={
+            "zip_remaining_bytes": zip_remaining_bytes,
+            "zip_remaining_files": zip_remaining_files,
+        } if zip_remaining_bytes is not None else {},
 
     )
 
@@ -1154,6 +1162,17 @@ def _expand_registered_adapter(
     event_exceptions: list[
         dict[str, Any]
     ] = []
+
+    if adapter_result.adapter_name == "zip":
+        for member_error in (
+            adapter_result.metadata.get("member_errors") or []
+        ):
+            event_exceptions.append({
+                "error": str(
+                    member_error.get("error", "ZIP member failed")
+                ),
+                "member": str(member_error.get("member", "")),
+            })
 
     child_file_ids: list[str] = []
 
@@ -1317,6 +1336,13 @@ def _expand_registered_adapter(
             if extracted_file_count > 0
             else "failed"
         )
+
+    if (
+        adapter_result.adapter_name == "zip"
+        and adapter_result.status == "completed_with_warnings"
+        and status == "completed"
+    ):
+        status = "completed_with_warnings"
 
     return {
         "status": status,
@@ -2864,7 +2890,39 @@ def run_container_expansion(
 
             else:
                 try:
-                    if _is_zip_extension(
+                    if (
+                        _is_zip_extension(extension)
+                        and os.environ.get(
+                            "INSYT_ZIP_ADAPTER_ENABLED", ""
+                        ).strip().lower() in {"1", "true", "yes"}
+                    ):
+                        max_zip_bytes = int(os.environ.get(
+                            "INSYT_ZIP_JOB_MAX_BYTES", "268435456"
+                        ))
+                        max_zip_files = int(os.environ.get(
+                            "INSYT_ZIP_JOB_MAX_FILES", "10000"
+                        ))
+                        if max_zip_bytes < 0 or max_zip_files < 0:
+                            raise ValueError(
+                                "ZIP job limits must be nonnegative"
+                            )
+
+                        result = _expand_registered_adapter(
+                            db=db,
+                            row=row,
+                            job_id=job_id,
+                            matter_id=matter_id,
+                            expansion_root=expansion_root,
+                            queue=queue,
+                            zip_remaining_bytes=max(
+                                0, max_zip_bytes - extracted_bytes_total
+                            ),
+                            zip_remaining_files=max(
+                                0, max_zip_files - extracted_file_count
+                            ),
+                        )
+
+                    elif _is_zip_extension(
                         extension
                     ):
                         result = (
