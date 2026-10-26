@@ -1,0 +1,90 @@
+﻿name: INSYT Shared Pipeline Validation
+
+on:
+  push:
+    branches:
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  processing-worker:
+    name: Processing Worker / Python 3.11
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile processing modules
+        run: |
+          python -m compileall -q workers/insyt_processing_worker/apc
+          python -m compileall -q workers/insyt_processing_worker/app
+
+  detection-worker:
+    name: Detection Worker / Python 3.11
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Detection modules
+        run: |
+          python -m compileall -q workers/insyt_detection_worker_v2/apc
+          python -m compileall -q workers/insyt_detection_worker_v2/app
+      - name: Verify Capture and Discovery routing
+        env:
+          PYTHONPATH: workers/insyt_detection_worker_v2
+        run: |
+          python -c '
+          from apc.detection_text_routing import resolve_detection_text_route
+          for workspace in ("capture", "discovery"):
+              for folder in ("text", "xl/text", "structured/text"):
+                  doc_id = "INSYT000000001"
+                  path = f"CLIENT/{workspace}/PROJECT/processing_center/staged/JOB-TEST/{folder}/{doc_id}.txt"
+                  args = dict(workspace=workspace, blob_path=path, processing_container="insyt-processing", review_container=f"insyt-{workspace}", client="CLIENT", project="PROJECT", source_job_id="JOB-TEST")
+                  route = resolve_detection_text_route(**args, doc_id=doc_id)
+                  assert route.storage_source == "review"
+                  assert route.container == f"insyt-{workspace}"
+                  try:
+                      resolve_detection_text_route(**args, doc_id="INSYT000000999")
+                  except ValueError:
+                      pass
+                  else:
+                      raise AssertionError("Wrong Doc ID accepted")
+          print("PASS: Capture/Discovery shared routing")
+          '
+
+  api:
+    name: API / Python 3.12
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate API syntax
+        run: |
+          python -m compileall -q backend/app
+
+  frontend:
+    name: Frontend / Node 22
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript validation
+        run: npx tsc --noEmit
