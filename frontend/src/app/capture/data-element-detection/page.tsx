@@ -71,6 +71,13 @@ type DetectionStatus = {
 };
 
 type DetectionSummary = {
+  pdf_remediation_count?: number;
+  pdf_remediation_documents?: Array<{
+    doc_id: string;
+    reason_code: string;
+    detection_status: string;
+    remediation_required: boolean;
+  }>;
   counts?: {
     documents_total?: number;
     documents_scanned?: number;
@@ -1774,6 +1781,48 @@ function DataElementDetectionPageContent() {
               }
             />
           </div>
+          {/* PDF_REMEDIATION_IN_EXISTING_NFR_V1 */}
+          {(detectionSummary?.pdf_remediation_documents?.length ?? 0) > 0 && (
+            <div className="mt-4 overflow-hidden rounded-xl border border-amber-800/60">
+              <div className="border-b border-amber-800/60 bg-amber-950/20 px-4 py-3">
+                <p className="text-sm font-semibold text-amber-200">
+                  Documents Requiring Further Review
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  These documents were not successfully scanned.
+                  They remain exceptions until remediation is completed.
+                </p>
+              </div>
+              <div className="max-h-[320px] overflow-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-slate-950 text-xs text-slate-400">
+                    <tr>
+                      <th className="px-4 py-3">INSYT Doc ID</th>
+                      <th className="px-4 py-3">Reason</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {(detectionSummary?.pdf_remediation_documents ?? []).map(
+                      (record, index) => (
+                        <tr key={`${record.doc_id}-${index}`}>
+                          <td className="px-4 py-3 font-mono text-slate-200">
+                            {record.doc_id}
+                          </td>
+                          <td className="px-4 py-3 text-slate-300">
+                            {record.reason_code.replaceAll("_", " ")}
+                          </td>
+                          <td className="px-4 py-3 text-amber-300">
+                            Not Scanned ? Needs Further Review
+                          </td>
+                        </tr>
+                      ),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </CollapsiblePane>
 
         <CollapsiblePane

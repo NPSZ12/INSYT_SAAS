@@ -1,4 +1,4 @@
-﻿"""INSYT FastAPI router wrapper for Azure Processing Center v1.0.
+"""INSYT FastAPI router wrapper for Azure Processing Center v1.0.
 
 Copy this file into the INSYT backend at:
     app/api/processing_center_azure.py
@@ -2737,6 +2737,36 @@ def _live_source_blob_exists(
     except Exception:
         return False
 
+def _list_live_source_blob_paths(
+    *,
+    workspace: str,
+    prefix: str,
+) -> set[str]:
+    """
+    Return all live-source blob paths beneath one prefix in a single
+    Azure listing operation.
+
+    This is intended for bulk population checks where calling
+    _live_source_blob_exists() once per document would create hundreds
+    or thousands of sequential Azure requests.
+    """
+    try:
+        blob_service = _get_live_source_blob_service_client()
+
+        container_client = blob_service.get_container_client(
+            _live_source_container(workspace)
+        )
+
+        return {
+            str(blob.name)
+            for blob in container_client.list_blobs(
+                name_starts_with=prefix
+            )
+            if getattr(blob, "name", None)
+        }
+
+    except Exception:
+        return set()
 
 def _write_live_source_blob_bytes(
     *,
@@ -3024,6 +3054,51 @@ def _load_worker_report_for_job(
     )
 
 
+
+# PDF_DETECTION_ELIGIBILITY_V1
+def _pdf_inspection_from_report_file(
+    report_file: dict[str, Any],
+) -> dict[str, Any] | None:
+    raw = report_file.get("stage_status_json") or {}
+    try:
+        status = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(status, dict):
+        return None
+    value = status.get("pdf_adapter_inspection")
+    return value if isinstance(value, dict) else None
+
+
+def _pdf_detection_eligible(doc: dict[str, Any]) -> bool:
+    extension = str(
+        doc.get("extension") or ""
+    ).strip().lower().lstrip(".")
+
+    if extension != "pdf":
+        return True
+
+    inspection = doc.get("pdf_adapter_inspection")
+
+    if not isinstance(inspection, dict):
+        # Legacy compatibility. Strict rollout mode blocks
+        # PDFs without an inspection record.
+        strict = os.environ.get(
+            "INSYT_PDF_DETECTION_REQUIRE_INSPECTION", ""
+        ).strip().lower() in {"1", "true", "yes"}
+        return not strict
+
+    metadata = inspection.get("metadata") or {}
+    return bool(
+        isinstance(metadata, dict)
+        and not inspection.get("remediation_required")
+        and not inspection.get("error")
+        and inspection.get("status") == "completed"
+        and metadata.get("structural_status") == "validated"
+        and not metadata.get("remediation_reason")
+    )
+
+
 def _build_staged_results_payload(
     *,
     workspace: str,
@@ -3225,6 +3300,11 @@ def _build_staged_results_payload(
                 or 0,
                 "page_count": report_file.get("page_count") or 0,
                 "requires_ocr": bool(report_file.get("requires_ocr") or False),
+                "pdf_adapter_inspection": (
+                    _pdf_inspection_from_report_file(report_file)
+                    if str(extension).strip().lower().lstrip(".") == "pdf"
+                    else None
+                ),
                 "is_duplicate": bool(report_file.get("is_duplicate") or False),
                 "is_denisted": bool(report_file.get("is_denisted") or False),
                 "family_id": report_file.get("family_id"),
@@ -3638,6 +3718,9 @@ def list_data_element_detection_ready(
                 if not doc_id or not text_blob_path:
                     continue
 
+                if not _pdf_detection_eligible(doc):
+                    continue
+
                 detection_ready = bool(
                     text_blob_path
                     and not doc.get("is_duplicate")
@@ -3778,6 +3861,9 @@ def start_data_element_detection(
             text_blob_path = doc.get("text_staged_blob_path")
 
             if not doc_id or not text_blob_path:
+                continue
+
+            if not _pdf_detection_eligible(doc):
                 continue
 
             if doc.get("is_duplicate"):
@@ -4286,6 +4372,69 @@ def get_data_element_detection_summary(
             entities_blob_path
         )
 
+        # PDF_REMEDIATION_API_V1
+        # The existing result directory is shared by both
+        # Capture and Discovery, with workspace-scoped paths.
+        pdf_remediation_count = int(
+            summary.get("pdf_remediation_count") or 0
+        )
+        pdf_remediation_documents = []
+
+        if pdf_remediation_count > 0:
+            remediation_blob_path = (
+                f"{base_path}/processing_center/"
+                f"detection/jobs/{detection_job_id}/"
+                "results/pdf_remediation.json"
+            )
+
+            remediation_payload = _read_processing_json_blob(
+                remediation_blob_path
+            )
+
+            if not isinstance(remediation_payload, dict):
+                raise ValueError(
+                    "PDF remediation result is not a JSON object."
+                )
+
+            records = remediation_payload.get("documents")
+
+            if not isinstance(records, list):
+                raise ValueError(
+                    "PDF remediation documents are missing."
+                )
+
+            if len(records) != pdf_remediation_count:
+                raise ValueError(
+                    "PDF remediation document count mismatch."
+                )
+
+            pdf_remediation_documents = [
+                {
+                    "doc_id": str(
+                        record.get("doc_id") or ""
+                    ).strip(),
+                    "reason_code": str(
+                        record.get("reason_code") or ""
+                    ).strip(),
+                    "detection_status": "NOT_SCANNED",
+                    "remediation_required": True,
+                }
+                for record in records
+                if isinstance(record, dict)
+            ]
+
+            if (
+                len(pdf_remediation_documents)
+                != pdf_remediation_count
+                or any(
+                    not row["doc_id"] or not row["reason_code"]
+                    for row in pdf_remediation_documents
+                )
+            ):
+                raise ValueError(
+                    "PDF remediation records are incomplete."
+                )
+
         if not isinstance(documents, list):
             documents = []
 
@@ -4341,6 +4490,10 @@ def get_data_element_detection_summary(
             "project": project,
             "detection_job_id": detection_job_id,
             "summary": summary,
+            "pdf_remediation_count": pdf_remediation_count,
+            "pdf_remediation_documents": (
+                pdf_remediation_documents
+            ),
             "documents": documents,
             "entities": entities,
             "impact_assessment": impact_assessment,

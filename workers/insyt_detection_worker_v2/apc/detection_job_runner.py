@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -127,40 +127,55 @@ def _download_detection_text(
     workspace: str,
     blob_path: str,
     destination: Path,
+    client: str,
+    project: str,
+    source_job_id: str,
+    doc_id: str,
 ) -> None:
-    """
-    Stream staged Detection text from INSYT processing
-    storage directly to local disk.
-
-    Detection input paths supplied by OCR and structured-data
-    ingestion are processing-center paths and must therefore
-    resolve against INSYT_PROCESSING_STORAGE_* rather than
-    review storage.
-    """
-
-    processing_conn = (
-        os.getenv(
-            "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
-        )
-        or ""
-    ).strip()
-
-    if not processing_conn:
-        raise RuntimeError(
-            "INSYT_PROCESSING_STORAGE_CONNECTION_STRING "
-            "is required by Detection Worker V2."
-        )
-
-    service = BlobServiceClient.from_connection_string(
-        processing_conn
+    # DETECTION_TEXT_STORAGE_ROUTING_V1
+    # One implementation for Capture and Discovery.
+    from .detection_text_routing import (
+        resolve_detection_text_route,
     )
 
+    route = resolve_detection_text_route(
+        workspace=workspace,
+        blob_path=blob_path,
+        processing_container=_processing_container(),
+        review_container=_review_container(workspace),
+        client=client,
+        project=project,
+        source_job_id=source_job_id,
+        doc_id=doc_id,
+    )
+
+    if route.storage_source == "review":
+        service = _review_blob_service()
+    elif route.storage_source == "processing":
+        processing_conn = (
+            os.getenv(
+                "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
+            ) or ""
+        ).strip()
+
+        if not processing_conn:
+            raise RuntimeError(
+                "INSYT_PROCESSING_STORAGE_CONNECTION_STRING "
+                "is required for processing-storage text."
+            )
+
+        service = BlobServiceClient.from_connection_string(
+            processing_conn
+        )
+    else:
+        raise RuntimeError("Unsupported Detection text source")
+
     container = service.get_container_client(
-        _processing_container()
+        route.container
     )
 
     blob_client = container.get_blob_client(
-        blob_path
+        route.blob_path
     )
 
     destination.parent.mkdir(
@@ -172,10 +187,8 @@ def _download_detection_text(
 
     with destination.open("wb") as handle:
         for chunk in downloader.chunks():
-            if not chunk:
-                continue
-
-            handle.write(chunk)
+            if chunk:
+                handle.write(chunk)
 
 def _seed_source_job(
     db: LedgerDB,
@@ -1224,6 +1237,176 @@ def run_data_element_detection_job(
 
     text_dir = local_root / "text"
 
+    rejected_pdfs: list[dict[str, str]] = []
+
+    # PDF_DETECTION_WORKER_GUARD_V1
+    # Disabled by default; verify staging before enabling.
+    if os.getenv(
+        "INSYT_PDF_WORKER_GUARD_ENABLED", ""
+    ).strip().lower() in {"1", "true", "yes"}:
+        import logging
+        from .pdf_detection_guard import validate_pdf_documents
+
+        report = None
+
+        try:
+            # Match the canonical path used by the API:
+            # client/workspace/project_storage_key
+            clean_client = client_id.strip().strip("/").replace(
+                "\\", "/"
+            )
+            clean_project = project.strip().strip("/").replace(
+                "\\", "/"
+            ).replace(" ", "_")
+
+            prefix = (
+                f"{clean_client}/{workspace}/{clean_project}"
+            )
+            report_path = (
+                f"{prefix}/processing_center/reports/"
+                f"{source_job_id}/{source_job_id}.summary.json"
+            )
+
+            report_blob = (
+                _review_blob_service().get_blob_client(
+                    container=_review_container(workspace),
+                    blob=report_path,
+                )
+            )
+            report = json.loads(
+                report_blob.download_blob().readall()
+            )
+
+        except Exception as exc:
+            logging.warning(
+                "PDF source report unavailable for job %s: %s",
+                detection_job_id,
+                exc,
+            )
+
+        documents, rejected_pdfs = validate_pdf_documents(
+            documents,
+            report,
+            workspace=workspace,
+            client=client_id,
+            project=project,
+            source_job_id=source_job_id,
+        )
+
+        for rejected in rejected_pdfs:
+            logging.warning(
+                "PDF blocked before Detection: job=%s "
+                "doc=%s reason=%s",
+                detection_job_id,
+                rejected["doc_id"],
+                rejected["reason_code"],
+            )
+
+        if not documents:
+            # ALL_REJECTED_REMEDIATION_V1
+            # No scan was performed; preserve every guard rejection.
+            if not rejected_pdfs:
+                raise RuntimeError(
+                    "No eligible documents or remediation records."
+                )
+
+            project_base = (
+                f"{client_id}/{workspace}/"
+                f"{project.replace(' ', '_')}"
+            )
+            result_prefix = (
+                f"{project_base}/processing_center/"
+                f"detection/jobs/{detection_job_id}/results"
+            )
+
+            remediation = {
+                "schema_version": 1,
+                "detection_job_id": detection_job_id,
+                "source_job_id": source_job_id,
+                "workspace": workspace,
+                "client": client_id,
+                "project": project,
+                "status": "remediation_required",
+                "document_count": len(rejected_pdfs),
+                "documents": [
+                    {
+                        "doc_id": item["doc_id"],
+                        "reason_code": item["reason_code"],
+                        "detection_status": "NOT_SCANNED",
+                        "remediation_required": True,
+                    }
+                    for item in rejected_pdfs
+                ],
+            }
+
+            remediation_upload = _write_processing_json(
+                f"{result_prefix}/pdf_remediation.json",
+                remediation,
+            )
+            documents_upload = _write_processing_json(
+                f"{result_prefix}/documents.json",
+                [],
+            )
+            entities_upload = _write_processing_json(
+                f"{result_prefix}/entities.json",
+                [],
+            )
+
+            summary_payload = {
+                "job_type": "data_element_detection",
+                "status": "completed_with_exceptions",
+                "detection_job_id": detection_job_id,
+                "source_job_id": source_job_id,
+                "workspace": workspace,
+                "client": client_id,
+                "project": project,
+                "protocol_name": payload.get("protocol_name"),
+                "protocol_version": payload.get("protocol_version"),
+                "include_phi": bool(
+                    payload.get("include_phi", True)
+                ),
+                "documents_total": len(rejected_pdfs),
+                "documents_scanned": 0,
+                "documents_with_hits": 0,
+                "documents_no_hits": 0,
+                "documents_nfr": 0,
+                "documents_exception": len(rejected_pdfs),
+                "pdf_remediation_count": len(rejected_pdfs),
+                "pdf_remediation_blob_path": (
+                    remediation_upload["blob_path"]
+                ),
+                "entity_type_counts": [],
+                "completed_at": utc_now(),
+            }
+
+            summary_upload = _write_processing_json(
+                f"{result_prefix}/summary.json",
+                summary_payload,
+            )
+
+            return {
+                **summary_payload,
+                "message": (
+                    "Detection not run: all documents "
+                    "require remediation."
+                ),
+                "result_prefix": result_prefix,
+                "summary_blob_path": (
+                    summary_upload["blob_path"]
+                ),
+                "documents_blob_path": (
+                    documents_upload["blob_path"]
+                ),
+                "entities_blob_path": (
+                    entities_upload["blob_path"]
+                ),
+                "documents": [],
+                "document_index_count": 0,
+                "document_index_uploads": [],
+                "generic_identifier_candidate_count": 0,
+                "generic_identifier_cluster_count": 0,
+            }
+
     downloaded_docs: list[dict[str, Any]] = []
 
     for doc in documents:
@@ -1249,6 +1432,10 @@ def run_data_element_detection_job(
             workspace=workspace,
             blob_path=text_blob_path,
             destination=local_text_path,
+            client=client_id,
+            project=project,
+            source_job_id=source_job_id,
+            doc_id=doc_id,
         )
 
         file_id = _seed_detection_document(
@@ -1486,8 +1673,54 @@ def run_data_element_detection_job(
         f"detection/jobs/{detection_job_id}/results"
     )
 
+    # PDF_REMEDIATION_REPORTING_V1
+    # Rejected PDFs were not scanned and must never be No Hits.
+    pdf_remediation_count = len(rejected_pdfs)
+    pdf_remediation_upload = None
+
+    if pdf_remediation_count:
+        result = dict(result)
+
+        result["documents_exception"] = (
+            int(result.get("documents_exception") or 0)
+            + pdf_remediation_count
+        )
+        result["documents_total"] = (
+            int(result.get("documents_total") or 0)
+            + pdf_remediation_count
+        )
+        result["status"] = "completed_with_exceptions"
+
+        pdf_remediation_upload = _write_processing_json(
+            f"{result_prefix}/pdf_remediation.json",
+            {
+                "schema_version": 1,
+                "detection_job_id": detection_job_id,
+                "source_job_id": source_job_id,
+                "workspace": workspace,
+                "client": client_id,
+                "project": project,
+                "status": "remediation_required",
+                "document_count": pdf_remediation_count,
+                "documents": [
+                    {
+                        "doc_id": item["doc_id"],
+                        "reason_code": item["reason_code"],
+                        "detection_status": "NOT_SCANNED",
+                        "remediation_required": True,
+                    }
+                    for item in rejected_pdfs
+                ],
+            },
+        )
+
     summary_payload = {
         **result,
+        "pdf_remediation_count": pdf_remediation_count,
+        "pdf_remediation_blob_path": (
+            pdf_remediation_upload["blob_path"]
+            if pdf_remediation_upload else None
+        ),
         "job_type": "data_element_detection",
         "detection_job_id": detection_job_id,
         "workspace": workspace,

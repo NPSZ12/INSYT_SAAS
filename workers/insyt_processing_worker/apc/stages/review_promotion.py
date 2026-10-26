@@ -1390,6 +1390,76 @@ def run_review_promotion(
                     .st_size
                 )
 
+                # PDF_ADAPTER_PROMOTION_GATE_V1
+                # Opt-in only. Preserve existing default behavior.
+                # Native copy has already been retained.
+                if (
+                    ext == "pdf"
+                    and workspace in {"discovery", "capture"}
+                    and os.environ.get(
+                        "INSYT_PDF_ADAPTER_ENABLED", ""
+                    ).strip().lower() in {"1", "true", "yes"}
+                ):
+                    stage_data = _get_stage_status(row)
+                    inspection = stage_data.get(
+                        "pdf_adapter_inspection"
+                    )
+
+                    if not isinstance(inspection, dict):
+                        raise ReviewPromotionRemediationRequired(
+                            "PDF inspection result is missing.",
+                            reason_code="PDF_INSPECTION_MISSING",
+                            text_source="pdf_inspection_remediation_required",
+                        )
+
+                    inspection_metadata = (
+                        inspection.get("metadata") or {}
+                    )
+
+                    if not isinstance(inspection_metadata, dict):
+                        inspection_metadata = {}
+
+                    structural_status = str(
+                        inspection_metadata.get(
+                            "structural_status"
+                        ) or ""
+                    )
+
+                    inspection_status = str(
+                        inspection.get("status") or ""
+                    )
+
+                    remediation = bool(
+                        inspection.get("remediation_required")
+                    )
+
+                    if (
+                        remediation
+                        or inspection_status not in {
+                            "completed",
+                            "completed_with_warnings",
+                        }
+                        or structural_status != "validated"
+                    ):
+                        reason = str(
+                            inspection_metadata.get(
+                                "remediation_reason"
+                            )
+                            or inspection.get("error")
+                            or "PDF_STRUCTURAL_VALIDATION_REQUIRED"
+                        )
+
+                        raise ReviewPromotionRemediationRequired(
+                            "PDF inspection requires remediation: "
+                            + reason,
+                            reason_code=(
+                                "PDF_INSPECTION_REMEDIATION_REQUIRED"
+                            ),
+                            text_source=(
+                                "pdf_inspection_remediation_required"
+                            ),
+                        )
+
                 (
                     text_content,
                     text_source,

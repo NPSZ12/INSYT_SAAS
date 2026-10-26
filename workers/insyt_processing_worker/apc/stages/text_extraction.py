@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from ..adapters.base import AdapterContext
+from ..adapters.documents.pdf_adapter import PDF_ADAPTER
 from ..config import Settings
 from ..db import LedgerDB
 from ..pdf_utils import count_pdf_pages, estimate_pdf_native_text_bytes, pdf_is_encrypted
@@ -245,6 +247,75 @@ def run_text_extraction(
             try:
                 path = Path(row["original_path"])
                 ext = row["extension"] or ""
+
+                # Optional read-only PDF inspection.
+                # Never replace existing text extraction or OCR.
+                if (
+                    ext.lower().lstrip(".") == "pdf"
+                    and str(workspace).lower() in {
+                        "discovery", "capture"
+                    }
+                    and os.environ.get(
+                        "INSYT_PDF_ADAPTER_ENABLED", ""
+                    ).strip().lower() in {
+                        "1", "true", "yes"
+                    }
+                ):
+                    try:
+                        pdf_result = PDF_ADAPTER.process(
+                            AdapterContext(
+                                job_id=job_id,
+                                matter_id=matter_id,
+                                file_id=str(row["file_id"]),
+                                source_path=path,
+                                normalized_path=path.name,
+                                extension=".pdf",
+                            )
+                        )
+
+                        inspection = {
+                            "status": pdf_result.status,
+                            "error": pdf_result.error,
+                            "metadata": pdf_result.metadata,
+                            "remediation_required": (
+                                pdf_result.status == "failed"
+                                or bool(
+                                    pdf_result.metadata.get(
+                                        "remediation_reason"
+                                    )
+                                )
+                            ),
+                        }
+
+                    except Exception as pdf_exc:
+                        inspection = {
+                            "status": "failed",
+                            "error": (
+                                "PDF_ADAPTER_EXCEPTION:"
+                                f"{type(pdf_exc).__name__}"
+                            ),
+                            "metadata": {},
+                            "remediation_required": True,
+                        }
+
+                    db.execute(
+                        """
+                        UPDATE file_processing_metrics
+                        SET stage_status_json=json_patch(
+                            coalesce(stage_status_json, '{}'),
+                            ?
+                        ),
+                        updated_at=?
+                        WHERE file_id=?
+                        """,
+                        (
+                            json_dumps({
+                                "pdf_adapter_inspection": inspection
+                            }),
+                            utc_now(),
+                            row["file_id"],
+                        ),
+                    )
 
                 if progress_callback is not None:
                     progress_callback(
