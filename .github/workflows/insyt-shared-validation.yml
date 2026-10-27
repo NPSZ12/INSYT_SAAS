@@ -36,6 +36,8 @@ jobs:
         run: |
           python -m unittest discover -s tests/shared_pipeline -p test_processing.py -v
           python -m unittest discover -s tests/shared_pipeline -p test_workbook_adapter.py -v
+          python -m unittest discover -s tests/shared_pipeline -p test_pst_adapter.py -v
+          python -m unittest discover -s tests/shared_pipeline -p test_discovery_mixed_formats.py -v
 
   detection-worker:
     name: Detection Worker / Python 3.11
