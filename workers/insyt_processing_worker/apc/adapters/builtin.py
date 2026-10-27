@@ -5,6 +5,7 @@ from .email.msg_adapter import MSG_ADAPTER
 from .email.pst_adapter import PstAdapter
 from .email.readpst_backend import ReadPstBackend
 from .containers.zip_adapter import ZIP_ADAPTER
+from .spreadsheets.workbook_adapter import SPREADSHEET_ADAPTER
 from .registry import register_adapter
 
 
@@ -26,6 +27,7 @@ BUILTIN_ADAPTERS = (
     PST_ADAPTER,
     MSG_ADAPTER,
     ZIP_ADAPTER,
+    SPREADSHEET_ADAPTER,
 )
 
 
