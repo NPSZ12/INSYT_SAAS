@@ -24,6 +24,17 @@ type DetectionReadyDoc = {
 };
 
 type DetectionReadyResponse = {
+  ingestion_nfr_count?: number;
+  ingestion_nfr_documents?: Array<{
+    source_job_id: string;
+    doc_id: string;
+    file_id: string;
+    original_filename: string;
+    native_staged_blob_path?: string | null;
+    reason_code: string;
+    detection_status: string;
+    remediation_required: boolean;
+  }>;
   workspace: string;
   client: string;
   project: string;
@@ -60,6 +71,7 @@ type DetectionStatus = {
 };
 
 type DetectionSummary = {
+  summary?: { source_job_id?: string };
   pdf_remediation_count?: number;
   pdf_remediation_documents?: Array<{
     doc_id: string;
@@ -769,6 +781,29 @@ function DataElementDetectionPageContent() {
     };
   }, [detectionJobId, clientId, projectId]);
 
+  // Ingestion failures are visible even without a Detection run.
+  // Do not duplicate documents also reported by the worker.
+  // Match remediation occurrences by both job and document.
+  // Missing source-job identity must not hide another occurrence.
+  const detectionRemediationJobId =
+    detectionSummary?.summary?.source_job_id ?? "";
+
+  const detectionRemediationKeys = new Set(
+    (detectionSummary?.pdf_remediation_documents ?? []).map(
+      (item) => `${detectionRemediationJobId}|${item.doc_id}`
+    )
+  );
+
+  const ingestionNfrDocuments = (
+    readyData?.ingestion_nfr_documents ?? []
+  ).filter(
+    (item) =>
+      !detectionRemediationJobId ||
+      !detectionRemediationKeys.has(
+        `${item.source_job_id}|${item.doc_id}`
+      )
+  );
+
   const counts = detectionSummary?.counts || {};
 
   const documentsScanned =
@@ -1344,6 +1379,50 @@ function DataElementDetectionPageContent() {
               value={documentsNfr + documentsException}
             />
           </div>
+          {/* INGESTION_PDF_NFR_UI_V1 */}
+          {ingestionNfrDocuments.length > 0 && (
+            <div className="mt-4 overflow-hidden rounded-xl border border-amber-800/60">
+              <div className="border-b border-amber-800/60 bg-amber-950/20 px-4 py-3">
+                <p className="text-sm font-semibold text-amber-200">
+                  Ingestion Exceptions ? Needs Further Review
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  These original documents require remediation before
+                  Detection. They have not been scanned.
+                </p>
+              </div>
+              <div className="max-h-[320px] overflow-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-slate-950 text-xs text-slate-400">
+                    <tr>
+                      <th className="px-4 py-3">INSYT Doc ID</th>
+                      <th className="px-4 py-3">Original File</th>
+                      <th className="px-4 py-3">Reason</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {ingestionNfrDocuments.map((record) => (
+                      <tr key={`${record.source_job_id}-${record.doc_id}`}>
+                        <td className="px-4 py-3 font-mono text-slate-200">
+                          {record.doc_id}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {record.original_filename}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {record.reason_code.replaceAll("_", " ")}
+                        </td>
+                        <td className="px-4 py-3 text-amber-300">
+                          Not Scanned ? Needs Further Review
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           {/* PDF_REMEDIATION_IN_EXISTING_NFR_V1 */}
           {(detectionSummary?.pdf_remediation_documents?.length ?? 0) > 0 && (
             <div className="mt-4 overflow-hidden rounded-xl border border-amber-800/60">

@@ -3656,6 +3656,96 @@ def get_processing_center_staged_results(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+# INGESTION_PDF_NFR_V1
+def _ingestion_pdf_nfr_from_report(
+    report: dict[str, Any],
+    source_job_id: str,
+    staged_docs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Report-backed PDF exceptions; no Detection required."""
+
+    if not isinstance(report, dict):
+        return []
+
+    staged_by_id = {
+        str(doc.get("doc_id") or ""): doc
+        for doc in staged_docs
+        if isinstance(doc, dict)
+    }
+
+    strict = os.environ.get(
+        "INSYT_PDF_DETECTION_REQUIRE_INSPECTION", ""
+    ).strip().lower() in {"1", "true", "yes"}
+
+    records = []
+
+    for file in report.get("files") or []:
+        if not isinstance(file, dict):
+            continue
+
+        if str(
+            file.get("extension") or ""
+        ).strip().lower().lstrip(".") != "pdf":
+            continue
+
+        doc_id = str(file.get("doc_id") or "").strip()
+        if not doc_id:
+            continue
+
+        inspection = _pdf_inspection_from_report_file(file)
+
+        reason = ""
+
+        if not isinstance(inspection, dict):
+            if strict:
+                reason = "PDF_INSPECTION_MISSING"
+        else:
+            metadata = inspection.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+
+            passed = (
+                inspection.get("status") == "completed"
+                and not inspection.get("error")
+                and not inspection.get("remediation_required")
+                and metadata.get("structural_status") == "validated"
+                and not metadata.get("remediation_reason")
+            )
+
+            if not passed:
+                reason = str(
+                    metadata.get("remediation_reason")
+                    or inspection.get("error")
+                    or "PDF_INSPECTION_REMEDIATION_REQUIRED"
+                )
+
+        if not reason:
+            continue
+
+        staged = staged_by_id.get(doc_id) or {}
+
+        records.append({
+            "source_job_id": str(source_job_id),
+            "doc_id": doc_id,
+            "file_id": str(file.get("file_id") or ""),
+            "original_filename": str(
+                file.get("normalized_path")
+                or file.get("original_path")
+                or staged.get("original_filename")
+                or ""
+            ),
+            "native_staged_blob_path": staged.get(
+                "native_staged_blob_path"
+            ),
+            "reason_code": reason,
+            "detection_status": "NOT_SCANNED",
+            "remediation_required": True,
+            "source_stage": "initial_ingestion",
+        })
+
+    return records
+
+
 @router.get("/{workspace}/processing-center/data-element-detection/ready")
 def list_data_element_detection_ready(
     workspace: Literal["capture", "discovery", "summaries"],
@@ -3687,6 +3777,7 @@ def list_data_element_detection_ready(
 
         jobs: list[dict[str, Any]] = []
         docs: list[dict[str, Any]] = []
+        ingestion_nfr_documents: list[dict[str, Any]] = []
 
         for job in history.get("jobs") or []:
             if not isinstance(job, dict):
@@ -3705,6 +3796,21 @@ def list_data_element_detection_ready(
             )
 
             staged_docs = staged.get("docs") or []
+
+            source_report = _load_worker_report_for_job(
+                workspace=workspace,
+                client=client,
+                project=project,
+                job_id=str(apc_job_id),
+            ) or {}
+
+            ingestion_nfr_documents.extend(
+                _ingestion_pdf_nfr_from_report(
+                    source_report,
+                    str(apc_job_id),
+                    staged_docs,
+                )
+            )
 
             job_ready_docs: list[dict[str, Any]] = []
 
@@ -3815,7 +3921,24 @@ def list_data_element_detection_ready(
             )
         )
 
+        ingestion_nfr_documents = list({
+            (
+                item["source_job_id"],
+                item["doc_id"],
+            ): item
+            for item in ingestion_nfr_documents
+        }.values())
+
+        ingestion_nfr_documents.sort(
+            key=lambda item: (
+                item["source_job_id"],
+                item["doc_id"],
+            )
+        )
+
         return {
+            "ingestion_nfr_count": len(ingestion_nfr_documents),
+            "ingestion_nfr_documents": ingestion_nfr_documents,
             "workspace": workspace,
             "client": client,
             "project": project,
