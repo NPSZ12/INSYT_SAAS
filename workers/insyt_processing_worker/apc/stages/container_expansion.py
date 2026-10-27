@@ -850,7 +850,9 @@ def _expand_registered_adapter(
                     container_depth
                     + 1
                 ),
-                family_id=family_id,
+                family_id=(
+                    child_family_id or family_id
+                ),
             )
 
     status = "completed"

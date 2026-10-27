@@ -37,6 +37,7 @@ jobs:
           python -m unittest discover -s tests/shared_pipeline -p test_processing.py -v
           python -m unittest discover -s tests/shared_pipeline -p test_workbook_adapter.py -v
           python -m unittest discover -s tests/shared_pipeline -p test_pst_adapter.py -v
+          python -m unittest discover -s tests/shared_pipeline -p test_email_family_ledger.py -v
           python -m unittest discover -s tests/shared_pipeline -p test_discovery_mixed_formats.py -v
 
   detection-worker:
