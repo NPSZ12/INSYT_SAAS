@@ -80,6 +80,7 @@ jobs:
           PYTHONPATH: workers/insyt_detection_worker_v2
         run: |
           python -m unittest discover -s tests/shared_pipeline -p test_detection.py -v
+          python -m unittest discover -s tests/shared_pipeline -p test_discovery_rule_isolation.py -v
 
   api:
     name: API / Python 3.12
