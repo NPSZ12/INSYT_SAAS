@@ -1,0 +1,64 @@
+name: INSYT Detection Worker V2 Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-release:
+    name: Validate and package Detection Worker V2
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout approved source
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validation dependencies
+        run: python -m pip install "openpyxl>=3.1,<4"
+
+      - name: Compile Detection Worker
+        run: |
+          python -m compileall -q workers/insyt_detection_worker_v2/apc
+          python -m compileall -q workers/insyt_detection_worker_v2/app
+          python -m compileall -q workers/insyt_detection_worker_v2/apc_detection_queue_worker
+
+      - name: Run shared Detection regressions
+        env:
+          PYTHONPATH: workers/insyt_detection_worker_v2
+        run: |
+          python -m unittest discover -s tests/shared_pipeline -p test_detection.py -v
+          python -m unittest discover -s tests/shared_pipeline -p test_discovery_rule_isolation.py -v
+
+      - name: Assemble release package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p release
+
+          git archive --format=tar HEAD \
+            workers/insyt_detection_worker_v2 \
+            | tar -xf - -C release
+
+          mv release/workers/insyt_detection_worker_v2 release/app
+          rmdir release/workers
+
+          printf '%s\n' "${GITHUB_SHA}" > release/app/INSYT_RELEASE_SHA.txt
+
+          cd release/app
+          zip -qr ../detection-worker-v2-source.zip .
+
+      - name: Upload validated source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: detection-worker-v2-${{ github.sha }}
+          path: release/detection-worker-v2-source.zip
+          retention-days: 30
+          if-no-files-found: error
