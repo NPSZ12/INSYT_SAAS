@@ -75,6 +75,8 @@ jobs:
           print("PASS: Capture/Discovery shared routing")
           '
 
+      - name: Install Detection test dependencies
+        run: python -m pip install "openpyxl>=3.1,<4"
       - name: Run shared Detection regressions
         env:
           PYTHONPATH: workers/insyt_detection_worker_v2
