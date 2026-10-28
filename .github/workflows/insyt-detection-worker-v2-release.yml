@@ -55,6 +55,44 @@ jobs:
           cd release/app
           zip -qr ../detection-worker-v2-source.zip .
 
+      - name: Install Linux deployment dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m pip install --upgrade pip
+
+          python -m pip install \
+            -r release/app/requirements.txt \
+            --target release/app/.python_packages/lib/site-packages
+
+          test -d release/app/.python_packages/lib/site-packages
+
+      - name: Validate packaged Linux dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PYTHONPATH="release/app/.python_packages/lib/site-packages:release/app" \
+            python -c "import azure.functions; import azure.storage.queue; import azure.storage.blob; import openpyxl; import fitz; import cryptography; import PIL; print('PASS: Linux dependency imports')"
+
+      - name: Package Azure deployment ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd release/app
+
+          zip -qr ../detection-worker-v2-azure.zip .
+
+      - name: Upload Azure deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: detection-worker-v2-azure-${{ github.sha }}
+          path: release/detection-worker-v2-azure.zip
+          retention-days: 30
+          if-no-files-found: error
+
       - name: Upload validated source artifact
         uses: actions/upload-artifact@v4
         with:
