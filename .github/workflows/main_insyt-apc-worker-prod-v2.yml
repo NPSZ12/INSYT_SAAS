@@ -1,9 +1,6 @@
 ﻿name: Build and deploy APC worker to Azure Function App - insyt-apc-worker-prod-v2
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 env:
