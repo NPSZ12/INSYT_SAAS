@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -438,6 +438,19 @@ def process_detection_message(
             )
 
         summary = {
+            "diagnostic_workspace": workspace,
+            "diagnostic_selected_rule_sheets": (
+                payload.get("search_rule_sheets") or []
+            ),
+            "diagnostic_rule_count": result.get(
+                "diagnostic_rule_count"
+            ),
+            "diagnostic_azure_ner_enabled": result.get(
+                "diagnostic_azure_ner_enabled"
+            ),
+            "diagnostic_release_sha": result.get(
+                "diagnostic_release_sha"
+            ),
             "detection_run_id": result.get(
                 "detection_run_id"
             ),

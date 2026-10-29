@@ -1578,6 +1578,14 @@ def run_pii_phi_detection(
     )
 
     return {
+        "diagnostic_rule_count": (
+            len(structured_rules)
+            if structured_rules is not None
+            else None
+        ),
+        "diagnostic_azure_ner_enabled": (
+            enable_azure_detection
+        ),
         "detection_run_id": detection_run_id,
         "status": (
             "completed"
