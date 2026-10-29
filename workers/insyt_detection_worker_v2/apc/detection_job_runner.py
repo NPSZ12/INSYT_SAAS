@@ -1714,8 +1714,26 @@ def run_data_element_detection_job(
             },
         )
 
+    release_file = (
+        Path(__file__).resolve().parents[1]
+        / "INSYT_RELEASE_SHA.txt"
+    )
+
+    release_sha = (
+        release_file.read_text(encoding="utf-8").strip()
+        if release_file.is_file()
+        else "unavailable"
+    )
+
     summary_payload = {
         **result,
+        "diagnostic_release_sha": release_sha,
+        "diagnostic_rule_count": result.get(
+            "diagnostic_rule_count"
+        ),
+        "diagnostic_azure_ner_enabled": result.get(
+            "diagnostic_azure_ner_enabled"
+        ),
         "pdf_remediation_count": pdf_remediation_count,
         "pdf_remediation_blob_path": (
             pdf_remediation_upload["blob_path"]
