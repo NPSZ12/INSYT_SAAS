@@ -85,6 +85,17 @@ jobs:
 
           zip -qr ../detection-worker-v2-azure.zip .
 
+
+      - name: 'Deploy to Azure Web App'
+        uses: azure/webapps-deploy@v3
+        id: deploy-to-webapp
+        with:
+          app-name: 'insyt-api-prod-v2'
+          slot-name: 'Production'
+          package: .
+
+
+
       - name: Upload Azure deployment artifact
         uses: actions/upload-artifact@v4
         with:
@@ -100,3 +111,261 @@ jobs:
           path: release/detection-worker-v2-source.zip
           retention-days: 30
           if-no-files-found: error
+
+  deploy-release:
+    name: Deploy Detection Worker V2 to existing Azure Function
+    needs: build-release
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download validated Azure package
+        uses: actions/download-artifact@v4
+        with:
+          name: detection-worker-v2-azure-${{ github.sha }}
+          path: release
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_89A3170DEABA4C018B31842BAE0D2ECF }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_33625B8B6B6E4A47B3348C566FDF023E }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_6AA7045D267940D788FE5726B33A9F05 }}
+
+      - name: Verify deployment package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release/detection-worker-v2-azure.zip
+          unzip -p release/detection-worker-v2-azure.zip INSYT_RELEASE_SHA.txt |
+            grep -Fx "${GITHUB_SHA}"
+
+      - name: Activate existing Azure Function package
+        shell: bash
+        env:
+          INSYT_SUBSCRIPTION: 8cdaa382-64ec-48d7-8604-53ca5ad6cbb2
+          INSYT_RESOURCE_GROUP: INSYT-APP-RG
+          INSYT_FUNCTION_APP: insyt-apc-worker-detection-prod-v2
+          INSYT_STORAGE_ACCOUNT: insytprodstorage
+          INSYT_RELEASE_CONTAINER: function-releases
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import urllib.parse
+          import urllib.request
+
+          sub = os.environ["INSYT_SUBSCRIPTION"]
+          rg = os.environ["INSYT_RESOURCE_GROUP"]
+          app = os.environ["INSYT_FUNCTION_APP"]
+          account = os.environ["INSYT_STORAGE_ACCOUNT"]
+          container = os.environ["INSYT_RELEASE_CONTAINER"]
+          sha = os.environ["GITHUB_SHA"]
+
+          package = pathlib.Path("release/detection-worker-v2-azure.zip")
+          if not package.is_file():
+              raise RuntimeError("Validated package missing")
+
+          def az(*args):
+              result = subprocess.run(
+                  ["az", *args],
+                  capture_output=True,
+                  text=True,
+                  check=True,
+              )
+              return result.stdout.strip()
+
+          active_sub = az("account", "show", "--query", "id", "-o", "tsv")
+          if active_sub != sub:
+              raise RuntimeError("Wrong Azure subscription")
+
+          token = az(
+              "account", "get-access-token",
+              "--resource", "https://management.azure.com/",
+              "--query", "accessToken", "-o", "tsv",
+          )
+
+          api = (
+              f"https://management.azure.com/subscriptions/{sub}"
+              f"/resourceGroups/{rg}/providers/Microsoft.Web"
+              f"/sites/{app}/config/appsettings"
+          )
+
+          def arm(method, path, body=None):
+              data = None if body is None else json.dumps(body).encode()
+              request = urllib.request.Request(
+                  path,
+                  data=data,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  raw = response.read()
+                  return json.loads(raw) if raw else {}
+
+          current = arm(
+              "POST",
+              api + "/list?api-version=2022-03-01",
+          )
+
+          settings = current.get("properties") or {}
+          previous = settings.get("WEBSITE_RUN_FROM_PACKAGE")
+
+          if not previous or not previous.startswith("https://"):
+              raise RuntimeError("Existing package reference missing")
+
+          blob = f"insyt-detection-worker-v2-{sha}.zip"
+
+          az(
+              "storage", "blob", "upload",
+              "--account-name", account,
+              "--container-name", container,
+              "--name", blob,
+              "--file", str(package),
+              "--overwrite", "false",
+              "--auth-mode", "key",
+              "--only-show-errors",
+              "--output", "none",
+          )
+
+          expiry = (
+              datetime.datetime.now(datetime.timezone.utc)
+              + datetime.timedelta(days=365)
+          ).strftime("%Y-%m-%dT%H:%MZ")
+
+          sas = az(
+              "storage", "blob", "generate-sas",
+              "--account-name", account,
+              "--container-name", container,
+              "--name", blob,
+              "--permissions", "r",
+              "--expiry", expiry,
+              "--https-only",
+              "--auth-mode", "key",
+              "-o", "tsv",
+          ).strip().strip('"')
+
+          if not sas:
+              raise RuntimeError("Unable to generate package access")
+
+          package_url = (
+              f"https://{account}.blob.core.windows.net/"
+              f"{container}/{blob}?{sas}"
+          )
+
+          head = urllib.request.Request(package_url, method="HEAD")
+          with urllib.request.urlopen(head, timeout=30) as response:
+              if response.status != 200:
+                  raise RuntimeError("Package URL unavailable")
+
+          changed = False
+
+          try:
+              # Rollback must be attempted even when Azure
+              # applies a setting but the request fails.
+              changed = True
+              updated = dict(settings)
+              updated["WEBSITE_RUN_FROM_PACKAGE"] = package_url
+
+              arm(
+                  "PUT",
+                  api + "?api-version=2022-03-01",
+                  {"properties": updated},
+              )
+              changed = True
+
+              az(
+                  "functionapp", "restart",
+                  "--name", app,
+                  "--resource-group", rg,
+                  "--subscription", sub,
+                  "--output", "none",
+              )
+
+              import time
+
+              host_url = f"https://{app}.azurewebsites.net/"
+              healthy = False
+
+              for attempt in range(12):
+                  try:
+                      with urllib.request.urlopen(
+                          host_url, timeout=15
+                      ) as response:
+                          if response.status == 200:
+                              healthy = True
+                              break
+                  except Exception:
+                      pass
+
+                  time.sleep(10)
+
+              if not healthy:
+                  raise RuntimeError(
+                      "Detection Function host did not recover"
+                  )
+
+              sync_url = (
+                  f"https://management.azure.com/subscriptions/{sub}"
+                  f"/resourceGroups/{rg}/providers/Microsoft.Web"
+                  f"/sites/{app}/syncfunctiontriggers"
+                  f"?api-version=2016-08-01"
+              )
+
+              arm("POST", sync_url)
+
+              functions = json.loads(
+                  az(
+                      "functionapp", "function", "list",
+                      "--name", app,
+                      "--resource-group", rg,
+                      "--subscription", sub,
+                      "-o", "json",
+                  )
+              )
+
+              if not any(
+                  f.get("name", "").endswith(
+                      "/apc_detection_queue_worker"
+                  )
+                  and not f.get("isDisabled", True)
+                  for f in functions
+              ):
+                  raise RuntimeError("Detection trigger unavailable")
+
+              print("PASS: Existing Detection Function updated")
+              print("Release SHA:", sha)
+
+          except Exception:
+              if changed:
+                  try:
+                      restored = dict(settings)
+                      restored["WEBSITE_RUN_FROM_PACKAGE"] = previous
+                      arm(
+                          "PUT",
+                          api + "?api-version=2022-03-01",
+                          {"properties": restored},
+                      )
+                      az(
+                          "functionapp", "restart",
+                          "--name", app,
+                          "--resource-group", rg,
+                          "--subscription", sub,
+                          "--output", "none",
+                      )
+                      print("Previous package reference restored")
+                  except Exception:
+                      print("CRITICAL: Automatic rollback failed")
+              raise
+          PY
