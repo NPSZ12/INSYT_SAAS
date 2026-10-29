@@ -908,6 +908,13 @@ def run_pii_phi_detection(
             ),
         )
 
+        if not structured_rules:
+            raise RuntimeError(
+                "Discovery Detection cannot run without "
+                "loaded Discovery Search Rules. "
+                "Documents must not be classified NO_HIT."
+            )
+
         enable_azure_detection = False
         include_phi = False
 
