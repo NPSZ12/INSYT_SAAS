@@ -1000,6 +1000,12 @@ def load_review_document_by_doc_id(
         for base_path in base_paths
     ]
 
+    import logging
+    lookup_logger = logging.getLogger(__name__)
+    lookup_direct_exists = None
+    lookup_fallback_seen = 0
+    lookup_fallback_supported = 0
+
     matched_native = ""
     matched_doc_id = (
         str(
@@ -1102,7 +1108,9 @@ def load_review_document_by_doc_id(
                 )
             )
 
-            if live_blob_client.exists():
+            lookup_direct_exists = live_blob_client.exists()
+
+            if lookup_direct_exists:
                 matched_native = (
                     clean_native_blob
                 )
@@ -1185,6 +1193,7 @@ def load_review_document_by_doc_id(
             for blob in source_container.list_blobs(
                 name_starts_with=native_prefix
             ):
+                lookup_fallback_seen += 1
                 filename = blob.name.split("/")[-1]
 
                 if not filename or filename == ".keep":
@@ -1195,6 +1204,8 @@ def load_review_document_by_doc_id(
                 ):
                     continue
 
+                lookup_fallback_supported += 1
+
                 if normalize_doc_lookup(filename) == requested:
                     matched_native = blob.name
                     matched_doc_id = filename.rsplit(".", 1)[0]
@@ -1204,6 +1215,37 @@ def load_review_document_by_doc_id(
                 break
 
     if not matched_native:
+        # Safe, permanent diagnostics: no contents, secrets,
+        # connection strings, SAS URLs, or full blob paths.
+        try:
+            lookup_logger.warning(
+                "review_lookup_failed workspace=%s "
+                "account=%s container=%s "
+                "explicit_path_supplied=%s "
+                "explicit_path_allowed=%s "
+                "direct_exists=%s "
+                "fallback_seen=%s "
+                "fallback_supported=%s "
+                "prefix_count=%s",
+                workspace,
+                getattr(source_container, "account_name", "unknown"),
+                getattr(source_container, "container_name", "unknown"),
+                bool(clean_native_blob),
+                (
+                    any(
+                        clean_native_blob.startswith(prefix)
+                        for prefix in native_prefixes
+                    )
+                    if clean_native_blob else False
+                ),
+                lookup_direct_exists,
+                lookup_fallback_seen,
+                lookup_fallback_supported,
+                len(native_prefixes),
+            )
+        except Exception:
+            pass
+
         raise HTTPException(
             status_code=404,
             detail=(
