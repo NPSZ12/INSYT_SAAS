@@ -93,13 +93,19 @@ function ReviewPageContent() {
     setReviewDoc(null);
 
     if (docId && !batchId) {
-      apiGet(
-        `/api/review/current?client=${encodeURIComponent(
-          clientId
-        )}&project=${encodeURIComponent(
-          projectId
-        )}&doc=${encodeURIComponent(docId)}`
-      )
+      const params = new URLSearchParams({
+        client: clientId,
+        project: projectId,
+        doc: docId,
+      });
+
+      const nativeBlob = searchParams.get("native_blob") || "";
+
+      if (nativeBlob) {
+        params.set("native_blob", nativeBlob);
+      }
+
+      apiGet(`/api/discovery/review/current?${params.toString()}`)
         .then((response) => {
           setReviewDoc(response);
         })
@@ -135,7 +141,7 @@ function ReviewPageContent() {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [clientId, projectId, batchId, docId]);
+  }, [clientId, projectId, batchId, docId, searchParams]);
 
   useEffect(() => {
     if (!projectId) {
