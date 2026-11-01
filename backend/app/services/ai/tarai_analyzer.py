@@ -75,6 +75,8 @@ def analyze_privilege(
     client = client_factory(
         api_key=api_key,
         base_url=f"{endpoint}/openai/v1/",
+        timeout=30.0,
+        max_retries=0,
     )
 
     instructions = (
