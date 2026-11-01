@@ -628,6 +628,15 @@ export default function ProjectSidebar() {
           },
         ]
       : []),
+    ...(isDiscovery
+      ? [
+          {
+            label: "TARai",
+            href: `/discovery/tarai${projectQuery}`,
+            icon: ScanSearch,
+          },
+        ]
+      : []),
     {
       label: "Search Folders",
       href: `${workspaceBase}/search-folders${projectQuery}`,
