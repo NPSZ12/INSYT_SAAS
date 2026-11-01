@@ -1,0 +1,1292 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
+import AppShell from "../AppShell";
+import ReviewHeader from "../ReviewHeader";
+import ReviewDocumentPane from "../ReviewDocumentPane";
+import ReviewCapturePanel from "../ReviewCapturePanel";
+import PageContainer from "../PageContainer";
+import PageHeader from "../PageHeader";
+import ContentCard from "../ContentCard";
+import LinkedEntitiesStrip from "../LinkedEntitiesStrip";
+
+import { useWorkspaceReviewNavigation } from "./useWorkspaceReviewNavigation";
+import { getWorkspaceReviewConfig } from "./workspaceReviewConfig";
+import { apiGet, apiPost } from "../../lib/api";
+
+import type { ReviewDocument } from "../../types";
+
+type Workspace = "capture" | "discovery";
+
+type ProtocolField = {
+  section: string;
+  data_element: string;
+  format?: string;
+  default_format?: string;
+  notes?: string;
+  source_sheet?: string;
+};
+
+type ProtocolResponse = {
+  has_protocol: boolean;
+  fields?: ProtocolField[];
+  protocol?: {
+    fields?: ProtocolField[];
+  };
+};
+
+type CaptureField = {
+  section: string;
+  label: string;
+  type: string;
+  format?: string;
+  notes?: string;
+};
+
+type ReviewDocumentWithNav = ReviewDocument & {
+  batch_doc_index?: number;
+  batch_doc_count?: number;
+  batch_doc_ids?: string[];
+  is_first_doc?: boolean;
+  is_last_doc?: boolean;
+  document_coding?: string;
+  further_review_reason?: string;
+  review_state?: Record<string, any>;
+};
+
+function normalizeDocLookup(value: string) {
+  return decodeURIComponent(value || "")
+    .trim()
+    .replaceAll("_", " ")
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase();
+}
+
+function getFileDocCandidates(item: any) {
+  const blobName = String(item.blob_path || item.name || "");
+  const fileName =
+    String(item.file_name || item.filename || item.name || "")
+      || blobName.split("/").pop()
+      || "";
+
+  return [
+    item.doc_id,
+    item.document_id,
+    item.id,
+    fileName,
+    fileName.replace(/\.[^.]+$/, ""),
+    blobName.split("/").pop() || "",
+    (blobName.split("/").pop() || "").replace(/\.[^.]+$/, ""),
+  ]
+    .filter(Boolean)
+    .map((value) => normalizeDocLookup(String(value)));
+}
+
+function splitDocSet(value: string) {
+  return String(value || "")
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function ReviewPageContent({ workspace }: { workspace: Workspace }) {
+  const config = getWorkspaceReviewConfig(workspace);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+
+  const clientId = searchParams.get("client") || "";
+  const projectId = searchParams.get("project") || "";
+  const batchId = searchParams.get("batch") || "";
+  const docId = searchParams.get("doc") || "";
+
+  const nativeBlob =
+    searchParams.get("native_blob") ||
+    searchParams.get("blob_path") ||
+    "";
+
+  const returnTo =
+    searchParams.get("return_to") ||
+    "";
+
+  const returnLabel =
+    searchParams.get("return_label") ||
+    "";
+
+  const docSetParam = searchParams.get("docSet") || "";
+  const sourceParam = searchParams.get("source") || "";
+  const entityParam = searchParams.get("entity") || "";
+  const entityUidParam = searchParams.get("entityUid") || "";
+
+  const finalSourceDocIds = splitDocSet(docSetParam);
+
+  const isFinalSourceView =
+    sourceParam === "final" && finalSourceDocIds.length > 0;
+
+  const [error, setError] = useState("");
+  const [protocolMessage, setProtocolMessage] = useState("");
+  const [reviewDoc, setReviewDoc] = useState<ReviewDocumentWithNav | null>(null);
+  const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [linkedEntities, setLinkedEntities] = useState<any[]>([]);
+  const [editingEntity, setEditingEntity] = useState<any | null>(null);
+  const [fileDocIds, setFileDocIds] = useState<string[]>([]);
+  const isFileView = Boolean(docId && !batchId);
+  const [savedDocumentCoding, setSavedDocumentCoding] = useState("");
+  const [detectionHits, setDetectionHits] = useState<any[]>([]);
+
+  const [
+    aiEntities,
+    setAiEntities,
+  ] = useState<any[]>([]);
+
+    useEffect(() => {
+    if (!projectId || (!batchId && !docId)) {
+      return;
+    }
+
+    setIsLoading(true);
+    setError("");
+    setReviewDoc(null);
+
+    if (docId && !batchId) {
+      const params = new URLSearchParams();
+
+      params.set("project", projectId);
+      params.set("doc", docId);
+
+      if (clientId) {
+        params.set("client", clientId);
+      }
+
+      if (nativeBlob) {
+        params.set("native_blob", nativeBlob);
+      }
+
+      apiGet(
+        `${config.api.currentDocument}?${params.toString()}`
+      )
+        .then((response) => {
+          setReviewDoc({
+            ...response,
+            batch:
+              response?.batch ||
+              "Direct Open",
+          });
+        })
+        .catch((error) => {
+          console.error(
+            "Failed to open document directly:",
+            error
+          );
+
+          setError(
+            String(
+              error?.message ||
+                "Failed to open document directly."
+            )
+          );
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+
+      return;
+    }
+
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+      batch: batchId,
+    });
+
+    if (docId) {
+      params.set("doc", docId);
+    }
+
+    apiGet(`${config.api.currentDocument}?${params.toString()}`)
+      .then((response) => {
+        setReviewDoc(response);
+      })
+      .catch((error) => {
+        console.error(error);
+        setError(
+          String(
+            error?.message ||
+              "Failed to load review document."
+          )
+        );
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [
+    clientId,
+    projectId,
+    batchId,
+    docId,
+    nativeBlob,
+  ]);
+
+  useEffect(() => {
+    const effectiveDocId =
+      reviewDoc?.doc_id ||
+      docId ||
+      "";
+
+    if (!clientId || !projectId || !effectiveDocId) {
+      setDetectionHits([]);
+      return;
+    }
+
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+      doc_id: effectiveDocId,
+    });
+
+    apiGet(
+      `${config.api.detectionHits}?${params.toString()}`
+    )
+      .then((response: any) => {
+        const hits = Array.isArray(response?.hits)
+          ? response.hits
+          : [];
+
+        setDetectionHits(hits);
+      })
+      .catch((error) => {
+        console.warn(
+          "Unable to load Data Element Detection highlights:",
+          error
+        );
+
+        setDetectionHits([]);
+      });
+  }, [
+    clientId,
+    projectId,
+    docId,
+    reviewDoc?.doc_id,
+  ]);
+
+  useEffect(() => {
+    if (!projectId || !docId) {
+      setSavedDocumentCoding("");
+      return;
+    }
+
+    apiGet(
+      `/api/review/coding-map?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(projectId)}&workspace=${workspace}`
+    )
+      .then((codingMap: Record<string, string>) => {
+        const docIdWithoutExtension = docId.replace(/\.[^/.]+$/, "");
+
+        setSavedDocumentCoding(
+          codingMap?.[docId] ||
+            codingMap?.[docIdWithoutExtension] ||
+            ""
+        );
+      })
+      .catch(() => {
+        setSavedDocumentCoding("");
+      });
+  }, [clientId, projectId, docId]);
+
+  useEffect(() => {
+    if (!projectId || !isFileView) {
+      setFileDocIds([]);
+      return;
+    }
+
+    if (isFinalSourceView) {
+      setFileDocIds(finalSourceDocIds);
+      return;
+    }
+
+    apiGet(
+      `${config.api.files}?client=${encodeURIComponent(
+        clientId
+      )}&project=${encodeURIComponent(
+        projectId
+      )}&folder=${encodeURIComponent("source/native")}`
+    )
+      .then((files: any[]) => {
+        const docIds = files
+          .map((file) => file.doc_id || file.file_name || "")
+          .filter(Boolean);
+
+        setFileDocIds(docIds);
+      })
+      .catch(console.error);
+  }, [
+    clientId,
+    projectId,
+    isFileView,
+    isFinalSourceView,
+    docSetParam,
+  ]);
+
+  function loadLinkedEntities() {
+    if (!projectId || !reviewDoc?.doc_id) return;
+
+    apiGet(
+      `/api/entities/document?client=${encodeURIComponent(
+        clientId
+      )}&workspace=${workspace}&project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(
+        batchId
+      )}&doc=${encodeURIComponent(
+        reviewDoc.doc_id
+      )}&view=raw`
+    )
+      .then((entities: any[]) => {
+        setLinkedEntities(
+          entities.map((entity: any, index: number) => ({
+            id: entity.id ?? index + 1,
+            ucid: entity.ucid || entity.UCID || "",
+            docId: entity.doc_id,
+            linked: entity.linked ?? true,
+            values: entity.values || {},
+          }))
+        );
+      })
+      .catch(console.error);
+  }
+
+  function loadAiEntities() {
+    if (
+      !projectId ||
+      !reviewDoc?.doc_id
+    ) {
+      setAiEntities(
+        []
+      );
+
+      return;
+    }
+
+    apiGet(
+      `/api/entities/document?client=${encodeURIComponent(
+        clientId
+      )}&workspace=${workspace}&project=${encodeURIComponent(
+        projectId
+      )}&batch=${encodeURIComponent(
+        batchId
+      )}&doc=${encodeURIComponent(
+        reviewDoc.doc_id
+      )}&view=ai`
+    )
+      .then(
+        (
+          entities: any[]
+        ) => {
+          setAiEntities(
+            Array.isArray(
+              entities
+            )
+              ? entities.map(
+                  (
+                    entity: any,
+                    index: number
+                  ) => ({
+                    id:
+                      entity.ai_entity_id ||
+                      entity.id ||
+                      `AI-ENTITY-${index + 1}`,
+
+                    status:
+                      entity.status ||
+                      "pending",
+
+                    confidence:
+                      entity.confidence ??
+                      null,
+
+                    values:
+                      entity.values ||
+                      {},
+
+                    source_text:
+                      entity.source_text ||
+                      "",
+
+                    source_page:
+                      entity.source_page ||
+                      "",
+
+                    source_field:
+                      entity.source_field ||
+                      "",
+
+                    source_record_id:
+                      entity.source_record_id ||
+                      "",
+                  })
+                )
+              : []
+          );
+        }
+      )
+      .catch(
+        (
+          error
+        ) => {
+          console.error(
+            "Unable to load AI Entities:",
+            error
+          );
+
+          setAiEntities(
+            []
+          );
+        }
+      );
+  }
+
+  useEffect(() => {
+    loadLinkedEntities();
+  }, [clientId, projectId, batchId, reviewDoc?.doc_id]);
+
+  useEffect(() => {
+    loadAiEntities();
+  }, [
+    clientId,
+    projectId,
+    batchId,
+    reviewDoc?.doc_id,
+  ]);
+
+  useEffect(() => {
+    if (!projectId) {
+      return;
+    }
+
+    setProtocolMessage("Loading saved protocol fields...");
+    setProtocolFields([]);
+
+    apiGet(
+      `${config.api.projectProtocol(projectId)}?client=${encodeURIComponent(clientId)}`
+    )
+      .then((response: ProtocolResponse) => {
+        console.log("REVIEW PROTOCOL RESPONSE", response);
+
+        const fields =
+          response?.protocol?.fields ||
+          response?.fields ||
+          [];
+
+        console.log("PARSED REVIEW FIELDS", fields);
+
+        if (!response.has_protocol) {
+          setProtocolMessage("No saved protocol found for this project.");
+          setProtocolFields([]);
+          return;
+        }
+
+        if (fields.length === 0) {
+          console.error("NO REVIEW PROTOCOL FIELDS FOUND", response);
+
+          setProtocolMessage(
+            `Saved protocol found for ${projectId}, but no fields were returned.`
+          );
+
+          setProtocolFields([]);
+          return;
+        }
+
+        setProtocolFields(fields);
+        setProtocolMessage("");
+      })
+      .catch((error) => {
+        console.error("Failed to load review protocol", error);
+        setProtocolFields([]);
+        setProtocolMessage("Failed to load saved protocol fields.");
+      });
+  }, [clientId, projectId]);
+
+  const reviewNav = reviewDoc as ReviewDocument & {
+    previous_doc_id?: string;
+    next_doc_id?: string;
+    is_first_doc?: boolean;
+    is_last_doc?: boolean;
+    batch_doc_index?: number;
+    batch_doc_count?: number;
+  };
+
+  const sharedNavigation = useWorkspaceReviewNavigation({
+    workspace, client: clientId, project: projectId,
+    batch: batchId, doc: docId, reviewDocId: reviewDoc?.doc_id,
+    reviewNav,
+    fixedDocIds: isFinalSourceView ? finalSourceDocIds : undefined,
+  });
+
+  if (!projectId) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="No Project Selected"
+            subtitle="Please select a project before beginning review."
+          />
+        </PageContainer>
+      </AppShell>
+    );
+  }
+
+  if (!batchId && !docId) {
+    return (
+      <AppShell>
+        <PageContainer>
+          <PageHeader
+            title="No Batch Selected"
+            subtitle="Please select a batch before starting review."
+          />
+        </PageContainer>
+      </AppShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppShell>
+        <PageContainer>
+          {returnTo && (
+            <div className="mb-4 flex items-center">
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(returnTo)
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-sky-700 hover:bg-slate-800 hover:text-white"
+              >
+                <span
+                  aria-hidden="true"
+                  className="text-base"
+                >
+                  ←
+                </span>
+
+                Return to{" "}
+                {returnLabel ||
+                  "Cyber²"}{" "}
+                Landing
+              </button>
+            </div>
+          )}
+
+          <ContentCard title="Review Workspace Error">
+            <p className="text-red-400 text-sm whitespace-pre-wrap">
+              {error}
+            </p>
+          </ContentCard>
+        </PageContainer>
+      </AppShell>
+    );
+  }
+
+  if (isLoading || !reviewDoc) {
+    return (
+      <AppShell>
+        <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-md text-center">
+            <div className="flex items-end justify-center gap-0.5 mb-6">
+              <span className="insyt-brand text-5xl font-bold text-white">
+                I
+              </span>
+
+              <span className="insyt-brand text-5xl font-bold text-sky-400">
+                N
+              </span>
+
+              <span className="insyt-brand text-5xl font-bold text-white">
+                SYT
+              </span>
+
+              <span className="insyt-brand text-[2.1em] leading-none mb-[0.11em] text-sky-400 font-bold">
+                360
+              </span>
+            </div>
+
+            <div className="mx-auto mb-6 h-12 w-12 rounded-full border-4 border-slate-700 border-t-sky-500 animate-spin" />
+
+            <h1 className="text-2xl font-bold mb-2">
+              Loading Review Workspace
+            </h1>
+
+            <p className="text-slate-400">
+              Preparing document text, native viewer, protocol fields, and linked entities.
+            </p>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  console.log("PROTOCOL FIELDS STATE", protocolFields);
+
+  console.log("FIELDS FOR CAPTURE INPUT", {
+    protocolFieldsLength: protocolFields.length,
+    protocolFields,
+  });
+
+
+
+  const fieldsForCapture: CaptureField[] = protocolFields.map((field) => {
+    const fieldFormat = field.format || field.default_format || "";
+
+    return {
+      section: field.section || "General",
+      label: field.data_element,
+      type: fieldFormat.toLowerCase().includes("tag") ? "tag" : "text",
+      format: fieldFormat,
+      notes: field.notes || "",
+    };
+  });
+
+
+
+  function buildReviewDocUrl(targetDocId: string) {
+    const params = new URLSearchParams();
+
+    if (clientId) {
+      params.set("client", clientId);
+    }
+
+    if (projectId) {
+      params.set("project", projectId);
+    }
+
+    if (targetDocId) {
+      params.set("doc", targetDocId);
+    }
+
+    if (returnTo) {
+      params.set(
+        "return_to",
+        returnTo
+      );
+    }
+
+    if (returnLabel) {
+      params.set(
+        "return_label",
+        returnLabel
+      );
+    }
+
+    if (isFinalSourceView) {
+      params.set("source", "final");
+      params.set(
+        "docSet",
+        finalSourceDocIds.join(";")
+      );
+
+      if (entityParam) {
+        params.set(
+          "entity",
+          entityParam
+        );
+      }
+
+      if (entityUidParam) {
+        params.set(
+          "entityUid",
+          entityUidParam
+        );
+      }
+    } else if (batchId) {
+      params.set(
+        "batch",
+        batchId
+      );
+    }
+
+    return `${config.pages.reviewDocument}?${params.toString()}`;
+  }
+
+  function getBatchDocIds() {
+    return ((reviewNav as any).batch_doc_ids || []) as string[];
+  }
+
+  function getCurrentDocIndex() {
+    const batchDocIds = getBatchDocIds();
+
+    const activeDocId = String(
+      reviewDoc?.doc_id ||
+      docId ||
+      ""
+    ).trim();
+
+    if (activeDocId && batchDocIds.length > 0) {
+      const actualIndex = batchDocIds.findIndex(
+        (candidateDocId) =>
+          String(candidateDocId || "").trim() === activeDocId
+      );
+
+      if (actualIndex >= 0) {
+        return actualIndex;
+      }
+    }
+
+    const navIndex = Number(
+      (reviewNav as any).batch_doc_index ?? -1
+    );
+
+    return Number.isInteger(navIndex)
+      ? navIndex
+      : -1;
+  }
+
+  function goFirstDoc() {
+    const batchDocIds = getBatchDocIds();
+    const firstDocId = batchDocIds[0] || "";
+
+    console.log("GO FIRST DOC", {
+      batchDocIds,
+      firstDocId,
+    });
+
+    if (!firstDocId) return;
+
+    router.push(buildReviewDocUrl(firstDocId));
+  }
+
+  function goLastDoc() {
+    const batchDocIds = getBatchDocIds();
+    const lastDocId = batchDocIds[batchDocIds.length - 1] || "";
+
+    console.log("GO LAST DOC", {
+      batchDocIds,
+      lastDocId,
+    });
+
+    if (!lastDocId) return;
+
+    router.push(buildReviewDocUrl(lastDocId));
+  }
+
+  const currentDocIndex = getCurrentDocIndex();
+  const batchDocCount =
+    Number((reviewNav as any).batch_doc_count || getBatchDocIds().length || 0);
+
+  const docPositionLabel =
+    currentDocIndex >= 0 && batchDocCount > 0
+      ? `Doc ${currentDocIndex + 1} of ${batchDocCount}`
+      : "";
+
+  function goPreviousDoc() {
+    const batchDocIds = getBatchDocIds();
+    const currentIndex = getCurrentDocIndex();
+
+    const previousDocId =
+      currentIndex > 0
+        ? batchDocIds[currentIndex - 1]
+        : "";
+
+    console.log("GO PREVIOUS DOC", {
+      batchDocIds,
+      currentIndex,
+      previousDocId,
+      reviewNav,
+    });
+
+    if (!previousDocId) return;
+
+    router.push(buildReviewDocUrl(previousDocId));
+  }
+
+  function goNextDoc() {
+    const batchDocIds = getBatchDocIds();
+    const currentIndex = getCurrentDocIndex();
+
+    const nextDocId =
+      currentIndex >= 0 &&
+      currentIndex < batchDocIds.length - 1
+        ? batchDocIds[currentIndex + 1]
+        : "";
+
+    console.log("GO NEXT DOC", {
+      batchDocIds,
+      currentIndex,
+      nextDocId,
+      reviewNav,
+    });
+
+    if (!nextDocId) return;
+
+    router.push(buildReviewDocUrl(nextDocId));
+  }
+
+  function exitReview() {
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+    });
+
+    if (isFinalSourceView) {
+      params.set("view", "final");
+      router.push(`${config.pages.capturedEntities}?${params.toString()}`);
+      return;
+    }
+
+    router.push(`${config.pages.batchManagement}?${params.toString()}`);
+  }
+
+  function returnToFinalLanding() {
+    const params = new URLSearchParams();
+
+    if (clientId) params.set("client", clientId);
+    if (projectId) params.set("project", projectId);
+    if (entityParam) params.set("entity", entityParam);
+    if (entityUidParam) params.set("entityUid", entityUidParam);
+
+    params.set("docIds", finalSourceDocIds.join(";"));
+    params.set("startDoc", finalSourceDocIds[0] || docId);
+    params.set("source", "final");
+
+    router.push(`${config.pages.finalEntityViewer}?${params.toString()}`);
+  }
+
+  function handleSaveComplete() {
+    //
+    // Direct document views — including documents opened
+    // from Captured Entities / AI Entities — stay on the
+    // current document after Save / Update.
+    //
+    // Automatic document advancement is reserved for
+    // checked-out batch review.
+    //
+    if (!batchId) {
+      return;
+    }
+
+    if (sharedNavigation.isLast) {
+      exitReview();
+      return;
+    }
+
+    navigateShared(sharedNavigation.next);
+  }
+
+  const fileDocIndex = fileDocIds.findIndex(
+    (id) =>
+      normalizeDocLookup(id) === normalizeDocLookup(reviewDoc?.doc_id || "") ||
+      normalizeDocLookup(id) === normalizeDocLookup(docId)
+  );
+
+  const fileDocCount = fileDocIds.length;
+
+  const effectiveIsFirstDoc = isFileView
+    ? fileDocIndex <= 0
+    : Boolean(reviewNav.is_first_doc);
+
+  const effectiveIsLastDoc = isFileView
+    ? fileDocIndex >= fileDocCount - 1
+    : Boolean(reviewNav.is_last_doc);
+
+  const effectiveDocPositionLabel = isFileView
+    ? fileDocIndex >= 0 && fileDocCount > 0
+      ? `Doc ${fileDocIndex + 1} of ${fileDocCount}`
+      : ""
+    : docPositionLabel;
+
+  const effectiveCurrentDocIndex = isFileView
+    ? fileDocIndex
+    : currentDocIndex;
+
+  const effectiveDocCount = isFileView
+    ? fileDocCount
+    : batchDocCount;
+
+  function openFileViewDoc(nextDocId: string) {
+    router.push(buildReviewDocUrl(nextDocId));
+  }
+
+  function goFileFirstDoc() {
+    if (fileDocIds[0]) openFileViewDoc(fileDocIds[0]);
+  }
+
+  function goFilePreviousDoc() {
+    if (fileDocIndex > 0) openFileViewDoc(fileDocIds[fileDocIndex - 1]);
+  }
+
+  function goFileNextDoc() {
+    if (fileDocIndex >= 0 && fileDocIndex < fileDocIds.length - 1) {
+      openFileViewDoc(fileDocIds[fileDocIndex + 1]);
+    }
+  }
+
+  function goFileLastDoc() {
+    if (fileDocIds.length > 0) {
+      openFileViewDoc(fileDocIds[fileDocIds.length - 1]);
+    }
+  }
+
+
+
+  function navigateShared(target: { docId: string; nativeBlob: string } | null) {
+    if (!target) return;
+    const params = new URLSearchParams({client: clientId, project: projectId, doc: target.docId});
+    if (batchId) params.set("batch", batchId);
+    if (!batchId && target.nativeBlob) params.set("native_blob", target.nativeBlob);
+    if (isFinalSourceView) {
+      params.set("source", "final");
+      params.set("docSet", finalSourceDocIds.join(";"));
+      if (entityParam) params.set("entity", entityParam);
+      if (entityUidParam) params.set("entityUid", entityUidParam);
+    }
+    if (returnTo) params.set("return_to", returnTo);
+    if (returnLabel) params.set("return_label", returnLabel);
+    router.push(`${config.pages.reviewDocument}?${params.toString()}`);
+  }
+
+  function editLinkedEntity(entity: any) {
+    setEditingEntity(entity);
+  }
+
+  function getEntityId(entityOrId: any) {
+    return typeof entityOrId === "object"
+      ? entityOrId.id
+      : entityOrId;
+  }
+
+  function unlinkEntity(entityOrId: any) {
+    const entityId = getEntityId(entityOrId);
+
+    const entity =
+      typeof entityOrId === "object"
+        ? entityOrId
+        : linkedEntities.find((item) => item.id === entityId);
+
+    if (!entity) return;
+
+    apiPost("/api/entities/unlink", {
+      workspace,
+      client: clientId,
+      project: projectId,
+      batch: batchId,
+      doc_id: reviewDoc?.doc_id || docId,
+      entity_id: String(entity.id || ""),
+      ucid: entity.ucid || entity.UCID || entity.values?.UCID || "",
+    })
+      .then((result: { status?: string }) => {
+        if (result?.status !== "unlinked") {
+          throw new Error(
+            `Entity unlink was not completed: ${result?.status || "unknown"}`
+          );
+        }
+
+        setLinkedEntities((current) =>
+          current.map((item) =>
+            item.id === entityId
+              ? { ...item, linked: false }
+              : item
+          )
+        );
+
+        loadLinkedEntities();
+      })
+      .catch((error) => {
+        console.error("Failed to unlink linked entity:", error);
+        alert("Unable to unlink linked entity. Please try again.");
+      });
+  }
+
+  function deleteEntity(entityOrId: any) {
+    const entityId = getEntityId(entityOrId);
+
+    const entity =
+      typeof entityOrId === "object"
+        ? entityOrId
+        : linkedEntities.find((item) => item.id === entityId);
+
+    const confirmed = window.confirm(
+      "Confirm Deletion: This will permanently remove this linked entity from the project. Continue?"
+    );
+
+    if (!confirmed || !entity) return;
+
+    apiPost("/api/entities/delete", {
+      workspace,
+      client: clientId,
+      project: projectId,
+      batch: batchId,
+      doc_id: reviewDoc?.doc_id || docId,
+      entity_id: String(entity.id || ""),
+      ucid: entity.ucid || entity.UCID || entity.values?.UCID || "",
+      entity,
+    })
+      .then((result: { status?: string }) => {
+        if (result?.status !== "deleted") {
+          throw new Error(
+            `Entity deletion was not completed: ${result?.status || "unknown"}`
+          );
+        }
+
+        setLinkedEntities((current) =>
+          current.filter((item) => item.id !== entityId)
+        );
+
+        loadLinkedEntities();
+      })
+      .catch((error) => {
+        console.error("Failed to delete linked entity:", error);
+        alert("Unable to delete linked entity. Please try again.");
+      });
+  }
+
+  return (
+    <AppShell>
+      <div className="min-h-screen flex flex-col text-white">
+        <ReviewHeader
+          project={reviewDoc.project}
+          batch={
+            isFinalSourceView
+              ? "Final Source Set"
+              : isFileView
+                ? "File View"
+                : reviewDoc.batch
+          }
+          docId={reviewDoc.doc_id}
+          isFirstDoc={sharedNavigation.isFirst}
+          isLastDoc={sharedNavigation.isLast}
+          docPositionLabel={sharedNavigation.label}
+          currentDocIndex={sharedNavigation.index}
+          batchDocCount={sharedNavigation.count}
+          onFirstDoc={() => navigateShared(sharedNavigation.first)}
+          onPreviousDoc={() => navigateShared(sharedNavigation.previous)}
+          onNextDoc={() => navigateShared(sharedNavigation.next)}
+          onLastDoc={() => navigateShared(sharedNavigation.last)}
+        />
+
+        {returnTo && (
+          <div className="mx-4 mt-4 flex items-center">
+            <button
+              type="button"
+              onClick={() =>
+                router.push(returnTo)
+              }
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-sky-700 hover:bg-slate-800 hover:text-white"
+            >
+              <span
+                aria-hidden="true"
+                className="text-base"
+              >
+                ←
+              </span>
+
+              Return to{" "}
+              {returnLabel ||
+                "Cyber²"}{" "}
+              Landing
+            </button>
+          </div>
+        )}
+
+        {protocolMessage && (
+          <div className="mx-4 mt-4 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
+            {protocolMessage}
+          </div>
+        )}
+
+        <section className="flex-1 flex flex-col gap-4 p-4 overflow-hidden">
+          {isFinalSourceView && (
+            <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  Final Source Review
+                </p>
+
+                <p className="text-xs text-slate-400">
+                  Reviewing a restricted source-document set from the selected Final entity.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={returnToFinalLanding}
+                className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+              >
+                Return to Landing
+              </button>
+            </div>
+          )}
+
+          <div className="flex-1 grid grid-cols-3 gap-4 min-h-0">
+            <ReviewDocumentPane
+              text={reviewDoc.text}
+              nativeUrl={reviewDoc.native_url}
+              nativeBlob={reviewDoc.native_blob}
+              detectionHits={detectionHits}
+            />
+
+            {fieldsForCapture.length === 0 ? (
+              <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-full">
+                <h2 className="text-lg font-semibold mb-4 text-white">
+                  Capture Panel
+                </h2>
+
+                <p className="text-sm text-amber-200 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3">
+                  No protocol capture fields loaded for this project.
+                </p>
+              </aside>
+            ) : (
+              <ReviewCapturePanel
+                clientId={clientId}
+                workspace={workspace}
+                projectId={projectId}
+                batchId={batchId}
+                docId={reviewDoc.doc_id}
+                fields={fieldsForCapture}
+                aiEntities={
+                  aiEntities
+                }
+                onApproveAiEntity={({
+                  candidateId,
+                  values,
+                }) => {
+                  setAiEntities(
+                    (current) =>
+                      current.map(
+                        (candidate) =>
+                          candidate.id ===
+                          candidateId
+                            ? {
+                                ...candidate,
+                                status:
+                                  "approved",
+                                values,
+                              }
+                            : candidate
+                      )
+                  );
+
+                  apiPost(
+                    "/api/entities/ai-candidate/review",
+                    {
+                      workspace:
+                        "capture",
+                      client:
+                        clientId,
+                      project:
+                        projectId,
+                      doc_id:
+                        reviewDoc.doc_id,
+                      ai_entity_id:
+                        candidateId,
+                      status:
+                        "approved",
+                      reviewed_values:
+                        values,
+                      reviewed_by:
+                        "",
+                    }
+                  )
+                    .then(() => {
+                      loadAiEntities();
+                    })
+                    .catch(
+                      (error) => {
+                        console.error(
+                          "Unable to persist AI approval:",
+                          error
+                        );
+                      }
+                    );
+                }}
+
+                onRejectAiEntity={(
+                  candidateId
+                ) => {
+                  setAiEntities(
+                    (current) =>
+                      current.map(
+                        (candidate) =>
+                          candidate.id ===
+                          candidateId
+                            ? {
+                                ...candidate,
+                                status:
+                                  "rejected",
+                              }
+                            : candidate
+                      )
+                  );
+
+                  apiPost(
+                    "/api/entities/ai-candidate/review",
+                    {
+                      workspace:
+                        "capture",
+                      client:
+                        clientId,
+                      project:
+                        projectId,
+                      doc_id:
+                        reviewDoc.doc_id,
+                      ai_entity_id:
+                        candidateId,
+                      status:
+                        "rejected",
+                      reviewed_values:
+                        null,
+                      reviewed_by:
+                        "",
+                    }
+                  )
+                    .then(() => {
+                      loadAiEntities();
+                    })
+                    .catch(
+                      (error) => {
+                        console.error(
+                          "Unable to persist AI rejection:",
+                          error
+                        );
+                      }
+                    );
+                }}
+                isFirstDoc={sharedNavigation.isFirst}
+                isLastDoc={sharedNavigation.isLast}
+                hasLinkedEntities={linkedEntities.some((entity) => entity.linked !== false)}
+                onPreviousDoc={() => navigateShared(sharedNavigation.previous)}
+                onNextDoc={() => navigateShared(sharedNavigation.next)}
+                onSaveComplete={handleSaveComplete}
+                onLinkedEntitySaved={loadLinkedEntities}
+                editingEntity={editingEntity}
+                onEditComplete={() => {
+                  setEditingEntity(null);
+                  loadLinkedEntities();
+                }}
+                onEditCancel={() => setEditingEntity(null)}
+                initialDocumentCoding={reviewDoc.document_coding || savedDocumentCoding || ""}
+              />
+            )}
+          </div>
+
+          <LinkedEntitiesStrip
+            fields={fieldsForCapture}
+            linkedEntities={linkedEntities}
+            onEdit={editLinkedEntity}
+            onUnlink={unlinkEntity}
+            onDelete={deleteEntity}
+          />
+        </section>
+      </div>
+    </AppShell>
+  );
+}
+
+export default function WorkspaceReviewDocument({ workspace }: { workspace: Workspace }) {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ReviewPageContent workspace={workspace} />
+    </Suspense>
+  );
+}
