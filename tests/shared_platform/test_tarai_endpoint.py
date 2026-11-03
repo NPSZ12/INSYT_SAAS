@@ -55,8 +55,12 @@ def environment(monkeypatch):
 
     def check_review(user, permission):
         events.append("permission")
-        if getattr(user, "deny_review", False):
+        if permission == "Can: Review" and getattr(user, "deny_review", False):
             raise HTTPException(403, "Review access denied")
+        if permission == "Can: Manage Protocol" and getattr(
+            user, "deny_protocol", False
+        ):
+            raise HTTPException(403, "Protocol management denied")
 
     class DisabledError(Exception):
         pass
@@ -68,6 +72,17 @@ def environment(monkeypatch):
         pass
 
     dependencies = {
+        "app.database.connection": stub_module(
+            "app.database.connection",
+            get_db=lambda: None,
+        ),
+        "app.services.ai.tarai_approval": stub_module(
+            "app.services.ai.tarai_approval",
+            approve_criteria=Mock(return_value="synthetic-sha256"),
+            verify_approved_criteria=Mock(
+                return_value="Synthetic approved criteria."
+            ),
+        ),
         "app.services.security": stub_module(
             "app.services.security",
             get_current_user=authenticate,
@@ -75,6 +90,7 @@ def environment(monkeypatch):
         "app.services.authorization": stub_module(
             "app.services.authorization",
             PERMISSION_REVIEW="Can: Review",
+            PERMISSION_MANAGE_PROTOCOL="Can: Manage Protocol",
             require_permission=check_review,
             require_scoped_project_access=check_scope,
         ),
@@ -309,3 +325,82 @@ def test_browser_cannot_supply_native_blob_or_text(environment):
 
     assert response.status_code == 422
     env.module.analyze_privilege.assert_not_called()
+
+def test_approval_requires_authentication(environment):
+    env = environment
+    env.module.read_project_criteria_bytes = Mock(
+        return_value=b"Synthetic criteria."
+    )
+
+    response = env.client.post(
+        "/api/discovery/tarai/privilege/criteria/approve",
+        json={"client": CLIENT, "project": PROJECT},
+    )
+
+    assert response.status_code == 401
+    env.module.read_project_criteria_bytes.assert_not_called()
+    env.module.approve_criteria.assert_not_called()
+
+
+@pytest.mark.parametrize("denied", ["scope", "permission"])
+def test_approval_requires_project_and_protocol_permission(
+    environment, denied
+):
+    env = environment
+    env.logged_in(SimpleNamespace(
+        deny_scope=(denied == "scope"),
+        deny_protocol=(denied == "permission"),
+    ))
+    env.module.read_project_criteria_bytes = Mock(
+        return_value=b"Synthetic criteria."
+    )
+
+    response = env.client.post(
+        "/api/discovery/tarai/privilege/criteria/approve",
+        json={"client": CLIENT, "project": PROJECT},
+    )
+
+    assert response.status_code == 403
+    env.module.read_project_criteria_bytes.assert_not_called()
+    env.module.approve_criteria.assert_not_called()
+
+
+def test_approval_uses_authenticated_actor(environment):
+    env = environment
+    actor = SimpleNamespace(username="authorized-test-approver")
+    env.logged_in(actor)
+    env.module.read_project_criteria_bytes = Mock(
+        return_value=b"Synthetic criteria."
+    )
+
+    response = env.client.post(
+        "/api/discovery/tarai/privilege/criteria/approve",
+        json={"client": CLIENT, "project": PROJECT},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "approved"
+
+    call = env.module.approve_criteria.call_args
+    assert call.kwargs["actor"] is actor
+    assert call.kwargs["criteria_bytes"] == b"Synthetic criteria."
+    assert call.kwargs["client"] == CLIENT
+    assert call.kwargs["project"] == PROJECT
+
+
+def test_approval_rejects_browser_approver_identity(environment):
+    env = environment
+    env.logged_in()
+
+    response = env.client.post(
+        "/api/discovery/tarai/privilege/criteria/approve",
+        json={
+            "client": CLIENT,
+            "project": PROJECT,
+            "approved_by": "forged-user",
+            "sha256": "forged-hash",
+        },
+    )
+
+    assert response.status_code == 422
+    env.module.approve_criteria.assert_not_called()

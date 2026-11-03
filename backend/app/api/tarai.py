@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.database.connection import get_db
 from app.services.security import get_current_user
 from app.services.authorization import (
     PERMISSION_REVIEW,
+    PERMISSION_MANAGE_PROTOCOL,
     require_permission,
     require_scoped_project_access,
 )
@@ -23,6 +25,13 @@ from app.services.ai.tarai_analyzer import (
     TARaiDisabledError,
     TARaiConfigurationError,
     TARaiResponseError,
+)
+from app.services.ai.tarai_criteria import (
+    TARaiCriteriaApprovalError,
+)
+from app.services.ai.tarai_approval import (
+    approve_criteria,
+    verify_approved_criteria,
 )
 from app.api.review import load_review_document_by_doc_id
 from app.api.workspace_protocols import (
@@ -62,11 +71,11 @@ def require_valid_identifiers(payload: SuggestRequest) -> None:
             )
 
 
-def load_approved_privilege_criteria(
+def read_project_criteria_bytes(
     client: str,
     project: str,
-) -> str:
-    """Read project-specific instructions. Never use generic fallback."""
+) -> bytes:
+    """Read the existing project's exact criteria bytes."""
 
     path = build_project_path(
         "discovery",
@@ -82,7 +91,7 @@ def load_approved_privilege_criteria(
     if not blob.exists():
         raise HTTPException(
             status_code=409,
-            detail="Approved TARai privilege criteria are missing.",
+            detail="Project privilege criteria are missing.",
         )
 
     properties = blob.get_blob_properties()
@@ -90,18 +99,41 @@ def load_approved_privilege_criteria(
     if properties.size > 10000:
         raise HTTPException(
             status_code=409,
-            detail="TARai privilege criteria exceed the size limit.",
+            detail="Project privilege criteria exceed the size limit.",
         )
 
-    criteria = blob.download_blob().readall().decode("utf-8").strip()
+    content = blob.download_blob().readall()
 
-    if not criteria or len(criteria) > 5000:
+    if not isinstance(content, bytes) or not content or len(content) > 10000:
         raise HTTPException(
             status_code=409,
-            detail="TARai privilege criteria are empty or invalid.",
+            detail="Project privilege criteria are invalid.",
         )
 
-    return criteria
+    return content
+
+
+def load_approved_privilege_criteria(
+    client: str,
+    project: str,
+    db,
+) -> str:
+    """Fail closed unless the exact file has trusted audit approval."""
+
+    content = read_project_criteria_bytes(client, project)
+
+    try:
+        return verify_approved_criteria(
+            db=db,
+            client=client,
+            project=project,
+            criteria_bytes=content,
+        )
+    except TARaiCriteriaApprovalError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="TARai privilege criteria lack valid approval.",
+        ) from exc
 
 
 def require_exact_document_identity(
@@ -160,10 +192,73 @@ def require_exact_document_identity(
             detail="Document text storage identity mismatch.",
         )
 
+class ApproveCriteriaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client: str = Field(min_length=1, max_length=150)
+    project: str = Field(min_length=1, max_length=150)
+
+
+@router.post("/privilege/criteria/approve")
+def approve_privilege_criteria(
+    payload: ApproveCriteriaRequest,
+    request: Request,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    for value in (payload.client, payload.project):
+        if not SAFE_IDENTIFIER.fullmatch(value):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Discovery project identifier.",
+            )
+
+    require_scoped_project_access(
+        current_user,
+        "discovery",
+        payload.client,
+        payload.project,
+    )
+
+    require_permission(
+        current_user,
+        PERMISSION_MANAGE_PROTOCOL,
+    )
+
+    criteria_bytes = read_project_criteria_bytes(
+        payload.client,
+        payload.project,
+    )
+
+    try:
+        digest = approve_criteria(
+            db=db,
+            actor=current_user,
+            client=payload.client,
+            project=payload.project,
+            criteria_bytes=criteria_bytes,
+            request=request,
+        )
+    except TARaiCriteriaApprovalError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Project privilege criteria cannot be approved.",
+        ) from exc
+
+    return {
+        "workspace": "discovery",
+        "client": payload.client,
+        "project": payload.project,
+        "status": "approved",
+        "sha256": digest,
+    }
+
+
 @router.post("/privilege/suggest")
 def suggest_privilege(
     payload: SuggestRequest,
     current_user=Depends(get_current_user),
+    db=Depends(get_db),
 ):
     require_valid_identifiers(payload)
 
@@ -213,6 +308,7 @@ def suggest_privilege(
     criteria = load_approved_privilege_criteria(
         payload.client,
         payload.project,
+        db,
     )
 
     # No browser-controlled blob path is accepted.
