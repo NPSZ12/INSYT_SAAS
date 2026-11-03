@@ -404,3 +404,148 @@ def test_approval_rejects_browser_approver_identity(environment):
 
     assert response.status_code == 422
     env.module.approve_criteria.assert_not_called()
+
+
+# ---------------------------------------------------------
+# Discovery TARai draft criteria upload regression coverage
+# ---------------------------------------------------------
+
+UPLOAD_ROUTE = "/api/discovery/tarai/privilege/criteria/upload"
+
+UPLOAD_PAYLOAD = {
+    "client": CLIENT,
+    "project": PROJECT,
+    "criteria_text": "Synthetic privilege criteria for testing only.",
+}
+
+
+def upload_request(env, payload=None):
+    return env.client.post(
+        UPLOAD_ROUTE,
+        json=UPLOAD_PAYLOAD if payload is None else payload,
+    )
+
+
+def test_criteria_upload_requires_authentication(environment):
+    env = environment
+
+    response = upload_request(env)
+
+    assert response.status_code == 401
+    env.module.get_live_source_container_client.assert_not_called()
+
+
+@pytest.mark.parametrize("denied", ["scope", "protocol"])
+def test_criteria_upload_requires_authorization(environment, denied):
+    env = environment
+    env.logged_in(SimpleNamespace(
+        deny_scope=(denied == "scope"),
+        deny_protocol=(denied == "protocol"),
+    ))
+
+    response = upload_request(env)
+
+    assert response.status_code == 403
+    env.module.get_live_source_container_client.assert_not_called()
+
+
+def test_criteria_upload_creates_only_expected_blob(environment):
+    env = environment
+    env.logged_in()
+
+    response = upload_request(env)
+
+    assert response.status_code == 200, response.text
+
+    result = response.json()
+    assert result["status"] == "draft"
+    assert result["approved"] is False
+
+    container = env.module.get_live_source_container_client
+    container.assert_called_once_with("discovery")
+
+    expected_path = build_project_path(
+        "discovery",
+        CLIENT,
+        PROJECT,
+        "source/protocol",
+        "TARai_Privilege_Criteria.txt",
+    )
+
+    blob = container.return_value.get_blob_client
+    blob.assert_called_once_with(expected_path)
+
+    uploaded = blob.return_value.upload_blob
+    uploaded.assert_called_once_with(
+        UPLOAD_PAYLOAD["criteria_text"].encode("utf-8"),
+        overwrite=False,
+    )
+
+    env.module.approve_criteria.assert_not_called()
+    env.module.analyze_privilege.assert_not_called()
+
+
+def test_criteria_upload_rejects_duplicate_file(environment):
+    from azure.core.exceptions import ResourceExistsError
+
+    env = environment
+    env.logged_in()
+
+    blob = (
+        env.module.get_live_source_container_client
+        .return_value.get_blob_client.return_value
+    )
+    blob.upload_blob.side_effect = ResourceExistsError(
+        "Blob already exists."
+    )
+
+    response = upload_request(env)
+
+    assert response.status_code == 409
+    env.module.approve_criteria.assert_not_called()
+
+
+@pytest.mark.parametrize("criteria", ["", "   ", "x" * 5001])
+def test_criteria_upload_rejects_invalid_text(environment, criteria):
+    env = environment
+    env.logged_in()
+
+    response = upload_request(env, {
+        **UPLOAD_PAYLOAD,
+        "criteria_text": criteria,
+    })
+
+    assert response.status_code == 422
+    env.module.get_live_source_container_client.assert_not_called()
+
+
+def test_criteria_upload_rejects_extra_fields(environment):
+    env = environment
+    env.logged_in()
+
+    response = upload_request(env, {
+        **UPLOAD_PAYLOAD,
+        "approved_by": "forged-approver",
+    })
+
+    assert response.status_code == 422
+    env.module.get_live_source_container_client.assert_not_called()
+
+
+def test_criteria_upload_storage_failure_does_not_approve(environment):
+    env = environment
+    env.logged_in()
+
+    blob = (
+        env.module.get_live_source_container_client
+        .return_value.get_blob_client.return_value
+    )
+    blob.upload_blob.side_effect = RuntimeError(
+        "Synthetic storage failure"
+    )
+
+    with pytest.raises(RuntimeError, match="Synthetic storage failure"):
+        upload_request(env)
+
+    env.module.approve_criteria.assert_not_called()
+    env.module.analyze_privilege.assert_not_called()

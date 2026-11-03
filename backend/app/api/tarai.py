@@ -192,6 +192,85 @@ def require_exact_document_identity(
             detail="Document text storage identity mismatch.",
         )
 
+class UploadCriteriaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client: str = Field(min_length=1, max_length=150)
+    project: str = Field(min_length=1, max_length=150)
+    criteria_text: str = Field(min_length=1, max_length=5000)
+
+
+@router.post("/privilege/criteria/upload")
+def upload_privilege_criteria(
+    payload: UploadCriteriaRequest,
+    current_user=Depends(get_current_user),
+):
+    """Create project-scoped draft criteria without approving them."""
+
+    for value in (payload.client, payload.project):
+        if not SAFE_IDENTIFIER.fullmatch(value):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Discovery project identifier.",
+            )
+
+    require_scoped_project_access(
+        current_user,
+        "discovery",
+        payload.client,
+        payload.project,
+    )
+    require_permission(
+        current_user,
+        PERMISSION_MANAGE_PROTOCOL,
+    )
+
+    criteria_bytes = payload.criteria_text.encode("utf-8")
+
+    if (
+        not payload.criteria_text.strip()
+        or len(criteria_bytes) > 10000
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid privilege criteria content.",
+        )
+
+    path = build_project_path(
+        "discovery",
+        payload.client,
+        payload.project,
+        "source/protocol",
+        CRITERIA_FILENAME,
+    )
+
+    blob = get_live_source_container_client(
+        "discovery"
+    ).get_blob_client(path)
+
+    # Create only: never replace existing criteria.
+    try:
+        blob.upload_blob(criteria_bytes, overwrite=False)
+    except Exception as exc:
+        from azure.core.exceptions import ResourceExistsError
+
+        if isinstance(exc, ResourceExistsError):
+            raise HTTPException(
+                status_code=409,
+                detail="Privilege criteria already exist.",
+            ) from exc
+        raise
+
+    return {
+        "workspace": "discovery",
+        "client": payload.client,
+        "project": payload.project,
+        "file_name": CRITERIA_FILENAME,
+        "status": "draft",
+        "approved": False,
+    }
+
+
 class ApproveCriteriaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
