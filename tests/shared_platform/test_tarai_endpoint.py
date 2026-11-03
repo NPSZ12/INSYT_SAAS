@@ -125,6 +125,10 @@ def environment(monkeypatch):
     monkeypatch.setitem(sys.modules, spec.name, module)
     spec.loader.exec_module(module)
 
+    monkeypatch.setenv("INSYT_TARAI_VALIDATION_CLIENT", CLIENT)
+    monkeypatch.setenv("INSYT_TARAI_VALIDATION_PROJECT", PROJECT)
+    monkeypatch.setenv("INSYT_TARAI_VALIDATION_DOC_ID", DOC_ID)
+
     app = FastAPI()
     app.include_router(module.router)
 
@@ -548,4 +552,37 @@ def test_criteria_upload_storage_failure_does_not_approve(environment):
         upload_request(env)
 
     env.module.approve_criteria.assert_not_called()
+    env.module.analyze_privilege.assert_not_called()
+
+
+def test_validation_scope_rejects_other_projects(environment, monkeypatch):
+    env = environment
+    env.logged_in()
+
+    monkeypatch.setenv("INSYT_TARAI_VALIDATION_CLIENT", CLIENT)
+    monkeypatch.setenv("INSYT_TARAI_VALIDATION_PROJECT", "Other_Project")
+    monkeypatch.setenv("INSYT_TARAI_VALIDATION_DOC_ID", DOC_ID)
+
+    response = post(env)
+
+    assert response.status_code == 403
+    env.module.get_workspace_protocol.assert_not_called()
+    env.module.analyze_privilege.assert_not_called()
+
+
+def test_validation_scope_requires_configuration(environment, monkeypatch):
+    env = environment
+    env.logged_in()
+
+    for key in (
+        "INSYT_TARAI_VALIDATION_CLIENT",
+        "INSYT_TARAI_VALIDATION_PROJECT",
+        "INSYT_TARAI_VALIDATION_DOC_ID",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    response = post(env)
+
+    assert response.status_code == 503
+    env.module.get_workspace_protocol.assert_not_called()
     env.module.analyze_privilege.assert_not_called()

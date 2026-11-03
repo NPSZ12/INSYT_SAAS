@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -333,6 +334,38 @@ def approve_privilege_criteria(
     }
 
 
+def require_tarai_validation_scope(payload: SuggestRequest) -> None:
+    """Restrict initial Azure AI testing to one explicit document."""
+
+    allowed_client = os.getenv(
+        "INSYT_TARAI_VALIDATION_CLIENT", ""
+    ).strip()
+
+    allowed_project = os.getenv(
+        "INSYT_TARAI_VALIDATION_PROJECT", ""
+    ).strip()
+
+    allowed_doc_id = os.getenv(
+        "INSYT_TARAI_VALIDATION_DOC_ID", ""
+    ).strip()
+
+    if not all((allowed_client, allowed_project, allowed_doc_id)):
+        raise HTTPException(
+            status_code=503,
+            detail="TARai validation scope is not configured.",
+        )
+
+    if (
+        payload.client != allowed_client
+        or payload.project != allowed_project
+        or payload.doc_id != allowed_doc_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Document is outside the authorized TARai validation scope.",
+        )
+
+
 @router.post("/privilege/suggest")
 def suggest_privilege(
     payload: SuggestRequest,
@@ -356,6 +389,8 @@ def suggest_privilege(
             status_code=503,
             detail="TARai AI suggestions are not enabled.",
         )
+
+    require_tarai_validation_scope(payload)
 
     protocol = get_workspace_protocol(
         workspace="discovery",
