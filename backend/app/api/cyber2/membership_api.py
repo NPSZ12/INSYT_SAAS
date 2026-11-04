@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.entities import load_cyber2_raw_capture_records
@@ -22,7 +22,7 @@ from app.services.cyber2.entity_membership import (
 )
 from app.services.cyber2.membership_approval import approve_entity
 from app.services.cyber2.membership_persistence import (
-    MembershipConflict, registry_path, update_registry,
+    MembershipConflict, MembershipError as PersistenceMembershipError, load_registry, registry_path, update_registry,
 )
 
 router = APIRouter(prefix="/api", tags=["cyber2-entity-membership"])
@@ -144,3 +144,70 @@ def reverse_cyber2_last_merge(
     return _operate(workspace, body, current_user,
         lambda registry, actor, known: reverse_last_merge(registry, actor=actor),
         require_raw=True)
+
+
+@router.get("/{workspace}/cyber2/entity-membership")
+def list_cyber2_memberships(
+    workspace: Workspace,
+    client: str = Query(min_length=1),
+    project: str = Query(min_length=1),
+    current_user=Depends(get_current_user),
+) -> dict:
+    """Read current scoped memberships without exposing source values or audit history."""
+    require_scoped_project_access(
+        current_user, workspace, client, project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    known = set(_known_raw_ids(workspace, client, project))
+    path = registry_path(
+        base_path=_project_base_path(
+            workspace=workspace, client=client, project=project
+        )
+    )
+    store = AzureBlobMembershipStore(_processing_container_client())
+
+    try:
+        registry, _etag = load_registry(
+            store,
+            path=path,
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    except MembershipConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Membership registry changed; reload",
+        ) from exc
+    except (MembershipError, PersistenceMembershipError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Membership registry is invalid",
+        ) from exc
+
+    entities = []
+    for entity_id, entry in sorted(registry["entities"].items()):
+        raw_ucids = entry["raw_ucids"]
+        if any(ucid not in known for ucid in raw_ucids):
+            raise HTTPException(
+                status_code=409,
+                detail="Membership refers to unavailable RAW evidence",
+            )
+        entities.append({
+            "entity_id": entity_id,
+            "status": entry["status"],
+            "raw_ucids": list(raw_ucids),
+            "raw_count": len(raw_ucids),
+        })
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "revision": registry["revision"],
+        "entity_count": len(entities),
+        "raw_inventory_count": len(known),
+        "entities": entities,
+    }
