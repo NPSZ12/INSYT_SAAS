@@ -57,6 +57,8 @@ from app.api.processing_center_azure import router as processing_center_azure_ro
 from app.api.cyber2.header_sets import router as cyber2_header_sets_router
 from app.api.cyber2.header_identification import router as cyber2_header_identification_router
 from app.api.cyber2.schema_mapping import router as cyber2_schema_mapping_router
+from app.api.cyber2.field_evidence_api import router as cyber2_field_evidence_router
+from app.api.cyber2.membership_api import router as cyber2_membership_router
 
 from app.routes import merge_dedupe
 from app.routes import tools_merge_dedupe
@@ -243,6 +245,8 @@ app.include_router(processing_center_azure_router)
 app.include_router(cyber2_header_sets_router)
 app.include_router(cyber2_header_identification_router)
 app.include_router(cyber2_schema_mapping_router)
+app.include_router(cyber2_field_evidence_router, dependencies=protected_dependencies)
+app.include_router(cyber2_membership_router, dependencies=protected_dependencies)
 
 
 # =========================
