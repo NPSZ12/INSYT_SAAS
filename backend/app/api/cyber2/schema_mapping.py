@@ -2784,62 +2784,81 @@ def generate_cyber2_raw_capture(
         )
     )
 
-    existing_payload: dict[
-        str,
-        Any,
-    ] = {}
+
+    import json
+    from azure.core import MatchConditions
+    from azure.core.exceptions import (
+        HttpResponseError,
+        ResourceExistsError,
+        ResourceModifiedError,
+        ResourceNotFoundError,
+    )
+    from azure.storage.blob import ContentSettings
+
+    raw_blob = _processing_container_client().get_blob_client(
+        raw_capture_path
+    )
+    raw_etag = None
+    existing_payload = {}
 
     try:
-        existing_payload = (
-            _read_processing_json_blob(
-                raw_capture_path
-            )
-        )
+        properties = raw_blob.get_blob_properties()
+    except ResourceNotFoundError:
+        # A genuinely absent snapshot permits create-only.
+        pass
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to inspect existing RAW snapshot.",
+        ) from exc
+    else:
+        raw_etag = str(getattr(properties, "etag", "") or "")
+        if not raw_etag:
+            raise HTTPException(409, "RAW snapshot has no ETag.")
 
-        if not isinstance(
-            existing_payload,
-            dict,
-        ):
-            existing_payload = {}
+        try:
+            data = raw_blob.download_blob(
+                etag=raw_etag,
+                match_condition=MatchConditions.IfNotModified,
+            ).readall()
+        except (ResourceModifiedError, ResourceNotFoundError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="RAW snapshot changed during read; retry safely.",
+            ) from exc
+        except HttpResponseError as exc:
+            if getattr(exc, "status_code", None) in (404, 409, 412):
+                raise HTTPException(
+                    status_code=409,
+                    detail="RAW snapshot changed during read.",
+                ) from exc
+            raise HTTPException(503, "Unable to read RAW snapshot.") from exc
+        except Exception as exc:
+            raise HTTPException(503, "Unable to read RAW snapshot.") from exc
 
-    except Exception:
-        existing_payload = {}
+        try:
+            existing_payload = json.loads(data.decode("utf-8"))
+        except (UnicodeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Existing RAW snapshot is invalid JSON.",
+            ) from exc
 
-    existing_records = (
-        existing_payload.get(
-            "records"
-        )
-        or []
-    )
+    if not isinstance(existing_payload, dict):
+        raise HTTPException(409, "RAW snapshot is not a JSON object.")
 
-    if not isinstance(
-        existing_records,
-        list,
+    if raw_etag is not None and (
+        "records" not in existing_payload
+        or not isinstance(existing_payload["records"], list)
     ):
-        existing_records = []
+        raise HTTPException(409, "Invalid RAW snapshot records.")
 
-    #
-    # Re-running one Header Set must not
-    # duplicate its existing raw rows.
-    #
-    if request.replace_header_set_rows:
-        existing_records = [
-            record
-            for record
-            in existing_records
-            if str(
-                (
-                    record.get(
-                        "provenance"
-                    )
-                    or {}
-                ).get(
-                    "header_set_id"
-                )
-                or ""
-            ).strip()
-            != header_set_id
-        ]
+    existing_records = existing_payload.get("records", [])
+
+    if any(not isinstance(r, dict) for r in existing_records):
+        raise HTTPException(409, "Malformed existing RAW records.")
+
+    # Existing rows are reconciled by source identity below.
 
     output_container = (
         _processing_container_client()
@@ -2863,6 +2882,12 @@ def generate_cyber2_raw_capture(
             document,
             dict,
         ):
+            failed_documents.append(
+                {
+                    "doc_id": "",
+                    "error": "Invalid mapped document entry.",
+                }
+            )
             continue
 
         doc_id = str(
@@ -2910,7 +2935,17 @@ def generate_cyber2_raw_capture(
                 )
             )
 
-            if not mapped_rows:
+            if not mapped_rows or len(mapped_rows) < 2:
+                failed_documents.append(
+                    {
+                        "doc_id": doc_id,
+                        "mapped_csv_path": mapped_csv_path,
+                        "error": (
+                            "Mapped CSV must contain a header "
+                            "and at least one data row."
+                        ),
+                    }
+                )
                 continue
 
             mapped_headers = [
@@ -3078,10 +3113,110 @@ def generate_cyber2_raw_capture(
                 }
             )
 
+
+    # Preserve immutable source-row identities and their UCIDs.
+    # Changed or removed evidence requires explicit reconciliation.
+    if failed_documents:
+        raise HTTPException(
+            status_code=409,
+            detail="RAW generation incomplete; existing evidence preserved.",
+        )
+
+    def raw_identity(record):
+        provenance = record.get("provenance") or {}
+        if not isinstance(provenance, dict):
+            raise HTTPException(409, "Invalid RAW provenance.")
+        fields = (
+            provenance.get("header_set_id"),
+            record.get("doc_id"),
+            provenance.get("source_row_number"),
+            provenance.get("sheet_index"),
+            provenance.get("source_csv_path"),
+        )
+        if any(value is None for value in fields[:3]):
+            raise HTTPException(409, "Incomplete RAW source identity.")
+        return tuple(str(value) for value in fields)
+
+    def raw_values(record):
+        metadata = record.get("metadata")
+        if not isinstance(metadata, dict):
+            raise HTTPException(409, "Invalid RAW metadata.")
+        return {
+            key: value
+            for key, value in metadata.items()
+            if key != "UCID"
+        }
+
+    old_by_key = {}
+    for record in existing_records:
+        key = raw_identity(record)
+        ucid = record.get("ucid")
+        if not isinstance(ucid, str) or not ucid.strip():
+            raise HTTPException(409, "Missing existing RAW UCID.")
+        if key in old_by_key:
+            raise HTTPException(409, "Duplicate existing RAW source identity.")
+        old_by_key[key] = record
+
+    seen_ucids = [r["ucid"] for r in existing_records]
+    if len(seen_ucids) != len(set(seen_ucids)):
+        raise HTTPException(409, "Duplicate existing RAW UCID.")
+
+    incoming_keys = set()
+    reconciled_records = []
+
+    for record in new_records:
+        key = raw_identity(record)
+        if key in incoming_keys:
+            raise HTTPException(409, "Duplicate regenerated source row.")
+        incoming_keys.add(key)
+
+        previous = old_by_key.get(key)
+        if previous is None:
+            reconciled_records.append(record)
+            continue
+
+        if raw_values(previous) != raw_values(record):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Existing RAW source row changed. "
+                    "Reconciliation required; UCID preserved."
+                ),
+            )
+
+        # Retain original metadata, UCID, and provenance.
+        reconciled_records.append(previous)
+
+    previous_header_keys = {
+        key for key in old_by_key
+        if key[0] == header_set_id
+    }
+    missing_keys = previous_header_keys - incoming_keys
+    if missing_keys:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Previously captured RAW rows are missing. "
+                "Regeneration blocked to preserve evidence."
+            ),
+        )
+
+    # Existing rows remain immutable, including matching rows.
+    # Append only genuinely new source identities.
+    added_records = [
+        record for record in reconciled_records
+        if raw_identity(record) not in old_by_key
+    ]
+
     combined_records = [
         *existing_records,
-        *new_records,
+        *added_records,
     ]
+
+    combined_ucids = [r["ucid"] for r in combined_records]
+    if len(combined_ucids) != len(set(combined_ucids)):
+        raise HTTPException(409, "RAW UCID collision detected.")
+
 
     payload = {
         "schema_version": 1,
@@ -3138,13 +3273,47 @@ def generate_cyber2_raw_capture(
             failed_documents,
     }
 
-    _write_processing_json_blob(
-        blob_path=(
-            raw_capture_path
+
+    # Commit only if the snapshot still has the version we read.
+    # If absent, create-only prevents concurrent initialization.
+    write_options = {
+        "content_settings": ContentSettings(
+            content_type="application/json"
         ),
-        payload=payload,
-        overwrite=True,
-    )
+    }
+
+    if raw_etag is None:
+        write_options["overwrite"] = False
+    else:
+        write_options.update({
+            "overwrite": True,
+            "etag": raw_etag,
+            "match_condition": MatchConditions.IfNotModified,
+        })
+
+    try:
+        raw_blob.upload_blob(
+            json.dumps(
+                payload, indent=2, default=str
+            ).encode("utf-8"),
+            **write_options,
+        )
+    except (ResourceExistsError, ResourceModifiedError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="RAW snapshot changed concurrently; no overwrite.",
+        ) from exc
+    except HttpResponseError as exc:
+        if getattr(exc, "status_code", None) in (409, 412):
+            raise HTTPException(
+                status_code=409,
+                detail="RAW snapshot version conflict; no overwrite.",
+            ) from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to save RAW snapshot.",
+        ) from exc
+
     
     #
     # Advance the Header Set workflow after
