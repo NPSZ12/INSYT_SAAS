@@ -299,6 +299,7 @@ def preview_cyber2_exact_dedupe(
         "social security #",
         "dob",
         "date of birth",
+        "date of birth (dob)",
         "birth date",
     }
 

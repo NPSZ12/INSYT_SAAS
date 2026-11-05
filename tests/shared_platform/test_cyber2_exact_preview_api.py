@@ -231,3 +231,54 @@ def test_admin_denial_before_data_read(harness, monkeypatch):
     assert exc.value.status_code == 403
     assert not touched
     assert store["writes"] == 0
+
+def test_actual_insyt_protocol_identifier_labels(harness, monkeypatch):
+    api, user, store = harness
+
+    approved = mapping()
+    approved["canonical_column_order"] = [
+        "First Name (or Initial)",
+        "Last Name (FULL)",
+        "Social Security number (SSN)",
+        "Date of Birth (DOB)",
+        "Street 1",
+    ]
+
+    rows = []
+    for ucid, doc, dob in [
+        ("R1", "D1", "1985-04-12"),
+        ("R2", "D2", "1990-01-01"),
+    ]:
+        rows.append({
+            "ucid": ucid,
+            "doc_id": doc,
+            "metadata": {
+                "First Name (or Initial)": "Jordan",
+                "Last Name (FULL)": "Sample",
+                "Social Security number (SSN)": "900-12-0001",
+                "Date of Birth (DOB)": dob,
+                "Street 1": "100 Main Street",
+            },
+            "provenance": {
+                "header_set_id": "HDR-1",
+                "source_row_number": 2,
+            },
+        })
+
+    configure(monkeypatch, api, approved=approved, records=rows)
+
+    result = preview(
+        api,
+        user,
+        [
+            "First Name (or Initial)",
+            "Last Name (FULL)",
+            "Social Security number (SSN)",
+        ],
+    )
+
+    assert result["duplicate_group_count"] == 0
+    assert result["conflict_group_count"] == 1
+    assert "Date of Birth (DOB)" in result["conflict_headers_checked"]
+    assert "Date of Birth (DOB)" in result["conflicts"][0]["conflict_fields"]
+    assert store["writes"] == 0
