@@ -275,7 +275,7 @@ class Cyber2MergeSetStore:
             "idempotent_replay": replayed,
             "status": "completed",
             "header_set_id": document["header_set_id"],
-            "created_at": created_at,
+            "created_at": document["created_at"],
             "raw_record_count": document["raw_record_count"],
             "working_record_count": document["working_record_count"],
             "merged_group_count": document["merged_group_count"],

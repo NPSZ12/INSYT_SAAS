@@ -236,6 +236,7 @@ def test_idempotent_retry_returns_same_merge_set():
     assert first["merge_set_id"] == retry["merge_set_id"]
     assert first["idempotent_replay"] is False
     assert retry["idempotent_replay"] is True
+    assert retry["created_at"] == store.load(first["merge_set_id"])["created_at"]
     assert len(container.storage) == 1
 
 
