@@ -2,9 +2,7 @@
 
 import {
   Suspense,
-  useCallback,
   useEffect,
-  useMemo,
   useState,
 } from "react";
 import { useSearchParams } from "next/navigation";
@@ -16,45 +14,63 @@ import ContentCard from "../../../components/ContentCard";
 import CyberUtilityWorkflowNav from "../../../components/CyberUtilityWorkflowNav";
 import { apiGet, apiPost } from "../../../lib/api";
 
-type Workspace = "capture" | "discovery";
-type Status = "pending" | "approved";
-
-type Entity = {
-  entity_id: string;
-  status: Status;
-  raw_ucids: string[];
-  raw_count: number;
+type HeaderSet = {
+  header_set_id: string;
+  status?: string;
+  document_count?: number;
+  documents?: { doc_id: string }[];
+  created_at?: string;
 };
 
-type MembershipResponse = {
-  workspace: Workspace;
-  client: string;
-  project: string;
-  revision: number;
-  entity_count: number;
-  raw_inventory_count: number;
-  entities: Entity[];
+type MappingResponse = {
+  approved_mapping_exists?: boolean;
+  approved_mapping?: {
+    status?: string;
+    header_set_id?: string;
+    canonical_column_order?: string[];
+    protocol_headers?: string[];
+  };
 };
 
-type OperationResponse = {
+type Member = {
+  ucid: string;
+  doc_id: string;
+};
+
+type Group = {
+  member_count: number;
+  members: Member[];
+  conflict_fields?: string[];
+  reason?: string;
+};
+
+type Preview = {
   status: string;
-  revision: number;
-  entity_count: number;
+  header_set_id: string;
+  merge_index: string[];
+  document_count: number;
+  raw_record_count: number;
+  duplicate_group_count: number;
+  duplicate_record_count: number;
+  working_record_count: number;
+  conflict_group_count: number;
+  groups: Group[];
+  conflicts: Group[];
+  unmatched: Member[];
+  excluded: (Member & { reason: string })[];
+  execution_enabled: boolean;
 };
 
-type StatusFilter = "all" | Status;
-type SortField = "entity_id" | "status" | "raw_count";
-
-function getMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "Unexpected Cyber² request failure.";
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error
+    ? reason.message
+    : "The requested Cyber² operation failed.";
 }
 
 function MergeDedupeContent() {
   const params = useSearchParams();
 
-  const workspace: Workspace =
+  const workspace =
     params.get("workspace") === "discovery"
       ? "discovery"
       : "capture";
@@ -62,271 +78,192 @@ function MergeDedupeContent() {
   const client = params.get("client") || "";
   const project = params.get("project") || "";
 
-  const [data, setData] = useState<MembershipResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [sets, setSets] = useState<HeaderSet[]>([]);
+  const [selectedSet, setSelectedSet] = useState("");
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [mergeIndex, setMergeIndex] = useState<string[]>([]);
+  const [preview, setPreview] = useState<Preview | null>(null);
+
+  const [loadingSets, setLoadingSets] = useState(false);
+  const [loadingMapping, setLoadingMapping] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<StatusFilter>("all");
-  const [sortField, setSortField] = useState<SortField>("entity_id");
-  const [descending, setDescending] = useState(false);
-
-  const [selected, setSelected] = useState<string[]>([]);
-  const [targetId, setTargetId] = useState("");
-
-  const [newEntityId, setNewEntityId] = useState("");
-  const [newRawIds, setNewRawIds] = useState("");
-
-  const scope = useMemo(() => ({
-    client,
-    project,
-  }), [client, project]);
-
-  const basePath = `/api/${workspace}/cyber2/entity-membership`;
-
-  const refresh = useCallback(async () => {
-    if (!client || !project) {
-      setData(null);
-      setError("Select a client and project before loading Cyber².");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      const query = new URLSearchParams(scope);
-      const response = await apiGet(
-        `${basePath}?${query.toString()}`
-      ) as MembershipResponse;
-
-      if (
-        !Array.isArray(response.entities) ||
-        !Number.isInteger(response.revision)
-      ) {
-        throw new Error("Invalid membership API response.");
-      }
-
-      setData(response);
-
-      const ids = new Set(
-        response.entities.map((item) => item.entity_id)
-      );
-
-      setSelected((previous) =>
-        previous.filter((id) => ids.has(id))
-      );
-
-      setTargetId((previous) =>
-        ids.has(previous) ? previous : ""
-      );
-    } catch (reason) {
-      setData(null);
-      setError(getMessage(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, [basePath, client, project, scope]);
+  const base = `/api/${workspace}/cyber2`;
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let active = true;
 
-  const entities = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    async function loadSets() {
+      setSets([]);
+      setSelectedSet("");
+      setHeaders([]);
+      setMergeIndex([]);
+      setPreview(null);
+      setError("");
 
-    return [...(data?.entities || [])]
-      .filter((entity) =>
-        (filter === "all" || entity.status === filter) &&
-        (
-          !query ||
-          entity.entity_id.toLowerCase().includes(query) ||
-          entity.raw_ucids.some((ucid) =>
-            ucid.toLowerCase().includes(query)
-          )
-        )
-      )
-      .sort((a, b) => {
-        const comparison =
-          sortField === "raw_count"
-            ? a.raw_count - b.raw_count
-            : String(a[sortField]).localeCompare(
-                String(b[sortField])
-              );
+      if (!client || !project) {
+        setError("Select a client and project first.");
+        return;
+      }
 
-        return descending ? -comparison : comparison;
-      });
-  }, [data, search, filter, sortField, descending]);
+      setLoadingSets(true);
 
-  function toggleSelected(entityId: string) {
-    setSelected((previous) =>
-      previous.includes(entityId)
-        ? previous.filter((id) => id !== entityId)
-        : [...previous, entityId]
+      try {
+        const query = new URLSearchParams({ client, project });
+
+        const response = await apiGet(
+          `${base}/header-sets?${query.toString()}`
+        );
+
+        if (!Array.isArray(response?.header_sets)) {
+          throw new Error("Invalid Header Set response.");
+        }
+
+        if (active) {
+          setSets(response.header_sets);
+        }
+      } catch (reason) {
+        if (active) setError(errorMessage(reason));
+      } finally {
+        if (active) setLoadingSets(false);
+      }
+    }
+
+    void loadSets();
+
+    return () => {
+      active = false;
+    };
+  }, [base, client, project]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadMapping() {
+      setHeaders([]);
+      setMergeIndex([]);
+      setPreview(null);
+      setError("");
+
+      if (!selectedSet) return;
+
+      setLoadingMapping(true);
+
+      try {
+        const query = new URLSearchParams({ client, project });
+
+        const response = await apiGet(
+          `${base}/header-sets/${encodeURIComponent(
+            selectedSet
+          )}/mapping?${query.toString()}`
+        ) as MappingResponse;
+
+        const approved = response.approved_mapping;
+
+        if (
+          !response.approved_mapping_exists ||
+          approved?.status !== "approved" ||
+          approved.header_set_id !== selectedSet
+        ) {
+          throw new Error(
+            "This Header Set does not have an approved mapping."
+          );
+        }
+
+        const columns =
+          approved.canonical_column_order ||
+          approved.protocol_headers ||
+          [];
+
+        if (
+          !Array.isArray(columns) ||
+          !columns.length ||
+          columns.some((field) => typeof field !== "string")
+        ) {
+          throw new Error("Approved protocol headers unavailable.");
+        }
+
+        if (active) {
+          setHeaders(
+            Array.from(
+              new Set(columns.filter((field) => field.trim()))
+            )
+          );
+        }
+      } catch (reason) {
+        if (active) setError(errorMessage(reason));
+      } finally {
+        if (active) setLoadingMapping(false);
+      }
+    }
+
+    void loadMapping();
+
+    return () => {
+      active = false;
+    };
+  }, [base, client, project, selectedSet]);
+
+  function toggleHeader(field: string) {
+    setPreview(null);
+
+    setMergeIndex((previous) =>
+      previous.includes(field)
+        ? previous.filter((item) => item !== field)
+        : [...previous, field]
     );
   }
 
-  async function mutate(
-    operation: "register" | "approve" | "merge" | "reverse-last-merge",
-    payload: Record<string, unknown>,
-    confirmation: string
-  ) {
-    if (!data || busy || !canEdit) return;
+  async function runPreview() {
+    if (!selectedSet || !mergeIndex.length || previewing) return;
 
-    if (!window.confirm(confirmation)) return;
-
-    setBusy(true);
+    setPreview(null);
     setError("");
-    setMessage("");
+    setPreviewing(true);
 
     try {
-      const response = await apiPost(
-        `${basePath}/${operation}`,
+      const result = await apiPost(
+        `${base}/merge-dedupe/preview`,
         {
-          ...scope,
-          ...payload,
-          expected_revision: data.revision,
+          client,
+          project,
+          header_set_id: selectedSet,
+          merge_index: mergeIndex,
         }
-      ) as OperationResponse;
+      ) as Preview;
 
       if (
-        response.status !== "saved" ||
-        response.revision !== data.revision + 1
+        result.status !== "preview" ||
+        result.execution_enabled !== false ||
+        result.header_set_id !== selectedSet ||
+        !Array.isArray(result.groups) ||
+        !Array.isArray(result.conflicts)
       ) {
-        throw new Error(
-          "Unexpected registry revision. Reload before proceeding."
-        );
+        throw new Error("Invalid exact-dedupe preview response.");
       }
 
-      setMessage(
-        `Operation saved. Registry revision ${response.revision}.`
-      );
-
-      if (operation === "register") {
-        setNewEntityId("");
-        setNewRawIds("");
-      }
-
-      setSelected([]);
-      setTargetId("");
-
-      await refresh();
+      setPreview(result);
     } catch (reason) {
-      const operationError = getMessage(reason);
-
-      // Never retry a mutation automatically.
-      // Reload the authoritative revision, then preserve the error.
-      await refresh();
-
-      setError(
-        `${operationError} Review the current registry before retrying.`
-      );
+      setError(errorMessage(reason));
     } finally {
-      setBusy(false);
+      setPreviewing(false);
     }
   }
 
-  function register() {
-    const entityId = newEntityId.trim();
-    const rawUCIDs = Array.from(
-      new Set(
-        newRawIds
-          .split(/[\s,;]+/)
-          .map((id) => id.trim())
-          .filter(Boolean)
-      )
-    );
+  const selectedDetails = sets.find(
+    (item) => item.header_set_id === selectedSet
+  );
 
-    if (!entityId || rawUCIDs.length === 0) {
-      setError("Enter an entity ID and at least one RAW UCID.");
-      return;
-    }
+  const busy = loadingSets || loadingMapping || previewing;
 
-    void mutate(
-      "register",
-      {
-        entity_id: entityId,
-        raw_ucids: rawUCIDs,
-      },
-      `Register ${rawUCIDs.length} RAW record(s) under ${entityId} as pending?`
-    );
-  }
-
-  function approve(entityId: string) {
-    void mutate(
-      "approve",
-      {
-        entity_id: entityId,
-        note: "Approved through Cyber² Merge & Dedupe",
-      },
-      `Approve membership for ${entityId}?`
-    );
-  }
-
-  function merge() {
-    if (!targetId) {
-      setError("Select an approved target entity.");
-      return;
-    }
-
-    const sources = selected.filter((id) => id !== targetId);
-
-    if (!sources.length) {
-      setError("Select at least one different source entity.");
-      return;
-    }
-
-    const byId = new Map(
-      (data?.entities || []).map((entity) => [
-        entity.entity_id,
-        entity,
-      ])
-    );
-
-    if (
-      byId.get(targetId)?.status !== "approved" ||
-      sources.some((id) => byId.get(id)?.status !== "approved")
-    ) {
-      setError("Only approved entities can be merged.");
-      return;
-    }
-
-    void mutate(
-      "merge",
-      {
-        target_entity_id: targetId,
-        source_entity_ids: sources,
-        note: "Reviewer-confirmed merge through Cyber²",
-      },
-      `Merge ${sources.join(", ")} into ${targetId}? This must represent the same verified individual.`
-    );
-  }
-
-  function reverseMerge() {
-    void mutate(
-      "reverse-last-merge",
-      {},
-      "Reverse the most recent merge in this project? This restores the previous entity memberships."
-    );
-  }
-
-  function changeSort(field: SortField) {
-    if (field === sortField) {
-      setDescending((previous) => !previous);
-    } else {
-      setSortField(field);
-      setDescending(false);
-    }
-  }
-
-  const approvedCount = data?.entities.filter(
-    (entity) => entity.status === "approved"
-  ).length || 0;
-
-  // Read-only launch until server-side identity conflict checks are validated.
-  const canEdit = false;
+  const summary = [
+    ["Documents", preview?.document_count],
+    ["RAW records", preview?.raw_record_count],
+    ["Exact groups", preview?.duplicate_group_count],
+    ["Working rows", preview?.working_record_count],
+    ["QC conflicts", preview?.conflict_group_count],
+  ];
 
   return (
     <AppShell>
@@ -335,256 +272,260 @@ function MergeDedupeContent() {
 
         <PageHeader
           title="Merge & Dedupe"
-          subtitle="Review project-scoped identities, validate membership, and preserve original RAW evidence."
+          subtitle="Exact-match consolidation using approved INSYT protocol headers."
         />
 
-        <div className="mb-5 grid grid-cols-1 gap-3 rounded-xl border border-slate-800 bg-slate-900 p-4 md:grid-cols-3">
-          <div>
-            <div className="text-xs text-slate-400">Workspace</div>
-            <div className="font-semibold text-slate-100">{workspace}</div>
-          </div>
-          <div>
-            <div className="text-xs text-slate-400">Client</div>
-            <div className="font-semibold text-slate-100">
-              {client || "Not selected"}
+        <div className="mb-5 rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <div className="grid gap-4 text-sm md:grid-cols-3">
+            <div>
+              <div className="text-slate-400">Workspace</div>
+              <div className="font-semibold text-white">{workspace}</div>
             </div>
-          </div>
-          <div>
-            <div className="text-xs text-slate-400">Project</div>
-            <div className="font-semibold text-sky-300">
-              {project || "Not selected"}
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {[
-            ["RAW inventory", data?.raw_inventory_count ?? "—"],
-            ["Entities", data?.entity_count ?? "—"],
-            ["Approved", data ? approvedCount : "—"],
-            ["Revision", data?.revision ?? "—"],
-          ].map(([label, value]) => (
-            <div
-              key={String(label)}
-              className="rounded-xl border border-slate-800 bg-slate-900 p-4"
-            >
-              <div className="text-xs text-slate-400">{label}</div>
-              <div className="mt-1 text-xl font-bold text-slate-100">
-                {value}
+            <div>
+              <div className="text-slate-400">Client</div>
+              <div className="font-semibold text-white">
+                {client || "Not selected"}
               </div>
             </div>
-          ))}
+            <div>
+              <div className="text-slate-400">Project</div>
+              <div className="font-semibold text-sky-300">
+                {project || "Not selected"}
+              </div>
+            </div>
+          </div>
         </div>
 
         {error && (
           <div
             role="alert"
-            className="mb-4 rounded-lg border border-rose-700 bg-rose-950/30 p-3 text-sm text-rose-300"
+            className="mb-5 rounded-lg border border-rose-700 bg-rose-950/30 p-4 text-sm text-rose-300"
           >
             {error}
           </div>
         )}
 
-        {message && (
-          <div
-            role="status"
-            className="mb-4 rounded-lg border border-slate-700 p-3 text-sm text-slate-200"
-          >
-            {message}
-          </div>
-        )}
+        <ContentCard title="1. Select Header Set">
+          <p className="mb-3 text-sm text-slate-400">
+            Choose a previously mapped set. The set determines which
+            source documents are included in exact matching.
+          </p>
 
-        <ContentCard title="Project identity registry">
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <input
-              aria-label="Search entity ID or UCID"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search entity ID or UCID"
-              className="min-w-[220px] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-            />
-
+          <div className="flex flex-wrap gap-3">
             <select
-              aria-label="Filter by approval status"
-              value={filter}
-              onChange={(event) =>
-                setFilter(event.target.value as StatusFilter)
-              }
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+              aria-label="Select Header Set"
+              value={selectedSet}
+              disabled={loadingSets}
+              onChange={(event) => setSelectedSet(event.target.value)}
+              className="min-w-[280px] flex-1 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-white"
             >
-              <option value="all">All statuses</option>
-              <option value="approved">Approved</option>
-              <option value="pending">Pending</option>
+              <option value="">Select Header Set</option>
+              {sets.map((item) => (
+                <option
+                  key={item.header_set_id}
+                  value={item.header_set_id}
+                >
+                  {item.header_set_id}
+                  {" — "}
+                  {item.document_count ?? item.documents?.length ?? 0}
+                  {" documents"}
+                </option>
+              ))}
             </select>
 
             <button
               type="button"
-              disabled={busy || loading}
-              onClick={() => void refresh()}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-100 disabled:opacity-50"
+              onClick={() => window.location.reload()}
+              disabled={busy}
+              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-white disabled:opacity-50"
             >
-              {loading ? "Loading..." : "Refresh"}
+              Refresh
             </button>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-900 text-slate-300">
-                <tr>
-                  <th className="p-3">Select</th>
-                  <th className="p-3">
-                    <button type="button" onClick={() => changeSort("entity_id")}>
-                      Entity ID
-                    </button>
-                  </th>
-                  <th className="p-3">
-                    <button type="button" onClick={() => changeSort("status")}>
-                      Status
-                    </button>
-                  </th>
-                  <th className="p-3">
-                    <button type="button" onClick={() => changeSort("raw_count")}>
-                      RAW members
-                    </button>
-                  </th>
-                  <th className="p-3">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entities.map((entity) => (
-                  <tr
-                    key={entity.entity_id}
-                    className="border-t border-slate-800 text-slate-200"
-                  >
-                    <td className="p-3">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${entity.entity_id}`}
-                        checked={selected.includes(entity.entity_id)}
-                        onChange={() => toggleSelected(entity.entity_id)}
-                      />
-                    </td>
-                    <td className="p-3 font-medium">
-                      {entity.entity_id}
-                    </td>
-                    <td className="p-3">{entity.status}</td>
-                    <td className="p-3">{entity.raw_count}</td>
-                    <td className="p-3">
-                      {entity.status === "pending" ? (
-                        <button
-                          type="button"
-                          disabled={!canEdit}
-                          onClick={() => approve(entity.entity_id)}
-                          className="rounded-lg border border-sky-700 px-3 py-1.5 text-sky-300 disabled:opacity-50"
-                        >
-                          Approve
-                        </button>
-                      ) : (
-                        <span className="text-slate-500">Approved</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {entities.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="p-6 text-center text-slate-400">
-                      {loading ? "Loading identities..." : "No matching entities."}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          {selectedDetails && (
+            <p className="mt-3 text-xs text-slate-400">
+              Selected: {selectedDetails.header_set_id}
+              {" | Status: "}
+              {selectedDetails.status || "Unknown"}
+            </p>
+          )}
         </ContentCard>
 
-        <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <ContentCard title="Register RAW membership">
-            <p className="mb-3 text-sm text-slate-400">
-              Register reviewer-selected RAW UCIDs as a pending entity.
-              No automatic identity assignment is performed.
+        <div className="mt-5">
+          <ContentCard title="2. Select Merge Index">
+            <p className="mb-4 text-sm text-slate-400">
+              Select the approved protocol fields that must match
+              exactly. Missing values do not qualify for automatic
+              grouping. Fuzzy matching occurs later in Entity Normalization.
             </p>
 
-            <input
-              value={newEntityId}
-              onChange={(event) => setNewEntityId(event.target.value)}
-              placeholder="New entity ID"
-              aria-label="New entity ID"
-              className="mb-3 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-            />
+            {loadingMapping && (
+              <p className="text-sm text-slate-400">
+                Loading approved mapping...
+              </p>
+            )}
 
-            <textarea
-              value={newRawIds}
-              onChange={(event) => setNewRawIds(event.target.value)}
-              placeholder="RAW UCIDs (one per line)"
-              aria-label="RAW UCIDs"
-              rows={4}
-              className="mb-3 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-            />
+            {!loadingMapping && selectedSet && headers.length === 0 && (
+              <p className="text-sm text-amber-300">
+                No approved merge headers available for this set.
+              </p>
+            )}
+
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {headers.map((field) => (
+                <label
+                  key={field}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-white"
+                >
+                  <input
+                    type="checkbox"
+                    checked={mergeIndex.includes(field)}
+                    onChange={() => toggleHeader(field)}
+                    disabled={busy}
+                  />
+                  <span>{field}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-4 text-sm text-slate-300">
+              <span className="font-semibold">Selected index: </span>
+              {mergeIndex.length
+                ? mergeIndex.join(" + ")
+                : "Select one or more headers"}
+            </div>
 
             <button
               type="button"
-              disabled={!canEdit}
-              onClick={register}
-              className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              disabled={
+                busy ||
+                !selectedSet ||
+                mergeIndex.length === 0
+              }
+              onClick={() => void runPreview()}
+              className="mt-4 rounded-lg bg-sky-700 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Register pending entity
+              {previewing ? "Analyzing..." : "Preview Exact Matches"}
             </button>
-          </ContentCard>
-
-          <ContentCard title="Reviewer-controlled merge">
-            <p className="mb-3 text-sm text-slate-400">
-              Select source entities in the table, then choose an approved
-              target. Confirm that all records belong to the same person
-              before merging.
-            </p>
-
-            <select
-              value={targetId}
-              onChange={(event) => setTargetId(event.target.value)}
-              aria-label="Merge target entity"
-              className="mb-3 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-            >
-              <option value="">Choose target entity</option>
-              {(data?.entities || [])
-                .filter((entity) => entity.status === "approved")
-                .map((entity) => (
-                  <option key={entity.entity_id} value={entity.entity_id}>
-                    {entity.entity_id}
-                  </option>
-                ))}
-            </select>
-
-            <div className="mb-4 text-sm text-slate-400">
-              Selected entities: {selected.length}
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                disabled={!canEdit}
-                onClick={merge}
-                className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                Merge selected entities
-              </button>
-
-              <button
-                type="button"
-                disabled={!canEdit}
-                onClick={reverseMerge}
-                className="rounded-lg border border-amber-700 px-4 py-2 text-sm font-semibold text-amber-300 disabled:opacity-50"
-              >
-                Reverse last merge
-              </button>
-            </div>
           </ContentCard>
         </div>
 
-        <p className="mt-5 text-xs text-slate-500">
-          RAW source records remain immutable. Registry revisions protect
-          against stale updates. Conflicting identifiers must be reviewed
-          before any merge. Administrator approval is required by the API.
-        </p>
+        <div className="mt-5">
+          <ContentCard title="3. Exact-Match Preview">
+            {!preview ? (
+              <p className="text-sm text-slate-400">
+                Select an approved Header Set and Merge Index,
+                then run the read-only preview.
+              </p>
+            ) : (
+              <>
+                <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+                  {summary.map(([label, value]) => (
+                    <div
+                      key={String(label)}
+                      className="rounded-lg border border-slate-800 bg-slate-950 p-3"
+                    >
+                      <div className="text-xs text-slate-400">
+                        {label}
+                      </div>
+                      <div className="mt-1 text-xl font-semibold text-white">
+                        {value ?? 0}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="mb-4 text-sm text-slate-400">
+                  Duplicate records matched:{" "}
+                  {preview.duplicate_record_count}.
+                  Unmatched records: {preview.unmatched.length}.
+                  Excluded records: {preview.excluded.length}.
+                </p>
+
+                <div className="overflow-x-auto rounded-lg border border-slate-800">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-900 text-slate-300">
+                      <tr>
+                        <th className="p-3">Result</th>
+                        <th className="p-3">RAW members</th>
+                        <th className="p-3">Source documents</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.groups.map((group, index) => (
+                        <tr
+                          key={`group-${index}`}
+                          className="border-t border-slate-800 text-slate-200"
+                        >
+                          <td className="p-3">
+                            Exact group {index + 1}
+                          </td>
+                          <td className="p-3">
+                            {group.member_count}
+                          </td>
+                          <td className="p-3">
+                            {Array.from(
+                              new Set(
+                                group.members.map((item) => item.doc_id)
+                              )
+                            ).join(", ")}
+                          </td>
+                        </tr>
+                      ))}
+
+                      {preview.conflicts.map((group, index) => (
+                        <tr
+                          key={`conflict-${index}`}
+                          className="border-t border-slate-800 text-amber-300"
+                        >
+                          <td className="p-3">
+                            QC conflict:{" "}
+                            {(group.conflict_fields || []).join(", ")}
+                          </td>
+                          <td className="p-3">
+                            {group.member_count}
+                          </td>
+                          <td className="p-3">
+                            {Array.from(
+                              new Set(
+                                group.members.map((item) => item.doc_id)
+                              )
+                            ).join(", ")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="mt-4 text-xs text-slate-400">
+                  Preview only. No RAW records, memberships, or
+                  Azure processing data have been modified.
+                </p>
+              </>
+            )}
+          </ContentCard>
+        </div>
+
+        <div className="mt-5">
+          <ContentCard title="4. Execute & Continue">
+            <p className="mb-4 text-sm text-slate-400">
+              Execution will be enabled after INSYT validates
+              provenance-preserving consolidated working-set output.
+              Fuzzy and non-obvious identity comparisons will be
+              performed in Entity Normalization.
+            </p>
+
+            <button
+              type="button"
+              disabled
+              className="rounded-lg bg-slate-700 px-5 py-3 text-sm font-semibold text-white opacity-40"
+            >
+              Execute Exact Merge — Not Yet Enabled
+            </button>
+          </ContentCard>
+        </div>
       </PageContainer>
     </AppShell>
   );

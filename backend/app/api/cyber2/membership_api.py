@@ -51,6 +51,12 @@ class MergeBody(ScopeBody):
     note: str = ""
 
 
+class ExactDedupePreviewBody(BaseModel):
+    client: str = Field(min_length=1)
+    project: str = Field(min_length=1)
+    header_set_id: str = Field(min_length=1)
+    merge_index: list[str] = Field(min_length=1)
+
 class ReverseBody(ScopeBody):
     pass
 
@@ -210,4 +216,133 @@ def list_cyber2_memberships(
         "entity_count": len(entities),
         "raw_inventory_count": len(known),
         "entities": entities,
+    }
+
+
+@router.post("/{workspace}/cyber2/merge-dedupe/preview")
+def preview_cyber2_exact_dedupe(
+    workspace: Workspace,
+    body: ExactDedupePreviewBody,
+    current_user=Depends(get_current_user),
+) -> dict:
+    """Preview approved, project-scoped exact matches without writing."""
+
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        body.client,
+        body.project,
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    # Reuse INSYT's existing approved mapping and RAW services.
+    from app.api.cyber2.schema_mapping import (
+        _approved_mapping_path,
+        _load_required_json,
+    )
+    from app.services.cyber2.exact_dedupe import ExactDedupeError
+    from app.services.cyber2.header_set_dedupe import (
+        preview_header_set_dedupe,
+    )
+
+    path = _approved_mapping_path(
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+        header_set_id=body.header_set_id,
+    )
+
+    mapping = _load_required_json(
+        path,
+        description="Approved Cyber2 Header Mapping",
+    )
+
+    # Never accept a mapping belonging to another project or workspace.
+    if any(
+        mapping.get(key) != expected
+        for key, expected in (
+            ("workspace", workspace),
+            ("client", body.client),
+            ("project", body.project),
+            ("header_set_id", body.header_set_id),
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Header mapping scope mismatch",
+        )
+
+    if mapping.get("status") != "approved":
+        raise HTTPException(
+            status_code=409,
+            detail="Header mapping is not approved",
+        )
+
+    headers = (
+        mapping.get("canonical_column_order")
+        or mapping.get("protocol_headers")
+    )
+
+    if not isinstance(headers, list):
+        raise HTTPException(
+            status_code=409,
+            detail="Approved protocol headers unavailable",
+        )
+
+    # Conflict fields are derived server-side from approved headers.
+    # This is initial preview screening, NOT merge authorization.
+    strong_identifier_names = {
+        "ssn",
+        "social security number",
+        "social security number (ssn)",
+        "social security #",
+        "dob",
+        "date of birth",
+        "birth date",
+    }
+
+    conflict_headers = [
+        field
+        for field in headers
+        if isinstance(field, str)
+        and field.strip().casefold() in strong_identifier_names
+    ]
+
+    records = load_cyber2_raw_capture_records(
+        workspace,
+        body.client,
+        body.project,
+    )
+
+    if not isinstance(records, list) or not records:
+        raise HTTPException(
+            status_code=409,
+            detail="RAW Capture population unavailable",
+        )
+
+    try:
+        result = preview_header_set_dedupe(
+            header_set_id=body.header_set_id,
+            approved_mapping=mapping,
+            raw_records=records,
+            merge_index=body.merge_index,
+            conflict_headers=conflict_headers,
+        )
+    except ExactDedupeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+    # No RAW values or source file contents returned.
+    # No identity membership changes or persistence.
+    return {
+        "status": "preview",
+        "workspace": workspace,
+        "client": body.client,
+        "project": body.project,
+        "conflict_headers_checked": conflict_headers,
+        "execution_enabled": False,
+        **result,
     }
