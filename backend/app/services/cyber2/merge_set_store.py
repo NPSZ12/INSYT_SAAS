@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 
 class MergeSetStoreError(ValueError):
@@ -156,6 +156,8 @@ class Cyber2MergeSetStore:
         project,
         approved_mapping_path,
         executed_by,
+        request_id=None,
+        snapshot_fingerprint=None,
     ):
         self._validate_working_set(derived)
 
@@ -165,7 +167,44 @@ class Cyber2MergeSetStore:
         ]):
             raise MergeSetStoreError("Missing execution audit fields")
 
-        merge_set_id = f"MSET-{uuid4().hex.upper()}"
+        intent_hash = None
+
+        if request_id is not None:
+            try:
+                request_uuid = UUID(str(request_id))
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise MergeSetStoreError(
+                    "Execution request ID must be a UUID"
+                ) from exc
+
+            if request_uuid.version != 4:
+                raise MergeSetStoreError(
+                    "Execution request ID must be UUID version 4"
+                )
+
+            if not isinstance(snapshot_fingerprint, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", snapshot_fingerprint
+            ):
+                raise MergeSetStoreError(
+                    "Valid snapshot fingerprint is required"
+                )
+
+            request_id = str(request_uuid)
+
+            intent_hash = self._digest({
+                "derived": derived,
+                "workspace": workspace,
+                "client": client,
+                "project": project,
+                "approved_mapping_path": approved_mapping_path,
+                "executed_by": executed_by,
+                "snapshot_fingerprint": snapshot_fingerprint,
+            })
+
+            merge_set_id = f"MSET-{request_uuid.hex.upper()}"
+        else:
+            merge_set_id = f"MSET-{uuid4().hex.upper()}"
+
         created_at = datetime.now(timezone.utc).isoformat()
 
         document = {
@@ -187,10 +226,17 @@ class Cyber2MergeSetStore:
             "working_records": derived["working_records"],
         }
 
+        if request_id is not None:
+            document["request_id"] = request_id
+            document["snapshot_fingerprint"] = snapshot_fingerprint
+            document["execution_intent_sha256"] = intent_hash
+
         document["integrity_sha256"] = self._digest(document)
 
         path = self._path(merge_set_id)
         blob = self.container.get_blob_client(path)
+
+        replayed = False
 
         try:
             blob.upload_blob(
@@ -199,14 +245,34 @@ class Cyber2MergeSetStore:
                 content_settings=self._content_settings(),
             )
         except Exception as exc:
-            if getattr(exc, "status_code", None) in (409, 412):
+            if getattr(exc, "status_code", None) not in (409, 412):
+                raise
+
+            if request_id is None:
                 raise MergeSetConflict(
                     "Merge-set ID already exists"
                 ) from exc
-            raise
+
+            # Create-only upload is atomic. A concurrent retry reads
+            # the already-committed set and verifies identical intent.
+            existing = self.load(merge_set_id)
+
+            if (
+                existing.get("request_id") != request_id
+                or existing.get("execution_intent_sha256") != intent_hash
+                or existing.get("snapshot_fingerprint")
+                != snapshot_fingerprint
+            ):
+                raise MergeSetConflict(
+                    "Execution request ID reused with different data"
+                ) from exc
+
+            document = existing
+            replayed = True
 
         return {
             "merge_set_id": merge_set_id,
+            "idempotent_replay": replayed,
             "status": "completed",
             "header_set_id": document["header_set_id"],
             "created_at": created_at,

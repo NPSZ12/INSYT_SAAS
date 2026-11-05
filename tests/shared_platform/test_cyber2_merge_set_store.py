@@ -208,3 +208,103 @@ def test_write_conflict_does_not_overwrite():
             save(store, derived)
 
     assert container.storage[path] == original_bytes
+
+
+
+def test_idempotent_retry_returns_same_merge_set():
+    container, store, _, derived = setup()
+    request_id = "e5c0e854-96fc-4f68-a76d-d56fd9400d71"
+
+    def submit():
+        return store.save(
+            derived=derived,
+            workspace="capture",
+            client="ACME",
+            project="CaseA",
+            approved_mapping_path=(
+                "ACME/capture/CaseA/cyber2/"
+                "header_mapping/HDR-1/approved_mapping.json"
+            ),
+            executed_by="TEST-ADMIN",
+            request_id=request_id,
+            snapshot_fingerprint="a" * 64,
+        )
+
+    first = submit()
+    retry = submit()
+
+    assert first["merge_set_id"] == retry["merge_set_id"]
+    assert first["idempotent_replay"] is False
+    assert retry["idempotent_replay"] is True
+    assert len(container.storage) == 1
+
+
+def test_request_id_reuse_with_different_values_rejected():
+    container, store, _, derived = setup()
+    request_id = "e5c0e854-96fc-4f68-a76d-d56fd9400d72"
+
+    def submit(data):
+        return store.save(
+            derived=data,
+            workspace="capture",
+            client="ACME",
+            project="CaseA",
+            approved_mapping_path="approved_mapping.json",
+            executed_by="TEST-ADMIN",
+            request_id=request_id,
+            snapshot_fingerprint="b" * 64,
+        )
+
+    first = submit(derived)
+    changed = copy.deepcopy(derived)
+    changed["working_records"][0]["cells"]["Street 1"] = "Changed"
+
+    with pytest.raises(MergeSetConflict):
+        submit(changed)
+
+    assert len(container.storage) == 1
+    assert store.load(first["merge_set_id"])[
+        "working_records"
+    ][0]["cells"]["Street 1"] != "Changed"
+
+
+def test_invalid_idempotency_request_rejected_before_write():
+    container, store, _, derived = setup()
+
+    with pytest.raises(MergeSetStoreError):
+        store.save(
+            derived=derived,
+            workspace="capture",
+            client="ACME",
+            project="CaseA",
+            approved_mapping_path="approved_mapping.json",
+            executed_by="TEST-ADMIN",
+            request_id="not-a-uuid",
+            snapshot_fingerprint="c" * 64,
+        )
+
+    assert container.storage == {}
+
+
+def test_same_request_id_different_snapshot_rejected():
+    container, store, _, derived = setup()
+    request_id = "e5c0e854-96fc-4f68-a76d-d56fd9400d73"
+
+    def submit(fingerprint):
+        return store.save(
+            derived=derived,
+            workspace="capture",
+            client="ACME",
+            project="CaseA",
+            approved_mapping_path="approved_mapping.json",
+            executed_by="TEST-ADMIN",
+            request_id=request_id,
+            snapshot_fingerprint=fingerprint,
+        )
+
+    submit("d" * 64)
+
+    with pytest.raises(MergeSetConflict):
+        submit("e" * 64)
+
+    assert len(container.storage) == 1
