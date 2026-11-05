@@ -307,3 +307,71 @@ class Cyber2MergeSetStore:
             raise MergeSetStoreError("Merge-set integrity check failed")
 
         return document
+
+
+    def list_completed(self, *, max_sets=1000):
+        """List verified completed sets without returning captured values."""
+        if not isinstance(max_sets, int) or not 1 <= max_sets <= 1000:
+            raise MergeSetStoreError("Invalid listing limit")
+
+        prefix = f"{self.base}/cyber2/merge_sets/"
+        results = []
+        seen = set()
+
+        for item in self.container.list_blobs(
+            name_starts_with=prefix
+        ):
+            name = str(getattr(item, "name", "") or "")
+
+            suffix = name[len(prefix):] if name.startswith(prefix) else ""
+
+            if not re.fullmatch(
+                r"MSET-[0-9A-F]{32}/merge_set[.]json",
+                suffix,
+            ):
+                continue
+
+            merge_set_id = suffix.split("/", 1)[0]
+
+            if merge_set_id in seen:
+                raise MergeSetStoreError("Duplicate merge-set listing")
+
+            seen.add(merge_set_id)
+
+            if len(seen) > max_sets:
+                raise MergeSetStoreError(
+                    "Completed Merge Sets listing exceeds supported limit"
+                )
+
+            # load() verifies the stored integrity hash.
+            document = self.load(merge_set_id)
+
+            if document.get("status") != "completed":
+                raise MergeSetStoreError(
+                    "Unexpected saved merge-set status"
+                )
+
+            results.append({
+                "merge_set_id": merge_set_id,
+                "status": "completed",
+                "header_set_id": document.get("header_set_id"),
+                "created_at": document.get("created_at"),
+                "raw_record_count": document.get("raw_record_count"),
+                "working_record_count": document.get(
+                    "working_record_count"
+                ),
+                "merged_group_count": document.get(
+                    "merged_group_count"
+                ),
+                "merge_index": document.get("merge_index", []),
+            })
+
+        results.sort(
+            key=lambda item: (
+                str(item["created_at"] or ""),
+                item["merge_set_id"],
+            ),
+            reverse=True,
+        )
+
+        return results

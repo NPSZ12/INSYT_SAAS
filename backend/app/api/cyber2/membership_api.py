@@ -774,3 +774,53 @@ def execute_cyber2_exact_merge(
         "execution_enabled": True,
         **saved,
     }
+
+
+@router.get("/{workspace}/cyber2/merge-dedupe/completed")
+def list_cyber2_completed_merge_sets(
+    workspace: str,
+    client: str = Query(...),
+    project: str = Query(...),
+    current_user=Depends(get_current_user),
+):
+    """List completed Cyber2 merge sets in the authorized project."""
+    from fastapi.responses import JSONResponse
+    from app.services.cyber2.merge_set_store import MergeSetStoreError
+
+    require_scoped_project_access(
+        current_user,
+        workspace,
+        client,
+        project,
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    store = _cyber2_merge_store_for(
+        workspace,
+        client,
+        project,
+    )
+
+    try:
+        merge_sets = store.list_completed()
+    except MergeSetStoreError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "workspace": workspace,
+            "client": client,
+            "project": project,
+            "count": len(merge_sets),
+            "merge_sets": merge_sets,
+        },
+        headers={
+            "Cache-Control": "no-store, private",
+            "Pragma": "no-cache",
+        },
+    )
