@@ -16,7 +16,13 @@ from test_cyber2_merge_set_store import (
 )
 
 
-def execute(api, user, *, fingerprint=None):
+def execute(
+    api,
+    user,
+    *,
+    fingerprint=None,
+    request_id="fda03b5b-0a09-4539-a4f0-74ceaa3878c1",
+):
     from app.services.cyber2.merge_snapshot import (
         merge_snapshot_fingerprint,
     )
@@ -38,6 +44,7 @@ def execute(api, user, *, fingerprint=None):
         header_set_id="HDR-1",
         merge_index=["First Name", "Last Name", "SSN"],
         snapshot_fingerprint=fingerprint,
+        request_id=request_id,
     )
     return api.execute_cyber2_exact_merge(
         "capture", body, user
@@ -221,4 +228,58 @@ def test_invalid_fingerprint_rejects_execution(
 
     assert exc.value.status_code == 409
     assert not container.storage
+    assert registry["writes"] == 0
+
+
+
+def test_execution_retry_is_idempotent(
+    harness, monkeypatch
+):
+    api, user, registry = harness
+
+    container, store, records = setup_execution(
+        monkeypatch, api
+    )
+    original = copy.deepcopy(records)
+
+    first = execute(api, user)
+    retry = execute(api, user)
+
+    assert first["status"] == "completed"
+    assert retry["status"] == "completed"
+    assert first["merge_set_id"] == retry["merge_set_id"]
+    assert first["idempotent_replay"] is False
+    assert retry["idempotent_replay"] is True
+    assert len(container.storage) == 1
+    assert store.load(first["merge_set_id"])[
+        "working_record_count"
+    ] == 1
+    assert records == original
+    assert registry["writes"] == 0
+
+
+def test_distinct_execution_requests_get_distinct_sets(
+    harness, monkeypatch
+):
+    api, user, registry = harness
+
+    container, store, records = setup_execution(
+        monkeypatch, api
+    )
+
+    first = execute(
+        api,
+        user,
+        request_id="45e1d98d-7681-4da4-8d9a-c9cb411ac012",
+    )
+    second = execute(
+        api,
+        user,
+        request_id="5728050f-635f-4fca-a4f2-f76b294337f5",
+    )
+
+    assert first["merge_set_id"] != second["merge_set_id"]
+    assert first["idempotent_replay"] is False
+    assert second["idempotent_replay"] is False
+    assert len(container.storage) == 2
     assert registry["writes"] == 0

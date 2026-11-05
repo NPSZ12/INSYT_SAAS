@@ -563,6 +563,7 @@ def _cyber2_merge_store_for(workspace, client, project):
 
 class MergeExecuteBody(ExactDedupePreviewBody):
     snapshot_fingerprint: str
+    request_id: str
 
 
 @router.post("/{workspace}/cyber2/merge-dedupe/execute")
@@ -751,6 +752,8 @@ def execute_cyber2_exact_merge(
             project=body.project,
             approved_mapping_path=mapping_path,
             executed_by=actor,
+            request_id=body.request_id,
+            snapshot_fingerprint=current_fingerprint,
         )
 
     except (
