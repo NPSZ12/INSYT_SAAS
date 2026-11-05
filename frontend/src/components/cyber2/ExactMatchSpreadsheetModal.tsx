@@ -23,11 +23,15 @@ export type SpreadsheetPreview = {
   preview_row_count: number;
   preview_rows_complete: boolean;
   execution_enabled: boolean;
+  snapshot_fingerprint: string;
 };
 
 type Props = {
   data: SpreadsheetPreview;
   onClose: () => void;
+  onExecute: () => void;
+  executing: boolean;
+  executionError: string;
 };
 
 function displayValue(value: unknown): string {
@@ -58,6 +62,9 @@ function labelFor(row: SpreadsheetRow): string {
 export default function ExactMatchSpreadsheetModal({
   data,
   onClose,
+  onExecute,
+  executing,
+  executionError,
 }: Props) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(100);
@@ -246,6 +253,11 @@ export default function ExactMatchSpreadsheetModal({
         </div>
 
         <footer className="shrink-0 border-t border-slate-700 bg-slate-900 p-4">
+          {executionError && (
+            <p role="alert" className="mb-3 text-sm text-rose-300">
+              {executionError}
+            </p>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
               <span>
@@ -298,11 +310,11 @@ export default function ExactMatchSpreadsheetModal({
               </span>
               <button
                 type="button"
-                disabled
-                title="Merge-set persistence and provenance validation are not yet enabled."
-                className="rounded-lg bg-sky-700 px-5 py-3 text-sm font-semibold text-white opacity-40"
+                disabled={executing || !data.snapshot_fingerprint}
+                onClick={onExecute}
+                className="rounded-lg bg-sky-700 px-5 py-3 text-sm font-semibold text-white disabled:opacity-40"
               >
-                Execute & Continue
+                {executing ? "Saving Merge Set..." : "Execute & Continue"}
               </button>
             </div>
           </div>

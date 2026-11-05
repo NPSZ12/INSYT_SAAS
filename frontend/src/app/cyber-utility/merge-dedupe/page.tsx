@@ -16,6 +16,7 @@ import { apiGet, apiPost } from "../../../lib/api";
 import ExactMatchSpreadsheetModal, {
   type SpreadsheetPreview,
 } from "../../../components/cyber2/ExactMatchSpreadsheetModal";
+import CompletedMergeSetsPanel from "../../../components/cyber2/CompletedMergeSetsPanel";
 
 type HeaderSet = {
   header_set_id: string;
@@ -89,6 +90,11 @@ function MergeDedupeContent() {
   const [spreadsheet, setSpreadsheet] =
     useState<SpreadsheetPreview | null>(null);
   const [showSpreadsheet, setShowSpreadsheet] = useState(false);
+  const [executionRequestId, setExecutionRequestId] = useState("");
+  const [executing, setExecuting] = useState(false);
+  const [executionError, setExecutionError] = useState("");
+  const [savedMergeSetId, setSavedMergeSetId] = useState("");
+  const [completedRefresh, setCompletedRefresh] = useState(0);
 
   const [loadingSets, setLoadingSets] = useState(false);
   const [loadingMapping, setLoadingMapping] = useState(false);
@@ -268,6 +274,7 @@ function MergeDedupeContent() {
       ) as SpreadsheetPreview;
 
       if (
+        !/^[0-9a-f]{64}$/.test(sheet.snapshot_fingerprint || "") ||
         sheet.status !== "spreadsheet_preview" ||
         sheet.header_set_id !== selectedSet ||
         sheet.execution_enabled !== false ||
@@ -292,6 +299,8 @@ function MergeDedupeContent() {
 
       setPreview(result);
       setSpreadsheet(sheet);
+      setExecutionRequestId(crypto.randomUUID());
+      setExecutionError("");
       setShowSpreadsheet(true);
     } catch (reason) {
       setError(errorMessage(reason));
@@ -300,6 +309,57 @@ function MergeDedupeContent() {
     }
   }
 
+  async function runExecute() {
+    if (executing) return;
+
+    if (
+      !spreadsheet ||
+      !executionRequestId ||
+      !selectedSet ||
+      spreadsheet.header_set_id !== selectedSet ||
+      !/^[0-9a-f]{64}$/.test(spreadsheet.snapshot_fingerprint)
+    ) {
+      setExecutionError("Refresh the spreadsheet before execution.");
+      return;
+    }
+
+    setExecuting(true);
+    setExecutionError("");
+
+    try {
+      const receipt = await apiPost(
+        `${base}/merge-dedupe/execute`,
+        {
+          client,
+          project,
+          header_set_id: selectedSet,
+          merge_index: spreadsheet.merge_index,
+          snapshot_fingerprint: spreadsheet.snapshot_fingerprint,
+          request_id: executionRequestId,
+        }
+      ) as {
+        status?: string;
+        merge_set_id?: string;
+      };
+
+      if (
+        receipt.status !== "completed" ||
+        !receipt.merge_set_id?.startsWith("MSET-")
+      ) {
+        throw new Error("Invalid merge execution receipt.");
+      }
+
+      setSavedMergeSetId(receipt.merge_set_id);
+      setShowSpreadsheet(false);
+      setCompletedRefresh((value) => value + 1);
+      setExecutionRequestId("");
+    } catch (reason) {
+      // Preserve request ID for safe retry.
+      setExecutionError(errorMessage(reason));
+    } finally {
+      setExecuting(false);
+    }
+  }
   const selectedDetails = sets.find(
     (item) => item.header_set_id === selectedSet
   );
@@ -568,23 +628,29 @@ function MergeDedupeContent() {
 
         <div className="mt-5">
           <ContentCard title="5. Completed Merge Sets">
-            <p className="text-sm text-slate-400">
-              Completed, versioned Cyber² merge sets will appear here
-              after execution is enabled and validated. Approved sets
-              will be eligible for transfer to the dedicated C² tab
-              in Captured Entities.
-            </p>
-            <p className="mt-3 text-xs text-amber-300">
-              No completed merge sets have been created by this
-              preview workflow.
-            </p>
+            {savedMergeSetId && (
+              <p role="status" className="mb-3 text-sm text-emerald-300">
+                Completed merge set saved: {savedMergeSetId}
+              </p>
+            )}
+            <CompletedMergeSetsPanel
+              base={base}
+              client={client}
+              project={project}
+              refreshKey={completedRefresh}
+            />
           </ContentCard>
         </div>
       </PageContainer>
       {showSpreadsheet && spreadsheet && (
         <ExactMatchSpreadsheetModal
           data={spreadsheet}
-          onClose={() => setShowSpreadsheet(false)}
+          onClose={() => {
+            if (!executing) setShowSpreadsheet(false);
+          }}
+          onExecute={() => void runExecute()}
+          executing={executing}
+          executionError={executionError}
         />
       )}
     </AppShell>
