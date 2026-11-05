@@ -347,3 +347,162 @@ def preview_cyber2_exact_dedupe(
         "execution_enabled": False,
         **result,
     }
+
+
+@router.post("/{workspace}/cyber2/merge-dedupe/spreadsheet-preview")
+def preview_cyber2_spreadsheet(
+    workspace: str,
+    body: ExactDedupePreviewBody,
+    current_user=Depends(get_current_user),
+):
+    """Read-only, authorized spreadsheet of original approved RAW values."""
+    from fastapi.responses import JSONResponse
+    from app.api.cyber2.schema_mapping import (
+        _approved_mapping_path,
+        _load_required_json,
+    )
+
+    # Reuse the production exact-match endpoint's existing
+    # project access, permission, admin, and mapping validation.
+    summary = preview_cyber2_exact_dedupe(
+        workspace=workspace,
+        body=body,
+        current_user=current_user,
+    )
+
+    path = _approved_mapping_path(
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+        header_set_id=body.header_set_id,
+    )
+    mapping = _load_required_json(
+        path,
+        description="Approved Cyber2 Header Mapping",
+    )
+
+    headers = (
+        mapping.get("canonical_column_order")
+        or mapping.get("protocol_headers")
+    )
+    if not isinstance(headers, list) or not all(
+        isinstance(field, str) and field.strip()
+        for field in headers
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Approved spreadsheet columns unavailable",
+        )
+
+    doc_ids = {
+        str(doc["doc_id"])
+        for doc in mapping.get("documents", [])
+        if isinstance(doc, dict) and doc.get("doc_id")
+    }
+
+    classifications = {}
+
+    def register(members, label, group_number=None):
+        for member in members:
+            ucid = str(member.get("ucid") or "")
+            if not ucid or ucid in classifications:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Invalid spreadsheet membership",
+                )
+            classifications[ucid] = (label, group_number)
+
+    for number, group in enumerate(summary["groups"], start=1):
+        register(group["members"], "exact_duplicate", number)
+
+    for number, group in enumerate(summary["conflicts"], start=1):
+        register(group["members"], "qc_conflict", number)
+
+    register(summary["unmatched"], "unmatched")
+    register(summary["excluded"], "excluded")
+
+    if len(classifications) > 5000:
+        raise HTTPException(
+            status_code=409,
+            detail="Spreadsheet exceeds current 5000-row limit",
+        )
+
+    records = load_cyber2_raw_capture_records(
+        workspace,
+        body.client,
+        body.project,
+    )
+
+    rows = []
+    seen = set()
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+
+        ucid = str(record.get("ucid") or "")
+        if ucid not in classifications:
+            continue
+
+        doc_id = str(record.get("doc_id") or "")
+        provenance = record.get("provenance") or {}
+        metadata = record.get("metadata") or {}
+
+        if (
+            ucid in seen
+            or doc_id not in doc_ids
+            or not isinstance(provenance, dict)
+            or provenance.get("header_set_id") != body.header_set_id
+            or not isinstance(metadata, dict)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Spreadsheet source validation failed",
+            )
+
+        seen.add(ucid)
+        classification, group_number = classifications[ucid]
+
+        rows.append({
+            "ucid": ucid,
+            "doc_id": doc_id,
+            "classification": classification,
+            "group_number": group_number,
+            "cells": {
+                field: metadata.get(field)
+                for field in headers
+            },
+            "source": {
+                "header_set_id": body.header_set_id,
+                "source_row_number": provenance.get(
+                    "source_row_number"
+                ),
+            },
+        })
+
+    if (
+        seen != set(classifications)
+        or len(rows) != summary["raw_record_count"]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Spreadsheet source population incomplete",
+        )
+
+    return JSONResponse(
+        content={
+            "status": "spreadsheet_preview",
+            "header_set_id": body.header_set_id,
+            "merge_index": body.merge_index,
+            "preview_columns": headers,
+            "preview_rows": rows,
+            "preview_row_count": len(rows),
+            "preview_rows_complete": True,
+            "execution_enabled": False,
+        },
+        headers={
+            "Cache-Control": "no-store, private",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

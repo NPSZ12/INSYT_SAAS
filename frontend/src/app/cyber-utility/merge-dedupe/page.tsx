@@ -13,6 +13,9 @@ import PageHeader from "../../../components/PageHeader";
 import ContentCard from "../../../components/ContentCard";
 import CyberUtilityWorkflowNav from "../../../components/CyberUtilityWorkflowNav";
 import { apiGet, apiPost } from "../../../lib/api";
+import ExactMatchSpreadsheetModal, {
+  type SpreadsheetPreview,
+} from "../../../components/cyber2/ExactMatchSpreadsheetModal";
 
 type HeaderSet = {
   header_set_id: string;
@@ -83,6 +86,9 @@ function MergeDedupeContent() {
   const [headers, setHeaders] = useState<string[]>([]);
   const [mergeIndex, setMergeIndex] = useState<string[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [spreadsheet, setSpreadsheet] =
+    useState<SpreadsheetPreview | null>(null);
+  const [showSpreadsheet, setShowSpreadsheet] = useState(false);
 
   const [loadingSets, setLoadingSets] = useState(false);
   const [loadingMapping, setLoadingMapping] = useState(false);
@@ -100,6 +106,8 @@ function MergeDedupeContent() {
       setHeaders([]);
       setMergeIndex([]);
       setPreview(null);
+      setSpreadsheet(null);
+      setShowSpreadsheet(false);
       setError("");
 
       if (!client || !project) {
@@ -144,6 +152,8 @@ function MergeDedupeContent() {
       setHeaders([]);
       setMergeIndex([]);
       setPreview(null);
+      setSpreadsheet(null);
+      setShowSpreadsheet(false);
       setError("");
 
       if (!selectedSet) return;
@@ -207,6 +217,8 @@ function MergeDedupeContent() {
 
   function toggleHeader(field: string) {
     setPreview(null);
+      setSpreadsheet(null);
+      setShowSpreadsheet(false);
 
     setMergeIndex((previous) =>
       previous.includes(field)
@@ -219,6 +231,8 @@ function MergeDedupeContent() {
     if (!selectedSet || !mergeIndex.length || previewing) return;
 
     setPreview(null);
+      setSpreadsheet(null);
+      setShowSpreadsheet(false);
     setError("");
     setPreviewing(true);
 
@@ -243,7 +257,42 @@ function MergeDedupeContent() {
         throw new Error("Invalid exact-dedupe preview response.");
       }
 
+      const sheet = await apiPost(
+        `${base}/merge-dedupe/spreadsheet-preview`,
+        {
+          client,
+          project,
+          header_set_id: selectedSet,
+          merge_index: mergeIndex,
+        }
+      ) as SpreadsheetPreview;
+
+      if (
+        sheet.status !== "spreadsheet_preview" ||
+        sheet.header_set_id !== selectedSet ||
+        sheet.execution_enabled !== false ||
+        sheet.preview_rows_complete !== true ||
+        !Array.isArray(sheet.preview_columns) ||
+        !Array.isArray(sheet.preview_rows) ||
+        sheet.preview_row_count !== result.raw_record_count ||
+        sheet.preview_rows.length !== result.raw_record_count ||
+        new Set(sheet.preview_rows.map((row) => row.ucid)).size !==
+          sheet.preview_rows.length ||
+        sheet.preview_columns.some((field) => !headers.includes(field)) ||
+        sheet.preview_rows.some(
+          (row) =>
+            !row.ucid ||
+            !row.doc_id ||
+            !row.cells ||
+            typeof row.cells !== "object"
+        )
+      ) {
+        throw new Error("Invalid or incomplete spreadsheet preview.");
+      }
+
       setPreview(result);
+      setSpreadsheet(sheet);
+      setShowSpreadsheet(true);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -413,6 +462,15 @@ function MergeDedupeContent() {
 
         <div className="mt-5">
           <ContentCard title="3. Exact-Match Preview">
+            {spreadsheet && (
+              <button
+                type="button"
+                onClick={() => setShowSpreadsheet(true)}
+                className="mb-4 rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Open Full Spreadsheet
+              </button>
+            )}
             {!preview ? (
               <p className="text-sm text-slate-400">
                 Select an approved Header Set and Merge Index,
@@ -509,24 +567,26 @@ function MergeDedupeContent() {
         </div>
 
         <div className="mt-5">
-          <ContentCard title="4. Execute & Continue">
-            <p className="mb-4 text-sm text-slate-400">
-              Execution will be enabled after INSYT validates
-              provenance-preserving consolidated working-set output.
-              Fuzzy and non-obvious identity comparisons will be
-              performed in Entity Normalization.
+          <ContentCard title="5. Completed Merge Sets">
+            <p className="text-sm text-slate-400">
+              Completed, versioned Cyber² merge sets will appear here
+              after execution is enabled and validated. Approved sets
+              will be eligible for transfer to the dedicated C² tab
+              in Captured Entities.
             </p>
-
-            <button
-              type="button"
-              disabled
-              className="rounded-lg bg-slate-700 px-5 py-3 text-sm font-semibold text-white opacity-40"
-            >
-              Execute Exact Merge — Not Yet Enabled
-            </button>
+            <p className="mt-3 text-xs text-amber-300">
+              No completed merge sets have been created by this
+              preview workflow.
+            </p>
           </ContentCard>
         </div>
       </PageContainer>
+      {showSpreadsheet && spreadsheet && (
+        <ExactMatchSpreadsheetModal
+          data={spreadsheet}
+          onClose={() => setShowSpreadsheet(false)}
+        />
+      )}
     </AppShell>
   );
 }
