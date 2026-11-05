@@ -42,6 +42,7 @@ def test_spreadsheet_shows_actual_values_and_lineage(
 
     assert response.status_code == 200
     assert result["status"] == "spreadsheet_preview"
+    assert len(result["snapshot_fingerprint"]) == 64
     assert result["preview_rows_complete"] is True
     assert result["execution_enabled"] is False
     assert result["preview_row_count"] == 2

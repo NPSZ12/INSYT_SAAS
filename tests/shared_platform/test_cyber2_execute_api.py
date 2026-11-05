@@ -16,12 +16,28 @@ from test_cyber2_merge_set_store import (
 )
 
 
-def execute(api, user):
-    body = api.ExactDedupePreviewBody(
+def execute(api, user, *, fingerprint=None):
+    from app.services.cyber2.merge_snapshot import (
+        merge_snapshot_fingerprint,
+    )
+
+    index = ["First Name", "Last Name", "SSN"]
+
+    if fingerprint is None:
+        fingerprint = merge_snapshot_fingerprint(
+            approved_mapping=mapping(),
+            merge_index=index,
+            raw_records=api.load_cyber2_raw_capture_records(
+                "capture", "ACME", "CaseA"
+            ),
+        )
+
+    body = api.MergeExecuteBody(
         client="ACME",
         project="CaseA",
         header_set_id="HDR-1",
         merge_index=["First Name", "Last Name", "SSN"],
+        snapshot_fingerprint=fingerprint,
     )
     return api.execute_cyber2_exact_merge(
         "capture", body, user
@@ -164,5 +180,45 @@ def test_denied_admin_never_saves(
         execute(api, user)
 
     assert exc.value.status_code == 403
+    assert not container.storage
+    assert registry["writes"] == 0
+
+
+def test_changed_raw_value_rejects_stale_execution(
+    harness, monkeypatch
+):
+    from app.services.cyber2.merge_snapshot import (
+        merge_snapshot_fingerprint,
+    )
+
+    api, user, registry = harness
+    container, _, records = setup_execution(monkeypatch, api)
+
+    old_fingerprint = merge_snapshot_fingerprint(
+        approved_mapping=mapping(),
+        merge_index=["First Name", "Last Name", "SSN"],
+        raw_records=records,
+    )
+
+    records[1]["metadata"]["Street 1"] = "Updated address"
+
+    with pytest.raises(HTTPException) as exc:
+        execute(api, user, fingerprint=old_fingerprint)
+
+    assert exc.value.status_code == 409
+    assert not container.storage
+    assert registry["writes"] == 0
+
+
+def test_invalid_fingerprint_rejects_execution(
+    harness, monkeypatch
+):
+    api, user, registry = harness
+    container, _, _ = setup_execution(monkeypatch, api)
+
+    with pytest.raises(HTTPException) as exc:
+        execute(api, user, fingerprint="invalid")
+
+    assert exc.value.status_code == 409
     assert not container.storage
     assert registry["writes"] == 0

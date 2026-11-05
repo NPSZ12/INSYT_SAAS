@@ -489,8 +489,26 @@ def preview_cyber2_spreadsheet(
             detail="Spreadsheet source population incomplete",
         )
 
+    from app.services.cyber2.merge_snapshot import (
+        MergeSnapshotError,
+        merge_snapshot_fingerprint,
+    )
+
+    try:
+        snapshot_fingerprint = merge_snapshot_fingerprint(
+            approved_mapping=mapping,
+            merge_index=body.merge_index,
+            raw_records=records,
+        )
+    except MergeSnapshotError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
     return JSONResponse(
         content={
+            "snapshot_fingerprint": snapshot_fingerprint,
             "status": "spreadsheet_preview",
             "header_set_id": body.header_set_id,
             "merge_index": body.merge_index,
@@ -543,10 +561,14 @@ def _cyber2_merge_store_for(workspace, client, project):
     )
 
 
+class MergeExecuteBody(ExactDedupePreviewBody):
+    snapshot_fingerprint: str
+
+
 @router.post("/{workspace}/cyber2/merge-dedupe/execute")
 def execute_cyber2_exact_merge(
     workspace: str,
-    body: ExactDedupePreviewBody,
+    body: MergeExecuteBody,
     current_user=Depends(get_current_user),
 ):
     """Recalculate exact groups and save a separate derived merge set."""
@@ -682,6 +704,29 @@ def execute_cyber2_exact_merge(
             merge_index=body.merge_index,
             conflict_headers=conflict_headers,
         )
+
+        from app.services.cyber2.merge_snapshot import (
+            MergeSnapshotError,
+            merge_snapshot_fingerprint,
+        )
+
+        try:
+            current_fingerprint = merge_snapshot_fingerprint(
+                approved_mapping=mapping,
+                merge_index=body.merge_index,
+                raw_records=records,
+            )
+        except MergeSnapshotError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=str(exc),
+            ) from exc
+
+        if body.snapshot_fingerprint != current_fingerprint:
+            raise HTTPException(
+                status_code=409,
+                detail="Merge preview is stale. Refresh the spreadsheet.",
+            )
 
         derived = build_merged_working_population(
             header_set_id=body.header_set_id,
