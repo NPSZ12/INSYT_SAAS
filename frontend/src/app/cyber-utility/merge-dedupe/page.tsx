@@ -173,7 +173,7 @@ function MergeDedupeContent() {
     payload: Record<string, unknown>,
     confirmation: string
   ) {
-    if (!data || busy) return;
+    if (!data || busy || !canEdit) return;
 
     if (!window.confirm(confirmation)) return;
 
@@ -325,7 +325,8 @@ function MergeDedupeContent() {
     (entity) => entity.status === "approved"
   ).length || 0;
 
-  const canEdit = Boolean(data) && !busy && !loading;
+  // Read-only launch until server-side identity conflict checks are validated.
+  const canEdit = false;
 
   return (
     <AppShell>
