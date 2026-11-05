@@ -506,3 +506,223 @@ def preview_cyber2_spreadsheet(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+def _cyber2_execution_actor(current_user):
+    """Identify the authenticated person performing execution."""
+    keys = ("oid", "sub", "id", "user_id", "email", "username")
+
+    for key in keys:
+        value = (
+            current_user.get(key)
+            if isinstance(current_user, dict)
+            else getattr(current_user, key, None)
+        )
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, int):
+            return str(value)
+
+    raise HTTPException(
+        status_code=403,
+        detail="Authenticated execution identity unavailable",
+    )
+
+
+def _cyber2_merge_store_for(workspace, client, project):
+    """Reuse INSYT's established processing container and project path."""
+    from app.services.cyber2.merge_set_store import Cyber2MergeSetStore
+
+    return Cyber2MergeSetStore(
+        _processing_container_client(),
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        ),
+    )
+
+
+@router.post("/{workspace}/cyber2/merge-dedupe/execute")
+def execute_cyber2_exact_merge(
+    workspace: str,
+    body: ExactDedupePreviewBody,
+    current_user=Depends(get_current_user),
+):
+    """Recalculate exact groups and save a separate derived merge set."""
+    from app.api.cyber2.schema_mapping import (
+        _approved_mapping_path,
+        _load_required_json,
+    )
+    from app.services.cyber2.exact_dedupe import ExactDedupeError
+    from app.services.cyber2.header_set_dedupe import (
+        preview_header_set_dedupe,
+    )
+    from app.services.cyber2.merge_execution import (
+        MergeExecutionError,
+        build_merged_working_population,
+    )
+    from app.services.cyber2.merge_set_store import (
+        MergeSetConflict,
+        MergeSetStoreError,
+    )
+
+    # Existing preview enforces scoped project access, review permission,
+    # admin authorization, approved mapping, and Merge Index validation.
+    # Its grouping output is recomputed below from one fresh RAW snapshot.
+    preview_cyber2_exact_dedupe(
+        workspace=workspace,
+        body=body,
+        current_user=current_user,
+    )
+
+    actor = _cyber2_execution_actor(current_user)
+
+    mapping_path = _approved_mapping_path(
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+        header_set_id=body.header_set_id,
+    )
+
+    mapping = _load_required_json(
+        mapping_path,
+        description="Approved Cyber2 Header Mapping",
+    )
+
+    if (
+        not isinstance(mapping, dict)
+        or mapping.get("status") != "approved"
+        or any(
+            mapping.get(key) != value
+            for key, value in (
+                ("workspace", workspace),
+                ("client", body.client),
+                ("project", body.project),
+                ("header_set_id", body.header_set_id),
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Approved merge mapping changed or is invalid",
+        )
+
+    headers = (
+        mapping.get("canonical_column_order")
+        or mapping.get("protocol_headers")
+    )
+
+    documents = mapping.get("documents")
+
+    if (
+        not isinstance(headers, list)
+        or not headers
+        or not all(isinstance(h, str) and h.strip() for h in headers)
+        or not isinstance(documents, list)
+        or not documents
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Incomplete approved mapping",
+        )
+
+    doc_ids = [
+        str(document.get("doc_id") or "")
+        for document in documents
+        if isinstance(document, dict)
+    ]
+
+    if (
+        len(doc_ids) != len(documents)
+        or not all(doc_ids)
+        or len(set(doc_ids)) != len(doc_ids)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid approved source documents",
+        )
+
+    # Conflict screening is derived on the server, never from the browser.
+    strong_names = {
+        "ssn",
+        "social security number",
+        "social security number (ssn)",
+        "social security #",
+        "dob",
+        "date of birth",
+        "date of birth (dob)",
+        "birth date",
+    }
+
+    conflict_headers = [
+        field
+        for field in headers
+        if field.strip().casefold() in strong_names
+    ]
+
+    records = load_cyber2_raw_capture_records(
+        workspace,
+        body.client,
+        body.project,
+    )
+
+    if not isinstance(records, list) or not records:
+        raise HTTPException(
+            status_code=409,
+            detail="Current RAW source population unavailable",
+        )
+
+    try:
+        # Never trust browser-submitted group membership.
+        fresh_preview = preview_header_set_dedupe(
+            header_set_id=body.header_set_id,
+            approved_mapping=mapping,
+            raw_records=records,
+            merge_index=body.merge_index,
+            conflict_headers=conflict_headers,
+        )
+
+        derived = build_merged_working_population(
+            header_set_id=body.header_set_id,
+            approved_headers=headers,
+            approved_doc_ids=doc_ids,
+            merge_index=body.merge_index,
+            raw_records=records,
+            preview=fresh_preview,
+            conflict_headers=conflict_headers,
+        )
+
+        store = _cyber2_merge_store_for(
+            workspace,
+            body.client,
+            body.project,
+        )
+
+        saved = store.save(
+            derived=derived,
+            workspace=workspace,
+            client=body.client,
+            project=body.project,
+            approved_mapping_path=mapping_path,
+            executed_by=actor,
+        )
+
+    except (
+        ExactDedupeError,
+        MergeExecutionError,
+        MergeSetConflict,
+        MergeSetStoreError,
+    ) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+    # No actual captured values are exposed in the execution receipt.
+    return {
+        "status": "completed",
+        "execution_type": "cyber2_exact_merge",
+        "execution_enabled": True,
+        **saved,
+    }
