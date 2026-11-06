@@ -335,6 +335,28 @@ def process_detection_message(
             "a JSON object."
         )
 
+    if payload.get("job_type") == "detection_checkpoint_smoke":
+        if (
+            os.getenv(
+                "INSYT_DETECTION_CHECKPOINT_SMOKE_ENABLED",
+                "",
+            ).strip().lower()
+            != "true"
+        ):
+            raise ValueError(
+                "Detection checkpoint smoke mode is disabled."
+            )
+
+        from apc.detection_azure_smoke import (
+            run_checkpoint_smoke,
+        )
+
+        run_checkpoint_smoke(
+            container_client=_container_client(),
+            smoke_id=payload.get("smoke_id"),
+        )
+        return
+
     (
         detection_job_id,
         workspace,
