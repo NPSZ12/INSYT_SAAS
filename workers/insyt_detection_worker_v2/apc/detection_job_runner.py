@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -91,6 +91,8 @@ def _review_blob_service() -> BlobServiceClient:
 def _write_processing_json(
     blob_path: str,
     payload: Any,
+    *,
+    overwrite: bool = True,
 ) -> dict[str, Any]:
     container = (
         _processing_blob_service()
@@ -106,13 +108,31 @@ def _write_processing_json(
         default=str,
     ).encode("utf-8")
 
-    blob_client.upload_blob(
-        data,
-        overwrite=True,
-        content_settings=ContentSettings(
-            content_type="application/json; charset=utf-8"
-        ),
-    )
+    if type(overwrite) is not bool:
+        raise TypeError("Invalid JSON overwrite policy.")
+
+    from azure.core.exceptions import ResourceExistsError
+
+    try:
+        blob_client.upload_blob(
+            data,
+            overwrite=overwrite,
+            content_settings=ContentSettings(
+                content_type="application/json; charset=utf-8"
+            ),
+        )
+    except ResourceExistsError:
+        if overwrite:
+            raise
+
+        # A retry may reuse an identical durable artifact.
+        # Never overwrite a conflicting prior publication.
+        existing = blob_client.download_blob().readall()
+        if existing != data:
+            raise RuntimeError(
+                "Immutable detection result conflict: "
+                + blob_path
+            )
 
     return {
         "storage_account": _processing_account(),
@@ -127,55 +147,40 @@ def _download_detection_text(
     workspace: str,
     blob_path: str,
     destination: Path,
-    client: str,
-    project: str,
-    source_job_id: str,
-    doc_id: str,
 ) -> None:
-    # DETECTION_TEXT_STORAGE_ROUTING_V1
-    # One implementation for Capture and Discovery.
-    from .detection_text_routing import (
-        resolve_detection_text_route,
-    )
+    """
+    Stream staged Detection text from INSYT processing
+    storage directly to local disk.
 
-    route = resolve_detection_text_route(
-        workspace=workspace,
-        blob_path=blob_path,
-        processing_container=_processing_container(),
-        review_container=_review_container(workspace),
-        client=client,
-        project=project,
-        source_job_id=source_job_id,
-        doc_id=doc_id,
-    )
+    Detection input paths supplied by OCR and structured-data
+    ingestion are processing-center paths and must therefore
+    resolve against INSYT_PROCESSING_STORAGE_* rather than
+    review storage.
+    """
 
-    if route.storage_source == "review":
-        service = _review_blob_service()
-    elif route.storage_source == "processing":
-        processing_conn = (
-            os.getenv(
-                "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
-            ) or ""
-        ).strip()
-
-        if not processing_conn:
-            raise RuntimeError(
-                "INSYT_PROCESSING_STORAGE_CONNECTION_STRING "
-                "is required for processing-storage text."
-            )
-
-        service = BlobServiceClient.from_connection_string(
-            processing_conn
+    processing_conn = (
+        os.getenv(
+            "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
         )
-    else:
-        raise RuntimeError("Unsupported Detection text source")
+        or ""
+    ).strip()
+
+    if not processing_conn:
+        raise RuntimeError(
+            "INSYT_PROCESSING_STORAGE_CONNECTION_STRING "
+            "is required by Detection Worker V2."
+        )
+
+    service = BlobServiceClient.from_connection_string(
+        processing_conn
+    )
 
     container = service.get_container_client(
-        route.container
+        _processing_container()
     )
 
     blob_client = container.get_blob_client(
-        route.blob_path
+        blob_path
     )
 
     destination.parent.mkdir(
@@ -187,8 +192,10 @@ def _download_detection_text(
 
     with destination.open("wb") as handle:
         for chunk in downloader.chunks():
-            if chunk:
-                handle.write(chunk)
+            if not chunk:
+                continue
+
+            handle.write(chunk)
 
 def _seed_source_job(
     db: LedgerDB,
@@ -1147,10 +1154,54 @@ def _build_generic_identifier_clusters(
 
     return results
 
+def _record_publication_write(
+    blob_path,
+    payload,
+    *,
+    overwrite,
+    writes,
+):
+    """Capture a JSON publication without Azure writes."""
+    if type(overwrite) is not bool:
+        raise TypeError("Invalid publication overwrite policy.")
+
+    if not isinstance(writes, list):
+        raise TypeError("Publication writes must be a list.")
+
+    data = json.dumps(
+        payload,
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    ).encode("utf-8")
+
+    # Freeze values in their actual JSON representation.
+    # Later changes to local dictionaries must not alter
+    # the saved publication plan.
+    frozen_payload = json.loads(data)
+
+    writes.append({
+        "blob_path": blob_path,
+        "payload": frozen_payload,
+        "overwrite": overwrite,
+    })
+
+    return {
+        "storage_account": _processing_account(),
+        "container": _processing_container(),
+        "blob_path": blob_path,
+        "bytes": len(data),
+    }
+
+
 def run_data_element_detection_job(
     *,
     db: LedgerDB,
     payload: dict[str, Any],
+    worksheet_executor_factory=None,
+    max_chunks_per_document: int | None = None,
+    checkpoint_progress_verifier=None,
+    publication_claim_store=None,
 ) -> dict[str, Any]:
     detection_job_id = str(
         payload.get("detection_job_id")
@@ -1237,176 +1288,6 @@ def run_data_element_detection_job(
 
     text_dir = local_root / "text"
 
-    rejected_pdfs: list[dict[str, str]] = []
-
-    # PDF_DETECTION_WORKER_GUARD_V1
-    # Disabled by default; verify staging before enabling.
-    if os.getenv(
-        "INSYT_PDF_WORKER_GUARD_ENABLED", ""
-    ).strip().lower() in {"1", "true", "yes"}:
-        import logging
-        from .pdf_detection_guard import validate_pdf_documents
-
-        report = None
-
-        try:
-            # Match the canonical path used by the API:
-            # client/workspace/project_storage_key
-            clean_client = client_id.strip().strip("/").replace(
-                "\\", "/"
-            )
-            clean_project = project.strip().strip("/").replace(
-                "\\", "/"
-            ).replace(" ", "_")
-
-            prefix = (
-                f"{clean_client}/{workspace}/{clean_project}"
-            )
-            report_path = (
-                f"{prefix}/processing_center/reports/"
-                f"{source_job_id}/{source_job_id}.summary.json"
-            )
-
-            report_blob = (
-                _review_blob_service().get_blob_client(
-                    container=_review_container(workspace),
-                    blob=report_path,
-                )
-            )
-            report = json.loads(
-                report_blob.download_blob().readall()
-            )
-
-        except Exception as exc:
-            logging.warning(
-                "PDF source report unavailable for job %s: %s",
-                detection_job_id,
-                exc,
-            )
-
-        documents, rejected_pdfs = validate_pdf_documents(
-            documents,
-            report,
-            workspace=workspace,
-            client=client_id,
-            project=project,
-            source_job_id=source_job_id,
-        )
-
-        for rejected in rejected_pdfs:
-            logging.warning(
-                "PDF blocked before Detection: job=%s "
-                "doc=%s reason=%s",
-                detection_job_id,
-                rejected["doc_id"],
-                rejected["reason_code"],
-            )
-
-        if not documents:
-            # ALL_REJECTED_REMEDIATION_V1
-            # No scan was performed; preserve every guard rejection.
-            if not rejected_pdfs:
-                raise RuntimeError(
-                    "No eligible documents or remediation records."
-                )
-
-            project_base = (
-                f"{client_id}/{workspace}/"
-                f"{project.replace(' ', '_')}"
-            )
-            result_prefix = (
-                f"{project_base}/processing_center/"
-                f"detection/jobs/{detection_job_id}/results"
-            )
-
-            remediation = {
-                "schema_version": 1,
-                "detection_job_id": detection_job_id,
-                "source_job_id": source_job_id,
-                "workspace": workspace,
-                "client": client_id,
-                "project": project,
-                "status": "remediation_required",
-                "document_count": len(rejected_pdfs),
-                "documents": [
-                    {
-                        "doc_id": item["doc_id"],
-                        "reason_code": item["reason_code"],
-                        "detection_status": "NOT_SCANNED",
-                        "remediation_required": True,
-                    }
-                    for item in rejected_pdfs
-                ],
-            }
-
-            remediation_upload = _write_processing_json(
-                f"{result_prefix}/pdf_remediation.json",
-                remediation,
-            )
-            documents_upload = _write_processing_json(
-                f"{result_prefix}/documents.json",
-                [],
-            )
-            entities_upload = _write_processing_json(
-                f"{result_prefix}/entities.json",
-                [],
-            )
-
-            summary_payload = {
-                "job_type": "data_element_detection",
-                "status": "completed_with_exceptions",
-                "detection_job_id": detection_job_id,
-                "source_job_id": source_job_id,
-                "workspace": workspace,
-                "client": client_id,
-                "project": project,
-                "protocol_name": payload.get("protocol_name"),
-                "protocol_version": payload.get("protocol_version"),
-                "include_phi": bool(
-                    payload.get("include_phi", True)
-                ),
-                "documents_total": len(rejected_pdfs),
-                "documents_scanned": 0,
-                "documents_with_hits": 0,
-                "documents_no_hits": 0,
-                "documents_nfr": 0,
-                "documents_exception": len(rejected_pdfs),
-                "pdf_remediation_count": len(rejected_pdfs),
-                "pdf_remediation_blob_path": (
-                    remediation_upload["blob_path"]
-                ),
-                "entity_type_counts": [],
-                "completed_at": utc_now(),
-            }
-
-            summary_upload = _write_processing_json(
-                f"{result_prefix}/summary.json",
-                summary_payload,
-            )
-
-            return {
-                **summary_payload,
-                "message": (
-                    "Detection not run: all documents "
-                    "require remediation."
-                ),
-                "result_prefix": result_prefix,
-                "summary_blob_path": (
-                    summary_upload["blob_path"]
-                ),
-                "documents_blob_path": (
-                    documents_upload["blob_path"]
-                ),
-                "entities_blob_path": (
-                    entities_upload["blob_path"]
-                ),
-                "documents": [],
-                "document_index_count": 0,
-                "document_index_uploads": [],
-                "generic_identifier_candidate_count": 0,
-                "generic_identifier_cluster_count": 0,
-            }
-
     downloaded_docs: list[dict[str, Any]] = []
 
     for doc in documents:
@@ -1432,10 +1313,6 @@ def run_data_element_detection_job(
             workspace=workspace,
             blob_path=text_blob_path,
             destination=local_text_path,
-            client=client_id,
-            project=project,
-            source_job_id=source_job_id,
-            doc_id=doc_id,
         )
 
         file_id = _seed_detection_document(
@@ -1571,597 +1448,196 @@ def run_data_element_detection_job(
             ),
         }
 
-    result = run_pii_phi_detection(
-        db,
-        source_job_id=source_job_id,
-        matter_id=matter_id,
-        client_id=client_id,
-        project=project,
-        workspace=workspace,
-        protocol_name=payload.get(
-            "protocol_name"
-        ),
-        protocol_version=payload.get(
-            "protocol_version"
-        ),
-        include_phi=bool(
-            payload.get(
-                "include_phi",
-                True,
-            )
-        ),
-        search_rule_sheets=(
-            payload.get(
-                "search_rule_sheets"
-            )
-            or None
-        ),
-        selected_doc_ids=(
-            selected_doc_ids
-        ),
-        document_options=(
-            document_options
-        ),
+    from .stages.pii_phi_detection import (
+        IncompleteWorksheetDetection,
     )
 
-    detection_run_id = str(
-        result.get("detection_run_id") or ""
-    )
-
-    document_rows = [
-        dict(row)
-        for row in db.query(
-            """
-            SELECT *
-            FROM processing_detection_document
-            WHERE detection_run_id=?
-            ORDER BY doc_id
-            """,
-            (detection_run_id,),
-        )
-    ]
-
-    entity_rows = [
-        dict(row)
-        for row in db.query(
-            """
-            SELECT *
-            FROM processing_detection_entity
-            WHERE detection_run_id=?
-            ORDER BY doc_id, start_offset
-            """,
-            (detection_run_id,),
-        )
-    ]
-
-    entity_counts_rows = db.query(
-        """
-        SELECT
-            entity_type,
-            count(*) AS hit_count,
-            count(DISTINCT doc_id) AS document_count
-        FROM processing_detection_entity
-        WHERE detection_run_id=?
-        GROUP BY entity_type
-        ORDER BY document_count DESC,
-                 hit_count DESC,
-                 entity_type
-        """,
-        (detection_run_id,),
-    )
-
-    entity_counts = [
-        {
-            "entity_type": row["entity_type"],
-            "hit_count": int(
-                row["hit_count"] or 0
+    try:
+        result = run_pii_phi_detection(
+            db,
+            source_job_id=source_job_id,
+            matter_id=matter_id,
+            client_id=client_id,
+            project=project,
+            workspace=workspace,
+            protocol_name=payload.get(
+                "protocol_name"
             ),
-            "document_count": int(
-                row["document_count"] or 0
+            protocol_version=payload.get(
+                "protocol_version"
             ),
-        }
-        for row in entity_counts_rows
-    ]
-
-    project_base = (
-        f"{client_id}/{workspace}/"
-        f"{project.replace(' ', '_')}"
-    )
-
-    result_prefix = (
-        f"{project_base}/processing_center/"
-        f"detection/jobs/{detection_job_id}/results"
-    )
-
-    # PDF_REMEDIATION_REPORTING_V1
-    # Rejected PDFs were not scanned and must never be No Hits.
-    pdf_remediation_count = len(rejected_pdfs)
-    pdf_remediation_upload = None
-
-    if pdf_remediation_count:
-        result = dict(result)
-
-        result["documents_exception"] = (
-            int(result.get("documents_exception") or 0)
-            + pdf_remediation_count
-        )
-        result["documents_total"] = (
-            int(result.get("documents_total") or 0)
-            + pdf_remediation_count
-        )
-        result["status"] = "completed_with_exceptions"
-
-        pdf_remediation_upload = _write_processing_json(
-            f"{result_prefix}/pdf_remediation.json",
-            {
-                "schema_version": 1,
-                "detection_job_id": detection_job_id,
-                "source_job_id": source_job_id,
-                "workspace": workspace,
-                "client": client_id,
-                "project": project,
-                "status": "remediation_required",
-                "document_count": pdf_remediation_count,
-                "documents": [
-                    {
-                        "doc_id": item["doc_id"],
-                        "reason_code": item["reason_code"],
-                        "detection_status": "NOT_SCANNED",
-                        "remediation_required": True,
-                    }
-                    for item in rejected_pdfs
-                ],
-            },
-        )
-
-    release_file = (
-        Path(__file__).resolve().parents[1]
-        / "INSYT_RELEASE_SHA.txt"
-    )
-
-    release_sha = (
-        release_file.read_text(encoding="utf-8").strip()
-        if release_file.is_file()
-        else "unavailable"
-    )
-
-    summary_payload = {
-        **result,
-        "diagnostic_release_sha": release_sha,
-        "diagnostic_rule_count": result.get(
-            "diagnostic_rule_count"
-        ),
-        "diagnostic_azure_ner_enabled": result.get(
-            "diagnostic_azure_ner_enabled"
-        ),
-        "pdf_remediation_count": pdf_remediation_count,
-        "pdf_remediation_blob_path": (
-            pdf_remediation_upload["blob_path"]
-            if pdf_remediation_upload else None
-        ),
-        "job_type": "data_element_detection",
-        "detection_job_id": detection_job_id,
-        "workspace": workspace,
-        "client": client_id,
-        "project": project,
-        "source_job_id": source_job_id,
-        "protocol_name": payload.get(
-            "protocol_name"
-        ),
-        "protocol_version": payload.get(
-            "protocol_version"
-        ),
-        "include_phi": bool(
-            payload.get("include_phi", True)
-        ),
-        "entity_type_counts": entity_counts,
-        "completed_at": utc_now(),
-    }
-
-    summary_upload = _write_processing_json(
-        f"{result_prefix}/summary.json",
-        summary_payload,
-    )
-
-    documents_upload = _write_processing_json(
-        f"{result_prefix}/documents.json",
-        document_rows,
-    )
-
-    entities_upload = _write_processing_json(
-        f"{result_prefix}/entities.json",
-        entity_rows,
-    )
-    
-    document_index_prefix = (
-        f"{project_base}/processing_center/"
-        f"detection/documents"
-    )
-
-    document_index_uploads: list[dict[str, Any]] = []
-
-    entities_by_doc_id: dict[str, list[dict[str, Any]]] = {}
-
-    for entity in entity_rows:
-        entity_doc_id = str(
-            entity.get("doc_id") or ""
-        ).strip()
-
-        if not entity_doc_id:
-            continue
-
-        entities_by_doc_id.setdefault(
-            entity_doc_id,
-            [],
-        ).append(entity)
-        
-    local_text_paths_by_doc_id: dict[
-        str,
-        str,
-    ] = {
-        str(doc.get("doc_id") or "").strip(): str(
-            doc.get("local_text_path") or ""
-        ).strip()
-        for doc in downloaded_docs
-        if str(
-            doc.get("doc_id") or ""
-        ).strip()
-    }
-
-    all_generic_identifier_candidates: list[
-        dict[str, Any]
-    ] = []
-    
-    document_options_by_doc_id = (
-        document_options
-    )
-
-    for document_row in document_rows:
-        doc_id = str(
-            document_row.get("doc_id") or ""
-        ).strip()
-
-        if not doc_id:
-            continue
-        
-        doc_options = (
-            document_options_by_doc_id.get(
-                doc_id
-            )
-            or {}
-        )
-
-        document_detection_mode = str(
-            doc_options.get(
-                "detection_mode"
-            )
-            or "full"
-        ).strip().lower()
-
-        is_worksheet_triage = (
-            document_detection_mode
-            == "worksheet_triage"
-        )
-
-        document_entities = entities_by_doc_id.get(
-            doc_id,
-            [],
-        )
-
-        entity_type_counts: dict[str, int] = {}
-
-        normalized_hits: list[dict[str, Any]] = []
-
-        for entity in document_entities:
-            entity_type = str(
-                entity.get("entity_type")
-                or entity.get("category")
-                or ""
-            ).strip()
-
-            if entity_type:
-                entity_type_counts[entity_type] = (
-                    entity_type_counts.get(entity_type, 0) + 1
+            include_phi=bool(
+                payload.get(
+                    "include_phi",
+                    True,
                 )
-
-            start_offset = entity.get("start_offset")
-
-            if start_offset is None:
-                start_offset = entity.get("offset")
-
-            end_offset = entity.get("end_offset")
-            length = entity.get("length")
-
-            try:
-                normalized_start = int(start_offset)
-            except (TypeError, ValueError):
-                continue
-
-            if end_offset is not None:
-                try:
-                    normalized_end = int(end_offset)
-                except (TypeError, ValueError):
-                    continue
-
-            elif length is not None:
-                try:
-                    normalized_end = (
-                        normalized_start + int(length)
-                    )
-                except (TypeError, ValueError):
-                    continue
-
-            else:
-                detected_value = str(
-                    entity.get("detected_value")
-                    or entity.get("text")
-                    or ""
+            ),
+            search_rule_sheets=(
+                payload.get(
+                    "search_rule_sheets"
                 )
-
-                if not detected_value:
-                    continue
-
-                normalized_end = (
-                    normalized_start + len(detected_value)
-                )
-
-            if normalized_start < 0:
-                continue
-
-            if normalized_end <= normalized_start:
-                continue
-
-            confidence_raw = (
-                entity.get("confidence")
-                if entity.get("confidence") is not None
-                else entity.get("confidence_score")
-            )
-
-            try:
-                confidence = (
-                    float(confidence_raw)
-                    if confidence_raw is not None
-                    else None
-                )
-            except (TypeError, ValueError):
-                confidence = None
-
-            normalized_hits.append(
-                {
-                    "entity_type": entity_type,
-                    "entity_subtype": str(
-                        entity.get("entity_subtype")
-                        or entity.get("subcategory")
-                        or ""
-                    ).strip(),
-                    "detected_value": str(
-                        entity.get("detected_value")
-                        or entity.get("text")
-                        or ""
-                    ),
-                    "normalized_value": entity.get(
-                        "normalized_value"
-                    ),
-                    "masked_value": entity.get(
-                        "masked_value"
-                    ),
-                    "confidence": confidence,
-                    "start_offset": normalized_start,
-                    "end_offset": normalized_end,
-                    "page_number": (
-                        entity.get("page_number")
-                        or entity.get("page")
-                    ),
-                    "detector": (
-                        entity.get("detector")
-                        or entity.get("detector_name")
-                        or "azure_language"
-                    ),
-                    "detector_version": entity.get(
-                        "detector_version"
-                    ),
-                    "rule_id": entity.get("rule_id"),
-                    "protocol": (
-                        entity.get("protocol")
-                        or entity.get("protocol_name")
-                        or payload.get("protocol_name")
-                        or ""
-                    ),
-                    "protocol_version": (
-                        entity.get("protocol_version")
-                        or payload.get("protocol_version")
-                        or ""
-                    ),
-                    "reportability": (
-                        entity.get("reportability")
-                        or "UNCLASSIFIED"
-                    ),
-                }
-            )
-
-        normalized_hits.sort(
-            key=lambda hit: (
-                int(hit.get("start_offset") or 0),
-                int(hit.get("end_offset") or 0),
-            )
+                or None
+            ),
+            selected_doc_ids=(
+                selected_doc_ids
+            ),
+            document_options=(
+                document_options
+            ),
+            worksheet_executor_factory=worksheet_executor_factory,
+            max_chunks_per_document=max_chunks_per_document,
         )
-        
-        local_text_path = (
-            local_text_paths_by_doc_id.get(
-                doc_id,
-                "",
-            )
+    except IncompleteWorksheetDetection as exc:
+        if (
+            max_chunks_per_document is None
+            or worksheet_executor_factory is None
+        ):
+            raise
+
+        # The stage independently verified the exact
+        # selected population before raising.
+        progress = getattr(
+            exc, "checkpoint_progress", None
         )
 
-        generic_identifier_candidates: list[
-            dict[str, Any]
-        ] = []
+        # Preserve the optional verifier contract for
+        # callers that perform verification externally.
+        if progress is None:
+            if not callable(checkpoint_progress_verifier):
+                raise
+
+            progress = checkpoint_progress_verifier(
+                detection_job_id=detection_job_id,
+                payload=payload,
+            )
+
+        if not isinstance(progress, dict):
+            raise RuntimeError(
+                "Invalid durable progress result."
+            )
+
+        completed = progress.get("completed_units")
+        total = progress.get("total_units")
 
         if (
-            local_text_path
-            and not is_worksheet_triage
+            progress.get("checkpoint_verified") is not True
+            or type(completed) is not int
+            or type(total) is not int
+            or total < 1
+            or not 0 <= completed < total
+            or progress.get("job_complete") is not False
         ):
-            try:
-                detection_text = Path(
-                    local_text_path
-                ).read_text(
-                    encoding="utf-8",
-                    errors="ignore",
-                )
-
-                generic_identifier_candidates = (
-                    _find_generic_identifier_candidates(
-                        detection_text,
-                        normalized_hits,
-                    )
-                )
-
-            except OSError:
-                generic_identifier_candidates = []
-
-        for candidate in generic_identifier_candidates:
-            all_generic_identifier_candidates.append(
-                {
-                    **candidate,
-                    "doc_id": doc_id,
-                }
-            )
-            
-        detection_metadata: dict[
-            str,
-            Any,
-        ] = {}
-
-        try:
-            raw_detection_metadata = (
-                document_row.get(
-                    "metadata_json"
-                )
+            raise RuntimeError(
+                "Durable checkpoint progress not verified."
             )
 
-            if raw_detection_metadata:
-                parsed_detection_metadata = (
-                    json.loads(
-                        str(
-                            raw_detection_metadata
-                        )
-                    )
+        return {
+            "status": "continuation_required",
+            "checkpoint_verified": True,
+            "completed_units": completed,
+            "total_units": total,
+            "detection_job_id": detection_job_id,
+        }
+
+    def _publish_final_results(*, plan_writes=None):
+        # Reuse the existing publication code in both
+        # execution and plan-capture modes.
+        def _write_processing_json(
+            blob_path,
+            payload,
+            *,
+            overwrite=True,
+        ):
+            if plan_writes is not None:
+                return _record_publication_write(
+                    blob_path,
+                    payload,
+                    overwrite=overwrite,
+                    writes=plan_writes,
                 )
 
-                if isinstance(
-                    parsed_detection_metadata,
-                    dict,
-                ):
-                    detection_metadata = (
-                        parsed_detection_metadata
-                    )
+            return globals()["_write_processing_json"](
+                blob_path,
+                payload,
+                overwrite=overwrite,
+            )
+        detection_run_id = str(
+            result.get("detection_run_id") or ""
+        )
 
-        except Exception:
-            detection_metadata = {}
+        document_rows = [
+            dict(row)
+            for row in db.query(
+                """
+                SELECT *
+                FROM processing_detection_document
+                WHERE detection_run_id=?
+                ORDER BY doc_id
+                """,
+                (detection_run_id,),
+            )
+        ]
 
-        document_index_payload = {
-            "schema_version": 1,
+        entity_rows = [
+            dict(row)
+            for row in db.query(
+                """
+                SELECT *
+                FROM processing_detection_entity
+                WHERE detection_run_id=?
+                ORDER BY doc_id, start_offset
+                """,
+                (detection_run_id,),
+            )
+        ]
+
+        entity_counts_rows = db.query(
+            """
+            SELECT
+                entity_type,
+                count(*) AS hit_count,
+                count(DISTINCT doc_id) AS document_count
+            FROM processing_detection_entity
+            WHERE detection_run_id=?
+            GROUP BY entity_type
+            ORDER BY document_count DESC,
+                     hit_count DESC,
+                     entity_type
+            """,
+            (detection_run_id,),
+        )
+
+        entity_counts = [
+            {
+                "entity_type": row["entity_type"],
+                "hit_count": int(
+                    row["hit_count"] or 0
+                ),
+                "document_count": int(
+                    row["document_count"] or 0
+                ),
+            }
+            for row in entity_counts_rows
+        ]
+
+        project_base = (
+            f"{client_id}/{workspace}/"
+            f"{project.replace(' ', '_')}"
+        )
+
+        result_prefix = (
+            f"{project_base}/processing_center/"
+            f"detection/jobs/{detection_job_id}/results"
+        )
+
+        summary_payload = {
+            **result,
+            "job_type": "data_element_detection",
+            "detection_job_id": detection_job_id,
             "workspace": workspace,
             "client": client_id,
             "project": project,
-            "doc_id": doc_id,
-            "detection_mode": (
-                detection_metadata.get(
-                    "detection_mode",
-                    document_detection_mode,
-                )
-            ),
-            "source_type": (
-                doc_options.get(
-                    "source_type"
-                )
-                or "document"
-            ),
-            "is_workbook_sheet": bool(
-                doc_options.get(
-                    "is_workbook_sheet"
-                )
-            ),
-            "original_workbook_file_id": (
-                doc_options.get(
-                    "original_workbook_file_id"
-                )
-            ),
-            "original_workbook_name": (
-                doc_options.get(
-                    "original_workbook_name"
-                )
-            ),
-            "sheet_name": (
-                doc_options.get(
-                    "sheet_name"
-                )
-            ),
-            "sheet_index": (
-                doc_options.get(
-                    "sheet_index"
-                )
-            ),
-            "sheet_visibility": (
-                doc_options.get(
-                    "sheet_visibility"
-                )
-            ),
-            "scan_complete": (
-                detection_metadata.get(
-                    "scan_complete"
-                )
-            ),
-            "entity_counts_complete": (
-                detection_metadata.get(
-                    "entity_counts_complete"
-                )
-            ),
-            "triage_stopped_early": (
-                detection_metadata.get(
-                    "triage_stopped_early"
-                )
-            ),
-            "rows_scanned": (
-                detection_metadata.get(
-                    "rows_scanned"
-                )
-            ),
-            "characters_scanned": (
-                detection_metadata.get(
-                    "characters_scanned"
-                )
-            ),
-            "first_hit_row": (
-                detection_metadata.get(
-                    "first_hit_row"
-                )
-            ),
-            "classification": (
-                document_row.get("classification")
-                or "PENDING"
-            ),
-            "detection_status": (
-                document_row.get("status")
-                or document_row.get("detection_status")
-                or ""
-            ),
-            "hit_count": int(
-                document_row.get(
-                    "hit_count"
-                )
-                or 0
-            ),
-
-            "profiled_entity_type_count": (
-                len(
-                    normalized_hits
-                )
-            ),
-            "entity_type_counts": entity_type_counts,
             "source_job_id": source_job_id,
-            "latest_detection_job_id": detection_job_id,
-            "detection_run_id": detection_run_id,
             "protocol_name": payload.get(
                 "protocol_name"
             ),
@@ -2171,144 +1647,681 @@ def run_data_element_detection_job(
             "include_phi": bool(
                 payload.get("include_phi", True)
             ),
-            "text_source": (
-                document_row.get("text_source")
-                or document_row.get("source_text_type")
-                or ""
-            ),
-            "text_path": (
-                document_row.get("text_path")
-                or document_row.get("text_output_path")
-                or ""
-            ),
-            "detected_at": (
-                document_row.get("completed_at")
-                or document_row.get("updated_at")
-                or summary_payload.get("completed_at")
-            ),
-            "hits": normalized_hits,
-            "generic_identifier_candidate_count": (
-                len(generic_identifier_candidates)
-            ),
-            "generic_identifier_candidates": (
-                generic_identifier_candidates
-            ),
-            "type_profile_complete": (
-                detection_metadata.get(
-                    "type_profile_complete"
-                )
-            ),
-
-            "profile_strategy": (
-                detection_metadata.get(
-                    "profile_strategy"
-                )
-            ),
-
-            "profiled_entity_types": (
-                detection_metadata.get(
-                    "profiled_entity_types",
-                    [],
-                )
-            ),
-
-            "responsive_entity_types": (
-                detection_metadata.get(
-                    "responsive_entity_types",
-                    [],
-                )
-            ),
-
-            "responsive_entity_type_count": (
-                detection_metadata.get(
-                    "responsive_entity_type_count",
-                    0,
-                )
-            ),
-
-            "first_rows_by_entity_type": (
-                detection_metadata.get(
-                    "first_rows_by_entity_type",
-                    {},
-                )
-            ),
+            "entity_type_counts": entity_counts,
+            "completed_at": utc_now(),
         }
 
-        document_index_uploads.append(
-            _write_processing_json(
-                f"{document_index_prefix}/{doc_id}.json",
-                document_index_payload,
-            )
+        summary_upload = _write_processing_json(
+            f"{result_prefix}/summary.json",
+            summary_payload,
+            overwrite=(publication_claim_store is None),
         )
-        
-    generic_identifier_clusters = (
-        _build_generic_identifier_clusters(
-            all_generic_identifier_candidates
-        )
-    )
 
-    generic_identifier_clusters_upload = (
-        _write_processing_json(
-            (
-                f"{result_prefix}/"
-                "generic_identifier_clusters.json"
-            ),
-            {
+        documents_upload = _write_processing_json(
+            f"{result_prefix}/documents.json",
+            document_rows,
+            overwrite=(publication_claim_store is None),
+        )
+
+        entities_upload = _write_processing_json(
+            f"{result_prefix}/entities.json",
+            entity_rows,
+            overwrite=(publication_claim_store is None),
+        )
+
+        document_index_prefix = (
+            f"{project_base}/processing_center/"
+            f"detection/documents"
+        )
+
+        document_index_uploads: list[dict[str, Any]] = []
+
+        entities_by_doc_id: dict[str, list[dict[str, Any]]] = {}
+
+        for entity in entity_rows:
+            entity_doc_id = str(
+                entity.get("doc_id") or ""
+            ).strip()
+
+            if not entity_doc_id:
+                continue
+
+            entities_by_doc_id.setdefault(
+                entity_doc_id,
+                [],
+            ).append(entity)
+
+        local_text_paths_by_doc_id: dict[
+            str,
+            str,
+        ] = {
+            str(doc.get("doc_id") or "").strip(): str(
+                doc.get("local_text_path") or ""
+            ).strip()
+            for doc in downloaded_docs
+            if str(
+                doc.get("doc_id") or ""
+            ).strip()
+        }
+
+        all_generic_identifier_candidates: list[
+            dict[str, Any]
+        ] = []
+
+        document_options_by_doc_id = (
+            document_options
+        )
+
+        for document_row in document_rows:
+            doc_id = str(
+                document_row.get("doc_id") or ""
+            ).strip()
+
+            if not doc_id:
+                continue
+
+            doc_options = (
+                document_options_by_doc_id.get(
+                    doc_id
+                )
+                or {}
+            )
+
+            document_detection_mode = str(
+                doc_options.get(
+                    "detection_mode"
+                )
+                or "full"
+            ).strip().lower()
+
+            is_worksheet_triage = (
+                document_detection_mode
+                == "worksheet_triage"
+            )
+
+            document_entities = entities_by_doc_id.get(
+                doc_id,
+                [],
+            )
+
+            entity_type_counts: dict[str, int] = {}
+
+            normalized_hits: list[dict[str, Any]] = []
+
+            for entity in document_entities:
+                entity_type = str(
+                    entity.get("entity_type")
+                    or entity.get("category")
+                    or ""
+                ).strip()
+
+                if entity_type:
+                    entity_type_counts[entity_type] = (
+                        entity_type_counts.get(entity_type, 0) + 1
+                    )
+
+                start_offset = entity.get("start_offset")
+
+                if start_offset is None:
+                    start_offset = entity.get("offset")
+
+                end_offset = entity.get("end_offset")
+                length = entity.get("length")
+
+                try:
+                    normalized_start = int(start_offset)
+                except (TypeError, ValueError):
+                    continue
+
+                if end_offset is not None:
+                    try:
+                        normalized_end = int(end_offset)
+                    except (TypeError, ValueError):
+                        continue
+
+                elif length is not None:
+                    try:
+                        normalized_end = (
+                            normalized_start + int(length)
+                        )
+                    except (TypeError, ValueError):
+                        continue
+
+                else:
+                    detected_value = str(
+                        entity.get("detected_value")
+                        or entity.get("text")
+                        or ""
+                    )
+
+                    if not detected_value:
+                        continue
+
+                    normalized_end = (
+                        normalized_start + len(detected_value)
+                    )
+
+                if normalized_start < 0:
+                    continue
+
+                if normalized_end <= normalized_start:
+                    continue
+
+                confidence_raw = (
+                    entity.get("confidence")
+                    if entity.get("confidence") is not None
+                    else entity.get("confidence_score")
+                )
+
+                try:
+                    confidence = (
+                        float(confidence_raw)
+                        if confidence_raw is not None
+                        else None
+                    )
+                except (TypeError, ValueError):
+                    confidence = None
+
+                normalized_hits.append(
+                    {
+                        "entity_type": entity_type,
+                        "entity_subtype": str(
+                            entity.get("entity_subtype")
+                            or entity.get("subcategory")
+                            or ""
+                        ).strip(),
+                        "detected_value": str(
+                            entity.get("detected_value")
+                            or entity.get("text")
+                            or ""
+                        ),
+                        "normalized_value": entity.get(
+                            "normalized_value"
+                        ),
+                        "masked_value": entity.get(
+                            "masked_value"
+                        ),
+                        "confidence": confidence,
+                        "start_offset": normalized_start,
+                        "end_offset": normalized_end,
+                        "page_number": (
+                            entity.get("page_number")
+                            or entity.get("page")
+                        ),
+                        "detector": (
+                            entity.get("detector")
+                            or entity.get("detector_name")
+                            or "azure_language"
+                        ),
+                        "detector_version": entity.get(
+                            "detector_version"
+                        ),
+                        "rule_id": entity.get("rule_id"),
+                        "protocol": (
+                            entity.get("protocol")
+                            or entity.get("protocol_name")
+                            or payload.get("protocol_name")
+                            or ""
+                        ),
+                        "protocol_version": (
+                            entity.get("protocol_version")
+                            or payload.get("protocol_version")
+                            or ""
+                        ),
+                        "reportability": (
+                            entity.get("reportability")
+                            or "UNCLASSIFIED"
+                        ),
+                    }
+                )
+
+            normalized_hits.sort(
+                key=lambda hit: (
+                    int(hit.get("start_offset") or 0),
+                    int(hit.get("end_offset") or 0),
+                )
+            )
+
+            local_text_path = (
+                local_text_paths_by_doc_id.get(
+                    doc_id,
+                    "",
+                )
+            )
+
+            generic_identifier_candidates: list[
+                dict[str, Any]
+            ] = []
+
+            if (
+                local_text_path
+                and not is_worksheet_triage
+            ):
+                try:
+                    detection_text = Path(
+                        local_text_path
+                    ).read_text(
+                        encoding="utf-8",
+                        errors="ignore",
+                    )
+
+                    generic_identifier_candidates = (
+                        _find_generic_identifier_candidates(
+                            detection_text,
+                            normalized_hits,
+                        )
+                    )
+
+                except OSError:
+                    generic_identifier_candidates = []
+
+            for candidate in generic_identifier_candidates:
+                all_generic_identifier_candidates.append(
+                    {
+                        **candidate,
+                        "doc_id": doc_id,
+                    }
+                )
+
+            detection_metadata: dict[
+                str,
+                Any,
+            ] = {}
+
+            try:
+                raw_detection_metadata = (
+                    document_row.get(
+                        "metadata_json"
+                    )
+                )
+
+                if raw_detection_metadata:
+                    parsed_detection_metadata = (
+                        json.loads(
+                            str(
+                                raw_detection_metadata
+                            )
+                        )
+                    )
+
+                    if isinstance(
+                        parsed_detection_metadata,
+                        dict,
+                    ):
+                        detection_metadata = (
+                            parsed_detection_metadata
+                        )
+
+            except Exception:
+                detection_metadata = {}
+
+            document_index_payload = {
                 "schema_version": 1,
                 "workspace": workspace,
                 "client": client_id,
                 "project": project,
-                "detection_job_id": (
-                    detection_job_id
+                "doc_id": doc_id,
+                "detection_mode": (
+                    detection_metadata.get(
+                        "detection_mode",
+                        document_detection_mode,
+                    )
                 ),
-                "detection_run_id": (
-                    detection_run_id
+                "source_type": (
+                    doc_options.get(
+                        "source_type"
+                    )
+                    or "document"
                 ),
-                "candidate_count": len(
-                    all_generic_identifier_candidates
+                "is_workbook_sheet": bool(
+                    doc_options.get(
+                        "is_workbook_sheet"
+                    )
                 ),
-                "cluster_count": len(
-                    generic_identifier_clusters
+                "original_workbook_file_id": (
+                    doc_options.get(
+                        "original_workbook_file_id"
+                    )
                 ),
-                "clusters": (
-                    generic_identifier_clusters
+                "original_workbook_name": (
+                    doc_options.get(
+                        "original_workbook_name"
+                    )
                 ),
-            },
+                "sheet_name": (
+                    doc_options.get(
+                        "sheet_name"
+                    )
+                ),
+                "sheet_index": (
+                    doc_options.get(
+                        "sheet_index"
+                    )
+                ),
+                "sheet_visibility": (
+                    doc_options.get(
+                        "sheet_visibility"
+                    )
+                ),
+                "scan_complete": (
+                    detection_metadata.get(
+                        "scan_complete"
+                    )
+                ),
+                "entity_counts_complete": (
+                    detection_metadata.get(
+                        "entity_counts_complete"
+                    )
+                ),
+                "triage_stopped_early": (
+                    detection_metadata.get(
+                        "triage_stopped_early"
+                    )
+                ),
+                "rows_scanned": (
+                    detection_metadata.get(
+                        "rows_scanned"
+                    )
+                ),
+                "characters_scanned": (
+                    detection_metadata.get(
+                        "characters_scanned"
+                    )
+                ),
+                "first_hit_row": (
+                    detection_metadata.get(
+                        "first_hit_row"
+                    )
+                ),
+                "classification": (
+                    document_row.get("classification")
+                    or "PENDING"
+                ),
+                "detection_status": (
+                    document_row.get("status")
+                    or document_row.get("detection_status")
+                    or ""
+                ),
+                "hit_count": int(
+                    document_row.get(
+                        "hit_count"
+                    )
+                    or 0
+                ),
+
+                "profiled_entity_type_count": (
+                    len(
+                        normalized_hits
+                    )
+                ),
+                "entity_type_counts": entity_type_counts,
+                "source_job_id": source_job_id,
+                "latest_detection_job_id": detection_job_id,
+                "detection_run_id": detection_run_id,
+                "protocol_name": payload.get(
+                    "protocol_name"
+                ),
+                "protocol_version": payload.get(
+                    "protocol_version"
+                ),
+                "include_phi": bool(
+                    payload.get("include_phi", True)
+                ),
+                "text_source": (
+                    document_row.get("text_source")
+                    or document_row.get("source_text_type")
+                    or ""
+                ),
+                "text_path": (
+                    document_row.get("text_path")
+                    or document_row.get("text_output_path")
+                    or ""
+                ),
+                "detected_at": (
+                    document_row.get("completed_at")
+                    or document_row.get("updated_at")
+                    or summary_payload.get("completed_at")
+                ),
+                "hits": normalized_hits,
+                "generic_identifier_candidate_count": (
+                    len(generic_identifier_candidates)
+                ),
+                "generic_identifier_candidates": (
+                    generic_identifier_candidates
+                ),
+                "type_profile_complete": (
+                    detection_metadata.get(
+                        "type_profile_complete"
+                    )
+                ),
+
+                "profile_strategy": (
+                    detection_metadata.get(
+                        "profile_strategy"
+                    )
+                ),
+
+                "profiled_entity_types": (
+                    detection_metadata.get(
+                        "profiled_entity_types",
+                        [],
+                    )
+                ),
+
+                "responsive_entity_types": (
+                    detection_metadata.get(
+                        "responsive_entity_types",
+                        [],
+                    )
+                ),
+
+                "responsive_entity_type_count": (
+                    detection_metadata.get(
+                        "responsive_entity_type_count",
+                        0,
+                    )
+                ),
+
+                "first_rows_by_entity_type": (
+                    detection_metadata.get(
+                        "first_rows_by_entity_type",
+                        {},
+                    )
+                ),
+            }
+
+            document_index_uploads.append(
+                _write_processing_json(
+                    f"{document_index_prefix}/{doc_id}.json",
+                    document_index_payload,
+                )
+            )
+
+        generic_identifier_clusters = (
+            _build_generic_identifier_clusters(
+                all_generic_identifier_candidates
+            )
         )
+
+        generic_identifier_clusters_upload = (
+            _write_processing_json(
+                (
+                    f"{result_prefix}/"
+                    "generic_identifier_clusters.json"
+                ),
+                {
+                    "schema_version": 1,
+                    "workspace": workspace,
+                    "client": client_id,
+                    "project": project,
+                    "detection_job_id": (
+                        detection_job_id
+                    ),
+                    "detection_run_id": (
+                        detection_run_id
+                    ),
+                    "candidate_count": len(
+                        all_generic_identifier_candidates
+                    ),
+                    "cluster_count": len(
+                        generic_identifier_clusters
+                    ),
+                    "clusters": (
+                        generic_identifier_clusters
+                    ),
+                },
+                overwrite=(publication_claim_store is None),
+            )
+        )
+
+        return {
+            **summary_payload,
+            "message": (
+                "Data Element Detection completed."
+            ),
+            "result_prefix": result_prefix,
+            "summary_blob_path": (
+                summary_upload["blob_path"]
+            ),
+            "documents_blob_path": (
+                documents_upload["blob_path"]
+            ),
+            "entities_blob_path": (
+                entities_upload["blob_path"]
+            ),
+            "document_index_prefix": document_index_prefix,
+            "document_index_count": len(document_index_uploads),
+            "document_index_uploads": document_index_uploads,
+            "documents": document_rows,
+            "entity_type_counts": entity_counts,
+            "generic_identifier_candidate_count": len(
+                all_generic_identifier_candidates
+            ),
+            "generic_identifier_cluster_count": len(
+                generic_identifier_clusters
+            ),
+            "generic_identifier_clusters_blob_path": (
+                generic_identifier_clusters_upload[
+                    "blob_path"
+                ]
+            ),
+            "generic_identifier_clusters": (
+                generic_identifier_clusters
+            ),
+        }
+
+    if publication_claim_store is None:
+        return _publish_final_results()
+
+    from .detection_publication_guard import (
+        publish_detection_once,
     )
 
-    return {
-        **summary_payload,
-        "message": (
-            "Data Element Detection completed."
-        ),
-        "result_prefix": result_prefix,
-        "summary_blob_path": (
-            summary_upload["blob_path"]
-        ),
-        "documents_blob_path": (
-            documents_upload["blob_path"]
-        ),
-        "entities_blob_path": (
-            entities_upload["blob_path"]
-        ),
-        "document_index_prefix": document_index_prefix,
-        "document_index_count": len(document_index_uploads),
-        "document_index_uploads": document_index_uploads,
-        "documents": document_rows,
-        "entity_type_counts": entity_counts,
-        "generic_identifier_candidate_count": len(
-            all_generic_identifier_candidates
-        ),
-        "generic_identifier_cluster_count": len(
-            generic_identifier_clusters
-        ),
-        "generic_identifier_clusters_blob_path": (
-            generic_identifier_clusters_upload[
-                "blob_path"
-            ]
-        ),
-        "generic_identifier_clusters": (
-            generic_identifier_clusters
-        ),
-    }
+    def _publish_snapshot_and_replay(claim):
+        from .detection_publication_snapshot import (
+            load_or_create_publication_snapshot,
+        )
+
+        if publication_claim_store is None:
+            raise RuntimeError(
+                "Publication claim store unavailable."
+            )
+
+        # Use existing processing storage and job paths.
+        snapshot_path = (
+            f"{publication_claim_store.project_prefix}/"
+            f"processing_center/detection/jobs/"
+            f"{detection_job_id}/publication_snapshot.json"
+        )
+
+        def build_plan():
+            writes = []
+
+            # Record every existing publication write
+            # before uploading any result artifact.
+            result = _publish_final_results(
+                plan_writes=writes
+            )
+
+            return {
+                "result": result,
+                "writes": writes,
+            }
+
+        plan = load_or_create_publication_snapshot(
+            container=publication_claim_store.container,
+            blob_path=snapshot_path,
+            detection_job_id=detection_job_id,
+            build_plan=build_plan,
+            assert_owner=claim.assert_active,
+        )
+
+        # Only these existing destinations are permitted.
+        job_prefix = (
+            f"{publication_claim_store.project_prefix}/"
+            f"processing_center/detection/jobs/"
+            f"{detection_job_id}/results/"
+        )
+
+        shared_index_prefix = (
+            f"{publication_claim_store.project_prefix}/"
+            "processing_center/detection/documents/"
+        )
+
+        # Validate the entire saved plan before any writes.
+        for write in plan["writes"]:
+            path = write["blob_path"]
+            overwrite = write["overwrite"]
+
+            if path.startswith(job_prefix):
+                if overwrite is not False:
+                    raise RuntimeError(
+                        "Job result must be immutable."
+                    )
+            elif path.startswith(shared_index_prefix):
+                if overwrite is not True:
+                    raise RuntimeError(
+                        "Shared index overwrite policy mismatch."
+                    )
+            else:
+                raise RuntimeError(
+                    "Publication snapshot contains "
+                    "an unauthorized blob path."
+                )
+
+        from .detection_shared_index import (
+            write_shared_detection_index,
+        )
+
+        # Replay frozen results using immutable job writes
+        # and ETag-protected shared document indexes.
+        for write in plan["writes"]:
+            claim.assert_active()
+
+            path = write["blob_path"]
+
+            if path.startswith(shared_index_prefix):
+                write_shared_detection_index(
+                    container=publication_claim_store.container,
+                    blob_path=path,
+                    payload=write["payload"],
+                    storage_account=_processing_account(),
+                    container_name=_processing_container(),
+                )
+            else:
+                _write_processing_json(
+                    path,
+                    write["payload"],
+                    overwrite=False,
+                )
+
+        claim.assert_active()
+
+        return plan["result"]
+
+    return publish_detection_once(
+        detection_job_id=detection_job_id,
+        claim_store=publication_claim_store,
+        publish_results=_publish_final_results,
+        publish_results_with_claim=_publish_snapshot_and_replay,
+    )

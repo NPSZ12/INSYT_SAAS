@@ -378,6 +378,8 @@ def _run_worksheet_triage_engine(
     structured_rules: Iterable[
         DetectionRule
     ] | None = None,
+    chunk_executor=None,
+    max_chunks: int | None = None,
 ) -> dict[str, Any]:
     """
     Profile a worksheet-derived CSV/text representation.
@@ -404,6 +406,24 @@ def _run_worksheet_triage_engine(
     a worksheet responsive.
     """
 
+    if max_chunks is not None:
+        if type(max_chunks) is not int or max_chunks < 0:
+            raise ValueError(
+                "max_chunks must be positive."
+            )
+        if chunk_executor is None:
+            raise ValueError(
+                "Bounded execution requires an executor."
+            )
+        if max_chunks == 0 and not callable(
+            getattr(chunk_executor, "load_completed", None)
+        ):
+            raise ValueError(
+                "Zero budget requires checkpoint restoration."
+            )
+
+    chunks_processed = 0
+    scan_complete = True
     rows_scanned = 0
     characters_scanned = 0
 
@@ -432,7 +452,7 @@ def _run_worksheet_triage_engine(
 
     first_responsive_hit_row: int | None = None
 
-    def scan_chunk() -> None:
+    def scan_chunk(restored_result=None) -> None:
         nonlocal azure_candidate_count
         nonlocal structured_candidate_count
         nonlocal merged_candidate_count
@@ -448,15 +468,28 @@ def _run_worksheet_triage_engine(
         if not chunk_text.strip():
             return
 
-        engine_result = run_detection_engine(
-            chunk_text,
-            include_phi=include_phi,
-            protocol_name=protocol_name,
-            protocol_version=protocol_version,
-            enable_azure=enable_azure,
-            enable_structured_rules=True,
-            structured_rules=structured_rules,
-        )
+        if restored_result is not None:
+            engine_result = restored_result
+        elif chunk_executor is None:
+            engine_result = run_detection_engine(
+                chunk_text,
+                include_phi=include_phi,
+                protocol_name=protocol_name,
+                protocol_version=protocol_version,
+                enable_azure=enable_azure,
+                enable_structured_rules=True,
+                structured_rules=structured_rules,
+            )
+        else:
+            # The executor receives the deterministic work
+            # unit and may return a verified cached result.
+            # It must preserve chunk-local candidate offsets.
+            engine_result = chunk_executor(unit)
+
+        if not isinstance(engine_result, dict):
+            raise TypeError(
+                "Worksheet chunk executor must return a dictionary."
+            )
 
         azure_candidate_count += int(
             engine_result.get(
@@ -625,60 +658,55 @@ def _run_worksheet_triage_engine(
                         candidate_row
                     )
 
-    with path.open(
-        "r",
-        encoding="utf-8-sig",
-        errors="replace",
-        newline="",
-    ) as handle:
-        for line in handle:
-            if not chunk_parts:
-                chunk_start_offset = (
-                    characters_scanned
-                )
+    # Shared deterministic worksheet boundaries.
+    # Existing scan_chunk() retains all detection,
+    # first-occurrence, offset and responsiveness logic.
+    from ..worksheet_work_units import (
+        iter_worksheet_work_units,
+    )
 
-                chunk_start_row = (
-                    rows_scanned
-                    + 1
-                )
+    for unit in iter_worksheet_work_units(
+        path,
+        max_chars=WORKSHEET_TRIAGE_CHUNK_CHARS,
+        max_rows=WORKSHEET_TRIAGE_CHUNK_ROWS,
+    ):
+        restored = None
 
-            chunk_parts.append(
-                line
+        if max_chunks is not None:
+            load_completed = getattr(
+                chunk_executor, "load_completed", None
             )
 
-            line_length = len(
-                line
-            )
+            if callable(load_completed):
+                restored = load_completed(unit)
 
-            chunk_char_count += (
-                line_length
-            )
-
-            characters_scanned += (
-                line_length
-            )
-
-            rows_scanned += 1
-            chunk_row_count += 1
+                if (
+                    restored is not None
+                    and not isinstance(restored, dict)
+                ):
+                    raise TypeError(
+                        "Invalid restored chunk result."
+                    )
 
             if (
-                chunk_char_count
-                >= WORKSHEET_TRIAGE_CHUNK_CHARS
-                or chunk_row_count
-                >= WORKSHEET_TRIAGE_CHUNK_ROWS
+                restored is None
+                and chunks_processed >= max_chunks
             ):
-                scan_chunk()
+                scan_complete = False
+                break
 
-                chunk_parts = []
-                chunk_char_count = 0
-                chunk_row_count = 0
+        chunk_parts = [unit.text]
+        chunk_start_offset = unit.start_offset
+        chunk_start_row = unit.start_row
 
-        #
-        # Final partial chunk.
-        #
-        if chunk_parts:
-            scan_chunk()
+        rows_scanned = unit.end_row
+        characters_scanned = unit.end_offset
 
+        scan_chunk(restored_result=restored)
+        if restored is None:
+            chunks_processed += 1
+
+        chunk_parts = []
     profiled_candidates = sorted(
         first_candidates_by_type.values(),
         key=lambda candidate: (
@@ -705,6 +733,7 @@ def _run_worksheet_triage_engine(
     ]
 
     return {
+        "new_chunks_processed": chunks_processed,
         "candidates": (
             profiled_candidates
         ),
@@ -738,7 +767,7 @@ def _run_worksheet_triage_engine(
         # EOF was reached, so we know which entity TYPES are
         # present even though occurrence counts are incomplete.
         #
-        "scan_complete": True,
+        "scan_complete": scan_complete,
         "entity_counts_complete": False,
         "type_profile_complete": True,
 
@@ -809,6 +838,98 @@ def _run_worksheet_triage_engine(
         },
     }
 
+def _verify_selected_worksheet_progress(
+    *,
+    rows,
+    document_options,
+    workspace_key,
+    structured_rules,
+    rule_workbook_blob,
+    selected_rule_sheets,
+    include_phi,
+    enable_azure_detection,
+    protocol_name,
+    protocol_version,
+    worksheet_executor_factory,
+    selected_doc_ids,
+):
+    """Verify the exact selected worksheet population."""
+    from ..detection_checkpoint_progress import (
+        verify_detection_checkpoint_progress,
+    )
+
+    if not callable(worksheet_executor_factory):
+        raise RuntimeError(
+            "Checkpoint executor factory unavailable."
+        )
+
+    worksheets = []
+    seen = set()
+
+    for row in rows:
+        doc_id = str(_row_get(row, "doc_id") or "").strip()
+
+        if not doc_id or doc_id in seen:
+            raise ValueError(
+                "Missing or duplicate selected document ID."
+            )
+
+        seen.add(doc_id)
+
+        options = document_options.get(doc_id) or {}
+
+        if (
+            _normalized_detection_mode(
+                options.get("detection_mode")
+            ) != WORKSHEET_TRIAGE_MODE
+        ):
+            raise ValueError(
+                "Bounded checkpoint verification requires "
+                "worksheet-triage documents."
+            )
+
+        path_value = _find_text_path(row)
+
+        if not path_value:
+            raise RuntimeError(
+                "Selected worksheet text path missing."
+            )
+
+        executor = worksheet_executor_factory(
+            doc_id=doc_id,
+            workspace=workspace_key,
+            structured_rules=structured_rules,
+            rule_source=rule_workbook_blob,
+            selected_sheets=selected_rule_sheets,
+            include_phi=include_phi,
+            enable_azure=enable_azure_detection,
+            protocol_name=protocol_name,
+            protocol_version=protocol_version,
+        )
+
+        worksheets.append({
+            "doc_id": doc_id,
+            "path": path_value,
+            "executor": executor,
+        })
+
+    if selected_doc_ids and seen != selected_doc_ids:
+        raise ValueError(
+            "Verified worksheet population does not match "
+            "the selected document IDs."
+        )
+
+    return verify_detection_checkpoint_progress(
+        worksheets=worksheets,
+        max_chars=WORKSHEET_TRIAGE_CHUNK_CHARS,
+        max_rows=WORKSHEET_TRIAGE_CHUNK_ROWS,
+    )
+
+
+class IncompleteWorksheetDetection(RuntimeError):
+    """Incomplete worksheet; do not classify or finalize."""
+
+
 def run_pii_phi_detection(
     db,
     *,
@@ -832,6 +953,8 @@ def run_pii_phi_detection(
         dict[str, dict[str, Any]]
         | None
     ) = None,
+    worksheet_executor_factory=None,
+    max_chunks_per_document: int | None = None,
 ) -> dict:
     """
     Scan ingestion-complete documents with the unified INSYT
@@ -907,13 +1030,6 @@ def run_pii_phi_detection(
                 or None
             ),
         )
-
-        if not structured_rules:
-            raise RuntimeError(
-                "Discovery Detection cannot run without "
-                "loaded Discovery Search Rules. "
-                "Documents must not be classified NO_HIT."
-            )
 
         enable_azure_detection = False
         include_phi = False
@@ -996,6 +1112,20 @@ def run_pii_phi_detection(
         ),
     )
 
+    if max_chunks_per_document is not None:
+        if (
+            type(max_chunks_per_document) is not int
+            or max_chunks_per_document < 1
+        ):
+            raise ValueError(
+                "Invalid shared detection budget."
+            )
+        if worksheet_executor_factory is None:
+            raise ValueError(
+                "Bounded detection requires checkpoints."
+            )
+
+    remaining_chunks = max_chunks_per_document
     rows = db.query(
         """
         SELECT *
@@ -1188,6 +1318,24 @@ def run_pii_phi_detection(
                         structured_rules=(
                             structured_rules
                         ),
+                        max_chunks=(
+                            remaining_chunks
+                        ),
+                        chunk_executor=(
+                            worksheet_executor_factory(
+                                doc_id=doc_id,
+                                workspace=workspace_key,
+                                structured_rules=structured_rules,
+                                rule_source=rule_workbook_blob,
+                                selected_sheets=selected_rule_sheets,
+                                include_phi=include_phi,
+                                enable_azure=enable_azure_detection,
+                                protocol_name=protocol_name,
+                                protocol_version=protocol_version,
+                            )
+                            if worksheet_executor_factory is not None
+                            else None
+                        ),
                     )
                 )
 
@@ -1220,6 +1368,32 @@ def run_pii_phi_detection(
                     ] = (
                         IAR_FULL_DETECTION_MODE
                     )
+
+            if (
+                remaining_chunks is not None
+                and detection_mode == WORKSHEET_TRIAGE_MODE
+            ):
+                consumed = engine_result.get(
+                    "new_chunks_processed"
+                )
+                if (
+                    type(consumed) is not int
+                    or not 0 <= consumed <= remaining_chunks
+                ):
+                    raise IncompleteWorksheetDetection(
+                        "Invalid bounded work accounting."
+                    )
+                remaining_chunks -= consumed
+            # Do not classify an incomplete checkpoint-enabled worksheet.
+            if (
+                worksheet_executor_factory is not None
+                and detection_mode == WORKSHEET_TRIAGE_MODE
+                and engine_result.get('scan_complete') is not True
+            ):
+                raise IncompleteWorksheetDetection(
+                    'Worksheet detection is incomplete; '
+                    'final classification is prohibited.'
+                )
 
             candidates = (
                 engine_result.get("candidates")
@@ -1503,6 +1677,34 @@ def run_pii_phi_detection(
             else:
                 documents_no_hits += 1
 
+        except IncompleteWorksheetDetection as exc:
+            # Only an incomplete scan is resumable.
+            # Invalid accounting remains a hard failure.
+            if (
+                remaining_chunks is not None
+                and str(exc) == (
+                    "Worksheet detection is incomplete; "
+                    "final classification is prohibited."
+                )
+            ):
+                exc.checkpoint_progress = (
+                    _verify_selected_worksheet_progress(
+                        rows=rows,
+                        document_options=document_options,
+                        workspace_key=workspace_key,
+                        structured_rules=structured_rules,
+                        rule_workbook_blob=rule_workbook_blob,
+                        selected_rule_sheets=selected_rule_sheets,
+                        include_phi=include_phi,
+                        enable_azure_detection=enable_azure_detection,
+                        protocol_name=protocol_name,
+                        protocol_version=protocol_version,
+                        worksheet_executor_factory=worksheet_executor_factory,
+                        selected_doc_ids=selected_doc_ids,
+                    )
+                )
+            raise
+
         except Exception as exc:
             documents_exception += 1
 
@@ -1530,6 +1732,37 @@ def run_pii_phi_detection(
                     utc_now(),
                     detection_document_id,
                 ),
+            )
+
+    # Final bounded checkpoint verification.
+    # Never finalize from local SQLite results alone.
+    if remaining_chunks is not None:
+        progress = _verify_selected_worksheet_progress(
+            rows=rows,
+            document_options=document_options,
+            workspace_key=workspace_key,
+            structured_rules=structured_rules,
+            rule_workbook_blob=rule_workbook_blob,
+            selected_rule_sheets=selected_rule_sheets,
+            include_phi=include_phi,
+            enable_azure_detection=enable_azure_detection,
+            protocol_name=protocol_name,
+            protocol_version=protocol_version,
+            worksheet_executor_factory=worksheet_executor_factory,
+            selected_doc_ids=selected_doc_ids,
+        )
+
+        if (
+            progress.get("checkpoint_verified") is not True
+            or progress.get("job_complete") is not True
+            or type(progress.get("completed_units")) is not int
+            or type(progress.get("total_units")) is not int
+            or progress["total_units"] < 1
+            or progress["completed_units"] != progress["total_units"]
+        ):
+            raise RuntimeError(
+                "Final checkpoint verification incomplete; "
+                "publication prohibited."
             )
 
     db.execute(
@@ -1585,14 +1818,6 @@ def run_pii_phi_detection(
     )
 
     return {
-        "diagnostic_rule_count": (
-            len(structured_rules)
-            if structured_rules is not None
-            else None
-        ),
-        "diagnostic_azure_ner_enabled": (
-            enable_azure_detection
-        ),
         "detection_run_id": detection_run_id,
         "status": (
             "completed"

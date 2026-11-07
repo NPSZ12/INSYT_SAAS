@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -367,38 +367,42 @@ def process_detection_message(
         payload
     )
 
+    is_continuation = (
+        payload.get("detection_continuation") is True
+    )
     db: LedgerDB | None = None
 
     try:
-        _update_status(
-            status_blob_path=status_blob_path,
-            status="running",
-            stage="starting",
-            progress_pct=5,
-            message=(
-                "Data Element Detection Worker V2 "
-                "accepted job."
-            ),
-            extra={
-                "current_step": (
-                    "Detection Worker V2 accepted "
-                    "queued Data Element Detection job."
+        if not is_continuation:
+            _update_status(
+                status_blob_path=status_blob_path,
+                status="running",
+                stage="starting",
+                progress_pct=5,
+                message=(
+                    "Data Element Detection Worker V2 "
+                    "accepted job."
                 ),
-                "worker_started_at": utc_now(),
-                "worker_version": "v2",
-                "job_type": "data_element_detection",
-                "detection_job_id": detection_job_id,
-                "source_job_id": payload.get(
-                    "source_job_id"
-                ),
-                "source_ocr_set_id": payload.get(
-                    "source_ocr_set_id"
-                ),
-                "client": client,
-                "project": project,
-                "workspace": workspace,
-            },
-        )
+                extra={
+                    "current_step": (
+                        "Detection Worker V2 accepted "
+                        "queued Data Element Detection job."
+                    ),
+                    "worker_started_at": utc_now(),
+                    "worker_version": "v2",
+                    "job_type": "data_element_detection",
+                    "detection_job_id": detection_job_id,
+                    "source_job_id": payload.get(
+                        "source_job_id"
+                    ),
+                    "source_ocr_set_id": payload.get(
+                        "source_ocr_set_id"
+                    ),
+                    "client": client,
+                    "project": project,
+                    "workspace": workspace,
+                },
+            )
 
         db = LedgerDB(
             _db_path(
@@ -406,26 +410,150 @@ def process_detection_message(
             )
         )
 
-        _update_status(
-            status_blob_path=status_blob_path,
-            status="running",
-            stage="preparing_detection",
-            progress_pct=15,
-            message=(
-                "Preparing staged text for "
-                "Data Element Detection."
-            ),
-            extra={
-                "current_step": (
-                    "Loading detection population "
-                    "and staged text."
+        if not is_continuation:
+            _update_status(
+                status_blob_path=status_blob_path,
+                status="running",
+                stage="preparing_detection",
+                progress_pct=15,
+                message=(
+                    "Preparing staged text for "
+                    "Data Element Detection."
                 ),
-            },
+                extra={
+                    "current_step": (
+                        "Loading detection population "
+                        "and staged text."
+                    ),
+                },
+            )
+
+        # Opt-in worksheet checkpoints. This does not
+        # enable bounded continuation by itself.
+        worksheet_executor_factory = None
+
+        if (
+            os.getenv(
+                "INSYT_DETECTION_WORKSHEET_CHECKPOINTS_ENABLED",
+                "",
+            ).strip().lower()
+            == "true"
+        ):
+            from apc.detection_checkpoint_store import (
+                DetectionCheckpointStore,
+            )
+            from apc.worksheet_executor_factory import (
+                make_worksheet_executor_factory,
+            )
+
+            if workspace not in {"capture", "discovery"}:
+                raise ValueError(
+                    "Unsupported checkpoint workspace."
+                )
+
+            project_key = project.replace(" ", "_")
+
+            checkpoint_store = DetectionCheckpointStore(
+                _container_client(),
+                project_prefix=(
+                    f"{client}/{workspace}/{project_key}"
+                ),
+            )
+
+            claim_store = None
+
+            if (
+                os.getenv(
+                    "INSYT_DETECTION_WORK_CLAIMS_ENABLED",
+                    "",
+                ).strip().lower()
+                == "true"
+            ):
+                from apc.detection_work_claim import (
+                    DetectionWorkClaimStore,
+                )
+
+                claim_store = DetectionWorkClaimStore(
+                    checkpoint_store.container,
+                    project_prefix=checkpoint_store.project_prefix,
+                )
+
+            worksheet_executor_factory = (
+                make_worksheet_executor_factory(
+                    store=checkpoint_store,
+                    detection_job_id=detection_job_id,
+                    claim_store=claim_store,
+                )
+            )
+
+        # Opt-in bounded detection. Default remains
+        # the existing unbounded Capture/Discovery path.
+        bounded_enabled = (
+            os.getenv(
+                "INSYT_DETECTION_BOUNDED_ENABLED",
+                "",
+            ).strip().lower()
+            == "true"
         )
+
+        max_chunks = None
+
+        if bounded_enabled:
+            checkpoints_enabled = (
+                os.getenv(
+                    "INSYT_DETECTION_WORKSHEET_CHECKPOINTS_ENABLED",
+                    "",
+                ).strip().lower()
+                == "true"
+            )
+
+            claims_enabled = (
+                os.getenv(
+                    "INSYT_DETECTION_WORK_CLAIMS_ENABLED",
+                    "",
+                ).strip().lower()
+                == "true"
+            )
+
+            if not checkpoints_enabled or not claims_enabled:
+                raise RuntimeError(
+                    "Bounded detection requires enabled "
+                    "worksheet checkpoints and work claims."
+                )
+
+            if worksheet_executor_factory is None:
+                raise RuntimeError(
+                    "Bounded detection executor unavailable."
+                )
+
+            raw_budget = os.getenv(
+                "INSYT_DETECTION_MAX_CHUNKS_PER_INVOCATION",
+                "1",
+            ).strip()
+
+            try:
+                max_chunks = int(raw_budget)
+            except ValueError as exc:
+                raise ValueError(
+                    "Invalid bounded detection chunk budget."
+                ) from exc
+
+            if not 1 <= max_chunks <= 10:
+                raise ValueError(
+                    "Bounded detection chunk budget "
+                    "must be between 1 and 10."
+                )
 
         result = run_data_element_detection_job(
             db=db,
             payload=payload,
+            max_chunks_per_document=max_chunks,
+            publication_claim_store=(
+                claim_store if bounded_enabled else None
+            ),
+            worksheet_executor_factory=(
+                worksheet_executor_factory
+            ),
         )
 
         if not isinstance(result, dict):
@@ -436,6 +564,71 @@ def process_detection_message(
             or ""
         ).strip().lower()
 
+        # Bounded jobs resume through the existing
+        # Detection V2 queue, not final publication.
+        if runner_status == "continuation_required":
+            if result.get("checkpoint_verified") is not True:
+                raise RuntimeError(
+                    "Continuation lacks verified checkpoint state."
+                )
+
+            completed = result.get("completed_units")
+            total = result.get("total_units")
+
+            if (
+                type(completed) is not int
+                or type(total) is not int
+                or total < 1
+                or not 0 <= completed < total
+            ):
+                raise RuntimeError(
+                    "Invalid bounded detection progress."
+                )
+
+            from apc.detection_continuation_queue import (
+                enqueue_detection_continuation,
+            )
+
+            # Send before acknowledging this invocation.
+            # Failures propagate to the existing worker
+            # failure/retry path.
+            enqueue_detection_continuation(payload)
+
+            progress = min(
+                90,
+                15 + int(75 * completed / total),
+            )
+
+            _update_status(
+                status_blob_path=status_blob_path,
+                status="running",
+                stage="processing_detection",
+                progress_pct=progress,
+                message=(
+                    "Detection checkpoints saved; "
+                    "remaining work queued."
+                ),
+                extra={
+                    "current_step": (
+                        "Continuing bounded detection."
+                    ),
+                    "completed_units": completed,
+                    "total_units": total,
+                    "detection_job_id": detection_job_id,
+                },
+            )
+
+            return
+
+        # Never publish a nonterminal detection result.
+        if runner_status not in {
+            "completed",
+            "completed_with_exceptions",
+        }:
+            raise RuntimeError(
+                "Detection runner did not return a "
+                f"terminal result: {runner_status!r}"
+            )
         documents_exception = int(
             result.get(
                 "documents_exception",
@@ -460,19 +653,6 @@ def process_detection_message(
             )
 
         summary = {
-            "diagnostic_workspace": workspace,
-            "diagnostic_selected_rule_sheets": (
-                payload.get("search_rule_sheets") or []
-            ),
-            "diagnostic_rule_count": result.get(
-                "diagnostic_rule_count"
-            ),
-            "diagnostic_azure_ner_enabled": result.get(
-                "diagnostic_azure_ner_enabled"
-            ),
-            "diagnostic_release_sha": result.get(
-                "diagnostic_release_sha"
-            ),
             "detection_run_id": result.get(
                 "detection_run_id"
             ),

@@ -48,6 +48,7 @@ class WorksheetCheckpointExecutor:
     engine: Callable[..., dict[str, Any]]
     protocol_name: str | None = None
     protocol_version: str | None = None
+    claim_store: Any = None
 
     def _fingerprint(
         self,
@@ -161,9 +162,94 @@ class WorksheetCheckpointExecutor:
             **counts,
         }
 
+
+    def load_completed(
+        self,
+        unit: WorksheetWorkUnit,
+    ) -> dict[str, Any] | None:
+        """Restore a verified completed work unit."""
+        return self._restore(
+            unit,
+            self._fingerprint(unit),
+        )
+
     def __call__(
         self,
         unit: WorksheetWorkUnit,
+    ) -> dict[str, Any]:
+        if self.claim_store is None:
+            return self._execute_unclaimed(unit)
+
+        from threading import Event, Thread
+
+        fingerprint = self._fingerprint(unit)
+
+        cached = self._restore(unit, fingerprint)
+        if cached is not None:
+            return cached
+
+        expected = self._checkpoint(unit, fingerprint)
+        claim = self.claim_store.try_acquire(expected)
+
+        if claim is None:
+            cached = self._restore(unit, fingerprint)
+            if cached is not None:
+                return cached
+
+            raise RuntimeError(
+                "Detection work unit is leased; "
+                "continuation must be deferred."
+            )
+
+        stop = Event()
+        renewal_errors = []
+
+        def renew_claim():
+            while not stop.wait(15):
+                try:
+                    claim.renew()
+                except Exception as exc:
+                    renewal_errors.append(exc)
+                    stop.set()
+                    return
+
+        heartbeat = Thread(
+            target=renew_claim,
+            daemon=True,
+        )
+
+        try:
+            claim.assert_active()
+            heartbeat.start()
+
+            # Original checkpoint execution, publication,
+            # conflict recovery and result validation.
+            result = self._execute_unclaimed(unit, claim=claim)
+
+            stop.set()
+            heartbeat.join()
+
+            if renewal_errors:
+                raise RuntimeError(
+                    "Detection work-unit lease renewal failed."
+                ) from renewal_errors[0]
+
+            claim.assert_active()
+            return result
+
+        finally:
+            stop.set()
+
+            if heartbeat.is_alive():
+                heartbeat.join()
+
+            claim.release()
+
+    def _execute_unclaimed(
+        self,
+        unit: WorksheetWorkUnit,
+        *,
+        claim=None,
     ) -> dict[str, Any]:
         fingerprint = self._fingerprint(unit)
 
@@ -223,6 +309,10 @@ class WorksheetCheckpointExecutor:
             fingerprint,
             completed_at=utc_now(),
         )
+
+        # Fail closed before publishing a checkpoint.
+        if claim is not None:
+            claim.assert_active()
 
         published = self.store.save_completed(
             completed,
