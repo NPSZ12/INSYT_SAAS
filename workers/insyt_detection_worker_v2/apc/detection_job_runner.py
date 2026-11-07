@@ -149,39 +149,40 @@ def _download_detection_text(
     destination: Path,
 ) -> None:
     """
-    Stream staged Detection text from INSYT processing
-    storage directly to local disk.
+    Download staged text from its authoritative storage.
 
-    Detection input paths supplied by OCR and structured-data
-    ingestion are processing-center paths and must therefore
-    resolve against INSYT_PROCESSING_STORAGE_* rather than
-    review storage.
+    INSYT Processing Center staged/native and staged/text
+    files are inventoried in workspace review storage.
+
+    Other processing-source paths retain their existing
+    processing-container routing.
     """
+    workspace_key = str(workspace or "").strip().lower()
+    path = str(blob_path or "").strip()
 
-    processing_conn = (
-        os.getenv(
-            "INSYT_PROCESSING_STORAGE_CONNECTION_STRING"
-        )
-        or ""
-    ).strip()
-
-    if not processing_conn:
-        raise RuntimeError(
-            "INSYT_PROCESSING_STORAGE_CONNECTION_STRING "
-            "is required by Detection Worker V2."
+    if workspace_key not in {"capture", "discovery"}:
+        raise ValueError(
+            "Unsupported detection source workspace."
         )
 
-    service = BlobServiceClient.from_connection_string(
-        processing_conn
-    )
+    if not path or path.startswith("/") or "\\" in path:
+        raise ValueError(
+            "Invalid detection source blob path."
+        )
 
-    container = service.get_container_client(
-        _processing_container()
-    )
+    if "/processing_center/staged/" in path:
+        # Existing Capture/Discovery staged-file inventory
+        # originates from workspace review storage.
+        container = _review_blob_service().get_container_client(
+            _review_container(workspace_key)
+        )
+    else:
+        # Preserve existing processing-storage source routing.
+        container = _processing_blob_service().get_container_client(
+            _processing_container()
+        )
 
-    blob_client = container.get_blob_client(
-        blob_path
-    )
+    blob_client = container.get_blob_client(path)
 
     destination.parent.mkdir(
         parents=True,
@@ -192,10 +193,8 @@ def _download_detection_text(
 
     with destination.open("wb") as handle:
         for chunk in downloader.chunks():
-            if not chunk:
-                continue
-
-            handle.write(chunk)
+            if chunk:
+                handle.write(chunk)
 
 def _seed_source_job(
     db: LedgerDB,
