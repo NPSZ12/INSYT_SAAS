@@ -82,6 +82,8 @@ function MergeDedupeContent() {
   const client = params.get("client") || "";
   const project = params.get("project") || "";
 
+  const requestedHeaderSet = params.get("header_set_id") || "";
+
   const [sets, setSets] = useState<HeaderSet[]>([]);
   const [selectedSet, setSelectedSet] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -150,6 +152,16 @@ function MergeDedupeContent() {
       active = false;
     };
   }, [base, client, project]);
+
+  useEffect(() => {
+    if (
+      requestedHeaderSet &&
+      !selectedSet &&
+      sets.some((item) => item.header_set_id === requestedHeaderSet)
+    ) {
+      setSelectedSet(requestedHeaderSet);
+    }
+  }, [requestedHeaderSet, selectedSet, sets]);
 
   useEffect(() => {
     let active = true;
@@ -577,9 +589,9 @@ function MergeDedupeContent() {
                   Excluded records: {preview.excluded.length}.
                 </p>
 
-                <div className="overflow-x-auto rounded-lg border border-slate-800">
+                <div className="max-h-[450px] overflow-auto rounded-lg border border-slate-800">
                   <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-900 text-slate-300">
+                    <thead className="sticky top-0 z-10 bg-slate-900 text-slate-300">
                       <tr>
                         <th className="p-3">Result</th>
                         <th className="p-3">RAW members</th>

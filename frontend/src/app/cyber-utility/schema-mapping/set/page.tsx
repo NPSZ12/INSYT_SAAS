@@ -395,11 +395,6 @@ function SchemaMappingSetContent() {
     ] =
     useState(false);
 
-  const [
-    generatingRawCapture,
-    setGeneratingRawCapture,
-  ] =
-    useState(false);
 
   const [
     generatingAiCapture,
@@ -2059,57 +2054,74 @@ function SchemaMappingSetContent() {
     }
   }
 
-  async function generateRawCapture() {
-    if (
-      !client ||
-      !project ||
-      !headerSetId
-    ) {
+  const mappedCsvReady = (() => {
+    const manifest = mappedCsvData?.mapped_csv_manifest;
+    if (!mappedCsvData?.mapped_csv_manifest_exists || !manifest) {
+      return false;
+    }
+
+    const total = manifest.document_count ?? 0;
+    const generated = manifest.generated_document_count ?? 0;
+    const failed = manifest.failed_document_count ?? -1;
+
+    return (
+      manifest.status === "completed" &&
+      total > 0 &&
+      generated === total &&
+      failed === 0 &&
+      (manifest.total_source_rows ?? 0) > 0 &&
+      manifest.total_source_rows === manifest.total_mapped_rows &&
+      Array.isArray(manifest.documents) &&
+      manifest.documents.length === total
+    );
+  })();
+
+  async function moveToMergeDedupe() {
+    if (!mappedCsvReady || !headerSetId || !client || !project) {
       return;
     }
 
-    setGeneratingRawCapture(true);
     setError("");
-    setMessage("");
 
     try {
-      const result =
-        await apiPost(
-          `/api/${encodeURIComponent(
-            workspace
-          )}/cyber2/header-sets/${encodeURIComponent(
-            headerSetId
-          )}/mapping/generate-raw-capture`,
-          {
-            client,
-            project,
-            generated_by: "",
-            replace_header_set_rows: true,
-          }
+      const query = new URLSearchParams({ client, project });
+      const result = await apiGet(
+        `/api/${encodeURIComponent(workspace)}/cyber2/header-sets/${encodeURIComponent(headerSetId)}/mapping/mapped-csvs?${query.toString()}`
+      );
+
+      const manifest = result?.mapped_csv_manifest;
+      const total = manifest?.document_count ?? 0;
+
+      if (
+        result?.mapped_csv_manifest_exists !== true ||
+        manifest?.status !== "completed" ||
+        manifest?.header_set_id !== headerSetId ||
+        manifest?.workspace !== workspace ||
+        manifest?.client !== client ||
+        manifest?.project !== project ||
+        total <= 0 ||
+        manifest.generated_document_count !== total ||
+        manifest.failed_document_count !== 0 ||
+        !(manifest.total_source_rows > 0) ||
+        manifest.total_source_rows !== manifest.total_mapped_rows ||
+        !Array.isArray(manifest.documents) ||
+        manifest.documents.length !== total
+      ) {
+        throw new Error(
+          "Complete all Mapped CSV outputs before continuing."
         );
+      }
 
-      setMessage(
-        result?.message ||
-        "Raw XL capture generation completed."
+      const params = buildProjectParams();
+      params.set("header_set_id", headerSetId);
+
+      router.push(
+        `/cyber-utility/merge-dedupe?${params.toString()}`
       );
-
-      await loadHeaderSet();
-
-      await loadMappedCsvs();
-
-    } catch (err: any) {
-      console.error(
-        "Raw XL capture generation failed:",
-        err
-      );
-
+    } catch (reason: any) {
       setError(
-        err?.message ||
-        "Raw XL capture generation failed."
+        reason?.message || "Unable to verify Mapped CSV readiness."
       );
-
-    } finally {
-      setGeneratingRawCapture(false);
     }
   }
 
@@ -3320,25 +3332,14 @@ function SchemaMappingSetContent() {
                             ) : (
                               <button
                                 type="button"
-                                onClick={
-                                  generateRawCapture
-                                }
+                                onClick={moveToMergeDedupe}
                                 disabled={
-                                  generatingRawCapture ||
-                                  !mappedCsvData
-                                    ?.mapped_csv_manifest_exists ||
-                                  (
-                                    mappedCsvData
-                                      ?.mapped_csv_manifest
-                                      ?.generated_document_count ??
-                                    0
-                                  ) === 0
+                                  generatingMappedCsvs ||
+                                  !mappedCsvReady
                                 }
                                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                               >
-                                {generatingRawCapture
-                                  ? "Generating Raw Capture..."
-                                  : "Generate Raw Capture"}
+                                Move to Merge &amp; Dedupe
                               </button>
                             )}
 
