@@ -208,12 +208,41 @@ def build_merged_working_population(
                 value = deepcopy(record["metadata"].get(field))
                 values.append(value)
 
+                source_provenance = record.get("provenance") or {}
+                column_matches = [
+                    column
+                    for column in source_provenance.get(
+                        "column_lineage", []
+                    )
+                    if isinstance(column, dict)
+                    and column.get("output_header") == field
+                ]
+
+                if len(column_matches) > 1:
+                    raise MergeExecutionError(
+                        "Ambiguous source-column lineage"
+                    )
+
+                column_source = (
+                    column_matches[0] if column_matches else {}
+                )
+
                 lineage.append({
                     "ucid": str(record["ucid"]),
                     "doc_id": str(record["doc_id"]),
-                    "source_row_number": (
-                        record.get("provenance") or {}
-                    ).get("source_row_number"),
+                    "source_row_number": source_provenance.get(
+                        "source_row_number"
+                    ),
+                    "source_column_index": column_source.get(
+                        "source_column_index"
+                    ),
+                    "source_header": column_source.get(
+                        "source_header"
+                    ),
+                    "canonical_header": column_source.get(
+                        "canonical_header", field
+                    ),
+                    "output_header": field,
                     "original_value": value,
                 })
 

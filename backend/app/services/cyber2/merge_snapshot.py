@@ -108,10 +108,10 @@ def merge_snapshot_fingerprint(
         rows.append({
             "ucid": ucid,
             "doc_id": doc_id,
-            "metadata": {
-                field: metadata.get(field)
-                for field in headers
-            },
+            # Include every mapped column, including suffixed and
+            # custom fields, in the optimistic-concurrency fingerprint.
+            # Approved protocol headers still control the Merge Index.
+            "metadata": dict(metadata),
             "provenance": provenance,
         })
 

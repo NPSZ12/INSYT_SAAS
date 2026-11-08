@@ -219,6 +219,36 @@ def list_cyber2_memberships(
     }
 
 
+def _load_cyber2_merge_processing_set(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    header_set_id: str,
+    approved_mapping: dict,
+) -> dict:
+    """Read validated C2 Mapped CSV records; never write RAW."""
+
+    from app.services.cyber2.mapped_processing_set import (
+        MappedProcessingSetError,
+        load_cyber2_mapped_processing_set,
+    )
+
+    try:
+        return load_cyber2_mapped_processing_set(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+            approved_mapping=approved_mapping,
+        )
+    except MappedProcessingSetError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+
 @router.post("/{workspace}/cyber2/merge-dedupe/preview")
 def preview_cyber2_exact_dedupe(
     workspace: Workspace,
@@ -310,16 +340,19 @@ def preview_cyber2_exact_dedupe(
         and field.strip().casefold() in strong_identifier_names
     ]
 
-    records = load_cyber2_raw_capture_records(
-        workspace,
-        body.client,
-        body.project,
+    processing_set = _load_cyber2_merge_processing_set(
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+        header_set_id=body.header_set_id,
+        approved_mapping=mapping,
     )
+    records = processing_set["records"]
 
     if not isinstance(records, list) or not records:
         raise HTTPException(
             status_code=409,
-            detail="RAW Capture population unavailable",
+            detail="Mapped CSV processing population unavailable",
         )
 
     try:
@@ -427,11 +460,16 @@ def preview_cyber2_spreadsheet(
             detail="Spreadsheet exceeds current 5000-row limit",
         )
 
-    records = load_cyber2_raw_capture_records(
-        workspace,
-        body.client,
-        body.project,
+    processing_set = _load_cyber2_merge_processing_set(
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+        header_set_id=body.header_set_id,
+        approved_mapping=mapping,
     )
+    records = processing_set["records"]
+
+    headers = processing_set["output_headers"]
 
     rows = []
     seen = set()
@@ -684,16 +722,21 @@ def execute_cyber2_exact_merge(
         if field.strip().casefold() in strong_names
     ]
 
-    records = load_cyber2_raw_capture_records(
-        workspace,
-        body.client,
-        body.project,
+    processing_set = _load_cyber2_merge_processing_set(
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+        header_set_id=body.header_set_id,
+        approved_mapping=mapping,
     )
+    records = processing_set["records"]
+
+    headers = processing_set["output_headers"]
 
     if not isinstance(records, list) or not records:
         raise HTTPException(
             status_code=409,
-            detail="Current RAW source population unavailable",
+            detail="Mapped CSV processing population unavailable",
         )
 
     try:
