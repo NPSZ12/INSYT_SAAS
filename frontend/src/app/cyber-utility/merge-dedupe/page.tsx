@@ -285,7 +285,23 @@ function MergeDedupeContent() {
         sheet.preview_rows.length !== result.raw_record_count ||
         new Set(sheet.preview_rows.map((row) => row.ucid)).size !==
           sheet.preview_rows.length ||
-        sheet.preview_columns.some((field) => !headers.includes(field)) ||
+        sheet.preview_columns.length === 0 ||
+        sheet.preview_columns.some(
+          (field) => typeof field !== "string" || !field.trim()
+        ) ||
+        new Set(
+          sheet.preview_columns.map((field) => field.trim().toLowerCase())
+        ).size !== sheet.preview_columns.length ||
+        sheet.preview_rows.some(
+          (row) =>
+            !row.cells ||
+            typeof row.cells !== "object" ||
+            Array.isArray(row.cells) ||
+            Object.keys(row.cells).length !== sheet.preview_columns.length ||
+            sheet.preview_columns.some(
+              (field) => !Object.prototype.hasOwnProperty.call(row.cells, field)
+            )
+        ) ||
         sheet.preview_rows.some(
           (row) =>
             !row.ucid ||
