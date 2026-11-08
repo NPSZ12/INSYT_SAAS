@@ -607,51 +607,6 @@ def _generate_mapped_document_rows(
             }
         )
 
-    #
-    # Do not permit duplicate output
-    # headers inside one mapped CSV.
-    #
-    duplicate_check: dict[
-        str,
-        list[int],
-    ] = {}
-
-    for column in retained_columns:
-
-        normalized = (
-            _normalize_header(
-                column[
-                    "final_header"
-                ]
-            )
-        )
-
-        duplicate_check.setdefault(
-            normalized,
-            [],
-        ).append(
-            int(
-                column[
-                    "column_index"
-                ]
-            )
-        )
-
-    duplicates = {
-        key: indexes
-        for key, indexes
-        in duplicate_check.items()
-        if key
-        and len(indexes) > 1
-    }
-
-    if duplicates:
-        raise ValueError(
-            "Multiple source columns map "
-            "to the same final output header: "
-            f"{duplicates}"
-        )
-
     protocol_order = {
         _normalize_header(
             header
@@ -681,6 +636,42 @@ def _generate_mapped_document_rows(
         )
     )
 
+
+    #
+    # Preserve duplicate source columns by assigning
+    # unique mapped CSV output headers after protocol
+    # ordering. Never merge or discard cell values here.
+    #
+    reserved_names = {
+        _normalize_header(str(column["final_header"]))
+        for column in retained_columns
+    }
+    used_names: set[str] = set()
+
+    for column in retained_columns:
+        canonical_header = str(column["final_header"])
+        output_header = canonical_header
+        normalized = _normalize_header(output_header)
+
+        if normalized in used_names:
+            suffix = 2
+
+            while True:
+                output_header = f"{canonical_header}_{suffix}"
+                normalized = _normalize_header(output_header)
+
+                if (
+                    normalized not in used_names
+                    and normalized not in reserved_names
+                ):
+                    break
+
+                suffix += 1
+
+        column["canonical_header"] = canonical_header
+        column["final_header"] = output_header
+        used_names.add(normalized)
+
     output_headers = [
         str(
             column[
@@ -689,6 +680,23 @@ def _generate_mapped_document_rows(
         )
         for column
         in retained_columns
+    ]
+
+
+    column_lineage = [
+        {
+            "output_column_index": output_index,
+            "source_column_index": int(column["column_index"]),
+            "source_header": str(column.get("source_header") or ""),
+            "canonical_header": str(
+                column.get("canonical_header") or column["final_header"]
+            ),
+            "output_header": str(column["final_header"]),
+            "mapped_to_protocol": bool(
+                column.get("mapped_to_protocol", False)
+            ),
+        }
+        for output_index, column in enumerate(retained_columns)
     ]
 
     output_rows: list[
@@ -774,23 +782,19 @@ def _generate_mapped_document_rows(
         )
 
     protocol_headers_present = [
-        header
-        for header
-        in output_headers
+        str(column["final_header"])
+        for column in retained_columns
         if _normalize_header(
-            header
-        )
-        in protocol_order
+            str(column.get("canonical_header") or column["final_header"])
+        ) in protocol_order
     ]
 
     custom_headers_retained = [
-        header
-        for header
-        in output_headers
+        str(column["final_header"])
+        for column in retained_columns
         if _normalize_header(
-            header
-        )
-        not in protocol_order
+            str(column.get("canonical_header") or column["final_header"])
+        ) not in protocol_order
     ]
 
     deleted_headers = [
@@ -827,6 +831,9 @@ def _generate_mapped_document_rows(
 
         "deleted_headers":
             deleted_headers,
+
+        "column_lineage":
+            column_lineage,
 
         "source_row_count": (
             len(
@@ -2432,6 +2439,10 @@ def generate_cyber2_mapped_csvs(
                         transformed[
                             "output_headers"
                         ]
+                    ),
+
+                    "column_lineage": (
+                        transformed["column_lineage"]
                     ),
 
                     "protocol_headers_present": (

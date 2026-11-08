@@ -6,6 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { ScanSearch, RefreshCw, Play, Download } from "lucide-react";
 
 import AppShell from "../../../components/AppShell";
+import {
+  detectionJobStorageKey,
+  readDetectionJobId,
+  saveDetectionJobId,
+} from "../../../lib/detectionJobPersistence";
 import { apiGet, apiPost, buildApiUrl } from "../../../lib/api";
 
 type DetectionReadyDoc = {
@@ -42,6 +47,8 @@ type DetectionStatus = {
   status?: string;
   stage?: string;
   progress_pct?: number;
+  completed_units?: number;
+  total_units?: number;
   message?: string;
   detection_job_id?: string;
   source_job_id?: string;
@@ -550,6 +557,22 @@ function DataElementDetectionPageContent() {
     }
   }
 
+  const detectionStorageKey = useMemo(
+    () => detectionJobStorageKey("discovery", clientId, projectId),
+    [clientId, projectId]
+  );
+
+  useEffect(() => {
+    setDetectionJobId("");
+    setDetectionStatus(null);
+    setDetectionSummary(null);
+
+    const restored = readDetectionJobId(detectionStorageKey);
+    if (restored) {
+      setDetectionJobId(restored);
+    }
+  }, [detectionStorageKey]);
+
   useEffect(() => {
     loadDetectionReady();
     loadProjectImpactAssessment();
@@ -673,6 +696,7 @@ function DataElementDetectionPageContent() {
         throw new Error("Detection job was queued without a detection_job_id.");
       }
 
+      saveDetectionJobId(detectionStorageKey, nextDetectionJobId);
       setDetectionJobId(nextDetectionJobId);
       setDetectionStatus(response);
     } catch (err: any) {
@@ -1302,6 +1326,24 @@ function DataElementDetectionPageContent() {
                     value={`${detectionStatus?.progress_pct || 0}%`}
                   />
                 </div>
+
+                {typeof detectionStatus?.completed_units === "number" &&
+                  typeof detectionStatus?.total_units === "number" &&
+                  detectionStatus.total_units > 0 && (
+                    <div className="mt-4 text-sm text-slate-300">
+                      Checkpoint units:{" "}
+                      <strong>
+                        {detectionStatus.completed_units} /{" "}
+                        {detectionStatus.total_units}
+                      </strong>
+                      {" "}(
+                      {(
+                        (100 * detectionStatus.completed_units) /
+                        detectionStatus.total_units
+                      ).toFixed(1)}
+                      % of checkpoint work)
+                    </div>
+                  )}
 
                 <div className="mt-4 text-sm text-slate-400">
                   {detectionStatus?.message || "Waiting for worker..."}
