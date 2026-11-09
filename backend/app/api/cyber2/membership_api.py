@@ -950,29 +950,15 @@ def preview_cyber2_iterative_merge(
                 "Approved headers unavailable"
             )
 
-        # Server-defined strong-identifier conflict screening.
-        strong_names = {
-            "ssn",
-            "social security number",
-            "social security number (ssn)",
-            "social security #",
-            "dob",
-            "date of birth",
-            "date of birth (dob)",
-            "birth date",
-            "employee id",
-            "employee number",
-            "employee identifier",
-            "medical record number",
-            "mrn",
-            "patient id",
-        }
+        # Reuse approved strong-identifier policy, including _2 columns.
+        from app.services.cyber2.iterative_conflict_policy import (
+            iterative_conflict_headers,
+        )
 
-        conflict_headers = [
-            field for field in headers
-            if isinstance(field, str)
-            and field.strip().casefold() in strong_names
-        ]
+        try:
+            conflict_headers = iterative_conflict_headers(headers)
+        except ValueError as exc:
+            raise IterativeMergeInputError(str(exc)) from exc
 
         preview = preview_iterative_merge(
             parent, body.merge_index, conflict_headers
