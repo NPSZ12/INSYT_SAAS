@@ -60,3 +60,16 @@ def test_conflicting_insurance_policy_numbers_block_merge():
     assert result["conflict_group_count"] == 1
     assert field in result["conflicts"][0]["conflict_fields"]
     assert source == unchanged
+
+
+def test_employee_id_number_and_dl_aliases():
+    headers = [
+        "First Name",
+        "Employee ID Number",
+        "Employee ID Number_2",
+        "DL",
+        "DL_2",
+        "Driver's License Number",
+        "DOB",
+    ]
+    assert iterative_conflict_headers(headers) == headers[1:]
