@@ -161,6 +161,42 @@ class Cyber2MergeSetStore:
     ):
         self._validate_working_set(derived)
 
+        parent_id = derived.get("parent_merge_set_id")
+        if parent_id is not None:
+            if not isinstance(parent_id, str) or not re.fullmatch(
+                r"MSET-[0-9A-F]{32}", parent_id
+            ):
+                raise MergeSetStoreError("Invalid parent Merge Set ID")
+
+            pass_number = derived.get("pass_number")
+            input_count = derived.get("input_working_record_count")
+            conflict_count = derived.get("conflict_group_count")
+
+            if (
+                type(pass_number) is not int
+                or not 2 <= pass_number <= 1000
+                or type(input_count) is not int
+                or not derived["working_record_count"] <= input_count
+                <= derived["raw_record_count"]
+                or type(conflict_count) is not int
+                or conflict_count < 0
+                or conflict_count > input_count
+            ):
+                raise MergeSetStoreError(
+                    "Invalid iterative merge-set metadata"
+                )
+        elif any(
+            field in derived
+            for field in (
+                "pass_number",
+                "input_working_record_count",
+                "conflict_group_count",
+            )
+        ):
+            raise MergeSetStoreError(
+                "Iterative metadata requires a parent merge set"
+            )
+
         if not all([
             workspace, client, project,
             approved_mapping_path, executed_by,
@@ -225,6 +261,16 @@ class Cyber2MergeSetStore:
             "approved_headers": derived["approved_headers"],
             "working_records": derived["working_records"],
         }
+
+        if parent_id is not None:
+            document["parent_merge_set_id"] = parent_id
+            document["pass_number"] = derived["pass_number"]
+            document["input_working_record_count"] = (
+                derived["input_working_record_count"]
+            )
+            document["conflict_group_count"] = (
+                derived["conflict_group_count"]
+            )
 
         if request_id is not None:
             document["request_id"] = request_id
@@ -364,6 +410,16 @@ class Cyber2MergeSetStore:
                     "merged_group_count"
                 ),
                 "merge_index": document.get("merge_index", []),
+                "parent_merge_set_id": document.get(
+                    "parent_merge_set_id"
+                ),
+                "pass_number": document.get("pass_number", 1),
+                "input_working_record_count": document.get(
+                    "input_working_record_count"
+                ),
+                "conflict_group_count": document.get(
+                    "conflict_group_count"
+                ),
             })
 
         results.sort(

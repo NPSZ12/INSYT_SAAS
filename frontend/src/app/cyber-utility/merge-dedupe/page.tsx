@@ -17,6 +17,9 @@ import ExactMatchSpreadsheetModal, {
   type SpreadsheetPreview,
 } from "../../../components/cyber2/ExactMatchSpreadsheetModal";
 import CompletedMergeSetsPanel from "../../../components/cyber2/CompletedMergeSetsPanel";
+import IterativeWorkingSpreadsheet, {
+  type IterativeSpreadsheetData,
+} from "../../../components/cyber2/IterativeWorkingSpreadsheet";
 
 type HeaderSet = {
   header_set_id: string;
@@ -65,6 +68,35 @@ type Preview = {
   execution_enabled: boolean;
 };
 
+type IterativeGroup = {
+  member_count: number;
+  members: {
+    working_record_id: string;
+    source_ucids: string[];
+    source_doc_ids: string[];
+  }[];
+  conflict_fields?: string[];
+  reason?: string;
+};
+
+type IterativePreview = {
+  status: string;
+  parent_merge_set_id: string;
+  header_set_id: string;
+  merge_index: string[];
+  snapshot_fingerprint: string;
+  input_working_record_count: number;
+  original_source_record_count: number;
+  duplicate_group_count: number;
+  conflict_group_count: number;
+  projected_working_record_count: number;
+  groups: IterativeGroup[];
+  conflicts: IterativeGroup[];
+  unmatched: unknown[];
+  excluded: unknown[];
+  execution_enabled: boolean;
+};
+
 function errorMessage(reason: unknown): string {
   return reason instanceof Error
     ? reason.message
@@ -86,6 +118,15 @@ function MergeDedupeContent() {
 
   const [sets, setSets] = useState<HeaderSet[]>([]);
   const [selectedSet, setSelectedSet] = useState("");
+  const [iterativeParentId, setIterativeParentId] = useState("");
+  const [iterativePreview, setIterativePreview] =
+    useState<IterativePreview | null>(null);
+  const [iterativeSpreadsheet, setIterativeSpreadsheet] =
+    useState<IterativeSpreadsheetData | null>(null);
+  const [iterativeRequestId, setIterativeRequestId] = useState("");
+  const [iterativeExecuting, setIterativeExecuting] = useState(false);
+  const [iterativeExecutionError, setIterativeExecutionError] =
+    useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [mergeIndex, setMergeIndex] = useState<string[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -234,6 +275,10 @@ function MergeDedupeContent() {
   }, [base, client, project, selectedSet]);
 
   function toggleHeader(field: string) {
+    setIterativePreview(null);
+    setIterativeSpreadsheet(null);
+    setIterativeRequestId("");
+    setIterativeExecutionError("");
     setPreview(null);
       setSpreadsheet(null);
       setShowSpreadsheet(false);
@@ -245,8 +290,211 @@ function MergeDedupeContent() {
     );
   }
 
+  async function runIterativePreview() {
+    if (
+      !iterativeParentId ||
+      !selectedSet ||
+      !mergeIndex.length ||
+      previewing ||
+      executing
+    ) return;
+
+    setIterativePreview(null);
+    setIterativeSpreadsheet(null);
+    setIterativeRequestId("");
+    setIterativeExecutionError("");
+    setPreview(null);
+    setSpreadsheet(null);
+    setShowSpreadsheet(false);
+    setError("");
+    setPreviewing(true);
+
+    try {
+      const result = await apiPost(
+        `${base}/merge-dedupe/iterative-preview`,
+        {
+          client,
+          project,
+          parent_merge_set_id: iterativeParentId,
+          merge_index: mergeIndex,
+        }
+      ) as IterativePreview;
+
+      if (
+        result.status !== "iterative_preview" ||
+        result.execution_enabled !== false ||
+        result.parent_merge_set_id !== iterativeParentId ||
+        result.header_set_id !== selectedSet ||
+        JSON.stringify(result.merge_index) !==
+          JSON.stringify(mergeIndex) ||
+        !/^[0-9a-f]{64}$/.test(result.snapshot_fingerprint) ||
+        !Array.isArray(result.groups) ||
+        !Array.isArray(result.conflicts) ||
+        !Array.isArray(result.unmatched) ||
+        !Array.isArray(result.excluded) ||
+        !Number.isSafeInteger(result.input_working_record_count) ||
+        result.input_working_record_count <= 0 ||
+        !Number.isSafeInteger(result.original_source_record_count) ||
+        !Number.isSafeInteger(result.projected_working_record_count) ||
+        !Number.isSafeInteger(result.duplicate_group_count) ||
+        !Number.isSafeInteger(result.conflict_group_count) ||
+        result.groups.length !== result.duplicate_group_count ||
+        result.conflicts.length !== result.conflict_group_count ||
+        result.projected_working_record_count >
+          result.input_working_record_count
+      ) {
+        throw new Error("Invalid second-pass preview response.");
+      }
+
+      const sheet = await apiPost(
+        `${base}/merge-dedupe/iterative-spreadsheet`,
+        {
+          client,
+          project,
+          parent_merge_set_id: iterativeParentId,
+          merge_index: mergeIndex,
+        }
+      ) as IterativeSpreadsheetData;
+
+      if (
+        sheet.status !== "iterative_spreadsheet_preview" ||
+        sheet.execution_enabled !== false ||
+        sheet.parent_merge_set_id !== iterativeParentId ||
+        sheet.header_set_id !== selectedSet ||
+        sheet.snapshot_fingerprint !== result.snapshot_fingerprint ||
+        JSON.stringify(sheet.merge_index) !== JSON.stringify(mergeIndex) ||
+        sheet.preview_rows_complete !== true ||
+        !Array.isArray(sheet.preview_columns) ||
+        !Array.isArray(sheet.preview_rows) ||
+        sheet.preview_row_count !== result.input_working_record_count ||
+        sheet.preview_rows.length !== result.input_working_record_count ||
+        sheet.preview_columns.length === 0 ||
+        new Set(sheet.preview_columns).size !== sheet.preview_columns.length ||
+        new Set(sheet.preview_rows.map(
+          row => row.working_record_id
+        )).size !== sheet.preview_rows.length ||
+        sheet.preview_rows.some(row =>
+          !row.working_record_id ||
+          !Array.isArray(row.source_ucids) ||
+          !row.source_ucids.length ||
+          !row.cells ||
+          typeof row.cells !== "object" ||
+          Array.isArray(row.cells) ||
+          !row.field_provenance ||
+          typeof row.field_provenance !== "object" ||
+          sheet.preview_columns.some(field =>
+            !Object.prototype.hasOwnProperty.call(row.cells, field) ||
+            !Array.isArray(row.field_provenance[field])
+          )
+        )
+      ) {
+        throw new Error("Invalid second-pass spreadsheet.");
+      }
+
+      setIterativeSpreadsheet(sheet);
+      setIterativePreview(result);
+      setIterativeRequestId(crypto.randomUUID());
+      setIterativeExecutionError("");
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function runIterativeExecute() {
+    if (iterativeExecuting || executing || previewing) return;
+
+    const reviewed = iterativePreview;
+    const sheet = iterativeSpreadsheet;
+    const requestId = iterativeRequestId;
+
+    if (
+      !iterativeParentId ||
+      !selectedSet ||
+      !reviewed ||
+      !sheet ||
+      !requestId ||
+      reviewed.parent_merge_set_id !== iterativeParentId ||
+      sheet.parent_merge_set_id !== iterativeParentId ||
+      reviewed.header_set_id !== selectedSet ||
+      sheet.header_set_id !== selectedSet ||
+      sheet.snapshot_fingerprint !== reviewed.snapshot_fingerprint ||
+      !/^[0-9a-f]{64}$/.test(sheet.snapshot_fingerprint) ||
+      JSON.stringify(sheet.merge_index) !==
+        JSON.stringify(mergeIndex) ||
+      JSON.stringify(reviewed.merge_index) !==
+        JSON.stringify(mergeIndex) ||
+      sheet.preview_rows_complete !== true ||
+      sheet.preview_row_count !==
+        reviewed.input_working_record_count
+    ) {
+      setIterativeExecutionError(
+        "Second-pass spreadsheet is stale. Preview again."
+      );
+      return;
+    }
+
+    setIterativeExecuting(true);
+    setIterativeExecutionError("");
+
+    try {
+      const receipt = await apiPost(
+        `${base}/merge-dedupe/iterative-execute`,
+        {
+          client,
+          project,
+          parent_merge_set_id: iterativeParentId,
+          merge_index: [...sheet.merge_index],
+          snapshot_fingerprint: sheet.snapshot_fingerprint,
+          request_id: requestId,
+        }
+      ) as {
+        status?: string;
+        execution_type?: string;
+        parent_merge_set_id?: string;
+        merge_set_id?: string;
+        pass_number?: number;
+        input_working_record_count?: number;
+      };
+
+      if (
+        receipt.status !== "completed" ||
+        receipt.execution_type !== "cyber2_iterative_exact_merge" ||
+        receipt.parent_merge_set_id !== iterativeParentId ||
+        !/^MSET-[0-9A-F]{32}$/.test(receipt.merge_set_id || "") ||
+        !Number.isSafeInteger(receipt.pass_number) ||
+        receipt.input_working_record_count !==
+          sheet.preview_row_count
+      ) {
+        throw new Error(
+          "Invalid iterative merge execution receipt."
+        );
+      }
+
+      setSavedMergeSetId(receipt.merge_set_id!);
+      setCompletedRefresh((value) => value + 1);
+      setIterativeParentId("");
+      setIterativePreview(null);
+      setIterativeSpreadsheet(null);
+      setIterativeRequestId("");
+      setIterativeExecutionError("");
+      setMergeIndex([]);
+    } catch (reason) {
+      // Retain request ID so retries remain idempotent.
+      setIterativeExecutionError(errorMessage(reason));
+    } finally {
+      setIterativeExecuting(false);
+    }
+  }
+
   async function runPreview() {
-    if (!selectedSet || !mergeIndex.length || previewing) return;
+    if (
+      iterativeParentId ||
+      !selectedSet ||
+      !mergeIndex.length ||
+      previewing
+    ) return;
 
     setPreview(null);
       setSpreadsheet(null);
@@ -453,7 +701,14 @@ function MergeDedupeContent() {
               aria-label="Select Header Set"
               value={selectedSet}
               disabled={loadingSets}
-              onChange={(event) => setSelectedSet(event.target.value)}
+              onChange={(event) => {
+                setIterativeParentId("");
+                setIterativePreview(null);
+                setIterativeSpreadsheet(null);
+    setIterativeRequestId("");
+    setIterativeExecutionError("");
+                setSelectedSet(event.target.value);
+              }}
               className="min-w-[280px] flex-1 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-white"
             >
               <option value="">Select Header Set</option>
@@ -491,6 +746,157 @@ function MergeDedupeContent() {
 
         <div className="mt-5">
           <ContentCard title="2. Select Merge Index">
+            {iterativeParentId && (
+              <div role="status" className="mb-4 rounded-lg border border-sky-700 bg-sky-950/30 p-3 text-sm text-sky-200">
+                Dedupe Further selected: {iterativeParentId}.
+                Choose a new Merge Index below, then select
+                Preview Further Dedupe.
+                <button
+                  type="button"
+                  className="ml-3 underline"
+                  onClick={() => {
+                    setIterativeParentId("");
+                    setIterativePreview(null);
+                    setIterativeSpreadsheet(null);
+    setIterativeRequestId("");
+    setIterativeExecutionError("");
+                    setMergeIndex([]);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {iterativePreview && iterativeParentId && (
+              <div
+                role="status"
+                className="mb-4 rounded-lg border border-slate-700 bg-slate-950 p-4 text-sm text-slate-200"
+              >
+                <h4 className="mb-3 font-semibold text-sky-300">
+                  Second-Pass Preview — Read Only
+                </h4>
+                <p className="mb-2 break-all text-xs">
+                  Parent: {iterativePreview.parent_merge_set_id}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <p>Input working rows: {iterativePreview.input_working_record_count}</p>
+                  <p>Original source records: {iterativePreview.original_source_record_count}</p>
+                  <p>Exact-match groups: {iterativePreview.duplicate_group_count}</p>
+                  <p>QC conflict groups: {iterativePreview.conflict_group_count}</p>
+                  <p>Excluded records: {iterativePreview.excluded.length}</p>
+                  <p>Projected working rows: {iterativePreview.projected_working_record_count}</p>
+                </div>
+                {iterativeSpreadsheet && (
+                  <IterativeWorkingSpreadsheet data={iterativeSpreadsheet} />
+                )}
+
+                <div className="mt-5">
+                  <h4 className="mb-2 font-semibold text-white">
+                    Proposed Matches and QC Conflicts
+                  </h4>
+
+                  <p className="mb-3 text-xs text-slate-400">
+                    Identity-level review only. Full field values and
+                    source-column evidence will be provided through
+                    the authorized second-pass spreadsheet before
+                    execution is enabled.
+                  </p>
+
+                  <div className="max-h-[450px] overflow-auto rounded-lg border border-slate-700">
+                    <table className="w-full text-left text-xs">
+                      <thead className="sticky top-0 z-10 bg-slate-900 text-slate-200">
+                        <tr>
+                          <th className="whitespace-nowrap p-3">Type</th>
+                          <th className="whitespace-nowrap p-3">Group</th>
+                          <th className="whitespace-nowrap p-3">Working Records</th>
+                          <th className="whitespace-nowrap p-3">Source Records</th>
+                          <th className="whitespace-nowrap p-3">QC Fields</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          ...iterativePreview.groups.map((group, index) => ({
+                            group,
+                            index,
+                            type: "Exact match",
+                          })),
+                          ...iterativePreview.conflicts.map((group, index) => ({
+                            group,
+                            index,
+                            type: "QC conflict",
+                          })),
+                        ].map(({ group, index, type }) => (
+                          <tr
+                            key={`${type}-${index}`}
+                            className="border-t border-slate-800 align-top"
+                          >
+                            <td className="whitespace-nowrap p-3">
+                              {type}
+                            </td>
+                            <td className="p-3">{index + 1}</td>
+                            <td className="p-3">
+                              {group.members.map(
+                                (member) => member.working_record_id
+                              ).join(", ")}
+                            </td>
+                            <td className="p-3">
+                              {group.members.reduce(
+                                (count, member) =>
+                                  count + member.source_ucids.length,
+                                0
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {group.conflict_fields?.join(", ") || "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {iterativePreview.groups.length === 0 &&
+                      iterativePreview.conflicts.length === 0 && (
+                        <p className="p-4 text-xs text-slate-400">
+                          No exact-match or QC conflict groups found
+                          for this Merge Index.
+                        </p>
+                      )}
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <p className="text-xs text-slate-400">
+                    Review the second-pass spreadsheet, exact-match
+                    groups, and QC conflicts before execution.
+                    The parent completed set remains unchanged.
+                  </p>
+
+                  {iterativeExecutionError && (
+                    <p role="alert" className="text-sm text-rose-300">
+                      {iterativeExecutionError}
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={
+                      iterativeExecuting ||
+                      executing ||
+                      previewing ||
+                      !iterativeSpreadsheet ||
+                      !iterativeRequestId ||
+                      iterativeSpreadsheet.snapshot_fingerprint !==
+                        iterativePreview.snapshot_fingerprint
+                    }
+                    onClick={() => void runIterativeExecute()}
+                    className="rounded-lg bg-emerald-700 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {iterativeExecuting
+                      ? "Executing Further Dedupe..."
+                      : "Execute & Continue — Save Child Merge Set"}
+                  </button>
+                </div>
+              </div>
+            )}
             <p className="mb-4 text-sm text-slate-400">
               Select the approved protocol fields that must match
               exactly. Missing values do not qualify for automatic
@@ -540,10 +946,20 @@ function MergeDedupeContent() {
                 !selectedSet ||
                 mergeIndex.length === 0
               }
-              onClick={() => void runPreview()}
+              onClick={() =>
+                void (
+                  iterativeParentId
+                    ? runIterativePreview()
+                    : runPreview()
+                )
+              }
               className="mt-4 rounded-lg bg-sky-700 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {previewing ? "Analyzing..." : "Preview Exact Matches"}
+              {previewing
+                ? "Analyzing..."
+                : iterativeParentId
+                  ? "Preview Further Dedupe"
+                  : "Preview Exact Matches"}
             </button>
           </ContentCard>
         </div>
@@ -655,7 +1071,7 @@ function MergeDedupeContent() {
         </div>
 
         <div className="mt-5">
-          <ContentCard title="5. Completed Merge Sets">
+          <ContentCard>
             {savedMergeSetId && (
               <p role="status" className="mb-3 text-sm text-emerald-300">
                 Completed merge set saved: {savedMergeSetId}
@@ -666,6 +1082,19 @@ function MergeDedupeContent() {
               client={client}
               project={project}
               refreshKey={completedRefresh}
+              onDedupeFurther={(mergeSetId, headerSetId) => {
+                setIterativeParentId(mergeSetId);
+                setIterativePreview(null);
+                setIterativeSpreadsheet(null);
+    setIterativeRequestId("");
+    setIterativeExecutionError("");
+                setSelectedSet(headerSetId);
+                setMergeIndex([]);
+                setPreview(null);
+                setSpreadsheet(null);
+                setShowSpreadsheet(false);
+                setError("");
+              }}
             />
           </ContentCard>
         </div>

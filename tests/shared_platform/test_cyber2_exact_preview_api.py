@@ -77,6 +77,24 @@ def configure(monkeypatch, api, *, approved=None, records=None):
         ]
     )
 
+    # API unit tests supply synthetic mapped records through the
+    # current processing-set contract. Dedicated loader tests verify
+    # persisted Mapped CSV manifests, paths, and column lineage.
+    monkeypatch.setattr(
+        api,
+        "_load_cyber2_merge_processing_set",
+        lambda **kwargs: {
+            "records": api.load_cyber2_raw_capture_records(
+                kwargs["workspace"],
+                kwargs["client"],
+                kwargs["project"],
+            ),
+            "output_headers": list(
+                supplied["canonical_column_order"]
+            ),
+        },
+    )
+
 
 def preview(api, user, fields=None):
     body = api.ExactDedupePreviewBody(

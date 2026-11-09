@@ -867,3 +867,487 @@ def list_cyber2_completed_merge_sets(
             "Pragma": "no-cache",
         },
     )
+
+class IterativePreviewBody(BaseModel):
+    client: str = Field(min_length=1)
+    project: str = Field(min_length=1)
+    parent_merge_set_id: str = Field(min_length=1)
+    merge_index: list[str] = Field(min_length=1)
+
+
+@router.post("/{workspace}/cyber2/merge-dedupe/iterative-preview")
+def preview_cyber2_iterative_merge(
+    workspace: Workspace,
+    body: IterativePreviewBody,
+    current_user=Depends(get_current_user),
+):
+    """Preview another pass against a verified completed merge set.
+
+    No writes. Source values are never included in the response.
+    """
+    import hashlib
+    import json
+    import re
+
+    from app.services.cyber2.iterative_merge_input import (
+        IterativeMergeInputError,
+    )
+    from app.services.cyber2.iterative_merge_preview import (
+        preview_iterative_merge,
+    )
+    from app.services.cyber2.merge_set_store import (
+        MergeSetStoreError,
+    )
+
+    require_scoped_project_access(
+        current_user, workspace, body.client, body.project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    parent_id = body.parent_merge_set_id
+
+    if not re.fullmatch(r"MSET-[0-9A-F]{32}", parent_id):
+        raise HTTPException(
+            status_code=409, detail="Invalid parent Merge Set ID"
+        )
+
+    store = _cyber2_merge_store_for(
+        workspace, body.client, body.project
+    )
+
+    try:
+        # load() verifies the saved SHA-256 integrity digest.
+        parent = store.load(parent_id)
+
+        if any(
+            parent.get(field) != value
+            for field, value in (
+                ("workspace", workspace),
+                ("client", body.client),
+                ("project", body.project),
+                ("merge_set_id", parent_id),
+                ("status", "completed"),
+            )
+        ):
+            raise IterativeMergeInputError(
+                "Completed merge-set scope mismatch"
+            )
+
+        parent_digest = parent.get("integrity_sha256")
+
+        if not isinstance(parent_digest, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", parent_digest
+        ):
+            raise IterativeMergeInputError(
+                "Parent snapshot integrity unavailable"
+            )
+
+        headers = parent.get("approved_headers")
+
+        if not isinstance(headers, list):
+            raise IterativeMergeInputError(
+                "Approved headers unavailable"
+            )
+
+        # Server-defined strong-identifier conflict screening.
+        strong_names = {
+            "ssn",
+            "social security number",
+            "social security number (ssn)",
+            "social security #",
+            "dob",
+            "date of birth",
+            "date of birth (dob)",
+            "birth date",
+            "employee id",
+            "employee number",
+            "employee identifier",
+            "medical record number",
+            "mrn",
+            "patient id",
+        }
+
+        conflict_headers = [
+            field for field in headers
+            if isinstance(field, str)
+            and field.strip().casefold() in strong_names
+        ]
+
+        preview = preview_iterative_merge(
+            parent, body.merge_index, conflict_headers
+        )
+
+        fingerprint_payload = {
+            "parent_merge_set_id": parent_id,
+            "parent_integrity_sha256": parent_digest,
+            "merge_index": body.merge_index,
+            "conflict_headers": conflict_headers,
+            "preview_version": 1,
+        }
+
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                fingerprint_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    except (MergeSetStoreError, IterativeMergeInputError) as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    return {
+        **preview,
+        "workspace": workspace,
+        "client": body.client,
+        "project": body.project,
+        "snapshot_fingerprint": fingerprint,
+        "conflict_headers_checked": conflict_headers,
+        "execution_enabled": False,
+    }
+
+class IterativeExecuteBody(IterativePreviewBody):
+    snapshot_fingerprint: str = Field(min_length=64, max_length=64)
+    request_id: str = Field(min_length=1)
+
+
+@router.post("/{workspace}/cyber2/merge-dedupe/iterative-execute")
+def execute_cyber2_iterative_merge(
+    workspace: Workspace,
+    body: IterativeExecuteBody,
+    current_user=Depends(get_current_user),
+):
+    """Save one immutable child of an authorized completed merge set."""
+    import hashlib
+    import json
+    import re
+
+    from app.services.cyber2.iterative_merge_execution import (
+        build_iterative_child,
+    )
+    from app.services.cyber2.iterative_merge_input import (
+        IterativeMergeInputError,
+    )
+    from app.services.cyber2.merge_set_store import (
+        MergeSetConflict,
+        MergeSetStoreError,
+    )
+
+    # Reuse the preview endpoint's authorization, validation,
+    # integrity-verified parent retrieval, and conflict policy.
+    preview = preview_cyber2_iterative_merge(
+        workspace=workspace,
+        body=body,
+        current_user=current_user,
+    )
+
+    if not re.fullmatch(
+        r"[0-9a-f]{64}", body.snapshot_fingerprint
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid iterative snapshot fingerprint",
+        )
+
+    if body.snapshot_fingerprint != preview["snapshot_fingerprint"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Iterative preview is stale. Refresh preview.",
+        )
+
+    store = _cyber2_merge_store_for(
+        workspace, body.client, body.project
+    )
+
+    try:
+        # Recheck the immutable parent for the execution read.
+        parent = store.load(body.parent_merge_set_id)
+
+        if any(
+            parent.get(field) != value
+            for field, value in (
+                ("workspace", workspace),
+                ("client", body.client),
+                ("project", body.project),
+                ("merge_set_id", body.parent_merge_set_id),
+                ("status", "completed"),
+            )
+        ):
+            raise IterativeMergeInputError(
+                "Execution parent scope mismatch"
+            )
+
+        digest = parent.get("integrity_sha256")
+
+        if not isinstance(digest, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", digest
+        ):
+            raise IterativeMergeInputError(
+                "Execution parent integrity unavailable"
+            )
+
+        payload = {
+            "parent_merge_set_id": body.parent_merge_set_id,
+            "parent_integrity_sha256": digest,
+            "merge_index": body.merge_index,
+            "conflict_headers": preview[
+                "conflict_headers_checked"
+            ],
+            "preview_version": 1,
+        }
+
+        execution_fingerprint = hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        if execution_fingerprint != body.snapshot_fingerprint:
+            raise IterativeMergeInputError(
+                "Parent changed after preview. Refresh preview."
+            )
+
+        derived = build_iterative_child(
+            parent,
+            body.merge_index,
+            preview["conflict_headers_checked"],
+        )
+
+        mapping_path = parent.get("approved_mapping_path")
+
+        if not isinstance(mapping_path, str) or not mapping_path:
+            raise IterativeMergeInputError(
+                "Parent approved mapping path unavailable"
+            )
+
+        saved = store.save(
+            derived=derived,
+            workspace=workspace,
+            client=body.client,
+            project=body.project,
+            approved_mapping_path=mapping_path,
+            executed_by=_cyber2_execution_actor(current_user),
+            request_id=body.request_id,
+            snapshot_fingerprint=execution_fingerprint,
+        )
+
+    except (
+        IterativeMergeInputError,
+        MergeSetConflict,
+        MergeSetStoreError,
+    ) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "status": "completed",
+        "execution_type": "cyber2_iterative_exact_merge",
+        "parent_merge_set_id": body.parent_merge_set_id,
+        "pass_number": derived["pass_number"],
+        "input_working_record_count": (
+            derived["input_working_record_count"]
+        ),
+        "conflict_group_count": derived["conflict_group_count"],
+        **saved,
+    }
+
+@router.post("/{workspace}/cyber2/merge-dedupe/iterative-spreadsheet")
+def preview_cyber2_iterative_spreadsheet(
+    workspace: Workspace,
+    body: IterativePreviewBody,
+    current_user=Depends(get_current_user),
+):
+    """Authorized read-only working-record spreadsheet and lineage."""
+    import hashlib
+    import json
+    from copy import deepcopy
+
+    from fastapi.responses import JSONResponse
+    from app.services.cyber2.iterative_merge_input import (
+        IterativeMergeInputError,
+        prepare_iterative_candidates,
+    )
+    from app.services.cyber2.merge_set_store import MergeSetStoreError
+
+    # This performs project authorization and loads the verified
+    # parent before any captured values are accessed.
+    summary = preview_cyber2_iterative_merge(
+        workspace=workspace,
+        body=body,
+        current_user=current_user,
+    )
+
+    store = _cyber2_merge_store_for(
+        workspace, body.client, body.project
+    )
+
+    try:
+        parent = store.load(body.parent_merge_set_id)
+
+        if any(
+            parent.get(field) != value
+            for field, value in (
+                ("workspace", workspace),
+                ("client", body.client),
+                ("project", body.project),
+                ("merge_set_id", body.parent_merge_set_id),
+                ("status", "completed"),
+            )
+        ):
+            raise IterativeMergeInputError(
+                "Spreadsheet parent scope mismatch"
+            )
+
+        # Reconstruct the preview fingerprint against this
+        # second read, preventing inconsistent parent snapshots.
+        fingerprint_data = {
+            "parent_merge_set_id": body.parent_merge_set_id,
+            "parent_integrity_sha256": parent.get(
+                "integrity_sha256"
+            ),
+            "merge_index": body.merge_index,
+            "conflict_headers": summary[
+                "conflict_headers_checked"
+            ],
+            "preview_version": 1,
+        }
+
+        current_fingerprint = hashlib.sha256(
+            json.dumps(
+                fingerprint_data,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+        if current_fingerprint != summary["snapshot_fingerprint"]:
+            raise IterativeMergeInputError(
+                "Spreadsheet parent changed during preview"
+            )
+
+        prepared = prepare_iterative_candidates(
+            parent, body.merge_index
+        )
+
+        headers = parent["approved_headers"]
+        records = parent["working_records"]
+
+        if len(records) > 10000:
+            raise IterativeMergeInputError(
+                "Spreadsheet exceeds supported row limit"
+            )
+
+        # Each parent working record must appear exactly once
+        # across the proposed classifications.
+        classes = {}
+
+        def assign(member, classification, group_number):
+            working_id = member["working_record_id"]
+            if working_id in classes:
+                raise IterativeMergeInputError(
+                    "Repeated spreadsheet working identity"
+                )
+            classes[working_id] = (
+                classification, group_number
+            )
+
+        for number, group in enumerate(
+            summary["groups"], start=1
+        ):
+            for member in group["members"]:
+                assign(member, "exact_duplicate", number)
+
+        for number, group in enumerate(
+            summary["conflicts"], start=1
+        ):
+            for member in group["members"]:
+                assign(member, "qc_conflict", number)
+
+        for member in summary["unmatched"]:
+            assign(member, "unmatched", None)
+
+        for member in summary["excluded"]:
+            assign(member, "excluded", None)
+
+        if len(classes) != len(records):
+            raise IterativeMergeInputError(
+                "Incomplete spreadsheet classification"
+            )
+
+        rows = []
+
+        for record in records:
+            working_id = record["working_record_id"]
+            classification = classes.get(working_id)
+
+            if classification is None:
+                raise IterativeMergeInputError(
+                    "Unknown spreadsheet working identity"
+                )
+
+            rows.append({
+                "working_record_id": working_id,
+                "classification": classification[0],
+                "group_number": classification[1],
+                "source_ucids": deepcopy(
+                    record["source_ucids"]
+                ),
+                "source_doc_ids": deepcopy(
+                    record["source_doc_ids"]
+                ),
+                "cells": deepcopy(record["cells"]),
+                "field_provenance": deepcopy(
+                    record["field_provenance"]
+                ),
+            })
+
+        if (
+            len(rows) != prepared[
+                "input_working_record_count"
+            ]
+            or len({
+                row["working_record_id"] for row in rows
+            }) != len(rows)
+        ):
+            raise IterativeMergeInputError(
+                "Spreadsheet population mismatch"
+            )
+
+    except (MergeSetStoreError, IterativeMergeInputError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+    return JSONResponse(
+        content={
+            "status": "iterative_spreadsheet_preview",
+            "workspace": workspace,
+            "client": body.client,
+            "project": body.project,
+            "header_set_id": parent["header_set_id"],
+            "parent_merge_set_id": body.parent_merge_set_id,
+            "merge_index": body.merge_index,
+            "snapshot_fingerprint": current_fingerprint,
+            "preview_columns": headers,
+            "preview_rows": rows,
+            "preview_row_count": len(rows),
+            "preview_rows_complete": True,
+            "execution_enabled": False,
+        },
+        headers={
+            "Cache-Control": "no-store, private",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
