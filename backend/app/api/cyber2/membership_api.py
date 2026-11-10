@@ -2073,3 +2073,182 @@ def read_cyber2_project_c2_records(
         "transferred_header_set_count": len(transferred_sets),
         "transferred_sets": transferred_sets,
     }
+
+@router.get("/{workspace}/cyber2/c2/source-review")
+def read_cyber2_c2_source_review(
+    workspace: Workspace,
+    response: Response,
+    client: str = Query(min_length=1),
+    project: str = Query(min_length=1),
+    merge_set_id: str = Query(min_length=1),
+    current_user=Depends(get_current_user),
+):
+    """Display verified source inventory for administrator review.
+
+    Never authorizes a transfer or accepts browser-supplied
+    source provenance. Source paths stay server-side.
+    """
+    from app.api.cyber2.schema_mapping import (
+        _approved_mapping_path,
+        _load_required_json,
+    )
+    from app.services.cyber2.merge_set_store import MergeSetStoreError
+
+    require_scoped_project_access(
+        current_user, workspace, client, project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+
+    readiness = inspect_cyber2_c2_transfer_readiness(
+        workspace=workspace,
+        response=response,
+        client=client,
+        project=project,
+        merge_set_id=merge_set_id,
+        current_user=current_user,
+    )
+
+    if (
+        not isinstance(readiness, dict)
+        or readiness.get("status")
+            != "source_verified_origin_pending"
+        or readiness.get("source_conservation_verified") is not True
+        or readiness.get("origin_authorized") is not False
+        or readiness.get("transfer_authorized") is not False
+        or readiness.get("merge_set_id") != merge_set_id
+        or any(
+            readiness.get(key) != value
+            for key, value in (
+                ("workspace", workspace),
+                ("client", client),
+                ("project", project),
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="C2 source verification is incomplete",
+        )
+
+    header_id = readiness.get("header_set_id")
+
+    try:
+        merge_set = _cyber2_merge_store_for(
+            workspace, client, project
+        ).load(merge_set_id)
+    except MergeSetStoreError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    if (
+        not isinstance(merge_set, dict)
+        or merge_set.get("header_set_id") != header_id
+        or merge_set.get("merge_set_id") != merge_set_id
+        or merge_set.get("status") != "completed"
+        or any(
+            merge_set.get(key) != value
+            for key, value in (
+                ("workspace", workspace),
+                ("client", client),
+                ("project", project),
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="C2 source review Merge Set changed",
+        )
+
+    mapping = _load_required_json(
+        _approved_mapping_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_id,
+        ),
+        description="Approved Cyber2 Header Mapping",
+    )
+
+    if (
+        not isinstance(mapping, dict)
+        or mapping.get("status") != "approved"
+        or any(
+            mapping.get(key) != value
+            for key, value in (
+                ("workspace", workspace),
+                ("client", client),
+                ("project", project),
+                ("header_set_id", header_id),
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="C2 source review mapping mismatch",
+        )
+
+    documents = mapping.get("documents")
+    if not isinstance(documents, list) or not documents:
+        raise HTTPException(
+            status_code=409,
+            detail="Approved source inventory unavailable",
+        )
+
+    reviewed = []
+    seen = set()
+
+    for item in documents:
+        if not isinstance(item, dict):
+            raise HTTPException(
+                status_code=409,
+                detail="Invalid approved source document",
+            )
+
+        doc_id = item.get("doc_id")
+        source_path = item.get("source_csv_path")
+
+        if (
+            not isinstance(doc_id, str)
+            or not doc_id.strip()
+            or doc_id in seen
+            or not isinstance(source_path, str)
+            or not source_path.strip()
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Incomplete or duplicate source inventory",
+            )
+
+        seen.add(doc_id)
+        reviewed.append({
+            "doc_id": doc_id,
+            "original_filename":
+                str(item.get("original_filename") or ""),
+            "original_workbook_name":
+                str(item.get("original_workbook_name") or ""),
+            "sheet_name": str(item.get("sheet_name") or ""),
+        })
+
+    # This response is review evidence only; explicit
+    # administrator attestation is still required separately.
+    return {
+        "status": "review_required",
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "merge_set_id": merge_set_id,
+        "header_set_id": header_id,
+        "working_record_count":
+            readiness["working_record_count"],
+        "original_source_record_count":
+            readiness["original_source_record_count"],
+        "document_count": len(reviewed),
+        "documents": reviewed,
+        "origin_authorized": False,
+        "transfer_authorized": False,
+    }
