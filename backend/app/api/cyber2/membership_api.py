@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from app.api.entities import load_cyber2_raw_capture_records
@@ -1337,3 +1337,61 @@ def preview_cyber2_iterative_spreadsheet(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+@router.get("/{workspace}/cyber2/c2/records")
+def read_cyber2_c2_records(
+    workspace: Workspace,
+    response: Response,
+    client: str = Query(min_length=1),
+    project: str = Query(min_length=1),
+    header_set_id: str = Query(min_length=1),
+    current_user=Depends(get_current_user),
+):
+    """Read project-scoped C2 display rows; never return source evidence."""
+    from app.services.cyber2.c2_transfer_store import (
+        C2TransferStoreError,
+        Cyber2C2TransferStore,
+    )
+
+    require_scoped_project_access(
+        current_user, workspace, client, project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+
+    store = Cyber2C2TransferStore(
+        _processing_container_client(),
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        ),
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    try:
+        snapshot = store.display(header_set_id)
+    except C2TransferStoreError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    if snapshot is None:
+        return {
+            "status": "ok",
+            "headers": [],
+            "rows": [],
+            "source": "cyber2_c2_transfer",
+            "working_record_count": 0,
+            "original_source_record_count": 0,
+        }
+
+    return {
+        "status": "ok",
+        **snapshot,
+    }
