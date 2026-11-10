@@ -1547,3 +1547,98 @@ def inspect_cyber2_c2_transfer_readiness(
         "origin_authorized": False,
         "transfer_authorized": False,
     }
+
+class C2OriginApprovalBody(BaseModel):
+    client: str = Field(min_length=1)
+    project: str = Field(min_length=1)
+    merge_set_id: str = Field(min_length=1)
+    reviewed_doc_ids: list[str] = Field(min_length=1)
+    attested_non_ai: bool = False
+
+
+@router.post("/{workspace}/cyber2/c2/approve-origin")
+def approve_cyber2_c2_origin(
+    workspace: Workspace,
+    body: C2OriginApprovalBody,
+    response: Response,
+    current_user=Depends(get_current_user),
+):
+    """Audited administrator attestation for non-AI structured sources."""
+    from app.api.cyber2.schema_mapping import (
+        _approved_mapping_path,
+        _load_required_json,
+    )
+    from app.services.cyber2.c2_origin_receipt import (
+        C2OriginReceiptError,
+        save_c2_origin_approval,
+    )
+    from app.services.cyber2.merge_set_store import MergeSetStoreError
+
+    require_scoped_project_access(
+        current_user, workspace, body.client, body.project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+    reviewer = _cyber2_execution_actor(current_user)
+
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+
+    if body.attested_non_ai is not True:
+        raise HTTPException(
+            status_code=422,
+            detail="Explicit non-AI source review required",
+        )
+
+    # Re-run server-side source and lineage checks. Never accept
+    # browser-provided readiness or origin-authorized flags.
+    inspect_cyber2_c2_transfer_readiness(
+        workspace=workspace,
+        response=response,
+        client=body.client,
+        project=body.project,
+        merge_set_id=body.merge_set_id,
+        current_user=current_user,
+    )
+
+    merge_store = _cyber2_merge_store_for(
+        workspace, body.client, body.project
+    )
+
+    try:
+        merge_set = merge_store.load(body.merge_set_id)
+    except MergeSetStoreError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    mapping = _load_required_json(
+        _approved_mapping_path(
+            workspace=workspace,
+            client=body.client,
+            project=body.project,
+            header_set_id=merge_set["header_set_id"],
+        ),
+        description="Approved Cyber2 Header Mapping",
+    )
+
+    try:
+        saved = save_c2_origin_approval(
+            container=_processing_container_client(),
+            project_base_path=_project_base_path(
+                workspace=workspace,
+                client=body.client,
+                project=body.project,
+            ),
+            merge_set=merge_set,
+            approved_mapping=mapping,
+            reviewed_doc_ids=body.reviewed_doc_ids,
+            reviewer=reviewer,
+            attested_non_ai=body.attested_non_ai,
+        )
+    except (C2OriginReceiptError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    return saved
