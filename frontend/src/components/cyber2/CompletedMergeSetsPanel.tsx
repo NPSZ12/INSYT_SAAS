@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiGet } from "../../lib/api";
+import { apiGet, apiPost } from "../../lib/api";
 
 type CompletedSet = {
   merge_set_id: string;
@@ -14,6 +14,35 @@ type CompletedSet = {
   merge_index: string[];
   parent_merge_set_id?: string | null;
   pass_number?: number;
+};
+
+type C2SourceReview = {
+  status: string;
+  workspace: string;
+  client: string;
+  project: string;
+  header_set_id: string;
+  merge_set_id: string;
+  working_record_count: number;
+  original_source_record_count: number;
+  document_count: number;
+  documents: Array<{
+    doc_id: string;
+    original_filename: string;
+    original_workbook_name: string;
+    sheet_name: string;
+  }>;
+  origin_authorized: boolean;
+  transfer_authorized: boolean;
+};
+
+type C2ReviewSelection = {
+  base: string;
+  client: string;
+  project: string;
+  mergeSetId: string;
+  headerSetId: string;
+  review: C2SourceReview;
 };
 
 type Props = {
@@ -113,6 +142,12 @@ export default function CompletedMergeSetsPanel({
     useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [c2Review, setC2Review] =
+    useState<C2ReviewSelection | null>(null);
+  const [c2Busy, setC2Busy] = useState(false);
+  const [c2Attested, setC2Attested] = useState(false);
+  const [c2Error, setC2Error] = useState("");
+  const [c2Success, setC2Success] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -122,6 +157,10 @@ export default function CompletedMergeSetsPanel({
       setSelectedIds([]);
       setSelectedHeader("");
       setError("");
+      setC2Review(null);
+      setC2Attested(false);
+      setC2Error("");
+      setC2Success("");
 
       if (!client || !project) return;
 
@@ -180,6 +219,199 @@ export default function CompletedMergeSetsPanel({
 
   const selectedForFurther =
     selectedGroup?.terminal ?? undefined;
+
+  const c2Candidate =
+    selectedIds.length === 0 ? selectedForFurther : undefined;
+
+  async function openC2Review() {
+    if (!c2Candidate || c2Busy) return;
+
+    const target = c2Candidate;
+    setC2Busy(true);
+    setC2Error("");
+    setC2Success("");
+    setC2Attested(false);
+
+    try {
+      const query = new URLSearchParams({
+        client,
+        project,
+        merge_set_id: target.merge_set_id,
+      });
+
+      const result = (await apiGet(
+        `${base}/c2/source-review?${query.toString()}`
+      )) as C2SourceReview;
+
+      if (
+        result?.status !== "review_required" ||
+        result.merge_set_id !== target.merge_set_id ||
+        result.header_set_id !== target.header_set_id ||
+        result.client !== client ||
+        result.project !== project ||
+        !Array.isArray(result.documents) ||
+        result.documents.length === 0 ||
+        result.document_count !== result.documents.length ||
+        result.origin_authorized !== false ||
+        result.transfer_authorized !== false ||
+        !Number.isInteger(result.working_record_count) ||
+        result.working_record_count <= 0 ||
+        !Number.isInteger(result.original_source_record_count) ||
+        result.original_source_record_count <= 0
+      ) {
+        throw new Error("C? source review response is invalid.");
+      }
+
+      const ids = result.documents.map((doc) => doc.doc_id);
+
+      if (
+        ids.some((id) => typeof id !== "string" || !id.trim()) ||
+        new Set(ids).size !== ids.length
+      ) {
+        throw new Error("C? source document inventory is invalid.");
+      }
+
+      setC2Review({
+        base,
+        client,
+        project,
+        mergeSetId: target.merge_set_id,
+        headerSetId: target.header_set_id,
+        review: result,
+      });
+    } catch (reason) {
+      setC2Error(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to load C? source review."
+      );
+    } finally {
+      setC2Busy(false);
+    }
+  }
+
+  async function approveAndTransferC2() {
+    const selected = c2Review;
+
+    if (!selected || !c2Attested || c2Busy) return;
+
+    if (
+      selected.base !== base ||
+      selected.client !== client ||
+      selected.project !== project
+    ) {
+      setC2Error("Project context changed. Reopen C? review.");
+      return;
+    }
+
+    setC2Busy(true);
+    setC2Error("");
+
+    try {
+      // Recheck the server-derived inventory immediately before
+      // submitting the administrator's reviewed document IDs.
+      const query = new URLSearchParams({
+        client: selected.client,
+        project: selected.project,
+        merge_set_id: selected.mergeSetId,
+      });
+
+      const fresh = (await apiGet(
+        `${selected.base}/c2/source-review?${query.toString()}`
+      )) as C2SourceReview;
+
+      const earlier = selected.review.documents
+        .map((doc) => doc.doc_id)
+        .sort();
+
+      const current = Array.isArray(fresh?.documents)
+        ? fresh.documents.map((doc) => doc.doc_id).sort()
+        : [];
+
+      if (
+        fresh?.status !== "review_required" ||
+        fresh.merge_set_id !== selected.mergeSetId ||
+        fresh.header_set_id !== selected.headerSetId ||
+        fresh.client !== selected.client ||
+        fresh.project !== selected.project ||
+        fresh.document_count !== current.length ||
+        earlier.length !== current.length ||
+        earlier.some((id, index) => id !== current[index]) ||
+        fresh.working_record_count !==
+          selected.review.working_record_count ||
+        fresh.original_source_record_count !==
+          selected.review.original_source_record_count
+      ) {
+        throw new Error(
+          "Source inventory changed. Close and reopen C? review."
+        );
+      }
+
+      const body = {
+        client: selected.client,
+        project: selected.project,
+        merge_set_id: selected.mergeSetId,
+      };
+
+      await apiPost(`${selected.base}/c2/approve-origin`, {
+        ...body,
+        reviewed_doc_ids: earlier,
+        attested_non_ai: true,
+      });
+
+      const transfer = await apiPost(
+        `${selected.base}/c2/transfer`,
+        body
+      );
+
+      if (
+        transfer?.merge_set_id &&
+        transfer.merge_set_id !== selected.mergeSetId
+      ) {
+        throw new Error("Unexpected C? transfer receipt.");
+      }
+
+      // Confirm the immutable transfer can be read back.
+      const readQuery = new URLSearchParams({
+        client: selected.client,
+        project: selected.project,
+      });
+
+      const saved = await apiGet(
+        `${selected.base}/c2/project-records?` +
+          readQuery.toString()
+      );
+
+      if (
+        saved?.status !== "ok" ||
+        !Array.isArray(saved?.transferred_sets) ||
+        !saved.transferred_sets.some(
+          (item: { merge_set_id?: string }) =>
+            item.merge_set_id === selected.mergeSetId
+        )
+      ) {
+        throw new Error(
+          "C? transfer response received, but read-back " +
+            "verification did not confirm the saved Merge Set."
+        );
+      }
+
+      setC2Success(
+        `Verified C? transfer: ${selected.mergeSetId}. ` +
+          "Open Captured Entities ? C? to inspect the records."
+      );
+      setC2Review(null);
+      setC2Attested(false);
+    } catch (reason) {
+      setC2Error(
+        reason instanceof Error
+          ? reason.message
+          : "C? approval or transfer failed."
+      );
+    } finally {
+      setC2Busy(false);
+    }
+  }
 
   function toggleHeaderSelection(headerSetId: string) {
     setSelectedHeader((previous) =>
@@ -266,11 +498,12 @@ export default function CompletedMergeSetsPanel({
 
           <button
             type="button"
-            disabled
-            title="Available after C² transfer validation"
+            disabled={!c2Candidate || c2Busy}
+            onClick={() => void openC2Review()}
+            title="Review the terminal Merge Set before transferring to C?"
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Send to C²
+            {c2Busy ? "Checking C?..." : "Send to C?"}
           </button>
         </div>
       </div>
@@ -345,9 +578,102 @@ export default function CompletedMergeSetsPanel({
       )}
 
       <p className="mt-3 text-xs text-slate-400">
-        Transfer to C² will be enabled after the separate
-        Captured Entities C² workflow is validated.
+        Select a Header Set with one complete terminal Merge Set
+        to review its sources before transferring to C?.
       </p>
+
+      {c2Error && (
+        <p role="alert" className="mt-3 text-sm text-rose-300">
+          {c2Error}
+        </p>
+      )}
+
+      {c2Success && (
+        <p role="status" className="mt-3 text-sm text-emerald-300">
+          {c2Success}
+        </p>
+      )}
+
+      {c2Review && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Review C? source documents"
+          className="mt-4 rounded-xl border border-slate-600 bg-slate-900 p-5"
+        >
+          <h4 className="mb-2 text-lg font-semibold text-white">
+            Review source documents before Send to C?
+          </h4>
+
+          <p className="mb-3 break-all text-xs text-slate-300">
+            Merge Set: {c2Review.mergeSetId}
+          </p>
+
+          <p className="mb-3 text-sm text-slate-200">
+            {c2Review.review.document_count} source documents ?
+            {" "}{c2Review.review.working_record_count} working records ?
+            {" "}{c2Review.review.original_source_record_count}
+            {" "}original source records
+          </p>
+
+          <div className="max-h-60 overflow-auto rounded-lg border border-slate-700 p-3">
+            <ul className="space-y-2 text-sm text-slate-200">
+              {c2Review.review.documents.map((doc) => (
+                <li key={doc.doc_id} className="break-words">
+                  <span className="font-mono text-xs">
+                    {doc.doc_id}
+                  </span>
+                  {" ? "}
+                  {doc.original_filename ||
+                    doc.original_workbook_name ||
+                    "Unnamed source"}
+                  {doc.sheet_name ? ` / ${doc.sheet_name}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <label className="mt-4 flex items-start gap-3 text-sm text-slate-200">
+            <input
+              type="checkbox"
+              checked={c2Attested}
+              disabled={c2Busy}
+              onChange={(event) =>
+                setC2Attested(event.target.checked)
+              }
+              className="mt-1"
+            />
+            <span>
+              I reviewed the source-document inventory and attest
+              that these records came from non-AI structured data
+              processing and are eligible for the C? tab.
+            </span>
+          </label>
+
+          <div className="mt-4 flex gap-3">
+            <button
+              type="button"
+              disabled={c2Busy}
+              onClick={() => {
+                setC2Review(null);
+                setC2Attested(false);
+                setC2Error("");
+              }}
+              className="rounded-lg border border-slate-500 px-4 py-2 text-sm text-white disabled:opacity-40"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!c2Attested || c2Busy}
+              onClick={() => void approveAndTransferC2()}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              {c2Busy ? "Processing..." : "Approve and Send to C?"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
