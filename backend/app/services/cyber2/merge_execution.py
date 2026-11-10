@@ -5,6 +5,8 @@ No Azure, database, RAW, or identity-registry writes occur here.
 
 from copy import deepcopy
 
+from .identity_comparison import normalize_identity_comparison
+
 
 class MergeExecutionError(ValueError):
     pass
@@ -150,6 +152,12 @@ def build_merged_working_population(
                     for u in ucids
                 ]
 
+                values = [
+                    normalize_identity_comparison(field, value)
+                    if value is not None else None
+                    for value in values
+                ]
+
                 present = [value for value in values if value is not None]
 
                 if len(set(present)) > 1 or (
@@ -246,7 +254,14 @@ def build_merged_working_population(
                     "original_value": value,
                 })
 
-            cells[field] = _combine(values)
+            # Date-only DOB in derived working cells.
+            # Original source values remain in field provenance.
+            display_values = [
+                normalize_identity_comparison(field, value)
+                if isinstance(value, str) else value
+                for value in values
+            ]
+            cells[field] = _combine(display_values)
             field_provenance[field] = lineage
 
         working.append({
