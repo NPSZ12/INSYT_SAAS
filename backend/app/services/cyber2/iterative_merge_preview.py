@@ -5,6 +5,8 @@ No Azure reads/writes. Never changes a parent completed merge set.
 
 from collections import defaultdict
 
+from .identity_comparison import normalize_identity_comparison
+
 from app.services.cyber2.iterative_merge_input import (
     IterativeMergeInputError,
     prepare_iterative_candidates,
@@ -48,7 +50,7 @@ def preview_iterative_merge(parent, merge_index, conflict_headers):
             ):
                 missing = True
             elif isinstance(value, str):
-                values.add(value.strip())
+                values.add(normalize_identity_comparison(field, value))
             else:
                 raise IterativeMergeInputError(
                     "Unsupported strong identifier value"

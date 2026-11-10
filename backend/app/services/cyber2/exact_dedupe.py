@@ -8,6 +8,8 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from .identity_comparison import normalize_identity_comparison
+
 
 class ExactDedupeError(ValueError):
     pass
@@ -118,7 +120,7 @@ def preview_exact_dedupe(
 
         for field in conflicts_to_check:
             values = [
-                _cell(selected_metadata[item["ucid"]].get(field))
+                normalize_identity_comparison(field, _cell(selected_metadata[item["ucid"]].get(field)))
                 for item in members
             ]
             nonblank = {value for value in values if value}
