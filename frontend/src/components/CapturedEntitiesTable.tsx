@@ -290,18 +290,20 @@ export default function CapturedEntitiesTable({
       .toLowerCase();
 
   const initialView:
-    "raw" | "ai" | "final" =
+    "raw" | "ai" | "c2" | "final" =
     requestedView === "final"
       ? "final"
-      : requestedView === "ai"
-        ? "ai"
-        : "raw";
+      : requestedView === "c2"
+        ? "c2"
+        : requestedView === "ai"
+          ? "ai"
+          : "raw";
 
   const [
     entityView,
     setEntityView,
   ] = useState<
-    "raw" | "ai" | "final"
+    "raw" | "ai" | "c2" | "final"
   >(initialView);
 
   const [entityData, setEntityData] =
@@ -348,6 +350,13 @@ export default function CapturedEntitiesTable({
       headers: [],
       rows: [],
     });
+
+    // C2 has a separate verified Merge Set source.
+    // Never fall back to RAW, AI, FINAL, or overlays.
+    if (entityView === "c2") {
+      setIsLoading(false);
+      return;
+    }
 
     const protocolUrl =
       `/api/${workspace}/projects/${encodeURIComponent(
@@ -973,6 +982,18 @@ function openFinalSourceDocs(row: Record<string, any>) {
 
             <button
               type="button"
+              onClick={() => setEntityView("c2")}
+              className={
+                entityView === "c2"
+                  ? "rounded-xl border border-sky-500 bg-sky-500 px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
+              }
+            >
+              C²
+            </button>
+
+            <button
+              type="button"
               onClick={() => setEntityView("final")}
               className={
                 entityView === "final"
@@ -1207,9 +1228,11 @@ function openFinalSourceDocs(row: Record<string, any>) {
                     >
                       {isLoading
                         ? "Loading captured entities..."
-                        : entityData.rows.length === 0
-                          ? "No captured entities found yet. Protocol headers are ready for incoming review data."
-                          : "No rows match the current filters."}
+                        : entityView === "c2"
+                          ? "No Merge Sets transferred to C² yet."
+                          : entityData.rows.length === 0
+                            ? "No captured entities found yet. Protocol headers are ready for incoming review data."
+                            : "No rows match the current filters."}
                     </td>
                   </tr>
                 ) : (
