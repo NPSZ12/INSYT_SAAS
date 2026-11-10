@@ -1642,3 +1642,247 @@ def approve_cyber2_c2_origin(
         ) from exc
 
     return saved
+
+class C2TransferBody(BaseModel):
+    client: str = Field(min_length=1)
+    project: str = Field(min_length=1)
+    merge_set_id: str = Field(min_length=1)
+
+
+@router.post("/{workspace}/cyber2/c2/transfer")
+def transfer_cyber2_merge_set_to_c2(
+    workspace: Workspace,
+    body: C2TransferBody,
+    response: Response,
+    current_user=Depends(get_current_user),
+):
+    """Transfer one verified, origin-approved Merge Set into C2 only."""
+    import re
+
+    from app.api.cyber2.schema_mapping import (
+        _approved_mapping_path,
+        _load_required_json,
+    )
+    from app.services.cyber2.c2_origin_receipt import (
+        C2OriginReceiptError,
+        _load as load_origin_blob,
+        _path as origin_receipt_path,
+    )
+    from app.services.cyber2.c2_origin_authorization import (
+        C2OriginAuthorizationError,
+        require_c2_origin_authorization,
+    )
+    from app.services.cyber2.c2_transfer_validation import (
+        C2TransferValidationError,
+        validate_c2_merge_population,
+    )
+    from app.services.cyber2.c2_transfer_projection import (
+        C2ProjectionError,
+        build_c2_projection,
+    )
+    from app.services.cyber2.c2_transfer_store import (
+        C2TransferStoreError,
+        Cyber2C2TransferStore,
+    )
+    from app.services.cyber2.merge_set_store import (
+        MergeSetStoreError,
+    )
+
+    # Permission gates precede all reads and writes.
+    require_scoped_project_access(
+        current_user, workspace, body.client, body.project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+    actor = _cyber2_execution_actor(current_user)
+
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+
+    if re.fullmatch(
+        r"MSET-[0-9A-F]{32}", body.merge_set_id
+    ) is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid C2 Merge Set identifier",
+        )
+
+    # Recompute readiness on the server. This checks the completed
+    # inventory, full iterative lineage, mapping and original sources.
+    inspect_cyber2_c2_transfer_readiness(
+        workspace=workspace,
+        response=response,
+        client=body.client,
+        project=body.project,
+        merge_set_id=body.merge_set_id,
+        current_user=current_user,
+    )
+
+    merge_store = _cyber2_merge_store_for(
+        workspace, body.client, body.project
+    )
+
+    try:
+        # load() verifies the saved Merge Set SHA-256 digest.
+        merge_set = merge_store.load(body.merge_set_id)
+    except MergeSetStoreError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    if (
+        merge_set.get("status") != "completed"
+        or merge_set.get("merge_set_id") != body.merge_set_id
+        or any(
+            merge_set.get(key) != value
+            for key, value in (
+                ("workspace", workspace),
+                ("client", body.client),
+                ("project", body.project),
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="C2 Merge Set scope mismatch",
+        )
+
+    header_set_id = merge_set.get("header_set_id")
+
+    mapping = _load_required_json(
+        _approved_mapping_path(
+            workspace=workspace,
+            client=body.client,
+            project=body.project,
+            header_set_id=header_set_id,
+        ),
+        description="Approved Cyber2 Header Mapping",
+    )
+
+    if (
+        not isinstance(mapping, dict)
+        or mapping.get("status") != "approved"
+        or any(
+            mapping.get(key) != merge_set.get(key)
+            for key in (
+                "workspace", "client",
+                "project", "header_set_id",
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="C2 approved mapping scope mismatch",
+        )
+
+    base_path = _project_base_path(
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+    )
+    container = _processing_container_client()
+
+    # The approval must already exist. Never create an approval
+    # automatically during transfer.
+    receipt_blob = container.get_blob_client(
+        origin_receipt_path(base_path, body.merge_set_id)
+    )
+
+    try:
+        receipt = load_origin_blob(receipt_blob)
+    except C2OriginReceiptError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    if receipt is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Administrator non-AI origin approval required",
+        )
+
+    try:
+        origin_result = require_c2_origin_authorization(
+            merge_set, mapping, receipt
+        )
+    except C2OriginAuthorizationError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    if receipt.get("approval_basis") != "administrator_source_review":
+        raise HTTPException(
+            status_code=409,
+            detail="Unsupported C2 origin approval basis",
+        )
+
+    # Reconstruct the actual approved mapped source population.
+    processing_set = _load_cyber2_merge_processing_set(
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+        header_set_id=header_set_id,
+        approved_mapping=mapping,
+    )
+
+    try:
+        conservation_result = validate_c2_merge_population(
+            merge_set,
+            processing_set["records"],
+            workspace=workspace,
+            client=body.client,
+            project=body.project,
+        )
+
+        projection = build_c2_projection(
+            merge_set,
+            mapping,
+            conservation_result,
+            origin_result,
+        )
+    except (
+        C2TransferValidationError,
+        C2ProjectionError,
+    ) as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    # Recheck the latest completed lineage before the write.
+    # This is not a substitute for storage-level immutability.
+    inspect_cyber2_c2_transfer_readiness(
+        workspace=workspace,
+        response=response,
+        client=body.client,
+        project=body.project,
+        merge_set_id=body.merge_set_id,
+        current_user=current_user,
+    )
+
+    snapshot_store = Cyber2C2TransferStore(
+        container,
+        base_path,
+        workspace=workspace,
+        client=body.client,
+        project=body.project,
+    )
+
+    try:
+        saved = snapshot_store.save(
+            projection,
+            authorized_by=actor,
+        )
+    except C2TransferStoreError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    # Do not return full field provenance to the caller.
+    return {
+        **saved,
+        "workspace": workspace,
+        "client": body.client,
+        "project": body.project,
+        "origin_approval_verified": True,
+        "source_conservation_verified": True,
+    }
