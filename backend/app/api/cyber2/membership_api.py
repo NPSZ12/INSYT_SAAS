@@ -1395,3 +1395,158 @@ def read_cyber2_c2_records(
         "status": "ok",
         **snapshot,
     }
+@router.get("/{workspace}/cyber2/c2/transfer-readiness")
+def inspect_cyber2_c2_transfer_readiness(
+    workspace: Workspace,
+    response: Response,
+    client: str = Query(min_length=1),
+    project: str = Query(min_length=1),
+    merge_set_id: str = Query(min_length=1),
+    current_user=Depends(get_current_user),
+):
+    """Independently verify a selected completed C2 Merge Set.
+
+    This operation never creates an origin approval or writes C2 data.
+    """
+    import re
+
+    from app.api.cyber2.schema_mapping import (
+        _approved_mapping_path,
+        _load_required_json,
+    )
+    from app.services.cyber2.merge_set_store import MergeSetStoreError
+    from app.services.cyber2.c2_transfer_validation import (
+        C2TransferValidationError,
+        validate_c2_merge_population,
+    )
+
+    require_scoped_project_access(
+        current_user, workspace, client, project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+
+    if re.fullmatch(r"MSET-[0-9A-F]{32}", merge_set_id) is None:
+        raise HTTPException(
+            status_code=422, detail="Invalid Merge Set identifier"
+        )
+
+    store = _cyber2_merge_store_for(workspace, client, project)
+
+    try:
+        merge_set = store.load(merge_set_id)
+        completed = store.list_completed()
+    except MergeSetStoreError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    if (
+        merge_set.get("status") != "completed"
+        or merge_set.get("merge_set_id") != merge_set_id
+        or any(
+            merge_set.get(key) != value
+            for key, value in (
+                ("workspace", workspace),
+                ("client", client),
+                ("project", project),
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Completed Merge Set scope mismatch",
+        )
+
+    header_set_id = merge_set.get("header_set_id")
+    same_header = [
+        item for item in completed
+        if item.get("header_set_id") == header_set_id
+        and item.get("status") == "completed"
+    ]
+
+    parent_ids = {
+        item.get("parent_merge_set_id")
+        for item in same_header
+        if item.get("parent_merge_set_id")
+    }
+    terminals = [
+        item for item in same_header
+        if item.get("merge_set_id") not in parent_ids
+    ]
+
+    if (
+        len(terminals) != 1
+        or terminals[0].get("merge_set_id") != merge_set_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Select the unique latest completed Merge Set",
+        )
+
+    mapping = _load_required_json(
+        _approved_mapping_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        ),
+        description="Approved Cyber2 Header Mapping",
+    )
+
+    if (
+        not isinstance(mapping, dict)
+        or mapping.get("status") != "approved"
+        or any(
+            mapping.get(key) != value
+            for key, value in (
+                ("workspace", workspace),
+                ("client", client),
+                ("project", project),
+                ("header_set_id", header_set_id),
+            )
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Approved Header Set scope mismatch",
+        )
+
+    processing_set = _load_cyber2_merge_processing_set(
+        workspace=workspace,
+        client=client,
+        project=project,
+        header_set_id=header_set_id,
+        approved_mapping=mapping,
+    )
+
+    try:
+        result = validate_c2_merge_population(
+            merge_set,
+            processing_set["records"],
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    except C2TransferValidationError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    return {
+        "status": "source_verified_origin_pending",
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "merge_set_id": merge_set_id,
+        "header_set_id": header_set_id,
+        "working_record_count": result["working_record_count"],
+        "original_source_record_count":
+            result["original_source_record_count"],
+        "source_conservation_verified": True,
+        "origin_authorized": False,
+        "transfer_authorized": False,
+    }
