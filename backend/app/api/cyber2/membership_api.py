@@ -1468,24 +1468,21 @@ def inspect_cyber2_c2_transfer_readiness(
         and item.get("status") == "completed"
     ]
 
-    parent_ids = {
-        item.get("parent_merge_set_id")
-        for item in same_header
-        if item.get("parent_merge_set_id")
-    }
-    terminals = [
-        item for item in same_header
-        if item.get("merge_set_id") not in parent_ids
-    ]
+    from app.services.cyber2.c2_merge_lineage import (
+        C2MergeLineageError,
+        require_complete_c2_lineage,
+    )
 
-    if (
-        len(terminals) != 1
-        or terminals[0].get("merge_set_id") != merge_set_id
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Select the unique latest completed Merge Set",
+    try:
+        require_complete_c2_lineage(
+            completed,
+            header_set_id=header_set_id,
+            merge_set_id=merge_set_id,
         )
+    except C2MergeLineageError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
 
     mapping = _load_required_json(
         _approved_mapping_path(

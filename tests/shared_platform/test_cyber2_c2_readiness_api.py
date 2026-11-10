@@ -81,11 +81,126 @@ def test_readiness_cannot_authorize_transfer():
 
 
 def test_latest_completed_merge_set_is_required():
-    fn = route()
-    source = ast.unparse(fn)
-    assert "parent_merge_set_id" in source
-    assert "len(terminals) != 1" in source
-    assert "merge_set_id" in source
+    source = ast.unparse(route())
+    assert "require_complete_c2_lineage" in source
+    assert "header_set_id=header_set_id" in source
+    assert "merge_set_id=merge_set_id" in source
+
+
+def test_readiness_still_requires_independent_source_validation():
+    source = ast.unparse(route())
+    assert "validate_c2_merge_population" in source
+    assert "store.load(merge_set_id)" in source
+    assert "origin_authorized" in source
+    assert "transfer_authorized" in source
+
+
+def test_complete_lineage_accepts_two_valid_passes():
+    from app.services.cyber2.c2_merge_lineage import (
+        require_complete_c2_lineage,
+    )
+
+    sets = [
+        {
+            "merge_set_id": "MSET-FIRST",
+            "header_set_id": "HDR-TEST",
+            "status": "completed",
+        },
+        {
+            "merge_set_id": "MSET-SECOND",
+            "header_set_id": "HDR-TEST",
+            "status": "completed",
+            "parent_merge_set_id": "MSET-FIRST",
+        },
+    ]
+    result = require_complete_c2_lineage(
+        sets,
+        header_set_id="HDR-TEST",
+        merge_set_id="MSET-SECOND",
+    )
+    assert result["lineage_verified"] is True
+    assert result["pass_count"] == 2
+
+
+@pytest.mark.parametrize(
+    "problem",
+    ["missing_parent", "wrong_parent_header", "fork",
+     "cycle", "old_pass", "disconnected", "duplicate"],
+)
+def test_complete_lineage_rejects_unsafe_cases(problem):
+    from app.services.cyber2.c2_merge_lineage import (
+        C2MergeLineageError,
+        require_complete_c2_lineage,
+    )
+
+    sets = [
+        {
+            "merge_set_id": "MSET-FIRST",
+            "header_set_id": "HDR-TEST",
+            "status": "completed",
+        },
+        {
+            "merge_set_id": "MSET-SECOND",
+            "header_set_id": "HDR-TEST",
+            "status": "completed",
+            "parent_merge_set_id": "MSET-FIRST",
+        },
+    ]
+    selected = "MSET-SECOND"
+
+    if problem == "missing_parent":
+        sets[1]["parent_merge_set_id"] = "MSET-UNKNOWN"
+    elif problem == "wrong_parent_header":
+        sets[0]["header_set_id"] = "HDR-OTHER"
+    elif problem == "fork":
+        sets.append({
+            "merge_set_id": "MSET-THIRD",
+            "header_set_id": "HDR-TEST",
+            "status": "completed",
+            "parent_merge_set_id": "MSET-FIRST",
+        })
+    elif problem == "cycle":
+        sets[0]["parent_merge_set_id"] = "MSET-SECOND"
+    elif problem == "old_pass":
+        selected = "MSET-FIRST"
+    elif problem == "disconnected":
+        sets.append({
+            "merge_set_id": "MSET-THIRD",
+            "header_set_id": "HDR-TEST",
+            "status": "completed",
+        })
+    elif problem == "duplicate":
+        sets.append(dict(sets[0]))
+
+    with pytest.raises(C2MergeLineageError):
+        require_complete_c2_lineage(
+            sets,
+            header_set_id="HDR-TEST",
+            merge_set_id=selected,
+        )
+
+
+def test_bounded_inventory_fails_closed():
+    from app.services.cyber2.c2_merge_lineage import (
+        C2MergeLineageError,
+        require_complete_c2_lineage,
+    )
+
+    sets = [
+        {
+            "merge_set_id": f"MSET-{i:032X}",
+            "header_set_id": "HDR-TEST",
+            "status": "completed",
+        }
+        for i in range(1000)
+    ]
+
+    with pytest.raises(C2MergeLineageError):
+        require_complete_c2_lineage(
+            sets,
+            header_set_id="HDR-TEST",
+            merge_set_id=sets[-1]["merge_set_id"],
+        )
 
 
 def test_response_disables_http_caching():
