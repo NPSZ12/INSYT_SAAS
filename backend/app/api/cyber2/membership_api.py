@@ -1484,6 +1484,27 @@ def inspect_cyber2_c2_transfer_readiness(
             status_code=409, detail=str(exc)
         ) from exc
 
+    # Verify the SHA-256 integrity of every saved ancestor,
+    # not only the completed-set listing relationships.
+    from app.services.cyber2.c2_stored_lineage import (
+        verify_c2_stored_lineage,
+    )
+
+    try:
+        verify_c2_stored_lineage(
+            store,
+            completed,
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+            merge_set_id=merge_set_id,
+        )
+    except C2MergeLineageError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
     mapping = _load_required_json(
         _approved_mapping_path(
             workspace=workspace,
