@@ -1907,3 +1907,169 @@ def transfer_cyber2_merge_set_to_c2(
         "origin_approval_verified": True,
         "source_conservation_verified": True,
     }
+
+@router.get("/{workspace}/cyber2/c2/project-records")
+def read_cyber2_project_c2_records(
+    workspace: Workspace,
+    response: Response,
+    client: str = Query(min_length=1),
+    project: str = Query(min_length=1),
+    current_user=Depends(get_current_user),
+):
+    """Aggregate authorized C2 transfers without reading other views."""
+    from app.services.cyber2.c2_transfer_store import (
+        C2TransferStoreError,
+        Cyber2C2TransferStore,
+    )
+    from app.services.cyber2.merge_set_store import MergeSetStoreError
+
+    require_scoped_project_access(
+        current_user, workspace, client, project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+
+    merge_store = _cyber2_merge_store_for(
+        workspace, client, project
+    )
+
+    try:
+        completed = merge_store.list_completed()
+    except MergeSetStoreError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    if not isinstance(completed, list) or len(completed) >= 1000:
+        raise HTTPException(
+            status_code=409,
+            detail="C2 completed-set inventory may be incomplete",
+        )
+
+    header_ids = set()
+    for item in completed:
+        if not isinstance(item, dict):
+            raise HTTPException(
+                status_code=409,
+                detail="Invalid C2 completed-set inventory",
+            )
+        header_id = item.get("header_set_id")
+        if (
+            item.get("status") != "completed"
+            or not isinstance(header_id, str)
+            or not header_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Invalid completed Merge Set metadata",
+            )
+        header_ids.add(header_id)
+
+    store = Cyber2C2TransferStore(
+        _processing_container_client(),
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        ),
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    rows = []
+    headers = []
+    seen_rows = set()
+    transferred_sets = []
+    source_count = 0
+
+    for header_id in sorted(header_ids):
+        try:
+            snapshot = store.display(header_id)
+        except C2TransferStoreError as exc:
+            raise HTTPException(
+                status_code=409, detail=str(exc)
+            ) from exc
+
+        if snapshot is None:
+            continue
+
+        if (
+            not isinstance(snapshot, dict)
+            or not isinstance(snapshot.get("rows"), list)
+            or not isinstance(snapshot.get("headers"), list)
+            or not isinstance(snapshot.get("merge_set_id"), str)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Invalid C2 snapshot response",
+            )
+
+        for row in snapshot["rows"]:
+            if not isinstance(row, dict):
+                raise HTTPException(
+                    status_code=409, detail="Invalid C2 record"
+                )
+
+            identity = row.get("id")
+            if (
+                not isinstance(identity, str)
+                or not identity
+                or identity in seen_rows
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Duplicate or invalid C2 record identity",
+                )
+
+            seen_rows.add(identity)
+            rows.append(row)
+
+        for header in snapshot["headers"]:
+            if (
+                not isinstance(header, str)
+                or not header
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Invalid C2 display header",
+                )
+            if header not in headers:
+                headers.append(header)
+
+        if snapshot.get("working_record_count") != len(snapshot["rows"]):
+            raise HTTPException(
+                status_code=409,
+                detail="C2 working-record count mismatch",
+            )
+
+        original_count = snapshot.get("original_source_record_count")
+        if not isinstance(original_count, int) or original_count <= 0:
+            raise HTTPException(
+                status_code=409,
+                detail="C2 original-source count invalid",
+            )
+
+        source_count += original_count
+        transferred_sets.append({
+            "header_set_id": header_id,
+            "merge_set_id": snapshot["merge_set_id"],
+            "working_record_count": len(snapshot["rows"]),
+        })
+
+    return {
+        "status": "ok",
+        "source": "cyber2_c2_transfer",
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "headers": headers,
+        "rows": rows,
+        "working_record_count": len(rows),
+        "source_membership_count": source_count,
+        "transferred_header_set_count": len(transferred_sets),
+        "transferred_sets": transferred_sets,
+    }
