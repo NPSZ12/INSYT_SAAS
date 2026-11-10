@@ -351,13 +351,6 @@ export default function CapturedEntitiesTable({
       rows: [],
     });
 
-    // C2 has a separate verified Merge Set source.
-    // Never fall back to RAW, AI, FINAL, or overlays.
-    if (entityView === "c2") {
-      setIsLoading(false);
-      return;
-    }
-
     const protocolUrl =
       `/api/${workspace}/projects/${encodeURIComponent(
         projectId
@@ -374,6 +367,13 @@ export default function CapturedEntitiesTable({
         console.error(error);
         setMessage("Protocol headers could not be loaded.");
       });
+
+    // C2 shares the approved Project Protocol headers,
+    // but never loads RAW, AI, FINAL, or overlay records.
+    if (entityView === "c2") {
+      setIsLoading(false);
+      return;
+    }
 
     const batchQuery = batchId
       ? `&batch=${encodeURIComponent(batchId)}`
