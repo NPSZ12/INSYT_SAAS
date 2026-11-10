@@ -1926,8 +1926,8 @@ def get_protocol_folder_prefix(
 ) -> str:
     return (
         build_project_path(
-            client,
             workspace,
+            client,
             project,
             "source/protocol",
         ).rstrip("/")
