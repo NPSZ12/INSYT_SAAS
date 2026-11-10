@@ -369,9 +369,43 @@ export default function CapturedEntitiesTable({
       });
 
     // C2 shares the approved Project Protocol headers,
-    // but never loads RAW, AI, FINAL, or overlay records.
+    // but loads only verified C2 transfer snapshots.
+    // Never query RAW, AI, FINAL, or document overlays here.
     if (entityView === "c2") {
-      setIsLoading(false);
+      const query = new URLSearchParams({
+        client: clientId,
+        project: projectId,
+      });
+
+      const c2Url =
+        `/api/${workspace}/cyber2/c2/project-records?` +
+        query.toString();
+
+      apiGet(c2Url)
+        .then((response: CapturedEntitiesResponse & { status?: string }) => {
+          if (
+            response?.status !== "ok" ||
+            !Array.isArray(response?.headers) ||
+            !Array.isArray(response?.rows)
+          ) {
+            throw new Error("Invalid C2 record response.");
+          }
+
+          setEntityData({
+            headers: response.headers,
+            rows: response.rows,
+          });
+        })
+        .catch((error) => {
+          console.error(error);
+          setMessage(
+            "C2 records could not be loaded. No fallback to other views."
+          );
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+
       return;
     }
 
