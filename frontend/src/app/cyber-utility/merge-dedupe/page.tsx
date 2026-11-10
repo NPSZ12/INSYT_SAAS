@@ -29,6 +29,19 @@ type HeaderSet = {
   created_at?: string;
 };
 
+type MappedCsvManifestResponse = {
+  header_set_id?: string;
+  mapped_csv_manifest_exists?: boolean;
+  mapped_csv_manifest?: {
+    status?: string;
+    failed_document_count?: number;
+    documents?: {
+      doc_id?: string;
+      output_headers?: string[];
+    }[];
+  };
+};
+
 type MappingResponse = {
   approved_mapping_exists?: boolean;
   approved_mapping?: {
@@ -253,12 +266,63 @@ function MergeDedupeContent() {
           throw new Error("Approved protocol headers unavailable.");
         }
 
-        if (active) {
-          setHeaders(
-            Array.from(
-              new Set(columns.filter((field) => field.trim()))
-            )
+        const manifestResponse = await apiGet(
+          `${base}/header-sets/${encodeURIComponent(
+            selectedSet
+          )}/mapping/mapped-csvs?${query.toString()}`
+        ) as MappedCsvManifestResponse;
+
+        const manifest = manifestResponse.mapped_csv_manifest;
+        const mappedDocuments = manifest?.documents;
+
+        if (
+          manifestResponse.header_set_id !== selectedSet ||
+          !manifestResponse.mapped_csv_manifest_exists ||
+          manifest?.status !== "completed" ||
+          manifest.failed_document_count !== 0 ||
+          !Array.isArray(mappedDocuments) ||
+          mappedDocuments.length === 0 ||
+          mappedDocuments.some(
+            (document) =>
+              !document.doc_id ||
+              !Array.isArray(document.output_headers) ||
+              document.output_headers.length === 0 ||
+              document.output_headers.some(
+                (field) => typeof field !== "string"
+              )
+          )
+        ) {
+          throw new Error(
+            "Completed mapped CSV manifest unavailable or incomplete. " +
+            "Merge Index options cannot be verified."
           );
+        }
+
+        const mappedHeaders = new Set(
+          mappedDocuments.flatMap(
+            (document) => document.output_headers || []
+          )
+        );
+
+        const availableColumns = Array.from(
+          new Set(
+            columns.filter(
+              (field) =>
+                field.trim() &&
+                !/_[2-9][0-9]*$/.test(field) &&
+                mappedHeaders.has(field)
+            )
+          )
+        );
+
+        if (!availableColumns.length) {
+          throw new Error(
+            "No approved Protocol headers occur in the mapped CSVs."
+          );
+        }
+
+        if (active) {
+          setHeaders(availableColumns);
         }
       } catch (reason) {
         if (active) setError(errorMessage(reason));
