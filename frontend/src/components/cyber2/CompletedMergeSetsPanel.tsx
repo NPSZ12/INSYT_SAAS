@@ -220,8 +220,17 @@ export default function CompletedMergeSetsPanel({
   const selectedForFurther =
     selectedGroup?.terminal ?? undefined;
 
+  // Only an explicitly selected, unambiguous terminal
+  // Merge Set may be transferred. Selecting the parent Header
+  // Set never transfers a deduplicated dataset implicitly.
   const c2Candidate =
-    selectedIds.length === 0 ? selectedForFurther : undefined;
+    selectedIds.length === 1
+      ? groups.find(
+          (group) =>
+            !group.ambiguous &&
+            group.terminal?.merge_set_id === selectedIds[0]
+        )?.terminal
+      : undefined;
 
   async function openC2Review() {
     if (!c2Candidate || c2Busy) return;
@@ -578,8 +587,9 @@ export default function CompletedMergeSetsPanel({
       )}
 
       <p className="mt-3 text-xs text-slate-400">
-        Select a Header Set with one complete terminal Merge Set
-        to review its sources before transferring to C?.
+        Select the individual Merge Set marked Latest to send
+        that completed version to C?. Earlier passes and
+        ambiguous histories are not eligible.
       </p>
 
       {c2Error && (

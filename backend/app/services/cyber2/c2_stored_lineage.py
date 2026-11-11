@@ -92,10 +92,25 @@ def verify_c2_stored_lineage(
                     "Stored ancestor counts differ from inventory"
                 )
 
+        # Original first-pass Merge Sets were persisted without
+        # pass_number. list_completed() represents them as pass 1.
+        # Only a true root may use this legacy representation.
+        # Iterative passes must retain explicit, matching numbers.
+        stored_pass = document.get("pass_number")
+        parent_id = document.get("parent_merge_set_id") or None
+
+        if stored_pass is None and parent_id is None:
+            stored_pass = 1
+
+        inventory_pass = summary.get("pass_number")
+
         if (
-            "pass_number" in summary
-            and document.get("pass_number")
-                != summary.get("pass_number")
+            type(stored_pass) is not int
+            or type(inventory_pass) is not int
+            or stored_pass < 1
+            or stored_pass != inventory_pass
+            or (parent_id is not None and stored_pass < 2)
+            or (parent_id is None and stored_pass != 1)
         ):
             raise C2MergeLineageError(
                 "Stored ancestor pass number mismatch"

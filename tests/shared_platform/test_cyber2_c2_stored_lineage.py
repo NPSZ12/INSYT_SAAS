@@ -54,7 +54,10 @@ def fixture():
             self.loaded.append(merge_id)
             return deepcopy(documents[merge_id])
 
-    return Store(), [root, child], documents
+    # list_completed() defaults legacy root pass_number to 1.
+    # Keep the stored root document unchanged (no pass_number).
+    root_summary = {**root, "pass_number": 1}
+    return Store(), [root_summary, child], documents
 
 
 def verify(store, summaries):
@@ -167,3 +170,42 @@ def test_readiness_calls_stored_ancestor_verifier():
     ) < route.index(
         "validate_c2_merge_population("
     )
+
+def test_legacy_root_pass_one_is_accepted():
+    """Real store summaries default omitted root pass_number to 1."""
+    store, summaries, documents = fixture()
+
+    assert "pass_number" not in documents[ROOT]
+    summaries[0]["pass_number"] = 1
+
+    result = verify(store, summaries)
+
+    assert result["stored_lineage_verified"] is True
+    assert result["verified_pass_count"] == 2
+    assert store.loaded == [CHILD, ROOT]
+
+
+def test_missing_iterative_pass_number_is_rejected():
+    store, summaries, documents = fixture()
+
+    summaries[0]["pass_number"] = 1
+    documents[CHILD].pop("pass_number")
+
+    with pytest.raises(
+        C2MergeLineageError,
+        match="pass number mismatch",
+    ):
+        verify(store, summaries)
+
+
+def test_incorrect_explicit_root_pass_is_rejected():
+    store, summaries, documents = fixture()
+
+    summaries[0]["pass_number"] = 1
+    documents[ROOT]["pass_number"] = 3
+
+    with pytest.raises(
+        C2MergeLineageError,
+        match="pass number mismatch",
+    ):
+        verify(store, summaries)
