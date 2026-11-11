@@ -45,6 +45,12 @@ type C2ReviewSelection = {
   review: C2SourceReview;
 };
 
+type C2TransferredSet = {
+  header_set_id: string;
+  merge_set_id: string;
+  working_record_count: number;
+};
+
 type Props = {
   base: string;
   client: string;
@@ -136,6 +142,8 @@ export default function CompletedMergeSetsPanel({
   onDedupeFurther,
 }: Props) {
   const [sets, setSets] = useState<CompletedSet[]>([]);
+  const [transferredSets, setTransferredSets] =
+    useState<C2TransferredSet[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedHeader, setSelectedHeader] = useState("");
   const [expandedHeaders, setExpandedHeaders] =
@@ -154,6 +162,7 @@ export default function CompletedMergeSetsPanel({
 
     async function load() {
       setSets([]);
+      setTransferredSets([]);
       setSelectedIds([]);
       setSelectedHeader("");
       setError("");
@@ -185,8 +194,39 @@ export default function CompletedMergeSetsPanel({
           );
         }
 
+        // Read durable transferred snapshots, not browser-only state.
+        const sent = await apiGet(
+          `${base}/c2/project-records?${query.toString()}`
+        );
+
+        if (
+          sent?.status !== "ok" ||
+          sent.client !== client ||
+          sent.project !== project ||
+          !Array.isArray(sent.transferred_sets)
+        ) {
+          throw new Error("Invalid C² transfer inventory.");
+        }
+
+        const seen = new Set<string>();
+        for (const item of sent.transferred_sets) {
+          if (
+            typeof item?.header_set_id !== "string" ||
+            !item.header_set_id ||
+            typeof item?.merge_set_id !== "string" ||
+            !item.merge_set_id ||
+            !Number.isInteger(item.working_record_count) ||
+            item.working_record_count < 1 ||
+            seen.has(item.header_set_id)
+          ) {
+            throw new Error("Invalid transferred set.");
+          }
+          seen.add(item.header_set_id);
+        }
+
         if (active) {
           setSets(response.merge_sets);
+          setTransferredSets(sent.transferred_sets);
         }
       } catch (reason) {
         if (active) {
@@ -213,7 +253,17 @@ export default function CompletedMergeSetsPanel({
     [sets]
   );
 
-  const selectedGroup = groups.find(
+  const transferredHeaderIds = new Set(
+    transferredSets.map((item) => item.header_set_id)
+  );
+  const pendingGroups = groups.filter(
+    (group) => !transferredHeaderIds.has(group.headerSetId)
+  );
+  const sentGroups = groups.filter(
+    (group) => transferredHeaderIds.has(group.headerSetId)
+  );
+
+  const selectedGroup = pendingGroups.find(
     (group) => group.headerSetId === selectedHeader
   );
 
@@ -225,7 +275,7 @@ export default function CompletedMergeSetsPanel({
   // Set never transfers a deduplicated dataset implicitly.
   const c2Candidate =
     selectedIds.length === 1
-      ? groups.find(
+      ? pendingGroups.find(
           (group) =>
             !group.ambiguous &&
             group.terminal?.merge_set_id === selectedIds[0]
@@ -268,7 +318,7 @@ export default function CompletedMergeSetsPanel({
         !Number.isInteger(result.original_source_record_count) ||
         result.original_source_record_count <= 0
       ) {
-        throw new Error("C? source review response is invalid.");
+        throw new Error("C² source review response is invalid.");
       }
 
       const ids = result.documents.map((doc) => doc.doc_id);
@@ -277,7 +327,7 @@ export default function CompletedMergeSetsPanel({
         ids.some((id) => typeof id !== "string" || !id.trim()) ||
         new Set(ids).size !== ids.length
       ) {
-        throw new Error("C? source document inventory is invalid.");
+        throw new Error("C² source document inventory is invalid.");
       }
 
       setC2Review({
@@ -292,7 +342,7 @@ export default function CompletedMergeSetsPanel({
       setC2Error(
         reason instanceof Error
           ? reason.message
-          : "Unable to load C? source review."
+          : "Unable to load C² source review."
       );
     } finally {
       setC2Busy(false);
@@ -309,7 +359,7 @@ export default function CompletedMergeSetsPanel({
       selected.client !== client ||
       selected.project !== project
     ) {
-      setC2Error("Project context changed. Reopen C? review.");
+      setC2Error("Project context changed. Reopen C² review.");
       return;
     }
 
@@ -352,7 +402,7 @@ export default function CompletedMergeSetsPanel({
           selected.review.original_source_record_count
       ) {
         throw new Error(
-          "Source inventory changed. Close and reopen C? review."
+          "Source inventory changed. Close and reopen C² review."
         );
       }
 
@@ -377,7 +427,7 @@ export default function CompletedMergeSetsPanel({
         transfer?.merge_set_id &&
         transfer.merge_set_id !== selected.mergeSetId
       ) {
-        throw new Error("Unexpected C? transfer receipt.");
+        throw new Error("Unexpected C² transfer receipt.");
       }
 
       // Confirm the immutable transfer can be read back.
@@ -400,14 +450,18 @@ export default function CompletedMergeSetsPanel({
         )
       ) {
         throw new Error(
-          "C? transfer response received, but read-back " +
+          "C² transfer response received, but read-back " +
             "verification did not confirm the saved Merge Set."
         );
       }
 
+      setTransferredSets(saved.transferred_sets);
+      setSelectedIds([]);
+      setSelectedHeader("");
+
       setC2Success(
-        `Verified C? transfer: ${selected.mergeSetId}. ` +
-          "Open Captured Entities ? C? to inspect the records."
+        `Verified C² transfer: ${selected.mergeSetId}. ` +
+          "Open Captured Entities → C² to inspect the records."
       );
       setC2Review(null);
       setC2Attested(false);
@@ -415,7 +469,7 @@ export default function CompletedMergeSetsPanel({
       setC2Error(
         reason instanceof Error
           ? reason.message
-          : "C? approval or transfer failed."
+          : "C² approval or transfer failed."
       );
     } finally {
       setC2Busy(false);
@@ -465,14 +519,6 @@ export default function CompletedMergeSetsPanel({
     );
   }
 
-  if (!sets.length) {
-    return (
-      <p className="text-sm text-slate-400">
-        No completed merge sets saved for this project.
-      </p>
-    );
-  }
-
   const selectedCount =
     selectedHeader ? 1 : selectedIds.length;
 
@@ -509,10 +555,10 @@ export default function CompletedMergeSetsPanel({
             type="button"
             disabled={!c2Candidate || c2Busy}
             onClick={() => void openC2Review()}
-            title="Review the terminal Merge Set before transferring to C?"
+            title="Review the terminal Merge Set before transferring to C²"
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {c2Busy ? "Checking C?..." : "Send to C?"}
+            {c2Busy ? "Checking C²..." : "Send to C²"}
           </button>
         </div>
       </div>
@@ -544,7 +590,7 @@ export default function CompletedMergeSetsPanel({
           </thead>
 
           <tbody>
-            {groups.map((group) => {
+            {pendingGroups.map((group) => {
               const expanded = expandedHeaders.includes(
                 group.headerSetId
               );
@@ -570,6 +616,89 @@ export default function CompletedMergeSetsPanel({
         </table>
       </div>
 
+      {pendingGroups.length === 0 && (
+        <p className="mt-3 text-sm text-slate-400">
+          No pending completed Merge Sets.
+        </p>
+      )}
+
+      <section
+        aria-label="Sent to C²"
+        className="mt-8 border-t border-slate-700 pt-5"
+      >
+        <h3 className="insyt-section-title text-xl insyt-text-primary">
+          6. Sent to C²
+        </h3>
+        <p className="mb-3 mt-2 text-xs text-slate-400">
+          Verified transfers. Source Merge Sets remain preserved.
+        </p>
+
+        {sentGroups.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            No Merge Sets sent to C² yet.
+          </p>
+        ) : (
+          <div className="overflow-auto rounded-lg border border-slate-800">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-900 text-slate-300">
+                <tr>
+                  {[
+                    "Header Set",
+                    "Transferred Merge Set",
+                    "Pass",
+                    "Source Rows",
+                    "C² Records",
+                    "Status",
+                  ].map((heading) => (
+                    <th key={heading} className="whitespace-nowrap p-3">
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sentGroups.map((group) => {
+                  const transfer = transferredSets.find(
+                    (item) => item.header_set_id === group.headerSetId
+                  );
+                  const pass = group.sets.find(
+                    (item) => item.merge_set_id === transfer?.merge_set_id
+                  );
+
+                  return (
+                    <tr
+                      key={group.headerSetId}
+                      className="border-t border-slate-800 bg-slate-950"
+                    >
+                      <td className="p-3 text-sky-300">
+                        {group.headerSetId}
+                      </td>
+                      <td className="whitespace-nowrap p-3 font-mono text-xs">
+                        {transfer?.merge_set_id}
+                      </td>
+                      <td className="p-3">
+                        {pass
+                          ? `Pass ${pass.pass_number ?? 1}`
+                          : "Historical transfer"}
+                      </td>
+                      <td className="p-3">
+                        {pass?.raw_record_count ?? "--"}
+                      </td>
+                      <td className="p-3 text-emerald-300">
+                        {transfer?.working_record_count}
+                      </td>
+                      <td className="p-3 text-emerald-300">
+                        Sent to C²
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {selectedGroup?.ambiguous && (
         <p role="alert" className="mt-2 text-xs text-amber-300">
           This Header Set has multiple or incomplete merge
@@ -580,15 +709,14 @@ export default function CompletedMergeSetsPanel({
 
       {selectedIds.length > 0 && (
         <p className="mt-2 text-xs text-slate-400">
-          Individual Merge Set selection is retained for
-          future C² transfer. Select the Header Set row
-          to continue deduplication from its latest pass.
+          Select the individual Latest Merge Set for transfer to C².
+          Select the Header Set row to continue deduplication.
         </p>
       )}
 
       <p className="mt-3 text-xs text-slate-400">
         Select the individual Merge Set marked Latest to send
-        that completed version to C?. Earlier passes and
+        that completed version to C². Earlier passes and
         ambiguous histories are not eligible.
       </p>
 
@@ -608,11 +736,11 @@ export default function CompletedMergeSetsPanel({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Review C? source documents"
+          aria-label="Review C² source documents"
           className="mt-4 rounded-xl border border-slate-600 bg-slate-900 p-5"
         >
           <h4 className="mb-2 text-lg font-semibold text-white">
-            Review source documents before Send to C?
+            Review source documents before Send to C²
           </h4>
 
           <p className="mb-3 break-all text-xs text-slate-300">
@@ -656,7 +784,7 @@ export default function CompletedMergeSetsPanel({
             <span>
               I reviewed the source-document inventory and attest
               that these records came from non-AI structured data
-              processing and are eligible for the C? tab.
+              processing and are eligible for the C² tab.
             </span>
           </label>
 
@@ -679,7 +807,7 @@ export default function CompletedMergeSetsPanel({
               onClick={() => void approveAndTransferC2()}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
             >
-              {c2Busy ? "Processing..." : "Approve and Send to C?"}
+              {c2Busy ? "Processing..." : "Approve and Send to C²"}
             </button>
           </div>
         </div>

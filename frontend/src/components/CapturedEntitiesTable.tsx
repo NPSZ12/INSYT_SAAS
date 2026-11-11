@@ -312,6 +312,9 @@ export default function CapturedEntitiesTable({
       rows: [],
     });
 
+  const [c2SelectedRow, setC2SelectedRow] =
+    useState<Record<string, any> | null>(null);
+
   const [protocolColumns, setProtocolColumns] =
     useState<ProtocolColumn[]>([]);
 
@@ -339,6 +342,7 @@ export default function CapturedEntitiesTable({
     if (!projectId) return;
 
     setIsLoading(true);
+    setC2SelectedRow(null);
     setMessage("");
     setColumnFilters({});
     setColumnValueFilters({});
@@ -1296,10 +1300,23 @@ function openFinalSourceDocs(row: Record<string, any>) {
                               : value
                           );
 
+                          const c2DocIds =
+                            entityView === "c2"
+                              ? splitFinalDocIds(value)
+                              : [];
+
+                          const c2Preview =
+                            c2DocIds.length > 3
+                              ? c2DocIds.slice(0, 3).join("; ") + "; ..."
+                              : c2DocIds.join("; ");
+
                           const displayValue =
-                            entityView === "final" && finalDocIds.length > 0
-                              ? finalDocIds.join("; ")
-                              : value || "Open Doc";
+                            entityView === "c2"
+                              ? c2Preview || "View C² record"
+                              : entityView === "final" &&
+                                  finalDocIds.length > 0
+                                ? finalDocIds.join("; ")
+                                : value || "Open Doc";
 
                           return (
                             <td
@@ -1309,14 +1326,18 @@ function openFinalSourceDocs(row: Record<string, any>) {
                               <button
                                 className="text-sky-400 hover:text-sky-300 underline"
                                 onClick={() =>
-                                  entityView === "final"
-                                    ? openFinalSourceDocs(row)
-                                    : openDocument(value)
+                                  entityView === "c2"
+                                    ? setC2SelectedRow(row)
+                                    : entityView === "final"
+                                      ? openFinalSourceDocs(row)
+                                      : openDocument(value)
                                 }
                                 title={
-                                  entityView === "final"
-                                    ? finalDocIds.join("; ")
-                                    : value
+                                  entityView === "c2"
+                                    ? c2DocIds.join("; ")
+                                    : entityView === "final"
+                                      ? finalDocIds.join("; ")
+                                      : value
                                 }
                               >
                                 {displayValue || "Open Doc"}
@@ -1340,6 +1361,90 @@ function openFinalSourceDocs(row: Record<string, any>) {
               </tbody>
             </table>
           </div>
+          {entityView === "c2" && c2SelectedRow && (
+            <div
+              role="dialog"
+              aria-label="Consolidated C² record details"
+              className="mt-5 rounded-xl border border-slate-600 bg-slate-900 p-5"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">
+                    Consolidated C² Record
+                  </h3>
+                  <p className="mt-1 break-all font-mono text-xs text-slate-300">
+                    {String(c2SelectedRow.id || "")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setC2SelectedRow(null)}
+                  className="rounded-lg border border-slate-500 px-3 py-2 text-sm"
+                >
+                  Close
+                </button>
+              </div>
+
+              <h4 className="mt-5 font-semibold text-slate-200">
+                Approved Protocol Values
+              </h4>
+              <dl className="mt-2 grid gap-3 md:grid-cols-2">
+                {headers
+                  .filter(
+                    (header) =>
+                      header !== "Doc ID" &&
+                      String(c2SelectedRow[header] ?? "").trim()
+                  )
+                  .map((header) => (
+                    <div
+                      key={header}
+                      className="rounded-lg border border-slate-700 p-3"
+                    >
+                      <dt className="text-xs text-slate-400">
+                        {header}
+                      </dt>
+                      <dd className="mt-1 break-words text-sm text-slate-100">
+                        {String(c2SelectedRow[header])}
+                      </dd>
+                    </div>
+                  ))}
+              </dl>
+
+              <h4 className="mt-5 font-semibold text-slate-200">
+                All Source Document IDs
+              </h4>
+              <p className="mt-1 text-xs text-slate-400">
+                Complete source-document membership is displayed below.
+                These are separate provenance references, not one
+                combined Review Workspace document.
+              </p>
+              {(() => {
+                const allIds = splitFinalDocIds(
+                  c2SelectedRow["Doc ID"]
+                );
+
+                return (
+                  <>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {allIds.length} source document(s)
+                    </p>
+                    <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-slate-700 p-3">
+                      <ul className="space-y-1">
+                        {allIds.map((docId, index) => (
+                          <li
+                            key={`${docId}-${index}`}
+                            className="break-all font-mono text-xs text-slate-200"
+                          >
+                            {docId}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </ContentCard>
       </PageContainer>
     </AppShell>
