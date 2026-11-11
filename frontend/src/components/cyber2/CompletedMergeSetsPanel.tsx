@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "../../lib/api";
 
 type CompletedSet = {
@@ -665,13 +665,23 @@ export default function CompletedMergeSetsPanel({
                     (item) => item.merge_set_id === transfer?.merge_set_id
                   );
 
+                  const expanded = expandedHeaders.includes(
+                    group.headerSetId
+                  );
+
                   return (
-                    <tr
-                      key={group.headerSetId}
-                      className="border-t border-slate-800 bg-slate-950"
-                    >
+                    <Fragment key={group.headerSetId}>
+                      <tr className="border-t border-slate-800 bg-slate-950">
                       <td className="p-3 text-sky-300">
-                        {group.headerSetId}
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(group.headerSetId)}
+                          aria-expanded={expanded}
+                          aria-label={`${expanded ? "Collapse" : "Expand"} transferred Header Set ${group.headerSetId}`}
+                          className="font-semibold text-sky-300 underline hover:text-sky-200"
+                        >
+                          {expanded ? "v" : ">"} {group.headerSetId}
+                        </button>
                       </td>
                       <td className="whitespace-nowrap p-3 font-mono text-xs">
                         {transfer?.merge_set_id}
@@ -690,7 +700,83 @@ export default function CompletedMergeSetsPanel({
                       <td className="p-3 text-emerald-300">
                         Sent to C²
                       </td>
-                    </tr>
+                      </tr>
+
+                      {expanded &&
+                        group.sets.map((set) => (
+                          <tr
+                            key={set.merge_set_id}
+                            className="border-t border-slate-800 bg-slate-900/60"
+                          >
+                            <td colSpan={6} className="p-4">
+                              <div className="mb-3 flex flex-wrap items-center gap-3">
+                                <span className="font-semibold text-sky-300">
+                                  Pass {set.pass_number ?? 1}
+                                </span>
+                                <span className="break-all font-mono text-xs text-slate-300">
+                                  {set.merge_set_id}
+                                </span>
+                                {set.merge_set_id === transfer?.merge_set_id && (
+                                  <span className="text-xs font-semibold text-emerald-300">
+                                    Sent to C²
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="grid gap-3 text-xs text-slate-300 md:grid-cols-3">
+                                <div>
+                                  <span className="text-slate-400">
+                                    Merge Index / Categories:
+                                  </span>
+                                  <div className="mt-1 font-medium text-slate-100">
+                                    {set.merge_index?.join(" + ") || "Not specified"}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">
+                                    Original Source Rows:
+                                  </span>
+                                  <div className="mt-1">
+                                    {set.raw_record_count}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">
+                                    Working Rows:
+                                  </span>
+                                  <div className="mt-1">
+                                    {set.working_record_count}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">
+                                    Groups Merged:
+                                  </span>
+                                  <div className="mt-1">
+                                    {set.merged_group_count}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">
+                                    Completed:
+                                  </span>
+                                  <div className="mt-1">
+                                    {set.created_at}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">
+                                    Status:
+                                  </span>
+                                  <div className="mt-1">
+                                    {set.status}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
                   );
                 })}
               </tbody>

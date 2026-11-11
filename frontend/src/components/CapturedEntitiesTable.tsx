@@ -746,6 +746,14 @@ function clearAllColumnValueFilters() {
 }
 
 function getRowExportKey(row: Record<string, any>, index: number) {
+  // Preserve independent selection for consolidated C2 records.
+  if (
+    typeof row.id === "string" &&
+    /^MSET-[0-9A-F]{32}:.+$/.test(row.id)
+  ) {
+    return `c2:${row.id}`;
+  }
+
   const docIds = getExportDocIdsFromRow(row);
 
   return docIds.length > 0
@@ -1364,8 +1372,9 @@ function openFinalSourceDocs(row: Record<string, any>) {
           {entityView === "c2" && c2SelectedRow && (
             <div
               role="dialog"
+              aria-modal="true"
               aria-label="Consolidated C² record details"
-              className="mt-5 rounded-xl border border-slate-600 bg-slate-900 p-5"
+              className="fixed left-1/2 top-1/2 z-[100] max-h-[90vh] w-[min(960px,95vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-slate-600 bg-slate-950 p-6 shadow-2xl"
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
