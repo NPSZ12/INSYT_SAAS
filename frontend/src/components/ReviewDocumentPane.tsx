@@ -797,7 +797,7 @@ export default function ReviewDocumentPane({
     <div
       className={
         compactForWorksheets
-          ? "insyt-panel flex h-[min(72vh,780px)] min-h-0 flex-none flex-col overflow-hidden p-6"
+          ? "insyt-panel flex h-[min(85vh,950px)] min-h-0 flex-none flex-col overflow-hidden p-6"
           : "insyt-panel col-span-2 flex h-[calc(100vh-24px)] min-h-[980px] max-h-[calc(100vh-24px)] flex-col overflow-hidden p-6"
       }
     >
