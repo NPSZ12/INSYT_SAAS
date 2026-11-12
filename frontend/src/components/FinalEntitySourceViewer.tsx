@@ -317,7 +317,7 @@ export default function FinalEntitySourceViewer({
       <AppShell>
         <PageContainer>
           <PageHeader
-            title={isC2 ? "C2 Source Documents" : "Final Entity Source Documents"}
+            title={isC2 ? "C² Source Documents" : "Final Entity Source Documents"}
             subtitle={
               isC2
                 ? c2Loading
@@ -341,12 +341,35 @@ export default function FinalEntitySourceViewer({
     <AppShell>
       <PageContainer>
         <PageHeader
-          title={isC2 ? "C2 Source Documents" : "Final Entity Source Documents"}
-          subtitle={`Source documents associated with the selected Final entity for ${projectId.replaceAll(
+          title={isC2 ? "C² Source Documents" : "Final Entity Source Documents"}
+          subtitle={`Source documents associated with the selected ${isC2 ? "C² record" : "Final entity"} for ${projectId.replaceAll(
             "_",
             " "
           )}.`}
         />
+
+        {isC2 && (
+          <div className="mb-4 flex justify-start">
+            <button
+              type="button"
+              onClick={() => {
+                const params = new URLSearchParams({
+                  client: clientId,
+                  project: projectId,
+                  view: "c2",
+                });
+
+                router.push(
+                  `/${workspace}/captured-entities?${params.toString()}`
+                );
+              }}
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-sky-500 bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500"
+            >
+              <span aria-hidden="true">{"\u2190"}</span>
+              Return to C² Captured Entities
+            </button>
+          </div>
+        )}
 
         <ContentCard title="Source Document Set">
           <div className="mb-4 grid grid-cols-1 gap-3 text-sm text-[var(--insyt-text-muted)] md:grid-cols-4">
@@ -381,7 +404,7 @@ export default function FinalEntitySourceViewer({
 
           <div className="mb-4 rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3">
             <p className="mb-2 text-xs uppercase tracking-wide text-[var(--insyt-text-muted)]">
-              {isC2 ? "Grouped C2 Doc IDs" : "Grouped Final Doc IDs"}
+              {isC2 ? "Grouped C² Doc IDs" : "Grouped Final Doc IDs"}
             </p>
 
             <p className="whitespace-pre-wrap text-sm text-[var(--insyt-text-secondary)]">
