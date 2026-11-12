@@ -315,6 +315,10 @@ export default function CapturedEntitiesTable({
   const [c2SelectedRow, setC2SelectedRow] =
     useState<Record<string, any> | null>(null);
 
+  const [c2TransferredSets, setC2TransferredSets] = useState<
+    { header_set_id: string; merge_set_id: string }[]
+  >([]);
+
   const [protocolColumns, setProtocolColumns] =
     useState<ProtocolColumn[]>([]);
 
@@ -343,6 +347,7 @@ export default function CapturedEntitiesTable({
 
     setIsLoading(true);
     setC2SelectedRow(null);
+    setC2TransferredSets([]);
     setMessage("");
     setColumnFilters({});
     setColumnValueFilters({});
@@ -394,6 +399,62 @@ export default function CapturedEntitiesTable({
           ) {
             throw new Error("Invalid C2 record response.");
           }
+
+          const transfers = (
+            response as CapturedEntitiesResponse & {
+              transferred_sets?: unknown;
+            }
+          ).transferred_sets;
+
+          if (!Array.isArray(transfers)) {
+            throw new Error("C2 transfer metadata is unavailable.");
+          }
+
+          const verifiedTransfers: {
+            header_set_id: string;
+            merge_set_id: string;
+          }[] = [];
+
+          const seenHeaders = new Set<string>();
+          const seenMerges = new Set<string>();
+
+          for (const item of transfers) {
+            if (
+              !item ||
+              typeof item !== "object" ||
+              typeof item.header_set_id !== "string" ||
+              !item.header_set_id ||
+              typeof item.merge_set_id !== "string" ||
+              !item.merge_set_id ||
+              seenHeaders.has(item.header_set_id) ||
+              seenMerges.has(item.merge_set_id)
+            ) {
+              throw new Error("Invalid C2 transfer metadata.");
+            }
+
+            seenHeaders.add(item.header_set_id);
+            seenMerges.add(item.merge_set_id);
+
+            verifiedTransfers.push({
+              header_set_id: item.header_set_id,
+              merge_set_id: item.merge_set_id,
+            });
+          }
+
+          for (const row of response.rows) {
+            const recordId = String(row?.id || "");
+            const matches = verifiedTransfers.filter(
+              (item) => recordId.startsWith(item.merge_set_id + ":")
+            );
+
+            if (matches.length !== 1) {
+              throw new Error(
+                "C2 record does not match exactly one transferred Merge Set."
+              );
+            }
+          }
+
+          setC2TransferredSets(verifiedTransfers);
 
           setEntityData({
             headers: response.headers,
@@ -927,6 +988,40 @@ function getFinalEntityUid(row: Record<string, any>) {
   );
 }
 
+function openC2SourceDocs(row: Record<string, any>) {
+  const recordId = String(row?.id || "").trim();
+  const docIds = splitFinalDocIds(row?.["Doc ID"]);
+
+  if (!recordId || docIds.length === 0) {
+    setMessage("C2 record or source Doc IDs are unavailable.");
+    return;
+  }
+
+  const matches = c2TransferredSets.filter(
+    (item) => recordId.startsWith(item.merge_set_id + ":")
+  );
+
+  if (matches.length !== 1) {
+    setMessage(
+      "Unable to identify exactly one transferred Header Set for this C2 record."
+    );
+    return;
+  }
+
+  const params = new URLSearchParams({
+    client: clientId,
+    project: projectId,
+    source: "c2",
+    headerSetId: matches[0].header_set_id,
+    recordId,
+    startDoc: docIds[0],
+  });
+
+  router.push(
+    `/${workspace}/entities/final-viewer?${params.toString()}`
+  );
+}
+
 function openFinalSourceDocs(row: Record<string, any>) {
   const docIds = splitFinalDocIds(
     row.doc_ids?.length > 0
@@ -1102,13 +1197,19 @@ function openFinalSourceDocs(row: Record<string, any>) {
                     Export
                   </th>
 
+                  {entityView === "c2" && (
+                    <th className="sticky left-[72px] top-0 z-[65] w-[48px] min-w-[48px] border-b border-r border-slate-800 bg-slate-900 p-2 text-center text-sky-300">
+                      Details
+                    </th>
+                  )}
+
                   {headerGroups.map((group, index) => (
                     <th
                       key={`${group.label}-${index}`}
                       colSpan={group.span}
                       className={
                         index === 0
-                          ? "sticky left-[72px] top-0 z-[60] w-[220px] min-w-[220px] bg-slate-900 p-3 text-left border-l border-r border-b border-slate-800 whitespace-nowrap text-sky-300"
+                          ? `sticky ${entityView === "c2" ? "left-[120px]" : "left-[72px]"} top-0 z-[60] w-[220px] min-w-[220px] bg-slate-900 p-3 text-left border-l border-r border-b border-slate-800 whitespace-nowrap text-sky-300`
                           : "sticky top-0 z-40 bg-slate-900 p-3 text-left border-l border-b border-slate-800 whitespace-nowrap text-sky-300"
                       }
                     >
@@ -1122,6 +1223,12 @@ function openFinalSourceDocs(row: Record<string, any>) {
                     Select
                   </th>
 
+                  {entityView === "c2" && (
+                    <th className="sticky left-[72px] top-[42px] z-[65] w-[48px] min-w-[48px] border-b border-r border-slate-800 bg-slate-900 p-2 text-center">
+                      Info
+                    </th>
+                  )}
+
                   {headers.map((header) => {
                     const isSorted = sortState?.header === header;
 
@@ -1130,7 +1237,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                         key={header}
                         className={
                           header === "Doc ID"
-                            ? "sticky left-[72px] top-[42px] z-[60] w-[220px] min-w-[220px] bg-slate-900 p-3 text-left border-l border-r border-slate-800 whitespace-nowrap"
+                            ? `sticky ${entityView === "c2" ? "left-[120px]" : "left-[72px]"} top-[42px] z-[60] w-[220px] min-w-[220px] bg-slate-900 p-3 text-left border-l border-r border-slate-800 whitespace-nowrap`
                             : "sticky top-[42px] z-40 bg-slate-900 p-3 text-left border-l border-slate-800 whitespace-nowrap"
                         }
                       >
@@ -1240,12 +1347,16 @@ function openFinalSourceDocs(row: Record<string, any>) {
                     <span className="sr-only">Export selection filter spacer</span>
                   </th>
 
+                  {entityView === "c2" && (
+                    <th className="sticky left-[72px] top-[90px] z-[65] w-[48px] min-w-[48px] border-r border-slate-800 bg-slate-900 p-2" />
+                  )}
+
                   {headers.map((header) => (
                     <th
                       key={`${header}-filter`}
                       className={
                         header === "Doc ID"
-                          ? "sticky left-[72px] top-[90px] z-[60] w-[220px] min-w-[220px] bg-slate-900 p-2 border-l border-r border-slate-800 whitespace-nowrap"
+                          ? `sticky ${entityView === "c2" ? "left-[120px]" : "left-[72px]"} top-[90px] z-[60] w-[220px] min-w-[220px] bg-slate-900 p-2 border-l border-r border-slate-800 whitespace-nowrap`
                           : "sticky top-[90px] z-40 bg-slate-900 p-2 border-l border-slate-800 whitespace-nowrap"
                       }
                     >
@@ -1269,7 +1380,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                 {visibleRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={Math.max(headers.length + 1, 1)}
+                      colSpan={Math.max(headers.length + (entityView === "c2" ? 2 : 1), 1)}
                       className="p-6 text-[var(--insyt-text-muted)]"
                     >
                       {isLoading
@@ -1297,6 +1408,20 @@ function openFinalSourceDocs(row: Record<string, any>) {
                           className="h-4 w-4 rounded border-slate-600 bg-slate-950"
                         />
                       </td>
+
+                      {entityView === "c2" && (
+                        <td className="sticky left-[72px] z-20 w-[48px] min-w-[48px] border-r border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setC2SelectedRow(row)}
+                            aria-label="Open consolidated C2 details"
+                            title="View consolidated values and all source Doc IDs"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-sky-500 text-sm font-bold text-sky-300 hover:bg-sky-900"
+                          >
+                            i
+                          </button>
+                        </td>
+                      )}
 
                       {headers.map((header, index) => {
                         const value = row[header] || "";
@@ -1329,13 +1454,13 @@ function openFinalSourceDocs(row: Record<string, any>) {
                           return (
                             <td
                               key={header}
-                              className="sticky left-[72px] z-20 w-[220px] min-w-[220px] whitespace-nowrap border-r border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3"
+                              className={`sticky ${entityView === "c2" ? "left-[120px]" : "left-[72px]"} z-20 w-[220px] min-w-[220px] whitespace-nowrap border-r border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3`}
                             >
                               <button
                                 className="text-sky-400 hover:text-sky-300 underline"
                                 onClick={() =>
                                   entityView === "c2"
-                                    ? setC2SelectedRow(row)
+                                    ? openC2SourceDocs(row)
                                     : entityView === "final"
                                       ? openFinalSourceDocs(row)
                                       : openDocument(value)

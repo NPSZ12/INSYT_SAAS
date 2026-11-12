@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "./AppShell";
@@ -35,15 +35,123 @@ export default function FinalEntitySourceViewer({
   const capturedEntity = searchParams.get("entity") || "";
   const entityUid = searchParams.get("entityUid") || "";
   const rawDocIds = searchParams.get("docIds") || "";
+  const isC2 = searchParams.get("source") === "c2";
+  const c2HeaderSetId = searchParams.get("headerSetId") || "";
+  const c2RecordId = searchParams.get("recordId") || "";
+  const c2StartDoc = searchParams.get("startDoc") || "";
+
+  const [c2DocIds, setC2DocIds] = useState<string[]>([]);
+  const [c2Error, setC2Error] = useState("");
+  const [c2Loading, setC2Loading] = useState(false);
 
   const docIds = useMemo(() => {
-    return splitDocIds(rawDocIds);
-  }, [rawDocIds]);
+    return isC2 ? c2DocIds : splitDocIds(rawDocIds);
+  }, [isC2, c2DocIds, rawDocIds]);
 
   const [selectedDocIds, setSelectedDocIds] =
     useState<string[]>(docIds);
 
   const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    if (!isC2) return;
+
+    let cancelled = false;
+
+    setC2DocIds([]);
+    setSelectedDocIds([]);
+    setC2Error("");
+
+    if (
+      !clientId ||
+      !projectId ||
+      !c2HeaderSetId ||
+      !c2RecordId ||
+      !c2StartDoc
+    ) {
+      setC2Error("C2 source identities are incomplete.");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+      header_set_id: c2HeaderSetId,
+      record_id: c2RecordId,
+      doc_id: c2StartDoc,
+    });
+
+    const token =
+      typeof window !== "undefined"
+        ? localStorage.getItem("insyt_token")
+        : "";
+
+    setC2Loading(true);
+
+    fetch(
+      `${API_BASE_URL}/api/${workspace}/cyber2/c2/record-source?${params.toString()}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: token
+          ? { Authorization: `Bearer ${token}` }
+          : {},
+      }
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(
+            `C2 source lookup failed (HTTP ${response.status}).`
+          );
+        }
+        return response.json();
+      })
+      .then((result) => {
+        if (cancelled) return;
+
+        if (
+          result?.status !== "ok" ||
+          result?.header_set_id !== c2HeaderSetId ||
+          result?.record_id !== c2RecordId ||
+          result?.doc_id !== c2StartDoc ||
+          !Array.isArray(result?.doc_ids) ||
+          result.doc_ids.length === 0 ||
+          !result.doc_ids.every(
+            (id: unknown) => typeof id === "string" && !!id
+          ) ||
+          !result.doc_ids.includes(c2StartDoc)
+        ) {
+          throw new Error("Invalid verified C2 source membership.");
+        }
+
+        const ids = result.doc_ids as string[];
+        setC2DocIds(ids);
+        setSelectedDocIds(ids);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setC2Error(
+          error instanceof Error
+            ? error.message
+            : "Unable to load C2 source documents."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setC2Loading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isC2,
+    workspace,
+    clientId,
+    projectId,
+    c2HeaderSetId,
+    c2RecordId,
+    c2StartDoc,
+  ]);
 
   function isSelected(docId: string) {
     return selectedDocIds.includes(docId);
@@ -85,8 +193,15 @@ export default function FinalEntitySourceViewer({
     if (entityUid) params.set("entityUid", entityUid);
 
     params.set("doc", cleanDocIds[0]);
-    params.set("docSet", cleanDocIds.join(";"));
-    params.set("source", "final");
+
+    if (isC2) {
+      params.set("source", "c2");
+      params.set("headerSetId", c2HeaderSetId);
+      params.set("recordId", c2RecordId);
+    } else {
+      params.set("docSet", cleanDocIds.join(";"));
+      params.set("source", "final");
+    }
 
     router.push(`/${workspace}/review/doc?${params.toString()}`);
   }
@@ -104,6 +219,11 @@ export default function FinalEntitySourceViewer({
   }
 
   async function exportSelectedDocs() {
+    if (isC2) {
+      alert("C2 source export is not available from the FINAL export handler.");
+      return;
+    }
+
     const cleanDocIds = selectedDocIds
       .map((item) => String(item || "").trim())
       .filter(Boolean);
@@ -197,8 +317,14 @@ export default function FinalEntitySourceViewer({
       <AppShell>
         <PageContainer>
           <PageHeader
-            title="Final Entity Source Documents"
-            subtitle="No grouped source documents were provided."
+            title={isC2 ? "C2 Source Documents" : "Final Entity Source Documents"}
+            subtitle={
+              isC2
+                ? c2Loading
+                  ? "Loading verified C2 source documents..."
+                  : c2Error || "No verified C2 source documents available."
+                : "No grouped source documents were provided."
+            }
           />
 
           <ContentCard title="Missing Source Documents">
@@ -215,7 +341,7 @@ export default function FinalEntitySourceViewer({
     <AppShell>
       <PageContainer>
         <PageHeader
-          title="Final Entity Source Documents"
+          title={isC2 ? "C2 Source Documents" : "Final Entity Source Documents"}
           subtitle={`Source documents associated with the selected Final entity for ${projectId.replaceAll(
             "_",
             " "
@@ -255,7 +381,7 @@ export default function FinalEntitySourceViewer({
 
           <div className="mb-4 rounded-xl border border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3">
             <p className="mb-2 text-xs uppercase tracking-wide text-[var(--insyt-text-muted)]">
-              Grouped Final Doc IDs
+              {isC2 ? "Grouped C2 Doc IDs" : "Grouped Final Doc IDs"}
             </p>
 
             <p className="whitespace-pre-wrap text-sm text-[var(--insyt-text-secondary)]">
@@ -296,14 +422,16 @@ export default function FinalEntitySourceViewer({
               Open Review for All
             </button>
 
-            <button
+            {!isC2 && (
+              <button
               type="button"
               onClick={exportSelectedDocs}
               disabled={isExporting || selectedDocIds.length === 0}
               className="inline-flex min-h-10 items-center justify-center rounded-xl border border-blue-600 bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:border-blue-500 hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isExporting ? "Exporting..." : "Export Selected"}
-            </button>
+              </button>
+            )}
           </div>
 
           <p className="mb-4 text-xs text-[var(--insyt-text-muted)]">

@@ -2074,6 +2074,125 @@ def read_cyber2_project_c2_records(
         "transferred_sets": transferred_sets,
     }
 
+@router.get("/{workspace}/cyber2/c2/record-source")
+def read_cyber2_c2_record_source(
+    workspace: Workspace,
+    response: Response,
+    client: str = Query(min_length=1),
+    project: str = Query(min_length=1),
+    header_set_id: str = Query(min_length=1),
+    record_id: str = Query(min_length=1),
+    doc_id: str = Query(min_length=1),
+    current_user=Depends(get_current_user),
+):
+    """Open one verified source through the existing Review loader."""
+    from app.api.cyber2.schema_mapping import (
+        _approved_mapping_path,
+        _load_required_json,
+    )
+    from app.api.review import load_review_document_by_doc_id
+    from app.services.cyber2.c2_source_resolution import (
+        C2SourceResolutionError,
+        resolve_c2_source_document,
+    )
+    from app.services.cyber2.c2_transfer_store import (
+        C2TransferStoreError,
+        Cyber2C2TransferStore,
+    )
+
+    require_scoped_project_access(
+        current_user, workspace, client, project
+    )
+    require_permission(current_user, PERMISSION_REVIEW)
+    require_admin(current_user)
+
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+
+    store = Cyber2C2TransferStore(
+        _processing_container_client(),
+        _project_base_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+        ),
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    try:
+        snapshot = store.load(header_set_id)
+    except C2TransferStoreError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404, detail="C2 transfer not found"
+        )
+
+    mapping = _load_required_json(
+        _approved_mapping_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        ),
+        description="Approved Cyber2 Header Mapping",
+    )
+
+    if any(
+        mapping.get(key) != value
+        for key, value in (
+            ("workspace", workspace),
+            ("client", client),
+            ("project", project),
+            ("header_set_id", header_set_id),
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="C2 approved mapping scope mismatch",
+        )
+
+    try:
+        resolved = resolve_c2_source_document(
+            snapshot,
+            mapping,
+            record_id=record_id,
+            doc_id=doc_id,
+        )
+    except C2SourceResolutionError as exc:
+        raise HTTPException(
+            status_code=409, detail=str(exc)
+        ) from exc
+
+    # The existing Review loader validates the explicit path
+    # against approved project storage prefixes and existence.
+    # No caller-provided blob path is accepted.
+    document = load_review_document_by_doc_id(
+        workspace=workspace,
+        client=client,
+        project=project,
+        doc_id=resolved["doc_id"],
+        native_blob=resolved["source_path"],
+    )
+
+    return {
+        "status": "ok",
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "header_set_id": header_set_id,
+        "record_id": resolved["record_id"],
+        "doc_id": resolved["doc_id"],
+        "doc_ids": resolved["doc_ids"],
+        "doc_index": resolved["doc_index"],
+        "doc_count": resolved["doc_count"],
+        "document": document,
+    }
+
+
 @router.get("/{workspace}/cyber2/c2/source-review")
 def read_cyber2_c2_source_review(
     workspace: Workspace,

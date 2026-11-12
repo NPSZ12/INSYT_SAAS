@@ -114,6 +114,9 @@ function ReviewPageContent() {
   const sourceParam = searchParams.get("source") || "";
   const entityParam = searchParams.get("entity") || "";
   const entityUidParam = searchParams.get("entityUid") || "";
+  const c2HeaderSetId = searchParams.get("headerSetId") || "";
+  const c2RecordId = searchParams.get("recordId") || "";
+  const isC2SourceView = sourceParam === "c2";
 
   const finalSourceDocIds = splitDocSet(docSetParam);
 
@@ -145,6 +148,81 @@ function ReviewPageContent() {
     setIsLoading(true);
     setError("");
     setReviewDoc(null);
+
+    if (isC2SourceView) {
+      setFileDocIds([]);
+
+      if (
+        !clientId ||
+        !projectId ||
+        !docId ||
+        !c2HeaderSetId ||
+        !c2RecordId ||
+        batchId
+      ) {
+        setError("Incomplete C2 source Review identity.");
+        setIsLoading(false);
+        return;
+      }
+
+      const params = new URLSearchParams({
+        client: clientId,
+        project: projectId,
+        header_set_id: c2HeaderSetId,
+        record_id: c2RecordId,
+        doc_id: docId,
+      });
+
+      let cancelled = false;
+
+      apiGet(
+        `/api/capture/cyber2/c2/record-source?${params.toString()}`
+      )
+        .then((result: any) => {
+          if (cancelled) return;
+
+          if (
+            result?.status !== "ok" ||
+            result?.record_id !== c2RecordId ||
+            result?.header_set_id !== c2HeaderSetId ||
+            result?.doc_id !== docId ||
+            !Array.isArray(result?.doc_ids) ||
+            result.doc_ids.length === 0 ||
+            result.doc_ids.some(
+              (id: unknown) => typeof id !== "string" || !id
+            ) ||
+            new Set(result.doc_ids).size !== result.doc_ids.length ||
+            !result.doc_ids.includes(docId) ||
+            !result?.document ||
+            typeof result.document !== "object"
+          ) {
+            throw new Error("Invalid verified C2 Review response.");
+          }
+
+          setFileDocIds(result.doc_ids);
+          setReviewDoc({
+            ...result.document,
+            batch: "C2 Source Set",
+          });
+        })
+        .catch((error: any) => {
+          if (cancelled) return;
+          setFileDocIds([]);
+          setError(
+            String(
+              error?.message ||
+                "Unable to open the verified C2 source document."
+            )
+          );
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoading(false);
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     if (docId && !batchId) {
       const params = new URLSearchParams();
@@ -223,6 +301,9 @@ function ReviewPageContent() {
     batchId,
     docId,
     nativeBlob,
+    isC2SourceView,
+    c2HeaderSetId,
+    c2RecordId,
   ]);
 
   useEffect(() => {
@@ -298,6 +379,12 @@ function ReviewPageContent() {
       return;
     }
 
+    if (isC2SourceView) {
+      // The authenticated C2 resolver supplies the restricted
+      // document set; do not query unrelated project files.
+      return;
+    }
+
     if (isFinalSourceView) {
       setFileDocIds(finalSourceDocIds);
       return;
@@ -323,6 +410,7 @@ function ReviewPageContent() {
     projectId,
     isFileView,
     isFinalSourceView,
+    isC2SourceView,
     docSetParam,
   ]);
   
@@ -668,7 +756,11 @@ function ReviewPageContent() {
       );
     }
 
-    if (isFinalSourceView) {
+    if (isC2SourceView) {
+      params.set("source", "c2");
+      params.set("headerSetId", c2HeaderSetId);
+      params.set("recordId", c2RecordId);
+    } else if (isFinalSourceView) {
       params.set("source", "final");
       params.set(
         "docSet",
@@ -817,6 +909,12 @@ function ReviewPageContent() {
       project: projectId,
     });
 
+    if (isC2SourceView) {
+      params.set("view", "c2");
+      router.push(`/capture/captured-entities?${params.toString()}`);
+      return;
+    }
+
     if (isFinalSourceView) {
       params.set("view", "final");
       router.push(`/capture/captured-entities?${params.toString()}`);
@@ -828,6 +926,22 @@ function ReviewPageContent() {
 
   function returnToFinalLanding() {
     const params = new URLSearchParams();
+
+    if (isC2SourceView) {
+      if (clientId) params.set("client", clientId);
+      if (projectId) params.set("project", projectId);
+      if (entityParam) params.set("entity", entityParam);
+      if (entityUidParam) params.set("entityUid", entityUidParam);
+      params.set("source", "c2");
+      params.set("headerSetId", c2HeaderSetId);
+      params.set("recordId", c2RecordId);
+      params.set("startDoc", fileDocIds[0] || docId);
+
+      router.push(
+        `/capture/entities/final-viewer?${params.toString()}`
+      );
+      return;
+    }
 
     if (clientId) params.set("client", clientId);
     if (projectId) params.set("project", projectId);
@@ -1005,9 +1119,11 @@ function ReviewPageContent() {
         <ReviewHeader
           project={reviewDoc.project}
           batch={
-            isFinalSourceView
-              ? "Final Source Set"
-              : isFileView
+            isC2SourceView
+              ? "C2 Source Set"
+              : isFinalSourceView
+                ? "Final Source Set"
+                : isFileView
                 ? "File View"
                 : reviewDoc.batch
           }
@@ -1054,15 +1170,17 @@ function ReviewPageContent() {
         )}
 
         <section className="flex-1 flex flex-col gap-4 p-4 overflow-hidden">
-          {isFinalSourceView && (
+          {(isFinalSourceView || isC2SourceView) && (
             <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-white">
-                  Final Source Review
+                  {isC2SourceView ? "C2 Source Review" : "Final Source Review"}
                 </p>
 
                 <p className="text-xs text-slate-400">
-                  Reviewing a restricted source-document set from the selected Final entity.
+                  {isC2SourceView
+                    ? "Reviewing verified source documents for the selected C2 record."
+                    : "Reviewing a restricted source-document set from the selected Final entity."}
                 </p>
               </div>
 
