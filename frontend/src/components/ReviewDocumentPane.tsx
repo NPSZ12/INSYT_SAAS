@@ -32,6 +32,12 @@ type ReviewDocumentPaneProps = {
   nativeBlob?: string;
   previewDocId?: string;
   compactForWorksheets?: boolean;
+  relatedWorksheets?: {
+    doc_id: string;
+    file_name: string;
+  }[];
+  selectedWorksheetDocId?: string;
+  onWorksheetSelect?: (docId: string) => void;
   targetPage?: number | null;
   detectionHits?: DetectionHit[];
 };
@@ -187,7 +193,7 @@ function NativeTablePreview({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
         <table className="min-w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-[var(--insyt-surface-2)]">
             <tr>
@@ -583,6 +589,9 @@ export default function ReviewDocumentPane({
   nativeBlob,
   previewDocId,
   compactForWorksheets = false,
+  relatedWorksheets = [],
+  selectedWorksheetDocId,
+  onWorksheetSelect,
   targetPage,
   detectionHits = [],
 }: ReviewDocumentPaneProps) {
@@ -788,7 +797,7 @@ export default function ReviewDocumentPane({
     <div
       className={
         compactForWorksheets
-          ? "insyt-panel flex min-h-0 flex-1 flex-col overflow-hidden p-6"
+          ? "insyt-panel flex h-[min(72vh,780px)] min-h-0 flex-none flex-col overflow-hidden p-6"
           : "insyt-panel col-span-2 flex h-[calc(100vh-24px)] min-h-[980px] max-h-[calc(100vh-24px)] flex-col overflow-hidden p-6"
       }
     >
@@ -809,7 +818,13 @@ export default function ReviewDocumentPane({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div
+          className={
+            compactForWorksheets
+              ? "flex min-w-0 max-w-[65%] flex-col items-end gap-2"
+              : "flex items-center gap-3"
+          }
+        >
           {viewMode === "text" && detectionHits.length > 0 && (
             <button
               type="button"
@@ -826,8 +841,49 @@ export default function ReviewDocumentPane({
             </button>
           )}
           {isStructuredSpreadsheet ? (
-            <div className="inline-flex items-center rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300">
-              Spreadsheet View
+            <div className="flex min-w-0 flex-col items-end gap-2">
+              <div className="inline-flex items-center rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300">
+                Spreadsheet View
+              </div>
+
+              {compactForWorksheets &&
+                relatedWorksheets.length > 0 && (
+                  <div className="flex max-w-full flex-col items-end gap-2">
+                    <p className="text-xs font-semibold text-slate-300">
+                      Related Worksheets
+                    </p>
+
+                    <div
+                      className="flex max-w-full flex-wrap justify-end gap-2"
+                      aria-label="Related workbook worksheets"
+                    >
+                      {relatedWorksheets.map((worksheet) => {
+                        const selected =
+                          worksheet.doc_id ===
+                          selectedWorksheetDocId;
+
+                        return (
+                          <button
+                            key={worksheet.doc_id}
+                            type="button"
+                            onClick={() =>
+                              onWorksheetSelect?.(worksheet.doc_id)
+                            }
+                            aria-pressed={selected}
+                            title={worksheet.file_name}
+                            className={
+                              selected
+                                ? "rounded-lg border border-sky-400 bg-sky-600 px-3 py-2 text-xs font-semibold text-white"
+                                : "rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-sky-500 hover:bg-slate-700"
+                            }
+                          >
+                            {worksheet.doc_id}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
             </div>
           ) : (
             <>

@@ -1235,7 +1235,7 @@ function ReviewPageContent() {
           )}
 
           <div className="flex-1 grid grid-cols-3 gap-4 min-h-0">
-            <div className="col-span-2 flex min-h-0 flex-col gap-3">
+            <div className="col-span-2 flex min-h-0 min-w-0 flex-col">
               <ReviewDocumentPane
                 key={
                   activeWorkbookWorksheet?.doc_id ||
@@ -1255,53 +1255,14 @@ function ReviewPageContent() {
                 compactForWorksheets={
                   activeWorkbookWorksheets.length > 0
                 }
+                relatedWorksheets={activeWorkbookWorksheets}
+                selectedWorksheetDocId={
+                  activeWorkbookWorksheet?.doc_id
+                }
+                onWorksheetSelect={setSelectedWorksheetDocId}
                 detectionHits={detectionHits}
               />
 
-              {activeWorkbookWorksheets.length > 0 && (
-                <div className="shrink-0 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-white">
-                      Related worksheets
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      Displaying {activeWorkbookWorksheet?.doc_id}
-                    </p>
-                  </div>
-
-                  <div
-                    className="flex flex-wrap gap-2"
-                    aria-label="Related workbook worksheets"
-                  >
-                    {activeWorkbookWorksheets.map((worksheet) => {
-                      const selected =
-                        worksheet.doc_id ===
-                        activeWorkbookWorksheet?.doc_id;
-
-                      return (
-                        <button
-                          key={worksheet.doc_id}
-                          type="button"
-                          onClick={() =>
-                            setSelectedWorksheetDocId(
-                              worksheet.doc_id
-                            )
-                          }
-                          aria-pressed={selected}
-                          className={
-                            selected
-                              ? "rounded-lg border border-sky-400 bg-sky-600 px-3 py-2 text-xs font-semibold text-white"
-                              : "rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-sky-500 hover:bg-slate-700"
-                          }
-                          title={worksheet.file_name}
-                        >
-                          {worksheet.doc_id}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
 
             {fieldsForCapture.length === 0 ? (
