@@ -30,6 +30,8 @@ type ReviewDocumentPaneProps = {
   text: string;
   nativeUrl?: string;
   nativeBlob?: string;
+  previewDocId?: string;
+  compactForWorksheets?: boolean;
   targetPage?: number | null;
   detectionHits?: DetectionHit[];
 };
@@ -579,6 +581,8 @@ export default function ReviewDocumentPane({
   text,
   nativeUrl,
   nativeBlob,
+  previewDocId,
+  compactForWorksheets = false,
   targetPage,
   detectionHits = [],
 }: ReviewDocumentPaneProps) {
@@ -630,6 +634,7 @@ export default function ReviewDocumentPane({
     "";
 
   const docId =
+    previewDocId ||
     searchParams.get("doc") ||
     getDocIdFromBlob(nativeBlob);
 
@@ -780,7 +785,13 @@ export default function ReviewDocumentPane({
   ]);
 
   return (
-    <div className="insyt-panel col-span-2 flex h-[calc(100vh-24px)] min-h-[980px] max-h-[calc(100vh-24px)] flex-col overflow-hidden p-6">
+    <div
+      className={
+        compactForWorksheets
+          ? "insyt-panel flex min-h-0 flex-1 flex-col overflow-hidden p-6"
+          : "insyt-panel col-span-2 flex h-[calc(100vh-24px)] min-h-[980px] max-h-[calc(100vh-24px)] flex-col overflow-hidden p-6"
+      }
+    >
       <div className="shrink-0 flex items-center justify-between mb-4">
         <div>
           <h2 className="insyt-section-title text-lg text-[var(--insyt-text-primary)]">

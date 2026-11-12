@@ -15,6 +15,7 @@ import LinkedEntitiesStrip from "../../../../components/LinkedEntitiesStrip";
 import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
+import { groupWorkbookFamilies, type WorkbookFamilyFile } from "../../../../lib/workbookFamilies";
 
 type ProtocolField = {
   section: string;
@@ -131,6 +132,12 @@ function ReviewPageContent() {
   const [linkedEntities, setLinkedEntities] = useState<any[]>([]);
   const [editingEntity, setEditingEntity] = useState<any | null>(null);
   const [fileDocIds, setFileDocIds] = useState<string[]>([]);
+
+  const [workbookWorksheetFiles, setWorkbookWorksheetFiles] =
+    useState<Record<string, WorkbookFamilyFile[]>>({});
+
+  const [selectedWorksheetDocId, setSelectedWorksheetDocId] =
+    useState("");
   const isFileView = Boolean(docId && !batchId);
   const [savedDocumentCoding, setSavedDocumentCoding] = useState("");
   const [detectionHits, setDetectionHits] = useState<any[]>([]);
@@ -398,10 +405,28 @@ function ReviewPageContent() {
       )}&folder=${encodeURIComponent("source/native")}`
     )
       .then((files: any[]) => {
-        const docIds = files
+        if (!Array.isArray(files)) {
+          throw new Error("Invalid project Files response.");
+        }
+
+        const grouped = groupWorkbookFamilies<WorkbookFamilyFile>(
+          files as WorkbookFamilyFile[]
+        );
+
+        const docIds = grouped.parents
           .map((file) => file.doc_id || file.file_name || "")
           .filter(Boolean);
 
+        const worksheetFiles: Record<
+          string,
+          WorkbookFamilyFile[]
+        > = {};
+
+        for (const [parentId, family] of grouped.families) {
+          worksheetFiles[parentId] = family.worksheets;
+        }
+
+        setWorkbookWorksheetFiles(worksheetFiles);
         setFileDocIds(docIds);
       })
       .catch(console.error);
@@ -976,6 +1001,21 @@ function ReviewPageContent() {
     goNextDoc();
   }
 
+  // Worksheet selection is separate from the parent workbook
+  // identity used for Review coding and document navigation.
+  const activeWorkbookWorksheets =
+    isFileView &&
+    !isC2SourceView &&
+    !isFinalSourceView
+      ? workbookWorksheetFiles[docId] || []
+      : [];
+
+  const activeWorkbookWorksheet =
+    activeWorkbookWorksheets.find(
+      (file) => file.doc_id === selectedWorksheetDocId
+    ) ||
+    activeWorkbookWorksheets[0];
+
   const fileDocIndex = fileDocIds.findIndex(
     (id) =>
       normalizeDocLookup(id) === normalizeDocLookup(reviewDoc?.doc_id || "") ||
@@ -1195,12 +1235,74 @@ function ReviewPageContent() {
           )}
 
           <div className="flex-1 grid grid-cols-3 gap-4 min-h-0">
-            <ReviewDocumentPane
-              text={reviewDoc.text}
-              nativeUrl={reviewDoc.native_url}
-              nativeBlob={reviewDoc.native_blob}
-              detectionHits={detectionHits}
-            />
+            <div className="col-span-2 flex min-h-0 flex-col gap-3">
+              <ReviewDocumentPane
+                key={
+                  activeWorkbookWorksheet?.doc_id ||
+                  reviewDoc.doc_id
+                }
+                text={reviewDoc.text}
+                nativeUrl={
+                  activeWorkbookWorksheet
+                    ? undefined
+                    : reviewDoc.native_url
+                }
+                nativeBlob={
+                  activeWorkbookWorksheet?.blob_path ||
+                  reviewDoc.native_blob
+                }
+                previewDocId={activeWorkbookWorksheet?.doc_id}
+                compactForWorksheets={
+                  activeWorkbookWorksheets.length > 0
+                }
+                detectionHits={detectionHits}
+              />
+
+              {activeWorkbookWorksheets.length > 0 && (
+                <div className="shrink-0 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-white">
+                      Related worksheets
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Displaying {activeWorkbookWorksheet?.doc_id}
+                    </p>
+                  </div>
+
+                  <div
+                    className="flex flex-wrap gap-2"
+                    aria-label="Related workbook worksheets"
+                  >
+                    {activeWorkbookWorksheets.map((worksheet) => {
+                      const selected =
+                        worksheet.doc_id ===
+                        activeWorkbookWorksheet?.doc_id;
+
+                      return (
+                        <button
+                          key={worksheet.doc_id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedWorksheetDocId(
+                              worksheet.doc_id
+                            )
+                          }
+                          aria-pressed={selected}
+                          className={
+                            selected
+                              ? "rounded-lg border border-sky-400 bg-sky-600 px-3 py-2 text-xs font-semibold text-white"
+                              : "rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-sky-500 hover:bg-slate-700"
+                          }
+                          title={worksheet.file_name}
+                        >
+                          {worksheet.doc_id}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {fieldsForCapture.length === 0 ? (
               <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-full">

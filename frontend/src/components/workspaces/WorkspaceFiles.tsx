@@ -10,6 +10,7 @@ import ContentCard from "../ContentCard";
 import Input from "../Input";
 import FormLabel from "../FormLabel";
 import { apiGet } from "../../lib/api";
+import { groupWorkbookFamilies } from "../../lib/workbookFamilies";
 
 type Workspace = "capture" | "discovery";
 
@@ -95,7 +96,8 @@ function FilesPageContent({ workspace }: { workspace: Workspace }) {
           ? response
           : Array.isArray(response?.files) ? response.files : [];
 
-        setFiles(incomingFiles);
+        const grouped = groupWorkbookFamilies<ProjectFile>(incomingFiles as ProjectFile[]);
+        setFiles(grouped.parents);
       })
       .catch(console.error);
   }, [workspace, clientId, projectId]);
