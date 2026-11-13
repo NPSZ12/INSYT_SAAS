@@ -182,7 +182,7 @@ def main() -> None:
             / "document.pdf"
         ).exists()
 
-        assert not (
+        assert (
             staging_dir
             / "customers.json"
         ).exists()

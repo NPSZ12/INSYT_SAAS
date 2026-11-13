@@ -23,6 +23,10 @@ from app.services.structured_intake.worker_prepare import (
     prepare_json_structured_sources,
 )
 
+from app.services.structured_intake.json_family import (
+    link_plain_json_families,
+)
+
 from app.services.structured_intake.provenance import (
     apply_structured_json_provenance,
 )
@@ -191,16 +195,24 @@ def run_azure_processing_job(
             if not manifest_path:
                 return
 
-            return apply_structured_json_provenance(
+            provenance_result = apply_structured_json_provenance(
                 db=db,
                 job_id=job_id,
-                staging_dir=Path(
-                    input_dir
-                ),
-                manifest_path=Path(
-                    manifest_path
-                ),
+                staging_dir=Path(input_dir),
+                manifest_path=Path(manifest_path),
             )
+
+            family_result = link_plain_json_families(
+                db=db,
+                job_id=job_id,
+                staging_dir=Path(input_dir),
+                manifest_path=Path(manifest_path),
+            )
+
+            return {
+                "provenance": provenance_result,
+                "family": family_result,
+            }
 
         if (
             json_preparation.get(
@@ -321,6 +333,60 @@ def run_azure_processing_job(
                     overwrite=overwrite,
                 )
             )
+
+            # ONE hardened CSV staging/upload path.
+            # JSON and workbook CSV children are both
+            # included by azure_upload_xl_files_outputs.
+            planned = int(
+                xl_files_upload.get("planned_count", 0) or 0
+            )
+            uploaded = int(
+                xl_files_upload.get("uploaded_count", 0) or 0
+            )
+            failed = int(
+                xl_files_upload.get("failed_count", 0) or 0
+            )
+
+            if failed or uploaded != planned:
+                raise RuntimeError(
+                    "Common CSV Azure staging incomplete: "
+                    f"planned={planned}, "
+                    f"uploaded={uploaded}, "
+                    f"failed={failed}"
+                )
+
+            expected_json_children = int(
+                json_preparation.get(
+                    "normalized_csv_count", 0
+                ) or 0
+            )
+
+            if expected_json_children:
+                uploaded_rows = (
+                    xl_files_upload.get("uploaded") or []
+                )
+
+                json_parent_ids = {
+                    str(row.get("file_id") or "")
+                    for row in uploaded_rows
+                    if isinstance(row, dict)
+                    and row.get("is_structured_parent")
+                }
+
+                actual_json_children = sum(
+                    1 for row in uploaded_rows
+                    if isinstance(row, dict)
+                    and row.get("is_csv_child")
+                    and str(row.get("parent_file_id") or "")
+                    in json_parent_ids
+                )
+
+                if actual_json_children != expected_json_children:
+                    raise RuntimeError(
+                        "Common CSV JSON-child staging mismatch: "
+                        f"expected={expected_json_children}, "
+                        f"uploaded={actual_json_children}"
+                    )
 
             staging_payloads = [
                 payload

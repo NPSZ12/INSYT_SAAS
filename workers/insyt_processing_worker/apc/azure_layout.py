@@ -270,6 +270,7 @@ def build_xl_files_staging_plan(
     }
 
     parent_file_ids: set[str] = set()
+    structured_parent_ids: set[str] = set()
 
     for row in rows:
         ext = str(
@@ -284,6 +285,30 @@ def build_xl_files_staging_plan(
             parent_file_ids.add(
                 str(row["file_id"])
             )
+
+        if bool(row["is_container"]) and ext in {
+            "json", "jsonl", "ndjson"
+        }:
+            try:
+                status = json.loads(
+                    row["stage_status_json"] or "{}"
+                )
+            except (TypeError, ValueError):
+                status = {}
+
+            if (
+                isinstance(status, dict)
+                and isinstance(
+                    status.get("structured_json_parent"),
+                    dict,
+                )
+                and status["structured_json_parent"].get(
+                    "source_filename"
+                )
+            ):
+                structured_parent_ids.add(
+                    str(row["file_id"])
+                )
 
     plan: list[dict[str, object]] = []
 
@@ -321,9 +346,53 @@ def build_xl_files_staging_plan(
             parent_file_id in parent_file_ids
         )
 
+        is_structured_parent = (
+            file_id in structured_parent_ids
+        )
+
+        is_structured_csv_child = (
+            ext == "csv"
+            and parent_file_id in structured_parent_ids
+        )
+
+        if is_structured_csv_child:
+            try:
+                status = json.loads(
+                    row["stage_status_json"] or "{}"
+                )
+            except (TypeError, ValueError):
+                status = {}
+
+            child = (
+                status.get("structured_json_child")
+                if isinstance(status, dict)
+                else None
+            )
+
+            is_structured_csv_child = (
+                isinstance(child, dict)
+                and str(
+                    child.get("parent_file_id") or ""
+                ) == parent_file_id
+                and str(
+                    child.get("child_number") or ""
+                ).isdigit()
+                and int(child["child_number"]) > 0
+            )
+
+        is_csv_child = (
+            ext == "csv"
+            and not bool(row["is_container"])
+            and (
+                is_workbook_child
+                or is_structured_csv_child
+            )
+        )
+
         if not (
             is_workbook_parent
-            or is_workbook_child
+            or is_structured_parent
+            or is_csv_child
         ):
             continue
 
@@ -343,7 +412,7 @@ def build_xl_files_staging_plan(
         text_staged_blob_path = (
             f"{text_staged_prefix}/"
             f"{doc_id}.txt"
-            if is_workbook_child
+            if is_csv_child
             else ""
         )
 
@@ -368,6 +437,8 @@ def build_xl_files_staging_plan(
                 "is_workbook_child": (
                     is_workbook_child
                 ),
+                "is_csv_child": is_csv_child,
+                "is_structured_parent": is_structured_parent,
                 "staged_blob_path": (
                     native_staged_blob_path
                 ),
@@ -385,238 +456,6 @@ def build_xl_files_staging_plan(
 
     return plan
 
-def build_json_structured_staging_plan(
-    db: LedgerDB,
-    job_id: str,
-    routing: AzureRoutingConfig,
-) -> list[dict[str, object]]:
-    rows = db.query(
-        """
-        SELECT
-            file_id,
-            doc_id,
-            parent_file_id,
-            original_path,
-            normalized_path,
-            extension,
-            stage_status_json,
-            requires_ocr
-        FROM file_processing_metrics
-        WHERE job_id=?
-          AND is_container=0
-          AND is_denisted=0
-          AND is_duplicate=0
-          AND doc_id IS NOT NULL
-        ORDER BY doc_id
-        """,
-        (job_id,),
-    )
-
-    plan: list[
-        dict[str, object]
-    ] = []
-
-    native_staged_prefix = (
-        f"{routing.prefix}/"
-        f"processing_center/staged/"
-        f"{job_id}/structured/native"
-    )
-
-    text_staged_prefix = (
-        f"{routing.prefix}/"
-        f"processing_center/staged/"
-        f"{job_id}/structured/text"
-    )
-
-    for row in rows:
-        try:
-            stage_status = json.loads(
-                row["stage_status_json"]
-                or "{}"
-            )
-
-            if not isinstance(
-                stage_status,
-                dict,
-            ):
-                stage_status = {}
-
-        except Exception:
-            stage_status = {}
-
-        structured_source = (
-            stage_status.get(
-                "structured_source"
-            )
-            or {}
-        )
-
-        if not isinstance(
-            structured_source,
-            dict,
-        ):
-            structured_source = {}
-
-        source_format = str(
-            structured_source.get(
-                "source_format"
-            )
-            or ""
-        ).strip().lower()
-
-        if source_format != "json":
-            continue
-
-        doc_id = str(
-            row["doc_id"]
-            or ""
-        ).strip()
-
-        if not doc_id:
-            continue
-
-        ext = str(
-            row["extension"]
-            or "csv"
-        ).strip().lower().lstrip(".")
-
-        if not ext:
-            ext = "csv"
-
-        native_staged_blob_path = (
-            f"{native_staged_prefix}/"
-            f"{doc_id}.{ext}"
-        )
-
-        text_staged_blob_path = (
-            f"{text_staged_prefix}/"
-            f"{doc_id}.txt"
-        )
-
-        plan.append(
-            {
-                "job_id": job_id,
-                "file_id": str(
-                    row["file_id"]
-                    or ""
-                ),
-                "doc_id": doc_id,
-
-                "parent_file_id": (
-                    str(
-                        row[
-                            "parent_file_id"
-                        ]
-                        or ""
-                    )
-                ),
-
-                "original_path": str(
-                    row["original_path"]
-                    or ""
-                ),
-
-                "normalized_path": str(
-                    row["normalized_path"]
-                    or ""
-                ),
-
-                "extension": ext,
-
-                "native_staged_blob_path": (
-                    native_staged_blob_path
-                ),
-
-                "text_staged_blob_path": (
-                    text_staged_blob_path
-                ),
-
-                "staged_blob_path": (
-                    native_staged_blob_path
-                ),
-
-                "source_type": (
-                    "json_structured"
-                ),
-
-                "detection_mode": (
-                    "structured_json"
-                ),
-
-                "is_workbook_sheet": False,
-
-                "source_family": (
-                    structured_source.get(
-                        "source_family"
-                    )
-                ),
-
-                "source_format": (
-                    structured_source.get(
-                        "source_format"
-                    )
-                ),
-
-                "source_profile": (
-                    structured_source.get(
-                        "source_profile"
-                    )
-                ),
-
-                "original_json_filename": (
-                    structured_source.get(
-                        "original_json_filename"
-                    )
-                ),
-
-                "original_json_path": (
-                    structured_source.get(
-                        "original_json_path"
-                    )
-                ),
-
-                "package_id": (
-                    structured_source.get(
-                        "package_id"
-                    )
-                ),
-
-                "package_count": (
-                    structured_source.get(
-                        "package_count"
-                    )
-                ),
-
-                "record_count": (
-                    structured_source.get(
-                        "record_count"
-                    )
-                ),
-
-                "normalized_format": (
-                    structured_source.get(
-                        "normalized_format"
-                    )
-                ),
-
-                "normalized_filename": (
-                    structured_source.get(
-                        "normalized_filename"
-                    )
-                ),
-
-                "requires_ocr": int(
-                    row["requires_ocr"]
-                    or 0
-                ),
-
-                "write_enabled": (
-                    routing.azure_write
-                ),
-            }
-        )
-
-    return plan
 
 def build_azure_routing_summary(
     routing: AzureRoutingConfig,

@@ -68,11 +68,77 @@ def _workbook_parent_file_id(row: Any) -> str:
     if not isinstance(workbook_sheet, dict):
         return ""
 
+    # Ledger parent fallback is valid only for a
+    # recognized workbook sheet, never an unrelated
+    # or malformed structured CSV child.
+    if not workbook_sheet:
+        return ""
+
     return str(
         workbook_sheet.get("original_workbook_file_id")
         or row["parent_file_id"]
         or ""
     ).strip()
+
+def _structured_json_parent_file_id(row: Any) -> str:
+    """Return a JSON CSV child's existing ledger parent ID."""
+
+    status = _stage_status(row["stage_status_json"])
+
+    child = status.get("structured_json_child") or {}
+
+    if not isinstance(child, dict):
+        return ""
+
+    parent_id = str(
+        child.get("parent_file_id") or ""
+    ).strip()
+
+    ledger_parent_id = str(
+        row["parent_file_id"] or ""
+    ).strip()
+
+    # Never manufacture a family relationship from
+    # an unverified or contradictory metadata value.
+    if not parent_id or parent_id != ledger_parent_id:
+        return ""
+
+    try:
+        child_number = int(
+            child.get("child_number") or 0
+        )
+    except (TypeError, ValueError):
+        return ""
+
+    if child_number < 1:
+        return ""
+
+    return parent_id
+
+
+def _csv_family_parent_file_id(row: Any) -> str:
+    """
+    Resolve an existing structured CSV child's parent.
+
+    Preserve workbook and JSON validation semantics.
+    Future structured adapters can join this shared
+    contract without changing processing-set packing.
+    """
+    workbook_parent = _workbook_parent_file_id(row)
+    json_parent = _structured_json_parent_file_id(row)
+
+    # Contradictory family metadata must never
+    # silently assign a child to the wrong parent.
+    if (
+        workbook_parent
+        and json_parent
+        and workbook_parent != json_parent
+    ):
+        raise ValueError(
+            "Conflicting structured CSV parent IDs."
+        )
+
+    return workbook_parent or json_parent
 
 def build_processing_sets(
     *,
@@ -145,7 +211,7 @@ def build_processing_sets(
     standalone_rows: list[Any] = []
 
     for row in primary_rows:
-        parent_file_id = _workbook_parent_file_id(row)
+        parent_file_id = _csv_family_parent_file_id(row)
 
         if parent_file_id:
             workbook_children.setdefault(
