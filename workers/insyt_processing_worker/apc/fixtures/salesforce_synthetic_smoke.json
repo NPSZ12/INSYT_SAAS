@@ -1,0 +1,46 @@
+{
+    "totalSize":  2,
+    "done":  true,
+    "records":  [
+                    {
+                        "attributes":  {
+                                           "type":  "Account"
+                                       },
+                        "Id":  "001INSYTTEST000001",
+                        "Name":  "INSYT Synthetic Account Alpha",
+                        "Industry":  "Technology",
+                        "Contacts":  {
+                                         "totalSize":  2,
+                                         "done":  true,
+                                         "records":  [
+                                                         {
+                                                             "attributes":  {
+                                                                                "type":  "Contact"
+                                                                            },
+                                                             "Id":  "003INSYTTEST000001",
+                                                             "FirstName":  "Synthetic",
+                                                             "LastName":  "ReviewerOne",
+                                                             "Email":  "reviewer.one@example.test"
+                                                         },
+                                                         {
+                                                             "attributes":  {
+                                                                                "type":  "Contact"
+                                                                            },
+                                                             "Id":  "003INSYTTEST000002",
+                                                             "FirstName":  "Synthetic",
+                                                             "LastName":  "ReviewerTwo",
+                                                             "Email":  "reviewer.two@example.test"
+                                                         }
+                                                     ]
+                                     }
+                    },
+                    {
+                        "attributes":  {
+                                           "type":  "Account"
+                                       },
+                        "Id":  "001INSYTTEST000002",
+                        "Name":  "INSYT Synthetic Account Beta",
+                        "Industry":  "Legal Services"
+                    }
+                ]
+}

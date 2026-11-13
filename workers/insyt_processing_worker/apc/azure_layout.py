@@ -287,7 +287,7 @@ def build_xl_files_staging_plan(
             )
 
         if bool(row["is_container"]) and ext in {
-            "json", "jsonl", "ndjson"
+            "json", "jsonl", "ndjson", "zip"
         }:
             try:
                 status = json.loads(

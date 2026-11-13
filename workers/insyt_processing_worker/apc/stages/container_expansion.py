@@ -768,6 +768,27 @@ def _expand_registered_adapter(
             }
         }
 
+        # Optional adapter-owned stage metadata.
+        # Train Station transports it without interpreting
+        # the originating format or changing existing paths.
+        published_child_status = child.metadata.get(
+            "stage_status"
+        )
+        if published_child_status is not None:
+            if not isinstance(published_child_status, dict):
+                raise ValueError(
+                    "Adapter child stage_status must be a dictionary."
+                )
+            for key, value in published_child_status.items():
+                if (
+                    not isinstance(key, str)
+                    or not key
+                    or key in child_stage_status
+                ):
+                    raise ValueError(
+                        "Invalid or conflicting adapter child status key."
+                    )
+                child_stage_status[key] = value
         if adapter_result.adapter_name == "workbook":
             workbook_sheet = child.metadata.get("workbook_sheet")
             if not isinstance(workbook_sheet, dict):
@@ -2629,6 +2650,34 @@ def run_container_expansion(
                         adapter_manifest
                     )
 
+                # Optional adapter-owned parent stage metadata.
+                # No adapter-name or extension-specific logic.
+                if adapter_manifest is not None:
+                    parent_adapter_metadata = (
+                        adapter_manifest.get("metadata") or {}
+                    )
+                    if not isinstance(parent_adapter_metadata, dict):
+                        raise ValueError(
+                            "Adapter parent metadata must be a dictionary."
+                        )
+                    published_parent_status = (
+                        parent_adapter_metadata.get("stage_status")
+                    )
+                    if published_parent_status is not None:
+                        if not isinstance(published_parent_status, dict):
+                            raise ValueError(
+                                "Adapter parent stage_status must be a dictionary."
+                            )
+                        for key, value in published_parent_status.items():
+                            if (
+                                not isinstance(key, str)
+                                or not key
+                                or key in stage_payload
+                            ):
+                                raise ValueError(
+                                    "Invalid or conflicting adapter parent status key."
+                                )
+                            stage_payload[key] = value
                 #
                 # ZIP/workbook parents become support containers and
                 # are excluded from ordinary leaf processing.

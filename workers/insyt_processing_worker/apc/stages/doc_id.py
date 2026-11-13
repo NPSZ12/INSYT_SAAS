@@ -471,7 +471,7 @@ def _is_structured_json_parent(row) -> bool:
         isinstance(metadata, dict)
         and bool(metadata.get("source_filename"))
         and str(row["extension"] or "").lower().lstrip(".")
-        in {"json", "jsonl", "ndjson"}
+        in {"json", "jsonl", "ndjson", "zip"}
         and bool(row["is_container"])
         and not row["parent_file_id"]
     )

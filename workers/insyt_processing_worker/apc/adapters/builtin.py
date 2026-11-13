@@ -4,8 +4,9 @@ from .email.eml_adapter import EML_ADAPTER
 from .email.msg_adapter import MSG_ADAPTER
 from .email.pst_adapter import PstAdapter
 from .email.readpst_backend import ReadPstBackend
-from .containers.zip_adapter import ZIP_ADAPTER
+from .structured.slack_zip_adapter import SLACK_ZIP_ADAPTER
 from .spreadsheets.workbook_adapter import SPREADSHEET_ADAPTER
+from .structured.json_profile_adapter import JSON_PROFILE_ADAPTER
 from .registry import register_adapter
 
 
@@ -26,8 +27,9 @@ BUILTIN_ADAPTERS = (
     EML_ADAPTER,
     PST_ADAPTER,
     MSG_ADAPTER,
-    ZIP_ADAPTER,
+    SLACK_ZIP_ADAPTER,
     SPREADSHEET_ADAPTER,
+    JSON_PROFILE_ADAPTER,
 )
 
 

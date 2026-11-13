@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -19,24 +20,136 @@ from app.services.document_lifecycle_writer import (
     bulk_upsert_document_lifecycle,
 )
 
-from app.services.structured_intake.worker_prepare import (
-    prepare_json_structured_sources,
-)
-
-from app.services.structured_intake.json_family import (
-    link_plain_json_families,
-)
-
-from app.services.structured_intake.provenance import (
-    apply_structured_json_provenance,
-)
-
 from .azure_layout import AzureRoutingConfig, build_azure_routing_summary
 from .config import DEFAULT_SETTINGS
 from .db import LedgerDB
 from .orchestrator import run_local_pipeline
 from .reports import export_job_report, job_report_data
 from .util import utc_now
+
+
+def validate_structured_csv_uploads(
+    *,
+    db: LedgerDB,
+    job_id: str,
+    upload_result: dict[str, Any],
+) -> int:
+    """
+    Reconcile adapter-generated CSV documents with the existing
+    common uploader. No new upload or processing path.
+    """
+    rows = db.query(
+        """
+        SELECT file_id, parent_file_id, extension,
+               is_container, is_duplicate, is_denisted,
+               doc_id, stage_status_json
+        FROM file_processing_metrics
+        WHERE job_id=?
+        """,
+        (job_id,),
+    )
+
+    parents = set()
+    children_by_parent = {}
+    eligible = {}
+
+    for row in rows:
+        status = json.loads(row["stage_status_json"] or "{}")
+        parent_metadata = status.get("structured_json_parent")
+        child_metadata = status.get("structured_json_child")
+
+        file_id = str(row["file_id"] or "")
+        parent_id = str(row["parent_file_id"] or "")
+        extension = str(row["extension"] or "").lower().lstrip(".")
+
+        if (
+            isinstance(parent_metadata, dict)
+            and parent_metadata.get("source_filename")
+            and bool(row["is_container"])
+        ):
+            parents.add(file_id)
+
+        if not isinstance(child_metadata, dict):
+            continue
+
+        if (
+            extension != "csv"
+            or not parent_id
+            or str(child_metadata.get("parent_file_id") or "")
+            != parent_id
+        ):
+            raise RuntimeError(
+                "Structured CSV lineage invalid: "
+                f"file_id={file_id}"
+            )
+
+        children_by_parent.setdefault(parent_id, set()).add(file_id)
+
+        # Duplicate and DENIST suppression are existing
+        # APC behaviors; suppressed files are not uploads.
+        if bool(row["is_duplicate"]) or bool(row["is_denisted"]):
+            continue
+
+        if not row["doc_id"]:
+            raise RuntimeError(
+                "Structured CSV is missing Doc ID: "
+                f"file_id={file_id}"
+            )
+
+        eligible[file_id] = str(row["doc_id"])
+
+    for parent_id in parents:
+        if not children_by_parent.get(parent_id):
+            raise RuntimeError(
+                "Structured source produced no registered CSV children: "
+                f"parent_file_id={parent_id}"
+            )
+
+    uploaded_rows = upload_result.get("uploaded")
+    if not isinstance(uploaded_rows, list):
+        raise RuntimeError(
+            "Common uploader returned no uploaded-file inventory."
+        )
+
+    uploaded = {}
+    for row in uploaded_rows:
+        if not isinstance(row, dict):
+            raise RuntimeError(
+                "Invalid common uploader file inventory."
+            )
+        file_id = str(row.get("file_id") or "")
+        if file_id in eligible:
+            if file_id in uploaded:
+                raise RuntimeError(
+                    "Structured CSV uploaded more than once: "
+                    f"file_id={file_id}"
+                )
+            uploaded[file_id] = row
+
+    if set(uploaded) != set(eligible):
+        missing = sorted(set(eligible) - set(uploaded))
+        raise RuntimeError(
+            "Structured CSV upload reconciliation failed: "
+            f"expected={len(eligible)}, "
+            f"uploaded={len(uploaded)}, "
+            f"missing_file_ids={missing}"
+        )
+
+    for file_id, doc_id in eligible.items():
+        row = uploaded[file_id]
+        if (
+            str(row.get("doc_id") or "") != doc_id
+            or row.get("status") != "uploaded"
+            or not bool(row.get("is_csv_child"))
+            or not bool(row.get("detection_ready"))
+            or not str(row.get("text_staged_blob_path") or "")
+        ):
+            raise RuntimeError(
+                "Structured CSV not detection-ready after upload: "
+                f"file_id={file_id}"
+            )
+
+    return len(eligible)
 
 
 @dataclass
@@ -174,89 +287,6 @@ def run_azure_processing_job(
             )
             return result
         
-        json_preparation = (
-            prepare_json_structured_sources(
-                staging_dir=staging_dir,
-            )
-        )
-        
-        def apply_json_provenance_after_inventory(
-            *,
-            db,
-            job_id,
-            input_dir,
-        ):
-            manifest_path = (
-                json_preparation.get(
-                    "manifest_path"
-                )
-            )
-
-            if not manifest_path:
-                return
-
-            provenance_result = apply_structured_json_provenance(
-                db=db,
-                job_id=job_id,
-                staging_dir=Path(input_dir),
-                manifest_path=Path(manifest_path),
-            )
-
-            family_result = link_plain_json_families(
-                db=db,
-                job_id=job_id,
-                staging_dir=Path(input_dir),
-                manifest_path=Path(manifest_path),
-            )
-
-            return {
-                "provenance": provenance_result,
-                "family": family_result,
-            }
-
-        if (
-            json_preparation.get(
-                "json_package_count",
-                0,
-            )
-            > 0
-        ):
-            warnings.append(
-                {
-                    "type":
-                        "json_structured_intake",
-
-                    "message":
-                        (
-                            "JSON structured intake "
-                            "preparation completed."
-                        ),
-
-                    "json_package_count":
-                        json_preparation.get(
-                            "json_package_count",
-                            0,
-                        ),
-
-                    "json_record_count":
-                        json_preparation.get(
-                            "json_record_count",
-                            0,
-                        ),
-
-                    "normalized_csv_count":
-                        json_preparation.get(
-                            "normalized_csv_count",
-                            0,
-                        ),
-
-                    "manifest_path":
-                        json_preparation.get(
-                            "manifest_path"
-                        ),
-                }
-            )
-
         prior_processed_index = azure_read_processed_hash_index(routing)
 
         job_id = run_local_pipeline(
@@ -275,9 +305,6 @@ def run_azure_processing_job(
             prior_processed_index=prior_processed_index,
             progress_callback=progress_callback,
             cancellation_callback=cancellation_callback,
-            after_inventory_callback=(
-                apply_json_provenance_after_inventory
-            ),
             after_ocr_preflight_callback=after_ocr_preflight_callback,
             ocr_dispatch_callback=ocr_dispatch_callback,
             job_id=tracked_job_id,
@@ -355,38 +382,11 @@ def run_azure_processing_job(
                     f"failed={failed}"
                 )
 
-            expected_json_children = int(
-                json_preparation.get(
-                    "normalized_csv_count", 0
-                ) or 0
+            validate_structured_csv_uploads(
+                db=db,
+                job_id=job_id,
+                upload_result=xl_files_upload,
             )
-
-            if expected_json_children:
-                uploaded_rows = (
-                    xl_files_upload.get("uploaded") or []
-                )
-
-                json_parent_ids = {
-                    str(row.get("file_id") or "")
-                    for row in uploaded_rows
-                    if isinstance(row, dict)
-                    and row.get("is_structured_parent")
-                }
-
-                actual_json_children = sum(
-                    1 for row in uploaded_rows
-                    if isinstance(row, dict)
-                    and row.get("is_csv_child")
-                    and str(row.get("parent_file_id") or "")
-                    in json_parent_ids
-                )
-
-                if actual_json_children != expected_json_children:
-                    raise RuntimeError(
-                        "Common CSV JSON-child staging mismatch: "
-                        f"expected={expected_json_children}, "
-                        f"uploaded={actual_json_children}"
-                    )
 
             staging_payloads = [
                 payload
