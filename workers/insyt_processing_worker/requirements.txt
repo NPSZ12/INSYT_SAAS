@@ -17,3 +17,4 @@ openpyxl
 xlrd
 pyxlsb
 extract-msg
+ijson==3.6.0

@@ -35,7 +35,6 @@ from apc.azure_blob_adapter import (
     azure_archive_processing_uploads,
     azure_upload_processing_set_manifests,
     azure_upload_xl_files_outputs,
-    azure_upload_json_structured_outputs,
 )
 
 from apc.azure_job_runner import run_azure_processing_job
@@ -1221,178 +1220,109 @@ def process_job_message(message_content: str):
             )
 
             #
-            # Existing XL workflow.
-            #
-            # Keep this branch unchanged.
-            #
-            xl_upload = (
-                azure_upload_xl_files_outputs(
-                    db=db,
-                    routing=routing,
-                    job_id=job_id,
-                    azure_write=True,
-                    overwrite=True,
-                )
+            # ONE existing CSV staging and upload path.
+            # Native parents are retained but never
+            # selected for Data Detection.
+            csv_upload = azure_upload_xl_files_outputs(
+                db=db,
+                routing=routing,
+                job_id=job_id,
+                azure_write=True,
+                overwrite=True,
             )
 
-            xl_uploaded_rows = (
-                xl_upload.get(
-                    "uploaded"
-                )
-                or []
+            planned = int(
+                csv_upload.get("planned_count", 0) or 0
+            )
+            uploaded = int(
+                csv_upload.get("uploaded_count", 0) or 0
+            )
+            failed = int(
+                csv_upload.get("failed_count", 0) or 0
             )
 
-            xl_detection_docs = [
+            if failed or uploaded != planned:
+                raise RuntimeError(
+                    "Common CSV staging incomplete: "
+                    f"planned={planned}, "
+                    f"uploaded={uploaded}, "
+                    f"failed={failed}"
+                )
+
+            csv_uploaded_rows = (
+                csv_upload.get("uploaded") or []
+            )
+
+            csv_detection_docs = [
                 row
-                for row in xl_uploaded_rows
+                for row in csv_uploaded_rows
                 if (
-                    isinstance(
-                        row,
-                        dict,
-                    )
-                    and bool(
-                        row.get(
-                            "is_workbook_child"
-                        )
-                    )
+                    isinstance(row, dict)
+                    and row.get("status") == "uploaded"
+                    and row.get("is_csv_child") is True
+                    and row.get("detection_ready") is True
                     and str(
-                        row.get(
-                            "text_staged_blob_path"
-                        )
+                        row.get("doc_id") or ""
+                    ).strip()
+                    and str(
+                        row.get("text_staged_blob_path")
                         or ""
                     ).strip()
                 )
             ]
 
-
-            #
-            # JSON structured workflow.
-            #
-            # This is intentionally separate
-            # from the existing XL/CSV path.
-            #
-            json_upload = (
-                azure_upload_json_structured_outputs(
-                    db=db,
-                    routing=routing,
-                    job_id=job_id,
-                    azure_write=True,
-                    overwrite=True,
+            if len({
+                str(row["doc_id"])
+                for row in csv_detection_docs
+            }) != len(csv_detection_docs):
+                raise RuntimeError(
+                    "Duplicate staged CSV child Doc IDs."
                 )
-            )
 
-            json_uploaded_rows = (
-                json_upload.get(
-                    "uploaded"
-                )
-                or []
-            )
-
-            json_detection_docs = [
-                row
-                for row in json_uploaded_rows
-                if (
-                    isinstance(
-                        row,
-                        dict,
-                    )
-                    and str(
-                        row.get(
-                            "source_format"
-                        )
-                        or ""
-                    )
-                    .strip()
-                    .lower()
-                    == "json"
-                    and str(
-                        row.get(
-                            "text_staged_blob_path"
-                        )
-                        or ""
-                    ).strip()
-                )
-            ]
-
-
-            if (
-                not xl_detection_docs
-                and not json_detection_docs
-            ):
+            # MANUAL DATA DETECTION GATE.
+            # Do not create or enqueue a Detection job.
+            # All eligible CSV children use the existing
+            # reviewer-initiated Data Detection workflow.
+            if not csv_detection_docs:
                 _update_status(
-                    status_blob_path=(
-                        status_blob_path
-                    ),
+                    status_blob_path=status_blob_path,
                     status="running",
-                    stage=(
-                        "structured_fast_lane"
-                    ),
+                    stage="structured_fast_lane",
                     progress_pct=60,
                     message=(
-                        "Structured fast lane "
-                        "completed; no structured "
-                        "documents required Detection."
+                        "Structured staging completed; "
+                        "no CSV children require Detection."
                     ),
                     extra={
                         "current_step": (
-                            "No workbook worksheet "
-                            "children or JSON "
-                            "structured documents "
-                            "were queued for Detection."
+                            "No staged CSV children are "
+                            "ready for manual Data Detection."
                         ),
-
-                        "xl_fast_lane_uploaded_count":
-                            len(
-                                xl_uploaded_rows
-                            ),
-
-                        "xl_detection_queued_count":
-                            0,
-
-                        "json_fast_lane_uploaded_count":
-                            len(
-                                json_uploaded_rows
-                            ),
-
-                        "json_detection_queued_count":
-                            0,
+                        "csv_uploaded_count": uploaded,
+                        "csv_detection_ready_count": 0,
                     },
                 )
                 return
 
-            #
-            # MANUAL DATA DETECTION GATE
-            #
-            # Structured / non-OCR documents have completed
-            # ingestion and have already been staged for the
-            # existing Data Detection Ready workflow.
-            #
-            # Do NOT automatically create or enqueue a
-            # Data Element Detection job here.
-            #
             _update_status(
                 status_blob_path=status_blob_path,
                 status="running",
                 stage="structured_fast_lane",
                 progress_pct=60,
                 message=(
-                    "Structured fast lane completed. "
-                    "Documents are ready for Data Detection."
+                    "CSV staging completed. Documents "
+                    "are ready for Data Detection."
                 ),
                 extra={
                     "current_step": (
-                        f"{len(xl_detection_docs) + len(json_detection_docs):,} "
-                        "structured document(s) prepared for "
+                        f"{len(csv_detection_docs):,} CSV "
+                        "child document(s) prepared for "
                         "manual Data Detection selection."
                     ),
-                    "xl_fast_lane_uploaded_count":
-                        len(xl_uploaded_rows),
-                    "xl_detection_ready_count":
-                        len(xl_detection_docs),
-                    "json_fast_lane_uploaded_count":
-                        len(json_uploaded_rows),
-                    "json_detection_ready_count":
-                        len(json_detection_docs),
+                    "csv_uploaded_count": uploaded,
+                    "csv_detection_ready_count": (
+                        len(csv_detection_docs)
+                    ),
                 },
             )
 

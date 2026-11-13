@@ -425,6 +425,58 @@ def _rename_workbook_sheet_csv(
     }
 
 
+def _structured_json_child_metadata(row) -> dict:
+    status = _stage_status(row)
+    metadata = status.get("structured_json_child") or {}
+
+    if not isinstance(metadata, dict):
+        return {}
+
+    parent_id = str(
+        metadata.get("parent_file_id") or ""
+    ).strip()
+
+    ledger_parent_id = str(
+        row["parent_file_id"] or ""
+    ).strip()
+
+    if not parent_id or parent_id != ledger_parent_id:
+        return {}
+
+    if str(row["extension"] or "").lower().lstrip(".") != "csv":
+        return {}
+
+    try:
+        child_number = int(
+            metadata.get("child_number") or 0
+        )
+    except (TypeError, ValueError):
+        return {}
+
+    if child_number < 1:
+        return {}
+
+    return {
+        **metadata,
+        "parent_file_id": parent_id,
+        "child_number": child_number,
+    }
+
+
+def _is_structured_json_parent(row) -> bool:
+    status = _stage_status(row)
+    metadata = status.get("structured_json_parent") or {}
+
+    return (
+        isinstance(metadata, dict)
+        and bool(metadata.get("source_filename"))
+        and str(row["extension"] or "").lower().lstrip(".")
+        in {"json", "jsonl", "ndjson"}
+        and bool(row["is_container"])
+        and not row["parent_file_id"]
+    )
+
+
 def run_doc_id_assignment(
     db: LedgerDB,
     settings: Settings,
@@ -524,8 +576,9 @@ def run_doc_id_assignment(
                     or ""
                 )
                 == "workbook_parent"
-                and _is_workbook_parent(
-                    row
+                and (
+                    _is_workbook_parent(row)
+                    or _is_structured_json_parent(row)
                 )
             )
         )
@@ -541,6 +594,7 @@ def run_doc_id_assignment(
     ) as stage:
         root_rows = []
         workbook_child_rows = []
+        json_child_rows = []
 
         for row in rows:
             workbook_metadata = (
@@ -550,13 +604,11 @@ def run_doc_id_assignment(
             )
 
             if workbook_metadata:
-                workbook_child_rows.append(
-                    row
-                )
+                workbook_child_rows.append(row)
+            elif _structured_json_child_metadata(row):
+                json_child_rows.append(row)
             else:
-                root_rows.append(
-                    row
-                )
+                root_rows.append(row)
 
         #
         # Only root documents consume normal registry
@@ -636,6 +688,141 @@ def run_doc_id_assignment(
                 ] = doc_id
 
             n += 1
+
+        #
+        # JSON CSV children reuse their native parent's
+        # registry Doc ID; no additional root IDs.
+        #
+        json_children_by_parent = {}
+
+        for row in json_child_rows:
+            metadata = _structured_json_child_metadata(row)
+            parent_id = metadata["parent_file_id"]
+            json_children_by_parent.setdefault(
+                parent_id, []
+            ).append(row)
+
+        for parent_file_id, child_rows in (
+            json_children_by_parent.items()
+        ):
+            parent_doc_id = root_doc_ids.get(parent_file_id)
+
+            if not parent_doc_id:
+                raise RuntimeError(
+                    "JSON parent did not receive a Doc ID: "
+                    + parent_file_id
+                )
+
+            numbered = [
+                (
+                    _structured_json_child_metadata(row)[
+                        "child_number"
+                    ],
+                    row,
+                )
+                for row in child_rows
+            ]
+
+            numbered.sort(key=lambda item: item[0])
+
+            numbers = [
+                number for number, _ in numbered
+            ]
+
+            if numbers != list(range(1, len(numbered) + 1)):
+                raise RuntimeError(
+                    "JSON child numbers are not contiguous."
+                )
+
+            # Verify every rename before changing files.
+            planned = []
+
+            for child_number, row in numbered:
+                doc_id = f"{parent_doc_id}.{child_number}"
+                old_path = Path(str(row["original_path"] or ""))
+
+                if (
+                    old_path.suffix.lower() != ".csv"
+                    or not old_path.is_file()
+                ):
+                    raise RuntimeError(
+                        "JSON child CSV missing: "
+                        + str(old_path)
+                    )
+
+                new_path = old_path.with_name(
+                    f"{doc_id}.csv"
+                )
+
+                if (
+                    new_path != old_path
+                    and new_path.exists()
+                ):
+                    raise FileExistsError(
+                        "JSON child Doc ID filename collision: "
+                        + str(new_path)
+                    )
+
+                old_normalized = Path(
+                    str(row["normalized_path"] or old_path.name)
+                )
+
+                new_normalized = str(
+                    old_normalized.with_name(new_path.name)
+                )
+
+                planned.append(
+                    (
+                        row,
+                        child_number,
+                        doc_id,
+                        old_path,
+                        new_path,
+                        new_normalized,
+                    )
+                )
+
+            for (
+                row,
+                child_number,
+                doc_id,
+                old_path,
+                new_path,
+                new_normalized,
+            ) in planned:
+                if old_path != new_path:
+                    old_path.rename(new_path)
+
+                db.execute(
+                    """
+                    UPDATE file_processing_metrics
+                    SET doc_id=?,
+                        original_path=?,
+                        normalized_path=?,
+                        updated_at=?,
+                        stage_status_json=json_patch(
+                            coalesce(stage_status_json, '{}'),
+                            ?
+                        )
+                    WHERE file_id=?
+                    """,
+                    (
+                        doc_id,
+                        str(new_path),
+                        new_normalized,
+                        utc_now(),
+                        json_dumps({
+                            "structured_json_child": {
+                                "doc_id": doc_id,
+                                "parent_doc_id": parent_doc_id,
+                                "child_doc_number": child_number,
+                                "derived_filename": new_path.name,
+                                "derived_csv_path": str(new_path),
+                            }
+                        }),
+                        row["file_id"],
+                    ),
+                )
 
         #
         # Group worksheet-derived CSV children by

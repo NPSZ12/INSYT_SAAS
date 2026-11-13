@@ -160,6 +160,24 @@ def apply_structured_json_provenance(
                         or ""
                     ),
 
+                "child_number": int(
+                    package.get("child_number") or 1
+                ),
+
+                "source_record_start": int(
+                    package.get("source_record_start") or 0
+                ),
+
+                "source_record_end": int(
+                    package.get("source_record_end") or 0
+                ),
+
+                "source_total_record_count": int(
+                    package.get("source_total_record_count")
+                    or package.get("record_count")
+                    or 0
+                ),
+
                 "package_id":
                     str(
                         package.get(

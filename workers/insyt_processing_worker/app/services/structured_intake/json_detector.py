@@ -134,14 +134,9 @@ def detect_json_profile(
     # These are secondary hints only.
     # ---------------------------------------------------------
 
-    if "slack" in filename:
-        return JSON_PROFILE_SLACK
-
-    if "salesforce" in filename:
-        return JSON_PROFILE_SALESFORCE
-
-    if "teams" in filename:
-        return JSON_PROFILE_TEAMS
+    # Filenames are not reliable source signatures.
+    # Only structural evidence may select an application
+    # profile. Unknown JSON remains Plain JSON.
 
 
     # ---------------------------------------------------------
