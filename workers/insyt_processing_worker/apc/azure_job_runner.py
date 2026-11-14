@@ -177,6 +177,70 @@ def _safe_label(value: str) -> str:
     return str(value or "job").replace("/", "_").replace("\\", "_").replace(" ", "_")
 
 
+def resolve_azure_completion_status(
+    *,
+    db: LedgerDB,
+    job_id: str,
+) -> tuple[str, str]:
+    """Use durable APC job and expansion failures for final status."""
+    jobs = db.query(
+        """
+        SELECT status, exception_count
+        FROM processing_job
+        WHERE job_id=?
+        """,
+        (job_id,),
+    )
+    if len(jobs) != 1:
+        raise RuntimeError(
+            "APC completion status unavailable for job: "
+            f"{job_id}"
+        )
+
+    job_status = str(jobs[0]["status"] or "").lower()
+    exception_count = int(
+        jobs[0]["exception_count"] or 0
+    )
+
+    if job_status not in {
+        "completed",
+        "completed_with_exceptions",
+    }:
+        raise RuntimeError(
+            "APC job has not completed successfully: "
+            f"job_id={job_id}, status={job_status}"
+        )
+
+    failures = db.query(
+        """
+        SELECT COUNT(DISTINCT source_file_id) AS failed_sources
+        FROM container_expansion_event
+        WHERE job_id=?
+          AND lower(status) IN ('failed', 'skipped')
+        """,
+        (job_id,),
+    )
+
+    failed_sources = int(
+        failures[0]["failed_sources"] or 0
+    ) if failures else 0
+
+    if (
+        exception_count > 0
+        or failed_sources > 0
+        or job_status == "completed_with_exceptions"
+    ):
+        return (
+            "completed_with_exceptions",
+            "Azure processing job completed with exceptions.",
+        )
+
+    return (
+        "completed",
+        "Azure processing job completed.",
+    )
+
+
 def build_job_status_payload(
     *,
     routing: AzureRoutingConfig,
@@ -496,11 +560,17 @@ def run_azure_processing_job(
             )
 
         report = job_report_data(db, job_id)
+        completion_status, completion_message = (
+            resolve_azure_completion_status(
+                db=db,
+                job_id=job_id,
+            )
+        )
         status_payload = build_job_status_payload(
             routing=routing,
             job_id=job_id,
-            status="completed",
-            message="Azure processing job completed.",
+            status=completion_status,
+            message=completion_message,
             matter_id=matter_id,
             client_id=routing.client,
             project_id=routing.project,
@@ -521,8 +591,8 @@ def run_azure_processing_job(
 
         return AzureRunResult(
             job_id=job_id,
-            status="completed",
-            message="Azure processing job completed.",
+            status=completion_status,
+            message=completion_message,
             routing=build_azure_routing_summary(routing, job_id=job_id, promotion_count=0),
             staging_dir=str(staging_dir),
             local_review_root=str(local_review_root),

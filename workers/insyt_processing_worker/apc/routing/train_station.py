@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from typing import Any
 
 from ..db import LedgerDB
@@ -19,7 +21,8 @@ def route_train_station_files(
             original_path,
             normalized_path,
             extension,
-            is_container
+            is_container,
+            stage_status_json
         FROM file_processing_metrics
         WHERE job_id=?
         ORDER BY normalized_path, file_id
@@ -47,6 +50,25 @@ def route_train_station_files(
             extension=row["extension"],
             original_path=row["original_path"],
         )
+
+        # Adapter failures retain native identity for remediation,
+        # but must never enter normal review processing.
+        stage_status = json.loads(
+            row["stage_status_json"] or "{}"
+        )
+        expansion = (
+            stage_status.get("container_expansion") or {}
+        )
+        if (
+            isinstance(expansion, dict)
+            and expansion.get("status") in {"failed", "skipped"}
+        ):
+            route = {
+                **route,
+                "status": "train_station",
+                "route": "train_station",
+                "reason": "adapter_expansion_failed_or_skipped",
+            }
 
         route_payload = {
             **route,
