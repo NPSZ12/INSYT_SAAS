@@ -1154,6 +1154,23 @@ def run_pii_phi_detection(
             in selected_doc_ids
         ]
 
+    # Only worksheet-triage documents participate in
+    # durable bounded worksheet checkpoint verification.
+    worksheet_rows = [
+        row for row in rows
+        if _normalized_detection_mode(
+            (
+                document_options.get(
+                    str(_row_get(row, "doc_id") or "").strip()
+                ) or {}
+            ).get("detection_mode")
+        ) == WORKSHEET_TRIAGE_MODE
+    ]
+    worksheet_doc_ids = {
+        str(_row_get(row, "doc_id") or "").strip()
+        for row in worksheet_rows
+    }
+
     documents_total = len(rows)
     documents_scanned = 0
     documents_with_hits = 0
@@ -1689,7 +1706,7 @@ def run_pii_phi_detection(
             ):
                 exc.checkpoint_progress = (
                     _verify_selected_worksheet_progress(
-                        rows=rows,
+                        rows=worksheet_rows,
                         document_options=document_options,
                         workspace_key=workspace_key,
                         structured_rules=structured_rules,
@@ -1700,7 +1717,7 @@ def run_pii_phi_detection(
                         protocol_name=protocol_name,
                         protocol_version=protocol_version,
                         worksheet_executor_factory=worksheet_executor_factory,
-                        selected_doc_ids=selected_doc_ids,
+                        selected_doc_ids=worksheet_doc_ids,
                     )
                 )
             raise
@@ -1737,33 +1754,34 @@ def run_pii_phi_detection(
     # Final bounded checkpoint verification.
     # Never finalize from local SQLite results alone.
     if remaining_chunks is not None:
-        progress = _verify_selected_worksheet_progress(
-            rows=rows,
-            document_options=document_options,
-            workspace_key=workspace_key,
-            structured_rules=structured_rules,
-            rule_workbook_blob=rule_workbook_blob,
-            selected_rule_sheets=selected_rule_sheets,
-            include_phi=include_phi,
-            enable_azure_detection=enable_azure_detection,
-            protocol_name=protocol_name,
-            protocol_version=protocol_version,
-            worksheet_executor_factory=worksheet_executor_factory,
-            selected_doc_ids=selected_doc_ids,
-        )
-
-        if (
-            progress.get("checkpoint_verified") is not True
-            or progress.get("job_complete") is not True
-            or type(progress.get("completed_units")) is not int
-            or type(progress.get("total_units")) is not int
-            or progress["total_units"] < 1
-            or progress["completed_units"] != progress["total_units"]
-        ):
-            raise RuntimeError(
-                "Final checkpoint verification incomplete; "
-                "publication prohibited."
+        if worksheet_rows:
+            progress = _verify_selected_worksheet_progress(
+                rows=worksheet_rows,
+                document_options=document_options,
+                workspace_key=workspace_key,
+                structured_rules=structured_rules,
+                rule_workbook_blob=rule_workbook_blob,
+                selected_rule_sheets=selected_rule_sheets,
+                include_phi=include_phi,
+                enable_azure_detection=enable_azure_detection,
+                protocol_name=protocol_name,
+                protocol_version=protocol_version,
+                worksheet_executor_factory=worksheet_executor_factory,
+                selected_doc_ids=worksheet_doc_ids,
             )
+
+            if (
+                progress.get("checkpoint_verified") is not True
+                or progress.get("job_complete") is not True
+                or type(progress.get("completed_units")) is not int
+                or type(progress.get("total_units")) is not int
+                or progress["total_units"] < 1
+                or progress["completed_units"] != progress["total_units"]
+            ):
+                raise RuntimeError(
+                    "Final checkpoint verification incomplete; "
+                    "publication prohibited."
+                )
 
     db.execute(
         """
