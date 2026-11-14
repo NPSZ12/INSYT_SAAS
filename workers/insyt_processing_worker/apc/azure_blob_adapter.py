@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -79,6 +79,43 @@ class DualStorageBlobAdapter:
 
         self.processing_container = self.processing_service.get_container_client(routing.processing_container)
         self.review_container = self.review_service.get_container_client(routing.review_container)
+
+    def get_live_source_container(self, workspace: str):
+        # Reuse the existing Azure SDK and production source routing.
+        workspace = str(workspace or "").lower().strip()
+        containers = {
+            "capture": "insyt-capture",
+            "discovery": "insyt-discovery",
+            "summaries": "insyt-summaries",
+        }
+        if workspace not in containers:
+            raise ValueError("Invalid live-source workspace.")
+
+        BlobServiceClient, _, DefaultAzureCredential = _load_azure_sdk()
+        account = os.getenv(
+            "INSYT_LIVE_SOURCE_STORAGE_ACCOUNT",
+            "insytintakestorage",
+        ).strip()
+        connection = os.getenv(
+            "INSYT_LIVE_SOURCE_STORAGE_CONNECTION_STRING"
+        )
+
+        if connection:
+            service = BlobServiceClient.from_connection_string(connection)
+        else:
+            service = BlobServiceClient(
+                account_url=f"https://{account}.blob.core.windows.net",
+                credential=DefaultAzureCredential(),
+            )
+
+        if service.account_name.lower() != account.lower():
+            raise RuntimeError("Live-source storage account mismatch.")
+
+        container_name = os.getenv(
+            f"INSYT_LIVE_SOURCE_CONTAINER_{workspace.upper()}",
+            containers[workspace],
+        )
+        return service.get_container_client(container_name)
 
     def list_processing_uploads(self, prefix: str | None = None) -> list[BlobItem]:
         upload_prefix = prefix or self.routing.processing_paths()["uploads"]
@@ -626,6 +663,60 @@ def azure_upload_xl_files_outputs(
                         )
                     ),
                 )
+
+            # Route only structured original natives to live source.
+            # Existing CSV child staging remains unchanged.
+            if bool(row.get("is_structured_parent")):
+                extension = str(
+                    row.get("extension") or ""
+                ).lower().lstrip(".")
+
+                if extension not in {"json", "jsonl", "ndjson"}:
+                    raise ValueError(
+                        "Unexpected structured native extension."
+                    )
+
+                if not doc_id or "." in doc_id:
+                    raise ValueError(
+                        "Invalid structured parent Doc ID."
+                    )
+
+                workspace = str(
+                    routing.workspace or ""
+                ).strip().lower()
+
+                destination = (
+                    f"{routing.prefix}/source/native/"
+                    f"{doc_id}.{extension}"
+                )
+
+                source_container = adapter.get_live_source_container(
+                    workspace
+                )
+                native_blob = source_container.get_blob_client(
+                    destination
+                )
+
+                if not native_blob.exists():
+                    with local_path.open("rb") as native_file:
+                        native_blob.upload_blob(
+                            native_file,
+                            overwrite=False,
+                            content_settings=(
+                                adapter._content_settings_cls(
+                                    content_type=(
+                                        "application/json"
+                                        if extension == "json"
+                                        else "application/octet-stream"
+                                    )
+                                )
+                            ),
+                        )
+
+                if not native_blob.exists():
+                    raise RuntimeError(
+                        "Native source upload verification failed."
+                    )
 
             uploaded.append(
                 {
