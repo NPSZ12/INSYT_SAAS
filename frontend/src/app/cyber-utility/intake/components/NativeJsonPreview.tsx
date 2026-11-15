@@ -50,6 +50,10 @@ type MappingResult = {
   mapping_approved: boolean;
 };
 
+import JsonHeaderReviewPanel, {
+  type JsonHeaderReviewContract,
+} from "./JsonHeaderReviewPanel";
+
 type Props = {
   workspace: string;
   client: string;
@@ -396,6 +400,16 @@ export default function NativeJsonPreview({
                 </div>
               )}
             </section>
+
+            <JsonHeaderReviewPanel
+              key={`${docId}:${result.sha256}`}
+              docId={docId}
+              review={
+                (result as typeof result & {
+                  header_review?: JsonHeaderReviewContract;
+                }).header_review
+              }
+            />
 
             <section className="rounded-lg border border-slate-700 p-4">
               <h3 className="mb-1 font-semibold">Records</h3>
