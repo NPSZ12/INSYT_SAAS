@@ -13606,6 +13606,193 @@ def preview_cyber2_json_native(
     }
 
 
+
+@router.post("/{workspace}/cyber2/intake/json-native-mapping/validate")
+def validate_cyber2_json_native_mapping(
+    workspace: Literal["capture", "discovery"],
+    request: dict[str, Any],
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Validate JSON mapping without saving or generating CSV."""
+
+    import hashlib
+    import re
+
+    from azure.core.exceptions import ResourceNotFoundError
+    from app.api.cyber2.json_field_mapping import (
+        JsonMappingError,
+        validate_json_field_mapping,
+    )
+
+    if not isinstance(request, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON mapping request.",
+        )
+
+    client = str(request.get("client") or "").strip()
+    project = str(request.get("project") or "").strip()
+    doc_id = str(request.get("doc_id") or "").strip()
+    columns = request.get("columns")
+
+    if not client or not project:
+        raise HTTPException(
+            status_code=400,
+            detail="Client and project are required.",
+        )
+
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", doc_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON Doc ID.",
+        )
+
+    if not isinstance(columns, list) or not columns:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one JSON mapping field.",
+        )
+
+    base = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    index_path = (
+        f"{base}/cyber2/intake/documents/{doc_id}.json"
+    )
+
+    try:
+        intake = _read_processing_json_blob(index_path)
+    except ResourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Cyber2 JSON intake record not found.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read JSON intake record.",
+        ) from exc
+
+    if (
+        not isinstance(intake, dict)
+        or intake.get("doc_id") != doc_id
+        or intake.get("source_kind") != "native_json"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Document is not registered as native JSON.",
+        )
+
+    native_path = str(
+        intake.get("source_native_path") or ""
+    )
+
+    extension = native_path.rsplit(".", 1)[-1].lower()
+
+    if (
+        native_path not in {
+            f"{base}/source/native/{doc_id}.{ext}"
+            for ext in ("json", "jsonl", "ndjson")
+        }
+        or extension not in {"json", "jsonl", "ndjson"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Registered JSON native path is invalid.",
+        )
+
+    expected_hash = str(
+        intake.get("source_sha256") or ""
+    ).lower()
+
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+        raise HTTPException(
+            status_code=409,
+            detail="Registered JSON source hash is invalid.",
+        )
+
+    maximum = 4 * 1024 * 1024
+
+    try:
+        blob = (
+            _get_live_source_blob_service_client()
+            .get_blob_client(
+                container=_live_source_container(workspace),
+                blob=native_path,
+            )
+        )
+
+        data = blob.download_blob(
+            offset=0,
+            length=maximum + 1,
+        ).readall()
+
+    except ResourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Registered JSON native not found.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read registered JSON native.",
+        ) from exc
+
+    if len(data) > maximum:
+        raise HTTPException(
+            status_code=413,
+            detail="JSON exceeds the current mapping validation limit.",
+        )
+
+    if hashlib.sha256(data).hexdigest() != expected_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON integrity verification failed.",
+        )
+
+    expected_bytes = intake.get("source_bytes")
+    if expected_bytes is not None:
+        try:
+            size_matches = int(expected_bytes) == len(data)
+        except (TypeError, ValueError):
+            size_matches = False
+
+        if not size_matches:
+            raise HTTPException(
+                status_code=409,
+                detail="Native JSON byte-count verification failed.",
+            )
+
+    try:
+        result = validate_json_field_mapping(
+            data,
+            extension,
+            columns,
+        )
+    except JsonMappingError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "doc_id": doc_id,
+        "source_kind": "native_json",
+        "source_integrity_verified": True,
+        **result,
+    }
+
+
 @router.get(
     "/{workspace}/cyber2/intake"
 )
