@@ -13595,6 +13595,60 @@ def preview_cyber2_json_native(
             detail=str(exc),
         ) from exc
 
+    # Use the same approved project protocol as CSV mapping.
+    # Only read native JSON after the existing access, path,
+    # SHA-256, and byte-count checks have passed.
+    from app.api.cyber2.json_header_evidence import (
+        JsonEvidenceError,
+        discover_json_header_evidence,
+    )
+    from app.api.cyber2.json_header_review_contract import (
+        JsonHeaderReviewError,
+        build_json_header_review,
+    )
+    from app.api.cyber2.schema_mapping import (
+        _load_protocol_library,
+    )
+
+    try:
+        protocol = _load_protocol_library(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to load the project protocol.",
+        ) from exc
+
+    library = (
+        protocol.get("library")
+        if isinstance(protocol, dict)
+        else None
+    )
+
+    if not isinstance(library, dict) or not library:
+        raise HTTPException(
+            status_code=409,
+            detail="Approved project protocol headers are required.",
+        )
+
+    try:
+        evidence = discover_json_header_evidence(
+            data,
+            extension,
+        )
+        header_review = build_json_header_review(
+            evidence,
+            list(library.keys()),
+        )
+    except (JsonEvidenceError, JsonHeaderReviewError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
     return {
         "workspace": workspace,
         "client": client,
@@ -13602,6 +13656,10 @@ def preview_cyber2_json_native(
         "doc_id": doc_id,
         "source_kind": "native_json",
         "source_sha256_verified": True,
+        "header_review": header_review,
+        "protocol_header_source": (
+            protocol.get("source_blob") or ""
+        ),
         **result,
     }
 
