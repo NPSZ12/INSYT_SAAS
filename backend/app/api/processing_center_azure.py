@@ -3635,11 +3635,30 @@ def list_data_element_detection_ready(
                 doc_id = str(doc.get("doc_id") or "").strip()
                 text_blob_path = doc.get("text_staged_blob_path")
 
-                if not doc_id or not text_blob_path:
+                native_blob_path = str(
+                    doc.get("native_staged_blob_path") or ""
+                ).strip()
+
+                native_extension = str(
+                    doc.get("extension")
+                    or native_blob_path.rsplit(".", 1)[-1]
+                ).strip().lower().lstrip(".")
+
+                json_native_ready = bool(
+                    native_blob_path
+                    and native_extension in {"json", "jsonl", "ndjson"}
+                    and os.getenv(
+                        "INSYT_JSON_DEFER_CSV_UNTIL_CYBER2", ""
+                    ).strip().lower() in {"1", "true", "yes"}
+                )
+
+                if not doc_id or not (
+                    text_blob_path or json_native_ready
+                ):
                     continue
 
                 detection_ready = bool(
-                    text_blob_path
+                    (text_blob_path or json_native_ready)
                     and not doc.get("is_duplicate")
                     and not doc.get("is_denisted")
                     and str(
@@ -12884,3 +12903,912 @@ def get_processing_job_report(
         raise HTTPException(status_code=404, detail=detail) from exc
     finally:
         db.close()
+
+
+@router.post(
+    "/{workspace}/processing-center/"
+    "promotion/promote-json-native"
+)
+def promote_processing_center_json_native(
+    workspace: Literal["capture", "discovery"],
+    request: SendCyber2PopulationRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Explicit, JSON-only staged native promotion to Files.
+
+    Existing workbook, CSV, and Review routes are unchanged.
+    No Cyber2 registration or CSV generation occurs here.
+    """
+    from azure.core.exceptions import ResourceNotFoundError
+    from app.api.json_native_detection_gate import (
+        JsonDetectionNotComplete,
+        require_completed_json_detection,
+    )
+    from app.api.json_native_job_completion import (
+        JsonSourceJobNotComplete,
+        require_completed_json_source_job_from_history,
+    )
+    from app.api.json_native_promotion_contract import (
+        JsonPromotionNotEligible,
+        prepare_json_native_promotion,
+    )
+    from app.api.json_native_promotion_execution import (
+        JsonNativePromotionFailed,
+        promote_json_native_verified,
+    )
+
+    enabled = os.environ.get(
+        "INSYT_JSON_NATIVE_PROMOTION_ENABLED", ""
+    ).strip().lower() in {"1", "true", "yes"}
+
+    if not enabled:
+        raise HTTPException(
+            status_code=404,
+            detail="Native JSON promotion is disabled.",
+        )
+
+    require_scoped_project_access(
+        admin,
+        workspace,
+        request.client,
+        request.project,
+    )
+
+    requested_ids = {
+        str(value or "").strip()
+        for value in (request.doc_ids or [])
+        if str(value or "").strip()
+    }
+
+    if not requested_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one JSON document.",
+        )
+
+    try:
+        population = get_processing_center_promotion_population(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+
+        rows = population.get("spreadsheet_hits") or []
+
+        selected = {
+            str(row.get("doc_id") or ""): row
+            for row in rows
+            if isinstance(row, dict)
+            and str(row.get("doc_id") or "") in requested_ids
+        }
+
+        if set(selected) != requested_ids:
+            raise HTTPException(
+                status_code=409,
+                detail="Selected documents are not eligible JSON HITs.",
+            )
+
+        history = _list_processing_job_history(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+
+        def normalize(job):
+            return _normalize_processing_history_job(
+                job,
+                workspace=workspace,
+                client=request.client,
+                project=request.project,
+            )
+
+        base_path = _project_base_path(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+
+        contracts = []
+
+        # Complete the eligibility phase before any native writes.
+        for doc_id in sorted(requested_ids):
+            row = selected[doc_id]
+
+            if not str(row.get("detection_job_id") or "").strip():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Missing Detection job for {doc_id}.",
+                )
+
+
+            detection_job_id = str(
+                row.get("detection_job_id") or ""
+            ).strip()
+
+            source_job_id = str(
+                row.get("source_job_id") or ""
+            ).strip()
+
+            index_path = (
+                f"{base_path}/processing_center/"
+                f"detection/documents/{doc_id}.json"
+            )
+
+            status_path = (
+                f"{base_path}/processing_center/"
+                f"detection/jobs/{detection_job_id}/status.json"
+            )
+
+            # These reads are deliberately strict:
+            # missing or inaccessible data blocks promotion.
+            current_index = _read_processing_json_blob(
+                index_path
+            )
+
+            detection_status = _read_processing_json_blob(
+                status_path
+            )
+
+            require_completed_json_detection(
+                doc_id=doc_id,
+                source_job_id=source_job_id,
+                detection_job_id=detection_job_id,
+                document_index=current_index,
+                detection_status=detection_status,
+            )
+            completion = (
+                require_completed_json_source_job_from_history(
+                    apc_job_id=str(
+                        row.get("source_job_id") or ""
+                    ),
+                    history=history,
+                    normalize_job=normalize,
+                )
+            )
+
+            contract = prepare_json_native_promotion(
+                row=row,
+                base_path=base_path,
+                source_job_status=completion["status"],
+            )
+
+            contracts.append(contract)
+
+        review_service = _get_review_blob_service_client()
+        review_container = _review_container(workspace)
+
+        live_service = _get_live_source_blob_service_client()
+        live_container = _live_source_container(workspace)
+
+        def read_staged(path):
+            blob = review_service.get_blob_client(
+                container=review_container,
+                blob=path,
+            )
+            try:
+                return blob.download_blob().readall()
+            except ResourceNotFoundError:
+                return None
+
+        def read_final(path):
+            blob = live_service.get_blob_client(
+                container=live_container,
+                blob=path,
+            )
+            try:
+                return blob.download_blob().readall()
+            except ResourceNotFoundError:
+                return None
+
+        def write_final(path, data):
+            blob = live_service.get_blob_client(
+                container=live_container,
+                blob=path,
+            )
+
+            # Atomic create-only write: never overwrite.
+            blob.upload_blob(
+                data,
+                overwrite=False,
+                content_settings=ContentSettings(
+                    content_type="application/json"
+                ),
+            )
+
+        promoted = []
+
+        for contract in contracts:
+            result = promote_json_native_verified(
+                contract=contract,
+                read_staged=read_staged,
+                read_final=read_final,
+                write_final=write_final,
+            )
+            promoted.append(result)
+
+        return {
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+            "status": "completed",
+            "promoted_count": len(promoted),
+            "failed_count": 0,
+            "promoted": promoted,
+            "cyber2_registered": False,
+        }
+
+    except HTTPException:
+        raise
+    except (
+        JsonSourceJobNotComplete,
+        JsonPromotionNotEligible,
+        JsonNativePromotionFailed,
+        JsonDetectionNotComplete,
+    ) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="JSON native promotion could not be verified.",
+        ) from exc
+
+
+@router.post(
+    "/{workspace}/processing-center/"
+    "promotion/send-json-native-cyber2"
+)
+def send_processing_center_json_native_to_cyber2(
+    workspace: Literal["capture", "discovery"],
+    request: SendCyber2PopulationRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Register one verified original JSON native in existing Cyber2.
+
+    Explicit request only. Files promotion must succeed first.
+    The existing CSV registration endpoint remains unchanged.
+    """
+    import hashlib
+    import re
+    from azure.core.exceptions import ResourceNotFoundError
+
+    enabled = os.environ.get(
+        "INSYT_JSON_NATIVE_PROMOTION_ENABLED", ""
+    ).strip().lower() in {"1", "true", "yes"}
+
+    if not enabled:
+        raise HTTPException(
+            status_code=404,
+            detail="Native JSON registration is disabled.",
+        )
+
+    require_scoped_project_access(
+        admin, workspace, request.client, request.project
+    )
+
+    doc_ids = list(dict.fromkeys(
+        str(value or "").strip()
+        for value in (request.doc_ids or [])
+        if str(value or "").strip()
+    ))
+
+    if len(doc_ids) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Select exactly one native JSON document.",
+        )
+
+    doc_id = doc_ids[0]
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", doc_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON Doc ID.",
+        )
+
+    base = _project_base_path(
+        workspace=workspace,
+        client=request.client,
+        project=request.project,
+    )
+
+    index_path = _cyber2_intake_document_path(
+        workspace=workspace,
+        client=request.client,
+        project=request.project,
+        doc_id=doc_id,
+    )
+
+    try:
+        # Never overwrite an existing Cyber2 intake record.
+        existing = None
+        try:
+            existing = _read_processing_json_blob(index_path)
+        except ResourceNotFoundError:
+            pass
+
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Cyber2 intake record already exists. "
+                    "No overwrite performed."
+                ),
+            )
+
+        # Reuse the authenticated, completed-ingestion,
+        # completed-Detection, byte-verified Files operation.
+        promoted = promote_processing_center_json_native(
+            workspace=workspace,
+            request=request,
+            admin=admin,
+        )
+
+        results = promoted.get("promoted") or []
+
+        if (
+            len(results) != 1
+            or results[0].get("doc_id") != doc_id
+            or results[0].get("verified") is not True
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Files promotion was not fully verified.",
+            )
+
+        result = results[0]
+        source_native_path = str(
+            result.get("source_native_path") or ""
+        )
+
+        if not source_native_path.startswith(
+            base + "/source/native/"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Promoted JSON path is outside the project.",
+            )
+
+        # Verify Files again before registering intake.
+        live_blob = (
+            _get_live_source_blob_service_client()
+            .get_blob_client(
+                container=_live_source_container(workspace),
+                blob=source_native_path,
+            )
+        )
+
+        actual_bytes = live_blob.download_blob().readall()
+
+        if hashlib.sha256(actual_bytes).hexdigest() != result["sha256"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Files native hash verification failed.",
+            )
+
+        population = get_processing_center_promotion_population(
+            workspace=workspace,
+            client=request.client,
+            project=request.project,
+        )
+
+        selected = [
+            row for row in population.get("spreadsheet_hits") or []
+            if isinstance(row, dict)
+            and str(row.get("doc_id") or "") == doc_id
+        ]
+
+        if len(selected) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Current JSON Promotion record unavailable.",
+            )
+
+        row = selected[0]
+
+        payload = {
+            "schema_version": 1,
+            "workspace": workspace,
+            "client": request.client,
+            "project": request.project,
+            "doc_id": doc_id,
+            "file_id": row.get("file_id"),
+            "status": "ready",
+            "destination": "cyber2",
+            "source_kind": "native_json",
+            "source_type": "json_structured",
+            "source_format": row.get("source_format")
+                or row.get("extension"),
+            "source_profile": row.get("source_profile"),
+            "source_family": row.get("source_family"),
+            "structured_source": row.get("structured_source") or {},
+            "original_filename": row.get("original_filename"),
+            "original_json_filename": row.get("original_json_filename"),
+            "source_job_id": row.get("source_job_id"),
+            "detection_job_id": row.get("detection_job_id"),
+            "detection_run_id": row.get("detection_run_id"),
+            "classification": "HIT",
+            "source_native_path": source_native_path,
+            "source_sha256": result["sha256"],
+            "source_bytes": result["bytes"],
+            "source_csv_path": None,
+            "csv_generation_status": "not_started",
+            "intake_index_path": index_path,
+            "sent_to_cyber2_at": _utc_now(),
+            "sent_to_cyber2_by": (
+                getattr(admin, "username", None)
+                or getattr(admin, "email", None)
+                or "INSYT Admin"
+            ),
+        }
+
+        # Atomic create-only write through the existing
+        # processing storage service; never replace CSV intake.
+        _write_processing_json_blob(
+            blob_path=index_path,
+            payload=payload,
+            overwrite=False,
+        )
+
+        saved = _read_processing_json_blob(index_path)
+
+        if (
+            not isinstance(saved, dict)
+            or saved.get("doc_id") != doc_id
+            or saved.get("source_kind") != "native_json"
+            or saved.get("source_native_path") != source_native_path
+            or saved.get("source_sha256") != result["sha256"]
+        ):
+            raise HTTPException(
+                status_code=502,
+                detail="Cyber2 native intake verification failed.",
+            )
+
+        return {
+            "status": "completed",
+            "sent_count": 1,
+            "skipped_count": 0,
+            "doc_id": doc_id,
+            "source_native_path": source_native_path,
+            "intake_index_path": index_path,
+            "verified": True,
+            "csv_generated": False,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Native JSON Cyber2 registration failed. "
+                "Files native may already be promoted; "
+                "retry after verifying intake state."
+            ),
+        ) from exc
+
+
+@router.get("/{workspace}/cyber2/intake/json-native-preview")
+def preview_cyber2_json_native(
+    workspace: Literal["capture", "discovery"],
+    client: str = Query(...),
+    project: str = Query(...),
+    doc_id: str = Query(...),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Authorized, read-only preview of registered native JSON."""
+
+    import hashlib
+    import re
+
+    from azure.core.exceptions import ResourceNotFoundError
+    from app.api.cyber2.json_native_discovery import (
+        JsonDiscoveryError,
+        discover_json_native,
+    )
+
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", doc_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid native JSON Doc ID.",
+        )
+
+    base = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    index_path = (
+        f"{base}/cyber2/intake/documents/{doc_id}.json"
+    )
+
+    try:
+        intake = _read_processing_json_blob(index_path)
+    except ResourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Cyber2 native JSON intake record not found.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read Cyber2 intake record.",
+        ) from exc
+
+    if not isinstance(intake, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid Cyber2 intake record.",
+        )
+
+    if (
+        intake.get("doc_id") != doc_id
+        or intake.get("source_kind") != "native_json"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Document is not registered as native JSON.",
+        )
+
+    source_path = str(
+        intake.get("source_native_path") or ""
+    )
+
+    expected_prefix = (
+        f"{base}/source/native/{doc_id}."
+    )
+
+    if (
+        not source_path.startswith(expected_prefix)
+        or source_path.rsplit(".", 1)[-1].lower()
+        not in {"json", "jsonl", "ndjson"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON source path is invalid.",
+        )
+
+    expected_hash = str(
+        intake.get("source_sha256") or ""
+    ).lower()
+
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON source hash is missing.",
+        )
+
+    max_bytes = 4 * 1024 * 1024
+
+    try:
+        blob = (
+            _get_live_source_blob_service_client()
+            .get_blob_client(
+                container=_live_source_container(workspace),
+                blob=source_path,
+            )
+        )
+
+        # Limit the Azure read, not merely the JSON parser.
+        data = blob.download_blob(
+            offset=0,
+            length=max_bytes + 1,
+        ).readall()
+
+    except ResourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Registered native JSON file not found.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read registered native JSON.",
+        ) from exc
+
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "Native JSON exceeds the bounded preview limit. "
+                "Source remains unchanged."
+            ),
+        )
+
+    actual_hash = hashlib.sha256(data).hexdigest()
+
+    if actual_hash != expected_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON source integrity check failed.",
+        )
+
+    expected_bytes = intake.get("source_bytes")
+    if expected_bytes is not None:
+        try:
+            byte_count_matches = (
+                int(expected_bytes) == len(data)
+            )
+        except (ValueError, TypeError):
+            byte_count_matches = False
+
+        if not byte_count_matches:
+            raise HTTPException(
+                status_code=409,
+                detail="Native JSON source size verification failed.",
+            )
+
+    extension = source_path.rsplit(".", 1)[-1].lower()
+
+    try:
+        result = discover_json_native(
+            data,
+            extension,
+            max_bytes=max_bytes,
+        )
+    except JsonDiscoveryError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+    # Use the same approved project protocol as CSV mapping.
+    # Only read native JSON after the existing access, path,
+    # SHA-256, and byte-count checks have passed.
+    from app.api.cyber2.json_header_evidence import (
+        JsonEvidenceError,
+        discover_json_header_evidence,
+    )
+    from app.api.cyber2.json_header_review_contract import (
+        JsonHeaderReviewError,
+        build_json_header_review,
+    )
+    from app.api.cyber2.schema_mapping import (
+        _load_protocol_library,
+    )
+
+    try:
+        protocol = _load_protocol_library(
+            workspace=workspace,
+            client=client,
+            project=project,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to load the project protocol.",
+        ) from exc
+
+    library = (
+        protocol.get("library")
+        if isinstance(protocol, dict)
+        else None
+    )
+
+    if not isinstance(library, dict) or not library:
+        raise HTTPException(
+            status_code=409,
+            detail="Approved project protocol headers are required.",
+        )
+
+    try:
+        evidence = discover_json_header_evidence(
+            data,
+            extension,
+        )
+        header_review = build_json_header_review(
+            evidence,
+            list(library.keys()),
+        )
+    except (JsonEvidenceError, JsonHeaderReviewError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "doc_id": doc_id,
+        "source_kind": "native_json",
+        "source_sha256_verified": True,
+        "header_review": header_review,
+        "protocol_header_source": (
+            protocol.get("source_blob") or ""
+        ),
+        **result,
+    }
+
+
+@router.post("/{workspace}/cyber2/intake/json-native-mapping/validate")
+def validate_cyber2_json_native_mapping(
+    workspace: Literal["capture", "discovery"],
+    request: dict[str, Any],
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Validate JSON mapping without saving or generating CSV."""
+
+    import hashlib
+    import re
+
+    from azure.core.exceptions import ResourceNotFoundError
+    from app.api.cyber2.json_field_mapping import (
+        JsonMappingError,
+        validate_json_field_mapping,
+    )
+
+    if not isinstance(request, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON mapping request.",
+        )
+
+    client = str(request.get("client") or "").strip()
+    project = str(request.get("project") or "").strip()
+    doc_id = str(request.get("doc_id") or "").strip()
+    columns = request.get("columns")
+
+    if not client or not project:
+        raise HTTPException(
+            status_code=400,
+            detail="Client and project are required.",
+        )
+
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", doc_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON Doc ID.",
+        )
+
+    if not isinstance(columns, list) or not columns:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one JSON mapping field.",
+        )
+
+    base = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    index_path = (
+        f"{base}/cyber2/intake/documents/{doc_id}.json"
+    )
+
+    try:
+        intake = _read_processing_json_blob(index_path)
+    except ResourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Cyber2 JSON intake record not found.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read JSON intake record.",
+        ) from exc
+
+    if (
+        not isinstance(intake, dict)
+        or intake.get("doc_id") != doc_id
+        or intake.get("source_kind") != "native_json"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Document is not registered as native JSON.",
+        )
+
+    native_path = str(
+        intake.get("source_native_path") or ""
+    )
+
+    extension = native_path.rsplit(".", 1)[-1].lower()
+
+    if (
+        native_path not in {
+            f"{base}/source/native/{doc_id}.{ext}"
+            for ext in ("json", "jsonl", "ndjson")
+        }
+        or extension not in {"json", "jsonl", "ndjson"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Registered JSON native path is invalid.",
+        )
+
+    expected_hash = str(
+        intake.get("source_sha256") or ""
+    ).lower()
+
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+        raise HTTPException(
+            status_code=409,
+            detail="Registered JSON source hash is invalid.",
+        )
+
+    maximum = 4 * 1024 * 1024
+
+    try:
+        blob = (
+            _get_live_source_blob_service_client()
+            .get_blob_client(
+                container=_live_source_container(workspace),
+                blob=native_path,
+            )
+        )
+
+        data = blob.download_blob(
+            offset=0,
+            length=maximum + 1,
+        ).readall()
+
+    except ResourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Registered JSON native not found.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read registered JSON native.",
+        ) from exc
+
+    if len(data) > maximum:
+        raise HTTPException(
+            status_code=413,
+            detail="JSON exceeds the current mapping validation limit.",
+        )
+
+    if hashlib.sha256(data).hexdigest() != expected_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON integrity verification failed.",
+        )
+
+    expected_bytes = intake.get("source_bytes")
+    if expected_bytes is not None:
+        try:
+            size_matches = int(expected_bytes) == len(data)
+        except (TypeError, ValueError):
+            size_matches = False
+
+        if not size_matches:
+            raise HTTPException(
+                status_code=409,
+                detail="Native JSON byte-count verification failed.",
+            )
+
+    try:
+        result = validate_json_field_mapping(
+            data,
+            extension,
+            columns,
+        )
+    except JsonMappingError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "doc_id": doc_id,
+        "source_kind": "native_json",
+        "source_integrity_verified": True,
+        **result,
+    }
