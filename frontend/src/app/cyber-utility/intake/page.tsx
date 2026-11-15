@@ -25,6 +25,7 @@ import PageHeader from "../../../components/PageHeader";
 import { apiGet, apiPost } from "../../../lib/api";
 import CyberUtilityWorkflowNav from "../../../components/CyberUtilityWorkflowNav";
 import JsonPlainPane from "./components/JsonPlainPane";
+import NativeJsonPreview from "./components/NativeJsonPreview";
 import JsonSlackPane from "./components/JsonSlackPane";
 import JsonSalesforcePane from "./components/JsonSalesforcePane";
 import JsonTeamsPane from "./components/JsonTeamsPane";
@@ -61,6 +62,8 @@ type Cyber2IntakeDocument = {
   normalized_source_format?: string;
   normalized_source_filename?: string;
 
+  source_kind?: string;
+  source_native_path?: string;
   source_csv_path?: string;
 
   original_filename?: string;
@@ -305,6 +308,8 @@ function Cyber2IntakeContent() {
     client,
     project,
   ]);
+
+  const [nativeJsonPreviewDocId, setNativeJsonPreviewDocId] = useState<string | null>(null);
 
   const allDocuments =
     intakeData?.documents ||
@@ -1333,6 +1338,19 @@ function Cyber2IntakeContent() {
       );
 
 
+    // A reviewer-approved derived CSV is required first.
+    if (
+      selectedDocuments.some(
+        (doc) => doc.source_kind === "native_json"
+      )
+    ) {
+      setError(
+        "Native JSON cannot enter CSV Header Sets directly. " +
+        "Complete JSON field mapping and approve a derived CSV first."
+      );
+      return;
+    }
+
     await createHeaderSetFromDocuments(
       selectedDocuments,
       "Select at least one JSON-derived CSV."
@@ -1516,23 +1534,23 @@ function Cyber2IntakeContent() {
     );
   }
 
-  function openJsonPlainDocument(
-    docId: string
-  ) {
-    const doc =
-      jsonPlainDocuments.find(
-        (item) =>
-          item.doc_id ===
-          docId
-      );
+  function openJsonPlainDocument(docId: string) {
+    const doc = jsonPlainDocuments.find(
+      (item) => item.doc_id === docId
+    );
 
-    if (!doc) {
+    if (!doc) return;
+
+    if (
+      doc.source_kind === "native_json" &&
+      doc.source_native_path
+    ) {
+      setNativeJsonPreviewDocId(docId);
       return;
     }
 
-    openDocument(
-      doc
-    );
+    // Preserve existing CSV-based JSON opening behavior.
+    openDocument(doc);
   }
 
   function openJsonSlackDocument(
@@ -2281,6 +2299,16 @@ function Cyber2IntakeContent() {
             }
           />
 
+
+          {nativeJsonPreviewDocId && (
+              <NativeJsonPreview
+                workspace={workspace}
+                client={client}
+                project={project}
+                docId={nativeJsonPreviewDocId}
+                onClose={() => setNativeJsonPreviewDocId(null)}
+              />
+            )}
 
           <JsonSlackPane
             recordCount={jsonRecordCount(
