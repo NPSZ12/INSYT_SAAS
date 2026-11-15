@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -195,6 +195,93 @@ def _download_detection_text(
         for chunk in downloader.chunks():
             if chunk:
                 handle.write(chunk)
+
+def _prepare_json_native_detection(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    source_job_id: str,
+    doc_id: str,
+    native_blob_path: str,
+    text_dir: Path,
+) -> Path:
+    """Prepare Detection text from the exact project's staged native."""
+    from .detection.json_native_text import (
+        prepare_json_detection_text,
+    )
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", doc_id):
+        raise RuntimeError("Invalid JSON native Doc ID.")
+
+    blob_path = str(native_blob_path or "").strip()
+    extension = Path(blob_path).suffix.lower()
+
+    if extension not in {".json", ".jsonl", ".ndjson"}:
+        raise RuntimeError("Not a supported JSON native.")
+
+    def clean_segment(value: str) -> str:
+        segment = str(value or "").strip().replace(" ", "_")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", segment):
+            raise RuntimeError("Invalid JSON detection routing segment.")
+        if segment in {".", ".."}:
+            raise RuntimeError("Unsafe JSON detection routing segment.")
+        return segment
+
+    workspace_key = clean_segment(workspace).lower()
+    if workspace_key not in {"capture", "discovery"}:
+        raise RuntimeError("Unsupported JSON detection workspace.")
+
+    expected_prefix = (
+        f"{clean_segment(client)}/{workspace_key}/"
+        f"{clean_segment(project)}/processing_center/staged/"
+        f"{clean_segment(source_job_id)}/"
+    )
+
+    expected_suffix = f"/{doc_id}{extension}"
+
+    if (
+        not blob_path.startswith(expected_prefix)
+        or "/xl/native/" not in blob_path
+        or not blob_path.endswith(expected_suffix)
+        or any(part in {"", ".", ".."} for part in blob_path.split("/"))
+    ):
+        raise RuntimeError(
+            "JSON native does not belong to the requested project/job."
+        )
+
+    native_dir = text_dir.parent / "json_native"
+    native_dir.mkdir(parents=True, exist_ok=True)
+
+    native_path = native_dir / f"{doc_id}{extension}"
+    text_path = text_dir / f"{doc_id}.txt"
+
+    if native_path.exists() or text_path.exists():
+        raise FileExistsError("JSON detection staging already exists.")
+
+    container = _review_blob_service().get_container_client(
+        _review_container(workspace)
+    )
+    blob = container.get_blob_client(blob_path)
+
+    try:
+        with native_path.open("xb") as handle:
+            for chunk in blob.download_blob().chunks():
+                if chunk:
+                    handle.write(chunk)
+
+        result = prepare_json_detection_text(
+            native_path,
+            text_path,
+        )
+
+        if result.get("status") != "prepared":
+            raise RuntimeError("JSON detection preparation incomplete.")
+
+        return text_path
+    finally:
+        native_path.unlink(missing_ok=True)
+
 
 def _seed_source_job(
     db: LedgerDB,
@@ -1472,18 +1559,46 @@ def run_data_element_detection_job(
             doc.get("text_staged_blob_path") or ""
         ).strip()
 
-        if not doc_id or not text_blob_path:
+        if not doc_id:
+            continue
+
+        native_blob_path = str(
+            doc.get("native_staged_blob_path") or ""
+        ).strip()
+
+        json_native_fallback = bool(
+            not text_blob_path
+            and native_blob_path.lower().endswith(
+                (".json", ".jsonl", ".ndjson")
+            )
+            and os.getenv(
+                "INSYT_JSON_DEFER_CSV_UNTIL_CYBER2", ""
+            ).strip().lower() in {"1", "true", "yes"}
+        )
+
+        if not text_blob_path and not json_native_fallback:
             continue
 
         local_text_path = (
             text_dir / f"{doc_id}.txt"
         )
 
-        _download_detection_text(
-            workspace=workspace,
-            blob_path=text_blob_path,
-            destination=local_text_path,
-        )
+        if json_native_fallback:
+            _prepare_json_native_detection(
+                workspace=workspace,
+                client=client_id,
+                project=project,
+                source_job_id=source_job_id,
+                doc_id=doc_id,
+                native_blob_path=native_blob_path,
+                text_dir=text_dir,
+            )
+        else:
+            _download_detection_text(
+                workspace=workspace,
+                blob_path=text_blob_path,
+                destination=local_text_path,
+            )
 
         file_id = _seed_detection_document(
             db,
