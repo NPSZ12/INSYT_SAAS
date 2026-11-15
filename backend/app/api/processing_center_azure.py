@@ -13425,6 +13425,187 @@ def build_ai_extraction_set(
             ),
         ) from exc
 
+
+@router.get("/{workspace}/cyber2/intake/json-native-preview")
+def preview_cyber2_json_native(
+    workspace: Literal["capture", "discovery"],
+    client: str = Query(...),
+    project: str = Query(...),
+    doc_id: str = Query(...),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Authorized, read-only preview of registered native JSON."""
+
+    import hashlib
+    import re
+
+    from azure.core.exceptions import ResourceNotFoundError
+    from app.api.cyber2.json_native_discovery import (
+        JsonDiscoveryError,
+        discover_json_native,
+    )
+
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", doc_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid native JSON Doc ID.",
+        )
+
+    base = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    index_path = (
+        f"{base}/cyber2/intake/documents/{doc_id}.json"
+    )
+
+    try:
+        intake = _read_processing_json_blob(index_path)
+    except ResourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Cyber2 native JSON intake record not found.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read Cyber2 intake record.",
+        ) from exc
+
+    if not isinstance(intake, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid Cyber2 intake record.",
+        )
+
+    if (
+        intake.get("doc_id") != doc_id
+        or intake.get("source_kind") != "native_json"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Document is not registered as native JSON.",
+        )
+
+    source_path = str(
+        intake.get("source_native_path") or ""
+    )
+
+    expected_prefix = (
+        f"{base}/source/native/{doc_id}."
+    )
+
+    if (
+        not source_path.startswith(expected_prefix)
+        or source_path.rsplit(".", 1)[-1].lower()
+        not in {"json", "jsonl", "ndjson"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON source path is invalid.",
+        )
+
+    expected_hash = str(
+        intake.get("source_sha256") or ""
+    ).lower()
+
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON source hash is missing.",
+        )
+
+    max_bytes = 4 * 1024 * 1024
+
+    try:
+        blob = (
+            _get_live_source_blob_service_client()
+            .get_blob_client(
+                container=_live_source_container(workspace),
+                blob=source_path,
+            )
+        )
+
+        # Limit the Azure read, not merely the JSON parser.
+        data = blob.download_blob(
+            offset=0,
+            length=max_bytes + 1,
+        ).readall()
+
+    except ResourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Registered native JSON file not found.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read registered native JSON.",
+        ) from exc
+
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "Native JSON exceeds the bounded preview limit. "
+                "Source remains unchanged."
+            ),
+        )
+
+    actual_hash = hashlib.sha256(data).hexdigest()
+
+    if actual_hash != expected_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON source integrity check failed.",
+        )
+
+    expected_bytes = intake.get("source_bytes")
+    if expected_bytes is not None:
+        try:
+            byte_count_matches = (
+                int(expected_bytes) == len(data)
+            )
+        except (ValueError, TypeError):
+            byte_count_matches = False
+
+        if not byte_count_matches:
+            raise HTTPException(
+                status_code=409,
+                detail="Native JSON source size verification failed.",
+            )
+
+    extension = source_path.rsplit(".", 1)[-1].lower()
+
+    try:
+        result = discover_json_native(
+            data,
+            extension,
+            max_bytes=max_bytes,
+        )
+    except JsonDiscoveryError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "workspace": workspace,
+        "client": client,
+        "project": project,
+        "doc_id": doc_id,
+        "source_kind": "native_json",
+        "source_sha256_verified": True,
+        **result,
+    }
+
+
 @router.get(
     "/{workspace}/cyber2/intake"
 )
