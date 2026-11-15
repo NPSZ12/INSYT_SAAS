@@ -55,6 +55,63 @@ const TREATMENTS: { value: Treatment; label: string }[] = [
   { value: "discard", label: "Discard from CSV" },
 ];
 
+type OutputHeaderPreview = {
+  json_pointer: string;
+  protocol_header: string;
+  output_header: string;
+  treatment: Treatment;
+};
+
+function previewOutputHeaders(
+  columns: JsonHeaderReviewColumn[],
+  decisions: Record<string, Decision>,
+  protocol: string[]
+): OutputHeaderPreview[] {
+  const reserved = new Set(
+    protocol.map((header) => header.toLowerCase())
+  );
+  const assigned = new Set<string>();
+  const output: OutputHeaderPreview[] = [];
+
+  // Preserve the source-field order used by the backend.
+  for (const column of columns) {
+    const decision = decisions[column.json_pointer];
+
+    if (!decision?.reviewed) continue;
+    if (decision.action === "discard") continue;
+    if (decision.treatment === "discard") continue;
+
+    const base = protocol.find(
+      (header) => header === decision.header
+    );
+
+    if (!base) continue;
+
+    let candidate = base;
+    let suffix = 2;
+
+    while (
+      assigned.has(candidate.toLowerCase()) ||
+      (candidate !== base &&
+        reserved.has(candidate.toLowerCase()))
+    ) {
+      candidate = `${base}_${suffix}`;
+      suffix += 1;
+    }
+
+    assigned.add(candidate.toLowerCase());
+
+    output.push({
+      json_pointer: column.json_pointer,
+      protocol_header: base,
+      output_header: candidate,
+      treatment: decision.treatment,
+    });
+  }
+
+  return output;
+}
+
 function percent(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value)
     ? `${Math.round(value <= 1 ? value * 100 : value)}%`
@@ -91,6 +148,15 @@ export default function JsonHeaderReviewPanel({
   const completed = columns.filter(
     (column) => decisions[column.json_pointer]?.reviewed
   ).length;
+
+  const outputPreview = previewOutputHeaders(
+    columns,
+    decisions,
+    protocol
+  );
+
+  const allReviewed =
+    columns.length > 0 && completed === columns.length;
 
   function defaultDecision(
     column: JsonHeaderReviewColumn
@@ -373,6 +439,60 @@ export default function JsonHeaderReviewPanel({
         >
           {decision.reviewed ? "Reapprove Data Element" : "Approve Data Element"}
         </button>
+      </div>
+
+      <div className="border-t border-slate-800 px-5 py-4">
+        <h4 className="font-semibold text-white">
+          JSON Output Header Preview
+        </h4>
+        <p className="mt-1 text-xs text-slate-400">
+          Separate approved JSON fields remain separate CSV columns.
+          Duplicate protocol headers use _2, _3, and subsequent
+          suffixes. These assignments are provisional until the
+          backend validates and saves the mapping.
+        </p>
+
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-left text-xs">
+            <thead className="border-b border-slate-700 text-slate-400">
+              <tr>
+                <th className="p-2">Output CSV Header</th>
+                <th className="p-2">Approved Protocol Header</th>
+                <th className="p-2">Original JSON Path</th>
+                <th className="p-2">Data Treatment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {outputPreview.map((item) => (
+                <tr
+                  key={item.json_pointer}
+                  className="border-b border-slate-800"
+                >
+                  <td className="p-2 font-semibold text-sky-300">
+                    {item.output_header}
+                  </td>
+                  <td className="p-2">{item.protocol_header}</td>
+                  <td className="p-2 font-mono">
+                    {item.json_pointer}
+                  </td>
+                  <td className="p-2">{item.treatment}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {outputPreview.length === 0 && (
+          <p className="mt-3 text-sm text-slate-500">
+            No reportable JSON fields approved yet.
+          </p>
+        )}
+
+        <p className="mt-3 text-xs text-slate-400">
+          {allReviewed
+            ? "All source fields have been reviewed locally."
+            : `${columns.length - completed} fields still require review.`}
+        </p>
       </div>
 
       <div className="border-t border-slate-800 px-5 py-3 text-xs text-slate-400">
