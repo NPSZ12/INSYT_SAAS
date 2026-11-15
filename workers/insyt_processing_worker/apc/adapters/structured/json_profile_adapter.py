@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 
 from apc.adapters.base import AdapterContext, AdapterResult
@@ -36,6 +38,34 @@ class JsonProfileAdapter:
 
         try:
             profile = detect_json_source_profile(source)
+
+            # Native-first JSON ingestion for Cyber2.
+            # Keep disabled until Detection V2 supports native JSON.
+            if os.environ.get(
+                "INSYT_JSON_DEFER_CSV_UNTIL_CYBER2", ""
+            ).strip().lower() in {"1", "true", "yes"}:
+                return AdapterResult(
+                    adapter_name=self.name,
+                    handled=True,
+                    status="completed",
+                    source_file_id=context.file_id,
+                    children=[],
+                    metadata={
+                        "source_profile": profile,
+                        "native_source_path": str(source),
+                        "csv_child_count": 0,
+                        "native_detection_required": True,
+                        "stage_status": {
+                            "structured_json_parent": {
+                                "source_filename": source.name,
+                                "source_profile": profile,
+                                "csv_child_count": 0,
+                                "native_detection_required": True,
+                            }
+                        },
+                    },
+                )
+
 
             if profile == "salesforce":
                 return SALESFORCE_JSON_PROCESSOR.process(context)

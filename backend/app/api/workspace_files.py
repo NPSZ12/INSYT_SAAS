@@ -261,7 +261,7 @@ def list_workspace_files(
             continue
 
         # Skip metadata files
-        if file_name.lower().endswith(".json"):
+        if file_name.lower().endswith(".json") and resolved_folder.strip("/").lower() != "source/native":
             continue
 
         if not file_name:

@@ -731,6 +731,87 @@ async function sendSelectedToCyber2() {
         )
     );
 
+  // Native JSON uses the same reviewer-controlled button,
+  // but never enters the hardened workbook/CSV handoff.
+  const nativeJsonDocs = selectedDocs.filter((doc) => {
+    const source = doc as unknown as {
+      extension?: string;
+      source_type?: string;
+      source_format?: string;
+    };
+
+    const extension = String(source.extension || "")
+      .toLowerCase()
+      .replace(/^\./, "");
+
+    const nativeExtension = ["json", "jsonl", "ndjson"]
+      .includes(extension);
+
+    const metadataFallback =
+      extension === "" &&
+      (
+        String(source.source_type || "").toLowerCase() ===
+          "json_structured" ||
+        ["json", "jsonl", "ndjson"].includes(
+          String(source.source_format || "").toLowerCase()
+        )
+      );
+
+    return nativeExtension || metadataFallback;
+  });
+
+  if (nativeJsonDocs.length > 0) {
+    if (nativeJsonDocs.length !== selectedDocs.length) {
+      setError(
+        "Select native JSON separately from spreadsheet/CSV documents."
+      );
+      return;
+    }
+
+    setSendingCyber2(true);
+    setError("");
+
+    try {
+      for (const doc of nativeJsonDocs) {
+        // The JSON-specific backend endpoint performs verified
+        // Files promotion BEFORE Cyber² registration.
+        const response = await apiPost(
+          `/api/${encodeURIComponent(
+            workspace
+          )}/processing-center/promotion/send-json-native-cyber2`,
+          {
+            client: clientId,
+            project: projectId,
+            doc_ids: [doc.doc_id],
+          }
+        );
+
+        if (
+          Number(response?.sent_count || 0) !== 1 ||
+          response?.verified !== true
+        ) {
+          throw new Error(
+            `Native JSON handoff was not verified for ${doc.doc_id}.`
+          );
+        }
+      }
+
+      setSelectedSpreadsheetIds(new Set());
+      await loadPromotionPopulation(true);
+    } catch (error: unknown) {
+      console.error("Native JSON Cyber² handoff failed:", error);
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Native JSON promotion failed."
+      );
+    } finally {
+      setSendingCyber2(false);
+    }
+
+    return;
+  }
+
   const docIds =
     selectedDocs.map(
       (doc) => doc.doc_id

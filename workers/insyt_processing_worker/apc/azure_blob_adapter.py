@@ -664,60 +664,6 @@ def azure_upload_xl_files_outputs(
                     ),
                 )
 
-            # Route only structured original natives to live source.
-            # Existing CSV child staging remains unchanged.
-            if bool(row.get("is_structured_parent")):
-                extension = str(
-                    row.get("extension") or ""
-                ).lower().lstrip(".")
-
-                if extension not in {"json", "jsonl", "ndjson"}:
-                    raise ValueError(
-                        "Unexpected structured native extension."
-                    )
-
-                if not doc_id or "." in doc_id:
-                    raise ValueError(
-                        "Invalid structured parent Doc ID."
-                    )
-
-                workspace = str(
-                    routing.workspace or ""
-                ).strip().lower()
-
-                destination = (
-                    f"{routing.prefix}/source/native/"
-                    f"{doc_id}.{extension}"
-                )
-
-                source_container = adapter.get_live_source_container(
-                    workspace
-                )
-                native_blob = source_container.get_blob_client(
-                    destination
-                )
-
-                if not native_blob.exists():
-                    with local_path.open("rb") as native_file:
-                        native_blob.upload_blob(
-                            native_file,
-                            overwrite=False,
-                            content_settings=(
-                                adapter._content_settings_cls(
-                                    content_type=(
-                                        "application/json"
-                                        if extension == "json"
-                                        else "application/octet-stream"
-                                    )
-                                )
-                            ),
-                        )
-
-                if not native_blob.exists():
-                    raise RuntimeError(
-                        "Native source upload verification failed."
-                    )
-
             uploaded.append(
                 {
                     **row,
