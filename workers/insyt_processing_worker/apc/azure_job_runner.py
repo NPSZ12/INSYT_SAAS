@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import shutil
@@ -67,7 +67,29 @@ def validate_structured_csv_uploads(
             and parent_metadata.get("source_filename")
             and bool(row["is_container"])
         ):
-            parents.add(file_id)
+            # Native-deferred JSON must not generate CSV children.
+            # Keep the original CSV requirements for all other sources.
+            from os import getenv
+
+            native_mode = getenv(
+                "INSYT_JSON_DEFER_CSV_UNTIL_CYBER2", ""
+            ).strip().lower() in {"1", "true", "yes"}
+
+            native_parent = (
+                native_mode
+                and extension in {"json", "jsonl", "ndjson"}
+                and parent_metadata.get("native_detection_required") is True
+                and parent_metadata.get("csv_child_count") == 0
+            )
+
+            if native_parent:
+                if not row["doc_id"]:
+                    raise RuntimeError(
+                        "Native JSON source has no registered Doc ID: "
+                        f"file_id={file_id}"
+                    )
+            else:
+                parents.add(file_id)
 
         if not isinstance(child_metadata, dict):
             continue

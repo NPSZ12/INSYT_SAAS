@@ -476,7 +476,14 @@ def build_json_structured_staging_plan(
             requires_ocr
         FROM file_processing_metrics
         WHERE job_id=?
-          AND is_container=0
+          AND (
+              is_container=0
+              OR (
+                is_container=1
+                AND lower(ltrim(extension, '.'))
+                    IN ('json', 'jsonl', 'ndjson')
+              )
+          )
           AND is_denisted=0
           AND is_duplicate=0
           AND doc_id IS NOT NULL

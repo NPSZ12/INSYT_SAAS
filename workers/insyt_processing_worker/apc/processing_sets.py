@@ -184,6 +184,35 @@ def _csv_family_parent_file_id(row: Any) -> str:
 
     return workbook_parent or json_parent
 
+
+def _is_native_deferred_json_parent(row) -> bool:
+    """A native JSON source is one document, not a CSV family."""
+    from os import getenv
+
+    if getenv(
+        "INSYT_JSON_DEFER_CSV_UNTIL_CYBER2", ""
+    ).strip().lower() not in {"1", "true", "yes"}:
+        return False
+
+    if str(row["extension"] or "").lower().lstrip(".") not in {
+        "json", "jsonl", "ndjson"
+    }:
+        return False
+
+    if not bool(row["is_container"]) or row["parent_file_id"]:
+        return False
+
+    status = _stage_status(row["stage_status_json"])
+    metadata = status.get("structured_json_parent") or {}
+
+    return (
+        isinstance(metadata, dict)
+        and bool(metadata.get("source_filename"))
+        and metadata.get("native_detection_required") is True
+        and metadata.get("csv_child_count") == 0
+    )
+
+
 def build_processing_sets(
     *,
     db: LedgerDB,
@@ -231,10 +260,11 @@ def build_processing_sets(
         row
         for row in all_rows
         if (
-            not bool(
-                row[
-                    "is_container"
-                ]
+            (
+                not bool(
+                    row["is_container"]
+                )
+                or _is_native_deferred_json_parent(row)
             )
             and not bool(
                 row[

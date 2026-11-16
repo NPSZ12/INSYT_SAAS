@@ -477,6 +477,32 @@ def _is_structured_json_parent(row) -> bool:
     )
 
 
+
+def _is_native_deferred_json_parent(row) -> bool:
+    """Recognize only explicitly deferred native JSON parents."""
+    from os import getenv
+
+    if getenv(
+        "INSYT_JSON_DEFER_CSV_UNTIL_CYBER2", ""
+    ).strip().lower() not in {"1", "true", "yes"}:
+        return False
+
+    if str(row["extension"] or "").lower().lstrip(".") not in {
+        "json", "jsonl", "ndjson"
+    }:
+        return False
+
+    if not _is_structured_json_parent(row):
+        return False
+
+    metadata = _stage_status(row).get("structured_json_parent") or {}
+
+    return (
+        metadata.get("native_detection_required") is True
+        and metadata.get("csv_child_count") == 0
+    )
+
+
 def run_doc_id_assignment(
     db: LedgerDB,
     settings: Settings,
@@ -562,10 +588,9 @@ def run_doc_id_assignment(
                     or ""
                 )
                 == "primary"
-                and not bool(
-                    row[
-                        "is_container"
-                    ]
+                and (
+                    not bool(row["is_container"])
+                    or _is_native_deferred_json_parent(row)
                 )
             )
             or (
