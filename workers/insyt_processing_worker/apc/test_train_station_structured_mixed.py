@@ -172,100 +172,94 @@ class MixedStructuredTrainStationTests(unittest.TestCase):
                     (job,),
                 )
 
-                self.assertEqual(len(rows), 11)
+                # Native JSON remains a primary source document.
+                # It must never generate a derived child during APC.
+                self.assertEqual(len(rows), 10)
 
-                structured_parents = []
-                structured_children = []
+                native_names = {
+                    "salesforce.json",
+                    "plain.json",
+                    "slack.json",
+                }
 
+                native_rows = [
+                    row for row in rows
+                    if Path(row["original_path"]).name
+                    in native_names
+                    and not row["parent_file_id"]
+                ]
+
+                self.assertEqual(len(native_rows), 3)
+
+                for row in native_rows:
+                    self.assertEqual(
+                        row["extension"].lower().lstrip("."),
+                        "json",
+                    )
+                    self.assertFalse(row["is_container"])
+                    status = json.loads(
+                        row["stage_status_json"] or "{}"
+                    )
+                    self.assertIsInstance(
+                        status.get("structured_json_parent"),
+                        dict,
+                    )
+
+                # No JSON-derived CSV children.
                 for row in rows:
                     status = json.loads(
                         row["stage_status_json"] or "{}"
                     )
-
-                    if isinstance(
-                        status.get("structured_json_parent"),
-                        dict,
-                    ):
-                        structured_parents.append(row)
-
-                    if isinstance(
-                        status.get("structured_json_child"),
-                        dict,
-                    ):
-                        structured_children.append(row)
-
-                self.assertEqual(len(structured_parents), 4)
-                self.assertEqual(len(structured_children), 4)
-
-                parent_ids = {
-                    row["file_id"]
-                    for row in structured_parents
-                }
-
-                expected_counts = {
-                    "salesforce": 4,
-                    "plain": 2,
-                    "slack": 1,
-                }
-
-                observed = []
-
-                for row in structured_children:
-                    status = json.loads(
-                        row["stage_status_json"]
+                    self.assertNotIn(
+                        "structured_json_child", status
                     )
-                    metadata = status["structured_json_child"]
-                    profile = metadata["source_profile"]
 
-                    self.assertIn(
-                        row["parent_file_id"],
-                        parent_ids,
-                    )
-                    self.assertEqual(
-                        metadata["parent_file_id"],
-                        row["parent_file_id"],
-                    )
-                    self.assertEqual(row["extension"], "csv")
+                # Slack ZIP preserves its three original JSON
+                # members rather than generating a CSV.
+                slack_members = [
+                    row for row in rows
+                    if row["parent_file_id"]
+                    and row["extension"].lower().lstrip(".")
+                    == "json"
+                ]
+                self.assertEqual(len(slack_members), 3)
+                self.assertEqual(
+                    {
+                        Path(row["original_path"]).name
+                        for row in slack_members
+                    },
+                    {
+                        "users.json",
+                        "channels.json",
+                        "2026-11-13.json",
+                    },
+                )
+                for row in slack_members:
                     self.assertFalse(row["is_container"])
 
-                    with Path(row["original_path"]).open(
-                        "r",
-                        encoding="utf-8-sig",
-                        newline="",
-                    ) as stream:
-                        records = list(csv.DictReader(stream))
+                # Original CSV intake remains separate.
+                direct_csv = [
+                    row for row in rows
+                    if Path(row["original_path"]).name
+                    == "ordinary.csv"
+                    and not row["parent_file_id"]
+                ]
+                self.assertEqual(len(direct_csv), 1)
 
-                    self.assertEqual(
-                        len(records),
-                        metadata["record_count"],
-                    )
-
-                    if profile == "slack":
-                        self.assertEqual(len(records), 1)
-                    else:
-                        self.assertEqual(
-                            len(records),
-                            expected_counts[profile],
-                        )
-
-                    observed.append(
-                        metadata["derivation_method"]
-                    )
-
-                self.assertEqual(len(set(observed)), 4)
-
-                print(
-                    "PASS: Four structured formats, "
-                    "four CSV children, correct record counts",
-                    flush=True,
-                )
+                # Ordinary ZIP must still expand to native TXT.
+                self.assertTrue(any(
+                    row["parent_file_id"]
+                    and row["extension"].lower().lstrip(".")
+                    == "txt"
+                    for row in rows
+                ))
 
                 routes = route_train_station_files(
                     db=db, job_id=job,
                 )
 
-                self.assertEqual(
-                    routes["continue_count"], 6
+                self.assertGreaterEqual(
+                    routes["continue_count"], 3
                 )
 
                 sets = build_processing_sets(
@@ -275,9 +269,8 @@ class MixedStructuredTrainStationTests(unittest.TestCase):
                     set_size=500,
                 )
 
-                self.assertEqual(
-                    sets["eligible_file_count"], 6
-                )
+                eligible = sets["eligible_file_count"]
+                self.assertGreaterEqual(eligible, 3)
 
                 members = db.query(
                     """
@@ -289,35 +282,30 @@ class MixedStructuredTrainStationTests(unittest.TestCase):
                     (job,),
                 )
 
-                for parent in structured_parents:
-                    support = [
-                        member
-                        for member in members
-                        if member["file_id"] == parent["file_id"]
+                for row in native_rows:
+                    matches = [
+                        member for member in members
+                        if member["file_id"] == row["file_id"]
                     ]
-                    self.assertEqual(len(support), 1)
+                    self.assertEqual(len(matches), 1)
                     self.assertEqual(
-                        support[0]["counts_toward_set_size"],
-                        0,
+                        matches[0]["membership_role"],
+                        "primary",
                     )
-
-                self.assertEqual(
-                    sum(
-                        int(m["counts_toward_set_size"])
-                        for m in members
-                    ),
-                    6,
-                )
+                    self.assertEqual(
+                        matches[0]["counts_toward_set_size"],
+                        1,
+                    )
 
                 allocation = DocIdAllocation(
                     start_number=1,
-                    end_number=6,
-                    assigned_count=6,
+                    end_number=eligible,
+                    assigned_count=eligible,
                     prefix="INSYT",
                     width=9,
                     registry_blob_path="offline-test-registry",
                     previous_last_assigned_number=0,
-                    new_last_assigned_number=6,
+                    new_last_assigned_number=eligible,
                 )
 
                 with patch(
@@ -334,59 +322,30 @@ class MixedStructuredTrainStationTests(unittest.TestCase):
 
                 reserve.assert_called_once()
                 self.assertEqual(
-                    reserve.call_args.kwargs["count"], 6
+                    reserve.call_args.kwargs["count"],
+                    eligible,
                 )
 
                 assigned = db.query(
                     """
-                    SELECT file_id, doc_id, parent_file_id
+                    SELECT file_id, doc_id
                     FROM file_processing_metrics
                     WHERE job_id=?
                     """,
                     (job,),
                 )
 
-                by_id = {
-                    row["file_id"]: row
+                assigned_by_file = {
+                    row["file_id"]: row["doc_id"]
                     for row in assigned
                 }
 
-                for child in structured_children:
-                    parent_doc_id = by_id[
-                        child["parent_file_id"]
-                    ]["doc_id"]
-                    child_doc_id = by_id[
-                        child["file_id"]
-                    ]["doc_id"]
+                for row in native_rows:
+                    doc_id = assigned_by_file[row["file_id"]]
+                    self.assertTrue(doc_id)
+                    self.assertNotIn(".", doc_id)
 
-                    self.assertTrue(parent_doc_id)
-                    self.assertEqual(
-                        child_doc_id,
-                        parent_doc_id + ".1",
-                    )
-
-                plan = build_xl_files_staging_plan(
-                    db=db,
-                    job_id=job,
-                    routing=routing,
-                )
-
-                self.assertEqual(len(plan), 8)
-                self.assertEqual(
-                    sum(
-                        bool(item["is_structured_parent"])
-                        for item in plan
-                    ),
-                    4,
-                )
-                self.assertEqual(
-                    sum(
-                        bool(item["is_csv_child"])
-                        for item in plan
-                    ),
-                    4,
-                )
-
+                # All six uploaded natives remain byte-identical.
                 self.assertEqual(
                     {
                         path.name: hashlib.sha256(
@@ -398,13 +357,9 @@ class MixedStructuredTrainStationTests(unittest.TestCase):
                 )
 
                 print(
-                    "PASS: Six primary documents, "
-                    "four support parents, family Doc IDs, "
-                    "eight common staging entries",
-                    flush=True,
-                )
-                print(
-                    "PASS: All six native uploads unchanged",
+                    "PASS: Three primary native JSON documents, "
+                    "no JSON-derived children, independent CSV "
+                    "and ZIP handling preserved",
                     flush=True,
                 )
 

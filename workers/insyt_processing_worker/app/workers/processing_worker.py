@@ -1280,36 +1280,10 @@ def process_job_message(message_content: str):
                 )
 
 
-            # Use native JSON results from the SAME existing uploader.
-            # No additional staging path or automatic Detection job.
-            native_json_result = (
-                csv_upload.get("native_json_staging") or {}
-            )
-
-            json_detection_docs = [
-                row
-                for row in (native_json_result.get("uploaded") or [])
-                if (
-                    isinstance(row, dict)
-                    and row.get("status") == "uploaded"
-                    and row.get("detection_ready") is True
-                    and str(row.get("doc_id") or "").strip()
-                    and str(
-                        row.get("native_staged_blob_path") or ""
-                    ).strip()
-                    and str(
-                        row.get("text_staged_blob_path") or ""
-                    ).strip()
-                )
-            ]
-
-            if len({
-                str(row["doc_id"])
-                for row in json_detection_docs
-            }) != len(json_detection_docs):
-                raise RuntimeError(
-                    "Duplicate staged native JSON Doc IDs."
-                )
+            # Native documents use the standard review staging
+            # uploader after local processing completes.
+            # This early callback handles CSV fast-lane staging only.
+            json_detection_docs = []
 
             # MANUAL DATA DETECTION GATE.
             # Do not create or enqueue a Detection job.

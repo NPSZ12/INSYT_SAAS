@@ -2686,11 +2686,14 @@ def run_container_expansion(
                 # a real reviewable document while attachments become
                 # additional child documents.
                 #
+                # Native text-like adapters preserve a reviewable
+                # source document, just like MSG/EML parents.
                 parent_is_container = (
                     0
                     if container_type in {
                         "msg",
                         "eml",
+                        "json_structured",
                     }
                     else 1
                 )
