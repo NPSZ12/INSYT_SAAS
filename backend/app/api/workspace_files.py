@@ -260,8 +260,13 @@ def list_workspace_files(
         if file_name.startswith("."):
             continue
 
-        # Skip metadata files
-        if file_name.lower().endswith(".json"):
+        # JSON files in source/native are original documents.
+        # Continue excluding JSON metadata outside that folder.
+        if (
+            file_name.lower().endswith(".json")
+            and str(resolved_folder).strip("/").lower()
+            != "source/native"
+        ):
             continue
 
         if not file_name:

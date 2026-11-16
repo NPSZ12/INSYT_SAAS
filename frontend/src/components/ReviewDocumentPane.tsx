@@ -719,7 +719,7 @@ export default function ReviewDocumentPane({
   ]);
 
   const effectiveViewerType =
-    isStructuredSpreadsheet
+    (extension === "json" || isStructuredSpreadsheet)
       ? "needs_preview_conversion"
       : (
           reviewPreview?.viewer_type ||
@@ -910,7 +910,7 @@ export default function ReviewDocumentPane({
                   setViewMode("native")
                 }
               >
-                Native
+                {extension === "json" ? "JSON" : "Native"}
               </Button>
             </>
           )}
