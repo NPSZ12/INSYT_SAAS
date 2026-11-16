@@ -252,7 +252,7 @@ def _load_protocol_library(
     project: str,
 ) -> dict[str, Any]:
 
-    container = get_container_client(workspace)
+    container = get_live_source_container_client(workspace)
 
     library, source_blob = (
         get_protocol_header_library(

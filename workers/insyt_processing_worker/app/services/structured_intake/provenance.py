@@ -69,6 +69,97 @@ def apply_structured_json_provenance(
             continue
 
 
+        # Native JSON: attach lineage to the original
+        # inventory file, never to a generated CSV.
+        if package.get("status") == "native_deferred":
+            native_name = str(
+                package.get("source_filename") or ""
+            ).strip()
+            native_path = Path(
+                str(package.get("original_source_path") or "")
+            ).resolve()
+
+            if (
+                native_path.parent != staging_dir
+                or native_path.name != native_name
+                or native_path.suffix.lower()
+                not in {".json", ".jsonl", ".ndjson"}
+            ):
+                raise ValueError(
+                    "Native JSON provenance path is invalid."
+                )
+
+            rows = db.query(
+                """
+                SELECT file_id
+                FROM file_processing_metrics
+                WHERE job_id=?
+                  AND (
+                      original_path=?
+                      OR normalized_path=?
+                  )
+                """,
+                (
+                    job_id,
+                    str(native_path),
+                    native_name,
+                ),
+            )
+
+            if not rows:
+                missing_count += 1
+                continue
+
+            matched_count += len(rows)
+
+            structured_payload = {
+                "structured_source": {
+                    "source_family": "structured",
+                    "source_format": "json",
+                    "source_extension":
+                        native_path.suffix.lower().lstrip("."),
+                    "source_profile": str(
+                        package.get("source_profile") or "plain"
+                    ),
+                    "original_json_filename": native_name,
+                    "original_json_path": str(native_path),
+                    "package_id": str(
+                        package.get("package_id") or ""
+                    ),
+                    "package_count": int(
+                        package.get("package_count") or 1
+                    ),
+                    "record_count": int(
+                        package.get("record_count") or 0
+                    ),
+                    "adapter": "json_native",
+                    "csv_generation_status": "not_started",
+                }
+            }
+
+            for row in rows:
+                db.execute(
+                    """
+                    UPDATE file_processing_metrics
+                    SET
+                        updated_at=?,
+                        stage_status_json=json_patch(
+                            coalesce(stage_status_json, '{}'),
+                            ?
+                        )
+                    WHERE job_id=? AND file_id=?
+                    """,
+                    (
+                        utc_now(),
+                        json_dumps(structured_payload),
+                        job_id,
+                        row["file_id"],
+                    ),
+                )
+                updated_count += 1
+
+            continue
+
         if (
             package.get("status")
             != "normalized"

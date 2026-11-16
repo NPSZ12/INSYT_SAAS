@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 
 from pathlib import Path
@@ -132,6 +133,37 @@ def prepare_json_structured_sources(
                 )
             )
 
+
+        # Native JSON remains the APC inventory input.
+        # No CSV is created before Cyber2 Header Mapping.
+        native_deferred = (
+            os.getenv(
+                "INSYT_JSON_DEFER_CSV_UNTIL_CYBER2", ""
+            ).strip().lower() in {"1", "true", "yes"}
+            and source_path.suffix.lower()
+            in {".json", ".jsonl", ".ndjson"}
+        )
+
+        if native_deferred:
+            packages.append(
+                {
+                    "package_index": package_index,
+                    "package_id": f"JSON-PKG-{package_index:06d}",
+                    "source_filename": source_path.name,
+                    "source_format": (
+                        source_path.suffix.lower().lstrip(".")
+                    ),
+                    "source_profile": profile,
+                    "status": "native_deferred",
+                    "original_source_path": str(source_path),
+                    "normalized_csv_path": None,
+                    "normalized_filename": None,
+                    "record_count": 0,
+                    "package_count": 1,
+                    "group_counts": {},
+                }
+            )
+            continue
 
         preserved_source_path = (
             source_root

@@ -290,18 +290,20 @@ export default function CapturedEntitiesTable({
       .toLowerCase();
 
   const initialView:
-    "raw" | "ai" | "final" =
+    "raw" | "ai" | "c2" | "final" =
     requestedView === "final"
       ? "final"
-      : requestedView === "ai"
-        ? "ai"
-        : "raw";
+      : requestedView === "c2"
+        ? "c2"
+        : requestedView === "ai"
+          ? "ai"
+          : "raw";
 
   const [
     entityView,
     setEntityView,
   ] = useState<
-    "raw" | "ai" | "final"
+    "raw" | "ai" | "c2" | "final"
   >(initialView);
 
   const [entityData, setEntityData] =
@@ -309,6 +311,13 @@ export default function CapturedEntitiesTable({
       headers: [],
       rows: [],
     });
+
+  const [c2SelectedRow, setC2SelectedRow] =
+    useState<Record<string, any> | null>(null);
+
+  const [c2TransferredSets, setC2TransferredSets] = useState<
+    { header_set_id: string; merge_set_id: string }[]
+  >([]);
 
   const [protocolColumns, setProtocolColumns] =
     useState<ProtocolColumn[]>([]);
@@ -337,6 +346,8 @@ export default function CapturedEntitiesTable({
     if (!projectId) return;
 
     setIsLoading(true);
+    setC2SelectedRow(null);
+    setC2TransferredSets([]);
     setMessage("");
     setColumnFilters({});
     setColumnValueFilters({});
@@ -365,6 +376,103 @@ export default function CapturedEntitiesTable({
         console.error(error);
         setMessage("Protocol headers could not be loaded.");
       });
+
+    // C2 shares the approved Project Protocol headers,
+    // but loads only verified C2 transfer snapshots.
+    // Never query RAW, AI, FINAL, or document overlays here.
+    if (entityView === "c2") {
+      const query = new URLSearchParams({
+        client: clientId,
+        project: projectId,
+      });
+
+      const c2Url =
+        `/api/${workspace}/cyber2/c2/project-records?` +
+        query.toString();
+
+      apiGet(c2Url)
+        .then((response: CapturedEntitiesResponse & { status?: string }) => {
+          if (
+            response?.status !== "ok" ||
+            !Array.isArray(response?.headers) ||
+            !Array.isArray(response?.rows)
+          ) {
+            throw new Error("Invalid C2 record response.");
+          }
+
+          const transfers = (
+            response as CapturedEntitiesResponse & {
+              transferred_sets?: unknown;
+            }
+          ).transferred_sets;
+
+          if (!Array.isArray(transfers)) {
+            throw new Error("C2 transfer metadata is unavailable.");
+          }
+
+          const verifiedTransfers: {
+            header_set_id: string;
+            merge_set_id: string;
+          }[] = [];
+
+          const seenHeaders = new Set<string>();
+          const seenMerges = new Set<string>();
+
+          for (const item of transfers) {
+            if (
+              !item ||
+              typeof item !== "object" ||
+              typeof item.header_set_id !== "string" ||
+              !item.header_set_id ||
+              typeof item.merge_set_id !== "string" ||
+              !item.merge_set_id ||
+              seenHeaders.has(item.header_set_id) ||
+              seenMerges.has(item.merge_set_id)
+            ) {
+              throw new Error("Invalid C2 transfer metadata.");
+            }
+
+            seenHeaders.add(item.header_set_id);
+            seenMerges.add(item.merge_set_id);
+
+            verifiedTransfers.push({
+              header_set_id: item.header_set_id,
+              merge_set_id: item.merge_set_id,
+            });
+          }
+
+          for (const row of response.rows) {
+            const recordId = String(row?.id || "");
+            const matches = verifiedTransfers.filter(
+              (item) => recordId.startsWith(item.merge_set_id + ":")
+            );
+
+            if (matches.length !== 1) {
+              throw new Error(
+                "C2 record does not match exactly one transferred Merge Set."
+              );
+            }
+          }
+
+          setC2TransferredSets(verifiedTransfers);
+
+          setEntityData({
+            headers: response.headers,
+            rows: response.rows,
+          });
+        })
+        .catch((error) => {
+          console.error(error);
+          setMessage(
+            "C2 records could not be loaded. No fallback to other views."
+          );
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+
+      return;
+    }
 
     const batchQuery = batchId
       ? `&batch=${encodeURIComponent(batchId)}`
@@ -699,6 +807,14 @@ function clearAllColumnValueFilters() {
 }
 
 function getRowExportKey(row: Record<string, any>, index: number) {
+  // Preserve independent selection for consolidated C2 records.
+  if (
+    typeof row.id === "string" &&
+    /^MSET-[0-9A-F]{32}:.+$/.test(row.id)
+  ) {
+    return `c2:${row.id}`;
+  }
+
   const docIds = getExportDocIdsFromRow(row);
 
   return docIds.length > 0
@@ -872,6 +988,40 @@ function getFinalEntityUid(row: Record<string, any>) {
   );
 }
 
+function openC2SourceDocs(row: Record<string, any>) {
+  const recordId = String(row?.id || "").trim();
+  const docIds = splitFinalDocIds(row?.["Doc ID"]);
+
+  if (!recordId || docIds.length === 0) {
+    setMessage("C2 record or source Doc IDs are unavailable.");
+    return;
+  }
+
+  const matches = c2TransferredSets.filter(
+    (item) => recordId.startsWith(item.merge_set_id + ":")
+  );
+
+  if (matches.length !== 1) {
+    setMessage(
+      "Unable to identify exactly one transferred Header Set for this C2 record."
+    );
+    return;
+  }
+
+  const params = new URLSearchParams({
+    client: clientId,
+    project: projectId,
+    source: "c2",
+    headerSetId: matches[0].header_set_id,
+    recordId,
+    startDoc: docIds[0],
+  });
+
+  router.push(
+    `/${workspace}/entities/final-viewer?${params.toString()}`
+  );
+}
+
 function openFinalSourceDocs(row: Record<string, any>) {
   const docIds = splitFinalDocIds(
     row.doc_ids?.length > 0
@@ -973,6 +1123,18 @@ function openFinalSourceDocs(row: Record<string, any>) {
 
             <button
               type="button"
+              onClick={() => setEntityView("c2")}
+              className={
+                entityView === "c2"
+                  ? "rounded-xl border border-sky-500 bg-sky-500 px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-xl border border-[var(--insyt-border-strong)] bg-[var(--insyt-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--insyt-text-secondary)] hover:bg-[var(--insyt-surface-hover)]"
+              }
+            >
+              C²
+            </button>
+
+            <button
+              type="button"
               onClick={() => setEntityView("final")}
               className={
                 entityView === "final"
@@ -1035,13 +1197,19 @@ function openFinalSourceDocs(row: Record<string, any>) {
                     Export
                   </th>
 
+                  {entityView === "c2" && (
+                    <th className="sticky left-[72px] top-0 z-[65] w-[48px] min-w-[48px] border-b border-r border-slate-800 bg-slate-900 p-2 text-center text-sky-300">
+                      Details
+                    </th>
+                  )}
+
                   {headerGroups.map((group, index) => (
                     <th
                       key={`${group.label}-${index}`}
                       colSpan={group.span}
                       className={
                         index === 0
-                          ? "sticky left-[72px] top-0 z-[60] w-[220px] min-w-[220px] bg-slate-900 p-3 text-left border-l border-r border-b border-slate-800 whitespace-nowrap text-sky-300"
+                          ? `sticky ${entityView === "c2" ? "left-[120px]" : "left-[72px]"} top-0 z-[60] w-[220px] min-w-[220px] bg-slate-900 p-3 text-left border-l border-r border-b border-slate-800 whitespace-nowrap text-sky-300`
                           : "sticky top-0 z-40 bg-slate-900 p-3 text-left border-l border-b border-slate-800 whitespace-nowrap text-sky-300"
                       }
                     >
@@ -1055,6 +1223,12 @@ function openFinalSourceDocs(row: Record<string, any>) {
                     Select
                   </th>
 
+                  {entityView === "c2" && (
+                    <th className="sticky left-[72px] top-[42px] z-[65] w-[48px] min-w-[48px] border-b border-r border-slate-800 bg-slate-900 p-2 text-center">
+                      Info
+                    </th>
+                  )}
+
                   {headers.map((header) => {
                     const isSorted = sortState?.header === header;
 
@@ -1063,7 +1237,7 @@ function openFinalSourceDocs(row: Record<string, any>) {
                         key={header}
                         className={
                           header === "Doc ID"
-                            ? "sticky left-[72px] top-[42px] z-[60] w-[220px] min-w-[220px] bg-slate-900 p-3 text-left border-l border-r border-slate-800 whitespace-nowrap"
+                            ? `sticky ${entityView === "c2" ? "left-[120px]" : "left-[72px]"} top-[42px] z-[60] w-[220px] min-w-[220px] bg-slate-900 p-3 text-left border-l border-r border-slate-800 whitespace-nowrap`
                             : "sticky top-[42px] z-40 bg-slate-900 p-3 text-left border-l border-slate-800 whitespace-nowrap"
                         }
                       >
@@ -1173,12 +1347,16 @@ function openFinalSourceDocs(row: Record<string, any>) {
                     <span className="sr-only">Export selection filter spacer</span>
                   </th>
 
+                  {entityView === "c2" && (
+                    <th className="sticky left-[72px] top-[90px] z-[65] w-[48px] min-w-[48px] border-r border-slate-800 bg-slate-900 p-2" />
+                  )}
+
                   {headers.map((header) => (
                     <th
                       key={`${header}-filter`}
                       className={
                         header === "Doc ID"
-                          ? "sticky left-[72px] top-[90px] z-[60] w-[220px] min-w-[220px] bg-slate-900 p-2 border-l border-r border-slate-800 whitespace-nowrap"
+                          ? `sticky ${entityView === "c2" ? "left-[120px]" : "left-[72px]"} top-[90px] z-[60] w-[220px] min-w-[220px] bg-slate-900 p-2 border-l border-r border-slate-800 whitespace-nowrap`
                           : "sticky top-[90px] z-40 bg-slate-900 p-2 border-l border-slate-800 whitespace-nowrap"
                       }
                     >
@@ -1202,14 +1380,16 @@ function openFinalSourceDocs(row: Record<string, any>) {
                 {visibleRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={Math.max(headers.length + 1, 1)}
+                      colSpan={Math.max(headers.length + (entityView === "c2" ? 2 : 1), 1)}
                       className="p-6 text-[var(--insyt-text-muted)]"
                     >
                       {isLoading
                         ? "Loading captured entities..."
-                        : entityData.rows.length === 0
-                          ? "No captured entities found yet. Protocol headers are ready for incoming review data."
-                          : "No rows match the current filters."}
+                        : entityView === "c2"
+                          ? "No Merge Sets transferred to C² yet."
+                          : entityData.rows.length === 0
+                            ? "No captured entities found yet. Protocol headers are ready for incoming review data."
+                            : "No rows match the current filters."}
                     </td>
                   </tr>
                 ) : (
@@ -1229,6 +1409,20 @@ function openFinalSourceDocs(row: Record<string, any>) {
                         />
                       </td>
 
+                      {entityView === "c2" && (
+                        <td className="sticky left-[72px] z-20 w-[48px] min-w-[48px] border-r border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setC2SelectedRow(row)}
+                            aria-label="Open consolidated C2 details"
+                            title="View consolidated values and all source Doc IDs"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-sky-500 text-sm font-bold text-sky-300 hover:bg-sky-900"
+                          >
+                            i
+                          </button>
+                        </td>
+                      )}
+
                       {headers.map((header, index) => {
                         const value = row[header] || "";
 
@@ -1239,27 +1433,44 @@ function openFinalSourceDocs(row: Record<string, any>) {
                               : value
                           );
 
+                          const c2DocIds =
+                            entityView === "c2"
+                              ? splitFinalDocIds(value)
+                              : [];
+
+                          const c2Preview =
+                            c2DocIds.length > 3
+                              ? c2DocIds.slice(0, 3).join("; ") + "; ..."
+                              : c2DocIds.join("; ");
+
                           const displayValue =
-                            entityView === "final" && finalDocIds.length > 0
-                              ? finalDocIds.join("; ")
-                              : value || "Open Doc";
+                            entityView === "c2"
+                              ? c2Preview || "View C² record"
+                              : entityView === "final" &&
+                                  finalDocIds.length > 0
+                                ? finalDocIds.join("; ")
+                                : value || "Open Doc";
 
                           return (
                             <td
                               key={header}
-                              className="sticky left-[72px] z-20 w-[220px] min-w-[220px] whitespace-nowrap border-r border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3"
+                              className={`sticky ${entityView === "c2" ? "left-[120px]" : "left-[72px]"} z-20 w-[220px] min-w-[220px] whitespace-nowrap border-r border-[var(--insyt-border)] bg-[var(--insyt-surface-1)] p-3`}
                             >
                               <button
                                 className="text-sky-400 hover:text-sky-300 underline"
                                 onClick={() =>
-                                  entityView === "final"
-                                    ? openFinalSourceDocs(row)
-                                    : openDocument(value)
+                                  entityView === "c2"
+                                    ? openC2SourceDocs(row)
+                                    : entityView === "final"
+                                      ? openFinalSourceDocs(row)
+                                      : openDocument(value)
                                 }
                                 title={
-                                  entityView === "final"
-                                    ? finalDocIds.join("; ")
-                                    : value
+                                  entityView === "c2"
+                                    ? c2DocIds.join("; ")
+                                    : entityView === "final"
+                                      ? finalDocIds.join("; ")
+                                      : value
                                 }
                               >
                                 {displayValue || "Open Doc"}
@@ -1283,6 +1494,91 @@ function openFinalSourceDocs(row: Record<string, any>) {
               </tbody>
             </table>
           </div>
+          {entityView === "c2" && c2SelectedRow && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Consolidated C² record details"
+              className="fixed left-1/2 top-1/2 z-[100] max-h-[90vh] w-[min(960px,95vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-slate-600 bg-slate-950 p-6 shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">
+                    Consolidated C² Record
+                  </h3>
+                  <p className="mt-1 break-all font-mono text-xs text-slate-300">
+                    {String(c2SelectedRow.id || "")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setC2SelectedRow(null)}
+                  className="rounded-lg border border-slate-500 px-3 py-2 text-sm"
+                >
+                  Close
+                </button>
+              </div>
+
+              <h4 className="mt-5 font-semibold text-slate-200">
+                Approved Protocol Values
+              </h4>
+              <dl className="mt-2 grid gap-3 md:grid-cols-2">
+                {headers
+                  .filter(
+                    (header) =>
+                      header !== "Doc ID" &&
+                      String(c2SelectedRow[header] ?? "").trim()
+                  )
+                  .map((header) => (
+                    <div
+                      key={header}
+                      className="rounded-lg border border-slate-700 p-3"
+                    >
+                      <dt className="text-xs text-slate-400">
+                        {header}
+                      </dt>
+                      <dd className="mt-1 break-words text-sm text-slate-100">
+                        {String(c2SelectedRow[header])}
+                      </dd>
+                    </div>
+                  ))}
+              </dl>
+
+              <h4 className="mt-5 font-semibold text-slate-200">
+                All Source Document IDs
+              </h4>
+              <p className="mt-1 text-xs text-slate-400">
+                Complete source-document membership is displayed below.
+                These are separate provenance references, not one
+                combined Review Workspace document.
+              </p>
+              {(() => {
+                const allIds = splitFinalDocIds(
+                  c2SelectedRow["Doc ID"]
+                );
+
+                return (
+                  <>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {allIds.length} source document(s)
+                    </p>
+                    <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-slate-700 p-3">
+                      <ul className="space-y-1">
+                        {allIds.map((docId, index) => (
+                          <li
+                            key={`${docId}-${index}`}
+                            className="break-all font-mono text-xs text-slate-200"
+                          >
+                            {docId}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </ContentCard>
       </PageContainer>
     </AppShell>

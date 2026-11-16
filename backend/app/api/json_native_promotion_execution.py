@@ -40,7 +40,7 @@ def promote_json_native_verified(
         not isinstance(source, str)
         or not isinstance(destination, str)
         or "/processing_center/staged/" not in source
-        or "/xl/native/" not in source
+        or "/structured/native/" not in source
         or "/source/native/" not in destination
         or source == destination
     ):

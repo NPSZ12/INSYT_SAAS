@@ -766,7 +766,7 @@ export default function ReviewCapturePanel({
     );
 
   return (
-    <aside className="insyt-panel h-full flex flex-col overflow-hidden">
+    <aside className="insyt-panel flex h-[min(85vh,950px)] min-h-0 flex-none flex-col overflow-hidden">
       <div className="shrink-0 space-y-3 border-b border-[var(--insyt-border)] p-6">
         <Button
           fullWidth
@@ -1055,7 +1055,7 @@ export default function ReviewCapturePanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
         <div className="insyt-card mb-6 p-4">
           <h3 className="mb-4 text-base font-semibold text-[var(--insyt-text-primary)]">
             Document Coding Panel

@@ -12,7 +12,6 @@ import PageHeader from "../../../../components/PageHeader";
 import ContentCard from "../../../../components/ContentCard";
 
 import { apiGet } from "../../../../lib/api";
-import { useWorkspaceReviewNavigation } from "../../../../components/workspaces/useWorkspaceReviewNavigation";
 
 import type { ReviewDocument } from "../../../../types";
 
@@ -112,9 +111,7 @@ function ReviewPageContent() {
         })
         .catch((error) => {
           console.error(error);
-          setError(
-            String(error?.message || "Failed to open document directly.")
-          );
+          setError(String(error?.message || "Failed to open document directly."));
         })
         .finally(() => {
           setIsLoading(false);
@@ -144,7 +141,7 @@ function ReviewPageContent() {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [clientId, projectId, batchId, docId]);
+  }, [clientId, projectId, batchId, docId, searchParams]);
 
   useEffect(() => {
     if (!projectId) {
@@ -191,22 +188,6 @@ function ReviewPageContent() {
         setProtocolMessage("Failed to load saved protocol fields.");
       });
   }, [projectId]);
-
-  const reviewNav = reviewDoc as ReviewDocument & {
-    previous_doc_id?: string;
-    next_doc_id?: string;
-    is_first_doc?: boolean;
-    is_last_doc?: boolean;
-    batch_doc_ids?: string[];
-    batch_doc_index?: number;
-    batch_doc_count?: number;
-  };
-
-  const navigation = useWorkspaceReviewNavigation({
-    workspace: "discovery", client: clientId, project: projectId,
-    batch: batchId, doc: docId, reviewDocId: reviewDoc?.doc_id,
-    reviewNav,
-  });
 
   if (!projectId) {
     return (
@@ -305,27 +286,111 @@ function ReviewPageContent() {
     };
   });
 
+  const reviewNav = reviewDoc as ReviewDocument & {
+    previous_doc_id?: string;
+    next_doc_id?: string;
+    is_first_doc?: boolean;
+    is_last_doc?: boolean;
+    batch_doc_ids?: string[];
+    batch_doc_index?: number;
+    batch_doc_count?: number;
+  };
 
+  function buildReviewDocUrl(targetDocId: string) {
+    const params = new URLSearchParams({
+      client: clientId,
+      project: projectId,
+      batch: batchId,
+      doc: targetDocId,
+    });
 
+    return `/discovery/review/doc?${params.toString()}`;
+  }
 
+  function getBatchDocIds() {
+    return reviewNav.batch_doc_ids || [];
+  }
 
-  function navigateTo(target: { docId: string; nativeBlob: string } | null) {
-    if (!target) return;
-    const params = new URLSearchParams({client: clientId, project: projectId, doc: target.docId});
-    if (batchId) params.set("batch", batchId);
-    if (!batchId && target.nativeBlob) params.set("native_blob", target.nativeBlob);
-    router.push(`/discovery/review/doc?${params.toString()}`);
+  function getCurrentDocIndex() {
+    return Number(reviewNav.batch_doc_index ?? -1);
+  }
+
+  function goFirstDoc() {
+    const batchDocIds = getBatchDocIds();
+    const firstDocId = batchDocIds[0] || "";
+
+    if (!firstDocId) return;
+
+    router.push(buildReviewDocUrl(firstDocId));
+  }
+
+  function goPreviousDoc() {
+    const batchDocIds = getBatchDocIds();
+    const currentIndex = getCurrentDocIndex();
+
+    const previousDocId =
+      reviewNav.previous_doc_id ||
+      (
+        currentIndex > 0
+          ? batchDocIds[currentIndex - 1]
+          : ""
+      );
+
+    if (!previousDocId) return;
+
+    router.push(buildReviewDocUrl(previousDocId));
+  }
+
+  function goNextDoc() {
+    const batchDocIds = getBatchDocIds();
+    const currentIndex = getCurrentDocIndex();
+
+    const nextDocId =
+      reviewNav.next_doc_id ||
+      (
+        currentIndex >= 0 &&
+        currentIndex < batchDocIds.length - 1
+          ? batchDocIds[currentIndex + 1]
+          : ""
+      );
+
+    if (!nextDocId) return;
+
+    router.push(buildReviewDocUrl(nextDocId));
+  }
+
+  function goLastDoc() {
+    const batchDocIds = getBatchDocIds();
+    const lastDocId = batchDocIds[batchDocIds.length - 1] || "";
+
+    if (!lastDocId) return;
+
+    router.push(buildReviewDocUrl(lastDocId));
   }
 
   function handleSaveComplete() {
-    if (!batchId) return; // Saving a Files document never advances into another record.
-    if (navigation.isLast) {
-      const params = new URLSearchParams({client: clientId, project: projectId});
+    if (reviewNav.is_last_doc) {
+      const params = new URLSearchParams({
+        client: clientId,
+        project: projectId,
+      });
+
       router.push(`/discovery/batch-management?${params.toString()}`);
       return;
     }
-    navigateTo(navigation.next);
+
+    goNextDoc();
   }
+
+  const currentDocIndex = getCurrentDocIndex();
+
+  const batchDocCount =
+    Number(reviewNav.batch_doc_count || getBatchDocIds().length || 0);
+
+  const docPositionLabel =
+    currentDocIndex >= 0 && batchDocCount > 0
+      ? `Doc ${currentDocIndex + 1} of ${batchDocCount}`
+      : "";
 
   return (
     <AppShell>
@@ -334,13 +399,13 @@ function ReviewPageContent() {
           project={reviewDoc.project}
           batch={reviewDoc.batch}
           docId={reviewDoc.doc_id}
-          isFirstDoc={navigation.isFirst}
-          isLastDoc={navigation.isLast}
-          docPositionLabel={navigation.label}
-          onFirstDoc={() => navigateTo(navigation.first)}
-          onPreviousDoc={() => navigateTo(navigation.previous)}
-          onNextDoc={() => navigateTo(navigation.next)}
-          onLastDoc={() => navigateTo(navigation.last)}
+          isFirstDoc={Boolean(reviewNav.is_first_doc)}
+          isLastDoc={Boolean(reviewNav.is_last_doc)}
+          docPositionLabel={docPositionLabel}
+          onFirstDoc={goFirstDoc}
+          onPreviousDoc={goPreviousDoc}
+          onNextDoc={goNextDoc}
+          onLastDoc={goLastDoc}
         />
 
         {protocolMessage && (
@@ -374,7 +439,7 @@ function ReviewPageContent() {
               batchId={batchId}
               docId={reviewDoc.doc_id}
               fields={fieldsForDiscovery}
-              isLastDoc={navigation.isLast}
+              isLastDoc={Boolean(reviewNav.is_last_doc)}
               onSaveComplete={handleSaveComplete}
             />
           )}

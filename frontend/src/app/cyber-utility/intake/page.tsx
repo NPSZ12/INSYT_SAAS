@@ -320,6 +320,10 @@ function Cyber2IntakeContent() {
     doc: Cyber2IntakeDocument
   ) {
     return (
+      String(doc.source_kind || "")
+        .trim()
+        .toLowerCase() === "native_json"
+      ||
       String(
         doc.source_format ||
         ""

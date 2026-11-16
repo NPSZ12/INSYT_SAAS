@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   Fragment,
@@ -85,6 +85,7 @@ type PromotionResponse = {
   source_job_id?: string | null;
 
   spreadsheet_hits?: PromotionDoc[];
+  native_json_hits?: PromotionDoc[];
   review_hits?: PromotionDoc[];
   no_hits?: PromotionDoc[];
   nfr?: PromotionDoc[];
@@ -92,6 +93,7 @@ type PromotionResponse = {
 
   counts?: {
     spreadsheet_hits?: number;
+    native_json_hits?: number;
     review_hits?: number;
     no_hits?: number;
     nfr?: number;
@@ -195,6 +197,12 @@ function ProcessingCenterPromotionPageContent() {
   const [sendingCyber2, setSendingCyber2] =
     useState(false);
 
+  const [sendingNativeJson, setSendingNativeJson] =
+    useState(false);
+
+  const [selectedNativeJsonId, setSelectedNativeJsonId] =
+    useState<string | null>(null);
+
   const [searchText, setSearchText] =
     useState("");
 
@@ -244,6 +252,9 @@ function ProcessingCenterPromotionPageContent() {
     exceptions: false,
   });
 
+
+  const nativeJsonHits =
+    promotionData?.native_json_hits || [];
 
   const spreadsheetHits =
     promotionData?.spreadsheet_hits || [];
@@ -296,6 +307,16 @@ function ProcessingCenterPromotionPageContent() {
         );
 
       setPromotionData(response);
+
+      setSelectedNativeJsonId((current) => {
+        if (!current) return null;
+        const valid = (response?.native_json_hits || []).some(
+          (doc: PromotionDoc) =>
+            doc.doc_id === current &&
+            nativeJsonEligible(doc)
+        );
+        return valid ? current : null;
+      });
 
       const validSpreadsheetIds =
         new Set(
@@ -701,6 +722,77 @@ function ProcessingCenterPromotionPageContent() {
     );
   }
 
+  function nativeJsonEligible(doc: PromotionDoc): boolean {
+    const ready = (
+      doc as PromotionDoc & { ready_for_promotion?: boolean }
+    ).ready_for_promotion;
+
+    return (
+      String(doc.classification || "").toUpperCase() === "HIT" &&
+      !doc.cyber2_sent &&
+      ready !== false
+    );
+  }
+
+async function sendSelectedNativeJson() {
+  if (!clientId || !projectId || !selectedNativeJsonId) {
+    setError("Select one eligible native JSON HIT.");
+    return;
+  }
+
+  const selected = nativeJsonHits.find(
+    (doc) => doc.doc_id === selectedNativeJsonId
+  );
+
+  if (!selected || !nativeJsonEligible(selected)) {
+    setError("Selected native JSON is not eligible.");
+    return;
+  }
+
+  if (sendingNativeJson || sendingCyber2) return;
+
+  setSendingNativeJson(true);
+  setError("");
+
+  try {
+    // This existing endpoint performs BOTH operations:
+    // verified Files promotion, then native JSON Cyber2 registration.
+    const response = await apiPost(
+      `/api/${encodeURIComponent(
+        workspace
+      )}/processing-center/promotion/send-json-native-cyber2`,
+      {
+        client: clientId,
+        project: projectId,
+        doc_ids: [selectedNativeJsonId],
+      }
+    );
+
+    if (
+      response?.status !== "completed" ||
+      Number(response?.sent_count) !== 1 ||
+      response?.verified !== true ||
+      response?.csv_generated !== false ||
+      response?.doc_id !== selectedNativeJsonId
+    ) {
+      throw new Error(
+        "Native JSON delivery was not fully verified."
+      );
+    }
+
+    setSelectedNativeJsonId(null);
+    await loadPromotionPopulation(true);
+  } catch (err: any) {
+    setError(
+      err?.message ||
+      "Native JSON delivery failed. Check Files and Cyber2 before retrying."
+    );
+    await loadPromotionPopulation(true);
+  } finally {
+    setSendingNativeJson(false);
+  }
+}
+
 async function sendSelectedToCyber2() {
   if (
     selectedSpreadsheetIds.size ===
@@ -728,87 +820,6 @@ async function sendSelectedToCyber2() {
           doc.doc_id
         )
     );
-
-  // Native JSON uses the same reviewer-controlled button,
-  // but never enters the hardened workbook/CSV handoff.
-  const nativeJsonDocs = selectedDocs.filter((doc) => {
-    const source = doc as unknown as {
-      extension?: string;
-      source_type?: string;
-      source_format?: string;
-    };
-
-    const extension = String(source.extension || "")
-      .toLowerCase()
-      .replace(/^\./, "");
-
-    const nativeExtension = ["json", "jsonl", "ndjson"]
-      .includes(extension);
-
-    const metadataFallback =
-      extension === "" &&
-      (
-        String(source.source_type || "").toLowerCase() ===
-          "json_structured" ||
-        ["json", "jsonl", "ndjson"].includes(
-          String(source.source_format || "").toLowerCase()
-        )
-      );
-
-    return nativeExtension || metadataFallback;
-  });
-
-  if (nativeJsonDocs.length > 0) {
-    if (nativeJsonDocs.length !== selectedDocs.length) {
-      setError(
-        "Select native JSON separately from spreadsheet/CSV documents."
-      );
-      return;
-    }
-
-    setSendingCyber2(true);
-    setError("");
-
-    try {
-      for (const doc of nativeJsonDocs) {
-        // The JSON-specific backend endpoint performs verified
-        // Files promotion BEFORE Cyber² registration.
-        const response = await apiPost(
-          `/api/${encodeURIComponent(
-            workspace
-          )}/processing-center/promotion/send-json-native-cyber2`,
-          {
-            client: clientId,
-            project: projectId,
-            doc_ids: [doc.doc_id],
-          }
-        );
-
-        if (
-          Number(response?.sent_count || 0) !== 1 ||
-          response?.verified !== true
-        ) {
-          throw new Error(
-            `Native JSON handoff was not verified for ${doc.doc_id}.`
-          );
-        }
-      }
-
-      setSelectedSpreadsheetIds(new Set());
-      await loadPromotionPopulation(true);
-    } catch (error: unknown) {
-      console.error("Native JSON Cyber² handoff failed:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Native JSON promotion failed."
-      );
-    } finally {
-      setSendingCyber2(false);
-    }
-
-    return;
-  }
 
   const docIds =
     selectedDocs.map(
@@ -1521,7 +1532,88 @@ async function promoteSelectedNoHits() {
 
           <div className="space-y-6">
 
-            {/* Spreadsheet Hits */}
+            {/* Native JSON Hits — original source documents only */}
+<div className="rounded-2xl border border-sky-700 bg-slate-900/60 p-5 space-y-4">
+  <div>
+    <h2 className="text-base font-semibold text-white">
+      Native JSON Hits ({nativeJsonHits.length})
+    </h2>
+    <p className="mt-1 text-xs text-slate-400">
+      Original JSON, JSONL and NDJSON documents. Select one
+      completed Detection HIT to promote the original into Files
+      and register it in the appropriate Cyber² JSON pane.
+      No CSV is generated here.
+    </p>
+  </div>
+
+  <div className="flex flex-wrap items-center gap-3">
+    <button
+      type="button"
+      disabled={
+        !selectedNativeJsonId ||
+        sendingNativeJson ||
+        sendingCyber2
+      }
+      onClick={sendSelectedNativeJson}
+      className="rounded-lg border border-sky-500 bg-sky-700 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {sendingNativeJson
+        ? "Promoting and registering..."
+        : "Send to Files and Cyber²"}
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setSelectedNativeJsonId(null)}
+      disabled={!selectedNativeJsonId || sendingNativeJson}
+      className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 disabled:opacity-40"
+    >
+      Clear Selection
+    </button>
+  </div>
+
+  {nativeJsonHits.length === 0 ? (
+    <p className="text-sm text-slate-400">
+      No native JSON HITs available.
+    </p>
+  ) : (
+    <div className="space-y-2">
+      {nativeJsonHits.filter(matchesSearch).map((doc) => {
+        const eligible = nativeJsonEligible(doc);
+
+        return (
+          <label
+            key={doc.doc_id}
+            className="flex items-center gap-3 rounded-lg border border-slate-700 p-3 text-sm text-slate-200"
+          >
+            <input
+              type="radio"
+              name="native-json-promotion-selection"
+              checked={selectedNativeJsonId === doc.doc_id}
+              disabled={!eligible || sendingNativeJson}
+              onChange={() => setSelectedNativeJsonId(doc.doc_id)}
+            />
+            <span className="min-w-0 flex-1 break-all">
+              {doc.original_filename || doc.doc_id}
+              <span className="ml-2 text-xs text-slate-400">
+                {doc.doc_id}
+              </span>
+            </span>
+            <span className="text-xs text-slate-400">
+              {doc.cyber2_sent
+                ? "Already registered"
+                : eligible
+                  ? "Ready"
+                  : "Not eligible"}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  )}
+</div>
+
+{/* Spreadsheet Hits */}
 
             <PromotionSection
               folderKey="spreadsheet_hits"

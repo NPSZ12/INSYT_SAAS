@@ -95,7 +95,7 @@ def prepare_json_native_promotion(
         "extension": extension,
         "staged_native_path": (
             f"{base_path}/processing_center/staged/"
-            f"{job_id}/xl/native/{filename}"
+            f"{job_id}/structured/native/{filename}"
         ),
         "final_native_path": (
             f"{base_path}/source/native/{filename}"

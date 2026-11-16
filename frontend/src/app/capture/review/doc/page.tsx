@@ -12,10 +12,10 @@ import PageHeader from "../../../../components/PageHeader";
 import ContentCard from "../../../../components/ContentCard";
 import LinkedEntitiesStrip from "../../../../components/LinkedEntitiesStrip";
 
-import { useWorkspaceReviewNavigation } from "../../../../components/workspaces/useWorkspaceReviewNavigation";
 import { apiGet, apiPost } from "../../../../lib/api";
 
 import type { ReviewDocument } from "../../../../types";
+import { groupWorkbookFamilies, type WorkbookFamilyFile } from "../../../../lib/workbookFamilies";
 
 type ProtocolField = {
   section: string;
@@ -115,6 +115,9 @@ function ReviewPageContent() {
   const sourceParam = searchParams.get("source") || "";
   const entityParam = searchParams.get("entity") || "";
   const entityUidParam = searchParams.get("entityUid") || "";
+  const c2HeaderSetId = searchParams.get("headerSetId") || "";
+  const c2RecordId = searchParams.get("recordId") || "";
+  const isC2SourceView = sourceParam === "c2";
 
   const finalSourceDocIds = splitDocSet(docSetParam);
 
@@ -129,6 +132,12 @@ function ReviewPageContent() {
   const [linkedEntities, setLinkedEntities] = useState<any[]>([]);
   const [editingEntity, setEditingEntity] = useState<any | null>(null);
   const [fileDocIds, setFileDocIds] = useState<string[]>([]);
+
+  const [workbookWorksheetFiles, setWorkbookWorksheetFiles] =
+    useState<Record<string, WorkbookFamilyFile[]>>({});
+
+  const [selectedWorksheetDocId, setSelectedWorksheetDocId] =
+    useState("");
   const isFileView = Boolean(docId && !batchId);
   const [savedDocumentCoding, setSavedDocumentCoding] = useState("");
   const [detectionHits, setDetectionHits] = useState<any[]>([]);
@@ -146,6 +155,81 @@ function ReviewPageContent() {
     setIsLoading(true);
     setError("");
     setReviewDoc(null);
+
+    if (isC2SourceView) {
+      setFileDocIds([]);
+
+      if (
+        !clientId ||
+        !projectId ||
+        !docId ||
+        !c2HeaderSetId ||
+        !c2RecordId ||
+        batchId
+      ) {
+        setError("Incomplete C2 source Review identity.");
+        setIsLoading(false);
+        return;
+      }
+
+      const params = new URLSearchParams({
+        client: clientId,
+        project: projectId,
+        header_set_id: c2HeaderSetId,
+        record_id: c2RecordId,
+        doc_id: docId,
+      });
+
+      let cancelled = false;
+
+      apiGet(
+        `/api/capture/cyber2/c2/record-source?${params.toString()}`
+      )
+        .then((result: any) => {
+          if (cancelled) return;
+
+          if (
+            result?.status !== "ok" ||
+            result?.record_id !== c2RecordId ||
+            result?.header_set_id !== c2HeaderSetId ||
+            result?.doc_id !== docId ||
+            !Array.isArray(result?.doc_ids) ||
+            result.doc_ids.length === 0 ||
+            result.doc_ids.some(
+              (id: unknown) => typeof id !== "string" || !id
+            ) ||
+            new Set(result.doc_ids).size !== result.doc_ids.length ||
+            !result.doc_ids.includes(docId) ||
+            !result?.document ||
+            typeof result.document !== "object"
+          ) {
+            throw new Error("Invalid verified C2 Review response.");
+          }
+
+          setFileDocIds(result.doc_ids);
+          setReviewDoc({
+            ...result.document,
+            batch: "C2 Source Set",
+          });
+        })
+        .catch((error: any) => {
+          if (cancelled) return;
+          setFileDocIds([]);
+          setError(
+            String(
+              error?.message ||
+                "Unable to open the verified C2 source document."
+            )
+          );
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoading(false);
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     if (docId && !batchId) {
       const params = new URLSearchParams();
@@ -224,6 +308,9 @@ function ReviewPageContent() {
     batchId,
     docId,
     nativeBlob,
+    isC2SourceView,
+    c2HeaderSetId,
+    c2RecordId,
   ]);
 
   useEffect(() => {
@@ -299,6 +386,12 @@ function ReviewPageContent() {
       return;
     }
 
+    if (isC2SourceView) {
+      // The authenticated C2 resolver supplies the restricted
+      // document set; do not query unrelated project files.
+      return;
+    }
+
     if (isFinalSourceView) {
       setFileDocIds(finalSourceDocIds);
       return;
@@ -312,10 +405,28 @@ function ReviewPageContent() {
       )}&folder=${encodeURIComponent("source/native")}`
     )
       .then((files: any[]) => {
-        const docIds = files
+        if (!Array.isArray(files)) {
+          throw new Error("Invalid project Files response.");
+        }
+
+        const grouped = groupWorkbookFamilies<WorkbookFamilyFile>(
+          files as WorkbookFamilyFile[]
+        );
+
+        const docIds = grouped.parents
           .map((file) => file.doc_id || file.file_name || "")
           .filter(Boolean);
 
+        const worksheetFiles: Record<
+          string,
+          WorkbookFamilyFile[]
+        > = {};
+
+        for (const [parentId, family] of grouped.families) {
+          worksheetFiles[parentId] = family.worksheets;
+        }
+
+        setWorkbookWorksheetFiles(worksheetFiles);
         setFileDocIds(docIds);
       })
       .catch(console.error);
@@ -324,6 +435,7 @@ function ReviewPageContent() {
     projectId,
     isFileView,
     isFinalSourceView,
+    isC2SourceView,
     docSetParam,
   ]);
   
@@ -508,22 +620,6 @@ function ReviewPageContent() {
       });
   }, [clientId, projectId]);
 
-  const reviewNav = reviewDoc as ReviewDocument & {
-    previous_doc_id?: string;
-    next_doc_id?: string;
-    is_first_doc?: boolean;
-    is_last_doc?: boolean;
-    batch_doc_index?: number;
-    batch_doc_count?: number;
-  };
-
-  const sharedNavigation = useWorkspaceReviewNavigation({
-    workspace: "capture", client: clientId, project: projectId,
-    batch: batchId, doc: docId, reviewDocId: reviewDoc?.doc_id,
-    reviewNav,
-    fixedDocIds: isFinalSourceView ? finalSourceDocIds : undefined,
-  });
-
   if (!projectId) {
     return (
       <AppShell>
@@ -647,7 +743,14 @@ function ReviewPageContent() {
     };
   });
 
-
+  const reviewNav = reviewDoc as ReviewDocument & {
+    previous_doc_id?: string;
+    next_doc_id?: string;
+    is_first_doc?: boolean;
+    is_last_doc?: boolean;
+    batch_doc_index?: number;
+    batch_doc_count?: number;
+  };
 
   function buildReviewDocUrl(targetDocId: string) {
     const params = new URLSearchParams();
@@ -678,7 +781,11 @@ function ReviewPageContent() {
       );
     }
 
-    if (isFinalSourceView) {
+    if (isC2SourceView) {
+      params.set("source", "c2");
+      params.set("headerSetId", c2HeaderSetId);
+      params.set("recordId", c2RecordId);
+    } else if (isFinalSourceView) {
       params.set("source", "final");
       params.set(
         "docSet",
@@ -827,6 +934,12 @@ function ReviewPageContent() {
       project: projectId,
     });
 
+    if (isC2SourceView) {
+      params.set("view", "c2");
+      router.push(`/capture/captured-entities?${params.toString()}`);
+      return;
+    }
+
     if (isFinalSourceView) {
       params.set("view", "final");
       router.push(`/capture/captured-entities?${params.toString()}`);
@@ -838,6 +951,22 @@ function ReviewPageContent() {
 
   function returnToFinalLanding() {
     const params = new URLSearchParams();
+
+    if (isC2SourceView) {
+      if (clientId) params.set("client", clientId);
+      if (projectId) params.set("project", projectId);
+      if (entityParam) params.set("entity", entityParam);
+      if (entityUidParam) params.set("entityUid", entityUidParam);
+      params.set("source", "c2");
+      params.set("headerSetId", c2HeaderSetId);
+      params.set("recordId", c2RecordId);
+      params.set("startDoc", fileDocIds[0] || docId);
+
+      router.push(
+        `/capture/entities/final-viewer?${params.toString()}`
+      );
+      return;
+    }
 
     if (clientId) params.set("client", clientId);
     if (projectId) params.set("project", projectId);
@@ -864,13 +993,28 @@ function ReviewPageContent() {
       return;
     }
 
-    if (sharedNavigation.isLast) {
+    if (reviewNav.is_last_doc) {
       exitReview();
       return;
     }
 
-    navigateShared(sharedNavigation.next);
+    goNextDoc();
   }
+
+  // Worksheet selection is separate from the parent workbook
+  // identity used for Review coding and document navigation.
+  const activeWorkbookWorksheets =
+    isFileView &&
+    !isC2SourceView &&
+    !isFinalSourceView
+      ? workbookWorksheetFiles[docId] || []
+      : [];
+
+  const activeWorkbookWorksheet =
+    activeWorkbookWorksheets.find(
+      (file) => file.doc_id === selectedWorksheetDocId
+    ) ||
+    activeWorkbookWorksheets[0];
 
   const fileDocIndex = fileDocIds.findIndex(
     (id) =>
@@ -924,24 +1068,6 @@ function ReviewPageContent() {
     if (fileDocIds.length > 0) {
       openFileViewDoc(fileDocIds[fileDocIds.length - 1]);
     }
-  }
-
-
-
-  function navigateShared(target: { docId: string; nativeBlob: string } | null) {
-    if (!target) return;
-    const params = new URLSearchParams({client: clientId, project: projectId, doc: target.docId});
-    if (batchId) params.set("batch", batchId);
-    if (!batchId && target.nativeBlob) params.set("native_blob", target.nativeBlob);
-    if (isFinalSourceView) {
-      params.set("source", "final");
-      params.set("docSet", finalSourceDocIds.join(";"));
-      if (entityParam) params.set("entity", entityParam);
-      if (entityUidParam) params.set("entityUid", entityUidParam);
-    }
-    if (returnTo) params.set("return_to", returnTo);
-    if (returnLabel) params.set("return_label", returnLabel);
-    router.push(`/capture/review/doc?${params.toString()}`);
   }
 
   function editLinkedEntity(entity: any) {
@@ -1033,22 +1159,24 @@ function ReviewPageContent() {
         <ReviewHeader
           project={reviewDoc.project}
           batch={
-            isFinalSourceView
-              ? "Final Source Set"
-              : isFileView
+            isC2SourceView
+              ? "C2 Source Set"
+              : isFinalSourceView
+                ? "Final Source Set"
+                : isFileView
                 ? "File View"
                 : reviewDoc.batch
           }
           docId={reviewDoc.doc_id}
-          isFirstDoc={sharedNavigation.isFirst}
-          isLastDoc={sharedNavigation.isLast}
-          docPositionLabel={sharedNavigation.label}
-          currentDocIndex={sharedNavigation.index}
-          batchDocCount={sharedNavigation.count}
-          onFirstDoc={() => navigateShared(sharedNavigation.first)}
-          onPreviousDoc={() => navigateShared(sharedNavigation.previous)}
-          onNextDoc={() => navigateShared(sharedNavigation.next)}
-          onLastDoc={() => navigateShared(sharedNavigation.last)}
+          isFirstDoc={effectiveIsFirstDoc}
+          isLastDoc={effectiveIsLastDoc}
+          docPositionLabel={effectiveDocPositionLabel}
+          currentDocIndex={effectiveCurrentDocIndex}
+          batchDocCount={effectiveDocCount}
+          onFirstDoc={isFileView ? goFileFirstDoc : goFirstDoc}
+          onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
+          onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
+          onLastDoc={isFileView ? goFileLastDoc : goLastDoc}
         />
 
         {returnTo && (
@@ -1082,15 +1210,17 @@ function ReviewPageContent() {
         )}
 
         <section className="flex-1 flex flex-col gap-4 p-4 overflow-hidden">
-          {isFinalSourceView && (
+          {(isFinalSourceView || isC2SourceView) && (
             <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-white">
-                  Final Source Review
+                  {isC2SourceView ? "C2 Source Review" : "Final Source Review"}
                 </p>
 
                 <p className="text-xs text-slate-400">
-                  Reviewing a restricted source-document set from the selected Final entity.
+                  {isC2SourceView
+                    ? "Reviewing verified source documents for the selected C2 record."
+                    : "Reviewing a restricted source-document set from the selected Final entity."}
                 </p>
               </div>
 
@@ -1105,12 +1235,35 @@ function ReviewPageContent() {
           )}
 
           <div className="flex-1 grid grid-cols-3 gap-4 min-h-0">
-            <ReviewDocumentPane
-              text={reviewDoc.text}
-              nativeUrl={reviewDoc.native_url}
-              nativeBlob={reviewDoc.native_blob}
-              detectionHits={detectionHits}
-            />
+            <div className="col-span-2 flex min-h-0 min-w-0 flex-col">
+              <ReviewDocumentPane
+                key={
+                  activeWorkbookWorksheet?.doc_id ||
+                  reviewDoc.doc_id
+                }
+                text={reviewDoc.text}
+                nativeUrl={
+                  activeWorkbookWorksheet
+                    ? undefined
+                    : reviewDoc.native_url
+                }
+                nativeBlob={
+                  activeWorkbookWorksheet?.blob_path ||
+                  reviewDoc.native_blob
+                }
+                previewDocId={activeWorkbookWorksheet?.doc_id}
+                compactForWorksheets={
+                  activeWorkbookWorksheets.length > 0
+                }
+                relatedWorksheets={activeWorkbookWorksheets}
+                selectedWorksheetDocId={
+                  activeWorkbookWorksheet?.doc_id
+                }
+                onWorksheetSelect={setSelectedWorksheetDocId}
+                detectionHits={detectionHits}
+              />
+
+            </div>
 
             {fieldsForCapture.length === 0 ? (
               <aside className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-y-auto h-full">
@@ -1238,11 +1391,11 @@ function ReviewPageContent() {
                       }
                     );
                 }}
-                isFirstDoc={sharedNavigation.isFirst}
-                isLastDoc={sharedNavigation.isLast}
+                isFirstDoc={effectiveIsFirstDoc}
+                isLastDoc={effectiveIsLastDoc}
                 hasLinkedEntities={linkedEntities.some((entity) => entity.linked !== false)}
-                onPreviousDoc={() => navigateShared(sharedNavigation.previous)}
-                onNextDoc={() => navigateShared(sharedNavigation.next)}
+                onPreviousDoc={isFileView ? goFilePreviousDoc : goPreviousDoc}
+                onNextDoc={isFileView ? goFileNextDoc : goNextDoc}
                 onSaveComplete={handleSaveComplete}
                 onLinkedEntitySaved={loadLinkedEntities}
                 editingEntity={editingEntity}

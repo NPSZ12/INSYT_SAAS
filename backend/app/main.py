@@ -34,6 +34,7 @@ from app.api.workspace_protocols import router as workspace_protocols_router
 from app.api.summaries_qc import router as summaries_qc_router
 from app.api.discovery_review_batches import router as discovery_review_batches_router
 from app.api.discovery import router as discovery_router
+from app.api.tarai import router as tarai_router
 from app.api.workspace_files import router as workspace_files_router
 from app.api.summaries_text import router as summaries_text_router
 from app.api.workspace_clients import router as workspace_clients_router
@@ -56,6 +57,8 @@ from app.api.processing_center_azure import router as processing_center_azure_ro
 from app.api.cyber2.header_sets import router as cyber2_header_sets_router
 from app.api.cyber2.header_identification import router as cyber2_header_identification_router
 from app.api.cyber2.schema_mapping import router as cyber2_schema_mapping_router
+from app.api.cyber2.field_evidence_api import router as cyber2_field_evidence_router
+from app.api.cyber2.membership_api import router as cyber2_membership_router
 
 from app.routes import merge_dedupe
 from app.routes import tools_merge_dedupe
@@ -221,6 +224,7 @@ app.include_router(workspace_protocols_router)
 app.include_router(summaries_qc_router)
 app.include_router(discovery_review_batches_router)
 app.include_router(discovery_router)
+app.include_router(tarai_router, dependencies=protected_dependencies)
 app.include_router(workspace_files_router)
 app.include_router(summaries_text_router)
 app.include_router(workspace_clients_router)
@@ -241,6 +245,8 @@ app.include_router(processing_center_azure_router)
 app.include_router(cyber2_header_sets_router)
 app.include_router(cyber2_header_identification_router)
 app.include_router(cyber2_schema_mapping_router)
+app.include_router(cyber2_field_evidence_router, dependencies=protected_dependencies)
+app.include_router(cyber2_membership_router, dependencies=protected_dependencies)
 
 
 # =========================
