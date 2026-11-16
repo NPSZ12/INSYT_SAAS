@@ -1,4 +1,4 @@
-﻿"""INSYT FastAPI router wrapper for Azure Processing Center v1.0.
+"""INSYT FastAPI router wrapper for Azure Processing Center v1.0.
 
 Copy this file into the INSYT backend at:
     app/api/processing_center_azure.py
@@ -9203,26 +9203,11 @@ def get_processing_center_promotion_population(
                 or extension == "csv"
             )
 
-            is_json_structured_data = bool(
-                source_type
-                == "json_structured"
-                or str(
-                    document.get(
-                        "source_format"
-                    )
-                    or staged_doc.get(
-                        "source_format"
-                    )
-                    or ""
-                ).strip().lower()
-                == "json"
-            )
-
             if (
                 classification == "HIT"
                 and (
                     is_spreadsheet_data
-                    or is_json_structured_data
+                    or extension in {"json", "jsonl", "ndjson"}
                 )
             ):
                 destination = "cyber2"
@@ -9575,7 +9560,6 @@ def get_processing_center_promotion_population(
             if (
                 destination == "cyber2"
                 and extension in {"json", "jsonl", "ndjson"}
-                and is_json_structured_data
                 and not is_workbook_sheet
                 and "." not in str(row.get("doc_id") or "")
             ):
