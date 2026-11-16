@@ -556,12 +556,14 @@ def build_json_structured_staging_plan(
             continue
 
         ext = str(
-            row["extension"]
-            or "csv"
+            row["extension"] or ""
         ).strip().lower().lstrip(".")
 
-        if not ext:
-            ext = "csv"
+        if ext not in {"json", "jsonl", "ndjson"}:
+            raise ValueError(
+                "Native JSON staging received an invalid extension: "
+                f"{ext!r}"
+            )
 
         native_staged_blob_path = (
             f"{native_staged_prefix}/"

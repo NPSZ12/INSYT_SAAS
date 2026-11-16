@@ -22,7 +22,6 @@ def parent(*, native, doc_id):
     if native:
         metadata.update({
             "native_detection_required": True,
-            "csv_child_count": 0,
         })
     return {
         "file_id": "FILE-TEST",

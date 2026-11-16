@@ -79,7 +79,7 @@ def validate_structured_csv_uploads(
                 native_mode
                 and extension in {"json", "jsonl", "ndjson"}
                 and parent_metadata.get("native_detection_required") is True
-                and parent_metadata.get("csv_child_count") == 0
+
             )
 
             if native_parent:

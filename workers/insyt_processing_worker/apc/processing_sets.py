@@ -209,7 +209,7 @@ def _is_native_deferred_json_parent(row) -> bool:
         isinstance(metadata, dict)
         and bool(metadata.get("source_filename"))
         and metadata.get("native_detection_required") is True
-        and metadata.get("csv_child_count") == 0
+
     )
 
 

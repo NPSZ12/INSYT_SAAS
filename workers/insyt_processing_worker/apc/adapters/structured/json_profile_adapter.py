@@ -53,13 +53,11 @@ class JsonProfileAdapter:
                     metadata={
                         "source_profile": profile,
                         "native_source_path": str(source),
-                        "csv_child_count": 0,
                         "native_detection_required": True,
                         "stage_status": {
                             "structured_json_parent": {
                                 "source_filename": source.name,
                                 "source_profile": profile,
-                                "csv_child_count": 0,
                                 "native_detection_required": True,
                             }
                         },

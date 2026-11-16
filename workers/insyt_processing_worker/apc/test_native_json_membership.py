@@ -18,7 +18,6 @@ def record(extension="json", *, native=True, container=1):
     if native:
         metadata.update({
             "native_detection_required": True,
-            "csv_child_count": 0,
         })
     return {
         "extension": extension,

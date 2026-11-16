@@ -499,7 +499,7 @@ def _is_native_deferred_json_parent(row) -> bool:
 
     return (
         metadata.get("native_detection_required") is True
-        and metadata.get("csv_child_count") == 0
+
     )
 
 

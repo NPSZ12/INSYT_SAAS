@@ -20,7 +20,6 @@ def load_expected_native_json_doc_ids(
         SELECT doc_id
         FROM file_processing_metrics
         WHERE job_id=?
-          AND is_container=0
           AND is_denisted=0
           AND is_duplicate=0
           AND LOWER(
