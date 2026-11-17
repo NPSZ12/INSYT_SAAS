@@ -9846,6 +9846,89 @@ def promote_processing_center_staged_results(
                 blob_path=str(text_dest),
             )
 
+            # Complete an existing native/text pair without overwriting
+            # the preserved native. Reuse the standard staged artifacts
+            # and the existing live-source storage helpers.
+            if (
+                native_dest_exists
+                and not text_dest_exists
+                and not request.overwrite
+            ):
+                try:
+                    existing_native_blob = (
+                        _get_live_source_blob_service_client()
+                        .get_blob_client(
+                            container=_live_source_container(workspace),
+                            blob=str(native_dest),
+                        )
+                    )
+                    existing_native_bytes = (
+                        existing_native_blob.download_blob().readall()
+                    )
+
+                    if existing_native_bytes != native_bytes:
+                        skipped.append({
+                            "doc_id": doc_id,
+                            "status": "existing_native_mismatch",
+                            "message": (
+                                "Existing native differs from staged source. "
+                                "No files overwritten."
+                            ),
+                        })
+                        continue
+
+                    if not text_bytes:
+                        skipped.append({
+                            "doc_id": doc_id,
+                            "status": "missing_extracted_text",
+                        })
+                        continue
+
+                    text_upload = _write_live_source_blob_bytes(
+                        workspace=workspace,
+                        blob_path=str(text_dest),
+                        data=text_bytes,
+                        overwrite=False,
+                        content_type="text/plain; charset=utf-8",
+                    )
+
+                    final_text_blob = (
+                        _get_live_source_blob_service_client()
+                        .get_blob_client(
+                            container=_live_source_container(workspace),
+                            blob=str(text_dest),
+                        )
+                    )
+                    verified_text = (
+                        final_text_blob.download_blob().readall()
+                    )
+
+                    if verified_text != text_bytes:
+                        skipped.append({
+                            "doc_id": doc_id,
+                            "status": "text_verification_failed",
+                        })
+                        continue
+
+                    promoted.append({
+                        "doc_id": doc_id,
+                        "status": "missing_text_completed",
+                        "native": {
+                            "status": "existing_native_verified",
+                            "blob_path": str(native_dest),
+                        },
+                        "text": text_upload,
+                    })
+                    continue
+
+                except Exception as exc:
+                    skipped.append({
+                        "doc_id": doc_id,
+                        "status": "text_completion_failed",
+                        "error": str(exc),
+                    })
+                    continue
+
             if (native_dest_exists or text_dest_exists) and not request.overwrite:
                 summary_extract_result = None
 
