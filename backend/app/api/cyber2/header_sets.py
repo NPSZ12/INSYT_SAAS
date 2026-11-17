@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.api.processing_center_azure import (
     _processing_container_client,
+    User,
+    require_admin,
+    require_scoped_project_access,
     _project_base_path,
     _read_processing_json_blob,
     _utc_now,
@@ -41,6 +45,7 @@ def create_cyber2_header_set(
         "summaries",
     ],
     request: CreateCyber2HeaderSetRequest,
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
 
     client = str(
@@ -86,6 +91,10 @@ def create_cyber2_header_set(
                 "for the Header Set."
             ),
         )
+
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
 
     base_path = (
         _project_base_path(
@@ -177,6 +186,40 @@ def create_cyber2_header_set(
             },
         )
 
+
+    # STEP 554: NATIVE JSON ASSIGNMENT GUARD
+    # Reject already assigned native JSON before creating a new
+    # Header Set or writing project metadata.
+    existing_json_assignments = []
+
+    for selected_doc_id in requested_doc_ids:
+        selected_source = intake_documents[selected_doc_id]
+
+        if selected_source.get("source_kind") != "native_json":
+            continue
+
+        assigned_set = str(
+            selected_source.get("header_set_id") or ""
+        ).strip()
+
+        if assigned_set:
+            existing_json_assignments.append({
+                "doc_id": selected_doc_id,
+                "header_set_id": assigned_set,
+            })
+
+    if existing_json_assignments:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    "Native JSON is already assigned to Header "
+                    "& Schema Mapping. Open its existing Header Set."
+                ),
+                "existing_assignments": existing_json_assignments,
+            },
+        )
+
     header_set_id = (
         "HDRSET-"
         + uuid4().hex[
@@ -201,9 +244,86 @@ def create_cyber2_header_set(
             ]
         )
 
+
+        if source.get("source_kind") == "native_json":
+            doc_id_checked = str(source.get("doc_id") or "")
+            source_path_checked = str(
+                source.get("source_native_path") or ""
+            )
+            source_hash_checked = str(
+                source.get("source_sha256") or ""
+            ).lower()
+
+            expected_source_prefix = (
+                f"{base_path}/source/native/{doc_id}."
+            )
+
+            extension = (
+                source_path_checked.rsplit(".", 1)[-1].lower()
+            )
+
+            if (
+                not re.fullmatch(
+                    r"[A-Za-z0-9_-]{1,128}", doc_id_checked
+                )
+                or doc_id_checked != doc_id
+                or not source_path_checked.startswith(
+                    expected_source_prefix
+                )
+                or extension not in {"json", "jsonl", "ndjson"}
+                or not re.fullmatch(
+                    r"[0-9a-f]{64}", source_hash_checked
+                )
+                or bool(source.get("source_csv_path"))
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Native JSON intake identity is invalid.",
+                )
+
+            try:
+                source_length = int(source["source_bytes"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Native JSON source size is invalid.",
+                ) from exc
+
+            # The current verified preview supports at most 4 MiB.
+            # Larger native files remain intact but cannot enter
+            # this bounded mapping flow until it is expanded safely.
+            if not 0 < source_length <= 4 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        "Native JSON exceeds the current bounded "
+                        "header discovery limit."
+                    ),
+                )
+
         header_set_documents.append(
             {
                 "doc_id": doc_id,
+
+                # Source format identity; original CSV path remains unchanged.
+                "source_kind": (
+                    source.get("source_kind") or "csv"
+                ),
+                "source_native_path": (
+                    source.get("source_native_path") or ""
+                ),
+                "source_sha256": (
+                    source.get("source_sha256") or ""
+                ),
+                "source_bytes": (
+                    source.get("source_bytes")
+                ),
+                "source_format": (
+                    source.get("source_format") or ""
+                ),
+                "source_profile": (
+                    source.get("source_profile") or ""
+                ),
 
                 "source_csv_path": (
                     source.get(
@@ -457,7 +577,12 @@ def list_cyber2_header_sets(
     ],
     client: str = Query(...),
     project: str = Query(...),
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
+
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
 
     base_path = (
         _project_base_path(

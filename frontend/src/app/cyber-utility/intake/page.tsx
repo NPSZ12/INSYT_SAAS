@@ -1330,41 +1330,167 @@ function Cyber2IntakeContent() {
 
 
   async function createJsonPlainHeaderSet() {
-
     const selectedDocuments =
       jsonPlainAvailableDocuments.filter(
-        (doc) =>
-          Boolean(
-            jsonPlainSelectedDocIds[
-              doc.doc_id
-            ]
-          )
+        (doc) => Boolean(jsonPlainSelectedDocIds[doc.doc_id])
       );
 
+    if (selectedDocuments.length === 0) {
+      setError("Select at least one native JSON document.");
+      return;
+    }
 
-    // A reviewer-approved derived CSV is required first.
     if (
       selectedDocuments.some(
-        (doc) => doc.source_kind === "native_json"
+        (doc) => doc.source_kind !== "native_json"
       )
     ) {
       setError(
-        "Native JSON cannot enter CSV Header Sets directly. " +
-        "Complete JSON field mapping and approve a derived CSV first."
+        "Select native JSON documents only. Existing CSV-derived " +
+        "datasets continue through the CSV Header Set workflow."
       );
       return;
     }
 
-    await createHeaderSetFromDocuments(
-      selectedDocuments,
-      "Select at least one JSON-derived CSV."
-    );
+    if (workspace !== "capture" && workspace !== "discovery") {
+      setError("Native JSON Header Mapping requires Capture or Discovery.");
+      return;
+    }
 
+    setCreatingHeaderSet(true);
+    setError("");
+    setHeaderSetMessage("");
 
-    setJsonPlainSelectedDocIds(
-      {}
-    );
+    let createdHeaderSetId = "";
+
+    try {
+      const docIds = selectedDocuments.map((doc) => doc.doc_id);
+
+      const created = await apiPost(
+        `/api/${encodeURIComponent(workspace)}/cyber2/header-sets`,
+        {
+          client,
+          project,
+          doc_ids: docIds,
+          requested_by: "",
+        }
+      ) as { header_set_id?: string; status?: string };
+
+      createdHeaderSetId = String(
+        created?.header_set_id || ""
+      ).trim();
+
+      if (
+        created?.status !== "created" ||
+        !createdHeaderSetId.startsWith("HDRSET-")
+      ) {
+        throw new Error(
+          "Header Set creation did not return a valid identifier."
+        );
+      }
+
+      // Explicit reviewer request: AI is not invoked during ingestion.
+      const identificationParams = new URLSearchParams({
+        client,
+        project,
+        ai_suggestions: "true",
+      });
+
+      const identified = await apiPost(
+        `/api/${encodeURIComponent(workspace)}/cyber2/header-sets/${encodeURIComponent(createdHeaderSetId)}/identify?${identificationParams.toString()}`,
+        {}
+      ) as { status?: string };
+
+      if (identified?.status !== "completed") {
+        throw new Error(
+          "Header Identification did not complete successfully."
+        );
+      }
+
+      // Read the persisted identification result before navigation.
+      const detailParams = new URLSearchParams({
+        client,
+        project,
+      });
+
+      const detail = await apiGet(
+        `/api/${encodeURIComponent(workspace)}/cyber2/header-sets/${encodeURIComponent(createdHeaderSetId)}?${detailParams.toString()}`
+      ) as {
+        identification_exists?: boolean;
+        identification?: {
+          status?: string;
+          documents?: Array<{
+            doc_id?: string;
+            source_kind?: string;
+            identification_status?: string;
+            source_sha256?: string;
+          }>;
+        };
+      };
+
+      const verifiedDocuments = detail?.identification?.documents;
+
+      if (
+        detail?.identification_exists !== true ||
+        detail.identification?.status !== "completed" ||
+        !Array.isArray(verifiedDocuments) ||
+        verifiedDocuments.length !== docIds.length ||
+        verifiedDocuments.some(
+          (doc) =>
+            !docIds.includes(String(doc.doc_id || "")) ||
+            doc.source_kind !== "native_json" ||
+            doc.identification_status !== "COMPLETED" ||
+            !/^[0-9a-f]{64}$/i.test(
+              String(doc.source_sha256 || "")
+            )
+        ) ||
+        new Set(
+          verifiedDocuments.map((doc) => doc.doc_id)
+        ).size !== docIds.length
+      ) {
+        throw new Error(
+          "Saved JSON Header Identification did not pass verification."
+        );
+      }
+
+      setJsonPlainSelectedDocIds({});
+
+      const reviewParams = new URLSearchParams({
+        workspace,
+        client,
+        project,
+        header_set: createdHeaderSetId,
+      });
+
+      // Navigate to the EXISTING consolidated CSV/JSON mapping page.
+      window.location.assign(
+        `/cyber-utility/schema-mapping/set?${reviewParams.toString()}`
+      );
+
+    } catch (reason: unknown) {
+      const explanation =
+        reason instanceof Error
+          ? reason.message
+          : "Native JSON Header Identification failed.";
+
+      if (createdHeaderSetId) {
+        // Creation may already be persisted. Do not leave the
+        // previous selection active for accidental resubmission.
+        setJsonPlainSelectedDocIds({});
+        setHeaderSetMessage(
+          `Header Set ${createdHeaderSetId} was created. ` +
+          "Open it from Header & Schema Mapping to inspect or retry " +
+          "identification. Do not create a duplicate Header Set."
+        );
+      }
+
+      setError(explanation);
+
+    } finally {
+      setCreatingHeaderSet(false);
+    }
   }
+
 
   async function createJsonSlackHeaderSet() {
 
