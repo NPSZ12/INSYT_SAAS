@@ -6,7 +6,7 @@ import io
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.cyber_utility import (
@@ -21,6 +21,9 @@ from app.api.processing_center_azure import (
     _get_live_source_blob_service_client,
     _live_source_container,
     _processing_container_client,
+    User,
+    require_admin,
+    require_scoped_project_access,
     _project_base_path,
     _read_processing_json_blob,
     _utc_now,
@@ -879,7 +882,13 @@ def get_cyber2_header_mapping(
     header_set_id: str,
     client: str = Query(...),
     project: str = Query(...),
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
+
+    # Authorize before reading or writing project data.
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
 
     identification_blob_path = (
         _identification_path(
@@ -986,7 +995,13 @@ def approve_cyber2_header_mapping(
     ],
     header_set_id: str,
     request: ApproveHeaderMappingRequest,
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
+
+    # Authorize before reading or writing project data.
+    require_scoped_project_access(
+        admin, workspace, request.client, request.project
+    )
 
     client = str(
         request.client or ""
@@ -1498,6 +1513,11 @@ def approve_cyber2_header_mapping(
 
             approved_columns.append(
                 {
+                    # STEP 556: APPROVED JSON PROVENANCE
+                    "json_pointer": (identified_column.get("json_pointer") or ""),
+                    "json_kind": (identified_column.get("json_kind") or ""),
+                    "json_field_path": (identified_column.get("json_field_path") or ""),
+
                     "column_index": (
                         column_index
                     ),
@@ -1600,6 +1620,14 @@ def approve_cyber2_header_mapping(
 
         approved_documents.append(
             {
+                # STEP 556: APPROVED JSON PROVENANCE
+                "source_kind": (identified_document.get("source_kind") or "csv"),
+                "source_native_path": (identified_document.get("source_native_path") or ""),
+                "source_sha256": (identified_document.get("source_sha256") or ""),
+                "source_bytes": identified_document.get("source_bytes"),
+                "source_format": (identified_document.get("source_format") or ""),
+                "source_profile": (identified_document.get("source_profile") or ""),
+
                 "doc_id": doc_id,
 
                 "source_csv_path": (
@@ -2005,7 +2033,13 @@ def get_cyber2_mapped_csvs(
     header_set_id: str,
     client: str = Query(...),
     project: str = Query(...),
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
+
+    # Authorize before reading or writing project data.
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
 
     manifest_blob_path = (
         _mapped_csv_manifest_path(
@@ -2049,6 +2083,65 @@ def get_cyber2_mapped_csvs(
             mapped_manifest,
     }    
 
+
+def _require_csv_sources_for_legacy_generation(
+    identification,
+):
+    """Reject non-CSV sources before legacy CSV construction.
+
+    This validates the original identified source, not a
+    client-supplied or edited approval payload.
+    """
+    if not isinstance(identification, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="Valid Header Identification is required.",
+        )
+
+    documents = identification.get("documents")
+
+    if not isinstance(documents, list) or not documents:
+        raise HTTPException(
+            status_code=409,
+            detail="Header Identification contains no source documents.",
+        )
+
+    for document in documents:
+        if not isinstance(document, dict):
+            raise HTTPException(
+                status_code=409,
+                detail="Invalid identified source document.",
+            )
+
+        # Earlier CSV-only Header Sets might lack source_kind.
+        # Preserve their behavior when a real CSV path exists.
+        source_kind = str(
+            document.get("source_kind") or "csv"
+        ).strip().lower()
+
+        if source_kind != "csv":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Native JSON and other non-CSV sources cannot "
+                    "enter the legacy mapped-CSV generator. "
+                    "Use the approved source-aware JSON "
+                    "construction workflow."
+                ),
+            )
+
+        if (
+            not str(document.get("doc_id") or "").strip()
+            or not str(
+                document.get("source_csv_path") or ""
+            ).strip()
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Identified CSV source identity is incomplete.",
+            )
+
+
 @router.post(
     "/{workspace}/cyber2/"
     "header-sets/{header_set_id}/"
@@ -2063,7 +2156,13 @@ def generate_cyber2_mapped_csvs(
     ],
     header_set_id: str,
     request: GenerateMappedCsvsRequest,
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
+
+    # Authorize before reading or writing project data.
+    require_scoped_project_access(
+        admin, workspace, request.client, request.project
+    )
 
     client = str(
         request.client or ""
@@ -2096,6 +2195,23 @@ def generate_cyber2_mapped_csvs(
                 "Header Set ID is required."
             ),
         )
+
+
+    # Validate the authoritative source type before reading
+    # approved mappings or generating any CSV artifact.
+    source_identification = _load_required_json(
+        _identification_path(
+            workspace=workspace,
+            client=client,
+            project=project,
+            header_set_id=header_set_id,
+        ),
+        description="Header Identification result",
+    )
+
+    _require_csv_sources_for_legacy_generation(
+        source_identification
+    )
 
     approved_mapping_blob_path = (
         _approved_mapping_path(

@@ -5,7 +5,7 @@ import io
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.cyber_utility import (
     get_protocol_header_library,
@@ -17,6 +17,10 @@ from app.api.workspace_protocols import (
 
 from app.api.processing_center_azure import (
     _get_live_source_blob_service_client,
+    User,
+    require_admin,
+    require_scoped_project_access,
+    preview_cyber2_json_native,
     _live_source_container,
     _project_base_path,
     _read_processing_json_blob,
@@ -245,6 +249,150 @@ def _exact_header_schema_signature(
         source_headers
     )
 
+
+def _json_review_as_identification_document(
+    document,
+    review,
+):
+    """Adapt verified JSON evidence to existing mapping UI columns.
+
+    This does not read source bytes, invoke AI, approve mappings,
+    or construct CSV. The caller must verify source integrity first.
+    """
+    if not isinstance(document, dict) or not isinstance(review, dict):
+        raise ValueError("Invalid JSON identification input.")
+
+    if document.get("source_kind") != "native_json":
+        raise ValueError("Native JSON source identity required.")
+
+    source_hash = str(review.get("source_sha256") or "").lower()
+    registered_hash = str(
+        document.get("source_sha256") or ""
+    ).lower()
+
+    if (
+        len(source_hash) != 64
+        or any(c not in "0123456789abcdef" for c in source_hash)
+        or registered_hash != source_hash
+    ):
+        raise ValueError("JSON source SHA-256 mismatch.")
+
+    if review.get("mapping_approved") or review.get("csv_generated"):
+        raise ValueError(
+            "Identification cannot contain an approved mapping or CSV."
+        )
+
+    original_columns = review.get("columns")
+    if not isinstance(original_columns, list):
+        raise ValueError("JSON review columns missing.")
+
+    # Object/array parents are structural evidence, not blank CSV columns.
+    scalar_columns = []
+    structural_fields = []
+    seen_pointers = set()
+
+    for field in original_columns:
+        if not isinstance(field, dict):
+            raise ValueError("Invalid JSON field.")
+
+        pointer = str(field.get("json_pointer") or "")
+        kind = str(field.get("json_kind") or "")
+
+        if not pointer.startswith("/") or pointer in seen_pointers:
+            raise ValueError("Invalid or duplicate JSON pointer.")
+
+        if kind not in {"scalar", "array", "object", "mixed"}:
+            raise ValueError("Invalid JSON field type.")
+
+        seen_pointers.add(pointer)
+
+        if kind != "scalar":
+            structural_fields.append({
+                "json_pointer": pointer,
+                "json_kind": kind,
+            })
+            continue
+
+        source_header = str(
+            field.get("source_header") or ""
+        ).strip()
+
+        if not source_header:
+            raise ValueError("JSON scalar field has no source header.")
+
+        column = dict(field)
+        column["column_index"] = len(scalar_columns)
+        column["column_number"] = len(scalar_columns) + 1
+        column["source_header"] = source_header
+        column["default_disposition"] = "delete"
+        column["approved"] = False
+        column["matched"] = bool(
+            column.get("recommended_protocol_header")
+        )
+
+        scalar_columns.append(column)
+
+    if not scalar_columns:
+        raise ValueError("No scalar JSON fields available for mapping.")
+
+    # Source kind plus exact JSON pointers/types prevents CSV collisions.
+    # Preserve structural fields in the signature as well.
+    parts = sorted(
+        (
+            str(field["json_pointer"]),
+            str(field["json_kind"]),
+        )
+        for field in original_columns
+    )
+
+    signature = "native_json\x1f" + "\x1f".join(
+        pointer + "\x1e" + kind
+        for pointer, kind in parts
+    )
+
+    matched_count = sum(
+        bool(c.get("recommended_protocol_header"))
+        for c in scalar_columns
+    )
+
+    ai_count = sum(
+        bool(c.get("ai_invoked"))
+        for c in scalar_columns
+    )
+
+    record_count = int(review.get("record_count") or 0)
+
+    return {
+        **document,
+        "source_kind": "native_json",
+        "source_sha256": source_hash,
+        "identification_status": "COMPLETED",
+        "header_status": "HEADER",
+        "header_presence": {
+            "status": "HEADER",
+            "confidence": 1.0,
+            "source": "native_json_field_discovery",
+        },
+        "header_confidence": 1.0,
+        "schema_signature": signature,
+        "exact_schema_groupable": True,
+        "source_record_count": record_count,
+        "sample_row_count": 0,
+        "column_count": len(scalar_columns),
+        "matched_column_count": matched_count,
+        "unmatched_column_count": (
+            len(scalar_columns) - matched_count
+        ),
+        "ai_review_column_count": sum(
+            bool(c.get("ai_review_required"))
+            for c in scalar_columns
+        ),
+        "ai_invoked_column_count": ai_count,
+        "structural_fields": structural_fields,
+        "columns": scalar_columns,
+    }
+
+
 def _load_protocol_library(
     *,
     workspace: str,
@@ -339,7 +487,13 @@ def get_cyber2_header_set(
     header_set_id: str,
     client: str = Query(...),
     project: str = Query(...),
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
+
+    # Protect manifest and field-level identification evidence.
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
 
     manifest = (
         _load_header_set(
@@ -414,6 +568,8 @@ def identify_cyber2_header_set(
     header_set_id: str,
     client: str = Query(...),
     project: str = Query(...),
+    ai_suggestions: bool = Query(False),
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
 
     header_set_id = str(
@@ -428,6 +584,11 @@ def identify_cyber2_header_set(
                 "header_set_id is required."
             ),
         )
+
+    # Authorize CSV and JSON before any Header Set reads.
+    require_scoped_project_access(
+        admin, workspace, client, project
+    )
 
     manifest = (
         _load_header_set(
@@ -522,6 +683,87 @@ def identify_cyber2_header_set(
             )
             or ""
         ).strip()
+
+
+        # Native JSON uses the EXISTING authorized preview reader.
+        # CSV continues through its original implementation below.
+        if document.get("source_kind") == "native_json":
+            if workspace not in {"capture", "discovery"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Native JSON workspace is unsupported.",
+                )
+
+            require_scoped_project_access(
+                admin, workspace, client, project
+            )
+
+            if not doc_id:
+                analyzed_documents.append({
+                    **document,
+                    "identification_status": "ERROR",
+                    "identification_error": "Missing JSON Doc ID.",
+                })
+                continue
+
+            # The Header Set must still reference the registered
+            # native source, not an arbitrary or substituted blob.
+            base = _project_base_path(
+                workspace=workspace,
+                client=client,
+                project=project,
+            )
+            intake_path = (
+                f"{base}/cyber2/intake/documents/{doc_id}.json"
+            )
+            intake = _read_processing_json_blob(intake_path)
+
+            if (
+                not isinstance(intake, dict)
+                or intake.get("doc_id") != doc_id
+                or intake.get("source_kind") != "native_json"
+                or document.get("source_native_path")
+                != intake.get("source_native_path")
+                or document.get("source_sha256")
+                != intake.get("source_sha256")
+                or document.get("source_bytes")
+                != intake.get("source_bytes")
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Native JSON Header Set source mismatch.",
+                )
+
+            # Reuse the proven path, container, hash, byte-count,
+            # access, protocol and AI checks; no alternate reader.
+            preview = preview_cyber2_json_native(
+                workspace=workspace,
+                client=client,
+                project=project,
+                doc_id=doc_id,
+                ai_suggestions=ai_suggestions,
+                admin=admin,
+            )
+
+            if (
+                not isinstance(preview, dict)
+                or preview.get("doc_id") != doc_id
+                or preview.get("source_sha256_verified") is not True
+                or not isinstance(preview.get("header_review"), dict)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Native JSON preview verification failed.",
+                )
+
+            identified = _json_review_as_identification_document(
+                document,
+                preview["header_review"],
+            )
+
+            analyzed_documents.append(identified)
+            header_count += 1
+            continue
 
         source_csv_path = str(
             document.get(
