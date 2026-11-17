@@ -6,6 +6,7 @@ import StructuredIntakePaneShell, {
 
 
 type JsonSalesforcePaneProps = {
+  fileCount?: number;
   recordCount?: number;
   packageCount?: number;
   objects?: StructuredIntakeGroup[];
@@ -13,6 +14,7 @@ type JsonSalesforcePaneProps = {
 
 
 export default function JsonSalesforcePane({
+  fileCount = 0,
   recordCount = 0,
   packageCount = 0,
   objects = [],
@@ -28,6 +30,7 @@ export default function JsonSalesforcePane({
     <StructuredIntakePaneShell
       title="JSON — Salesforce"
       subtitle="Salesforce structured records preserved by object type, source record ID, and related-record relationships."
+      fileCount={fileCount}
       recordCount={recordCount}
       packageCount={packageCount}
       groupLabel="Salesforce Objects"

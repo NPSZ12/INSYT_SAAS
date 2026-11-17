@@ -6,6 +6,7 @@ import StructuredIntakePaneShell, {
 
 
 type JsonTeamsPaneProps = {
+  fileCount?: number;
   recordCount?: number;
   packageCount?: number;
   channels?: StructuredIntakeGroup[];
@@ -13,6 +14,7 @@ type JsonTeamsPaneProps = {
 
 
 export default function JsonTeamsPane({
+  fileCount = 0,
   recordCount = 0,
   packageCount = 0,
   channels = [],
@@ -28,6 +30,7 @@ export default function JsonTeamsPane({
     <StructuredIntakePaneShell
       title="JSON — Teams"
       subtitle="Microsoft Teams structured exports organized by team, channel, conversation, thread, and message."
+      fileCount={fileCount}
       recordCount={recordCount}
       packageCount={packageCount}
       groupLabel="Teams / Channels"

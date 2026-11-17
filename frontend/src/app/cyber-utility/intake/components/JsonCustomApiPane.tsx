@@ -6,6 +6,7 @@ import StructuredIntakePaneShell, {
 
 
 type JsonCustomApiPaneProps = {
+  fileCount?: number;
   recordCount?: number;
   packageCount?: number;
   groups?: StructuredIntakeGroup[];
@@ -13,6 +14,7 @@ type JsonCustomApiPaneProps = {
 
 
 export default function JsonCustomApiPane({
+  fileCount = 0,
   recordCount = 0,
   packageCount = 0,
   groups = [],
@@ -28,6 +30,7 @@ export default function JsonCustomApiPane({
     <StructuredIntakePaneShell
       title="JSON — Custom/API"
       subtitle="Custom application, database, API, and otherwise unidentified structured JSON datasets."
+      fileCount={fileCount}
       recordCount={recordCount}
       packageCount={packageCount}
       groupLabel="Datasets"

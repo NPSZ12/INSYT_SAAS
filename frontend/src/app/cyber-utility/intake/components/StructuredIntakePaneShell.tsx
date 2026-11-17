@@ -18,6 +18,7 @@ export type StructuredIntakeGroup = {
 type StructuredIntakePaneShellProps = {
   title: string;
   subtitle: string;
+  fileCount?: number;
 
   recordCount?: number;
   packageCount?: number;
@@ -42,14 +43,12 @@ export default function StructuredIntakePaneShell({
   title,
   subtitle,
 
-  recordCount = 0,
-  packageCount = 0,
+  fileCount = 0,
 
   groupLabel = "Groups",
 
   groups = [],
 
-  comingSoon = false,
   defaultExpanded = false,
 
   children,
@@ -83,12 +82,6 @@ export default function StructuredIntakePaneShell({
                 {title}
               </div>
 
-              {comingSoon ? (
-                <span className="cyber2-source-pane__status">
-                  Coming Soon
-                </span>
-              ) : null}
-
             </div>
 
             <div className="cyber2-source-pane__subtitle">
@@ -101,25 +94,10 @@ export default function StructuredIntakePaneShell({
           <div className="cyber2-source-pane__summary">
 
             <div className="cyber2-source-pane__counts">
-
               <span>
-                Records:{" "}
-                <strong>
-                  {formatCount(recordCount)}
-                </strong>
+                Total Files:{" "}
+                <strong>{formatCount(fileCount)}</strong>
               </span>
-
-              <span className="cyber2-source-pane__separator">
-                •
-              </span>
-
-              <span>
-                Packages:{" "}
-                <strong>
-                  {formatCount(packageCount)}
-                </strong>
-              </span>
-
             </div>
 
 
@@ -140,28 +118,10 @@ export default function StructuredIntakePaneShell({
 
         <div className="cyber2-source-pane__body">
 
-          {comingSoon ? (
-
-            <div className="cyber2-source-pane__coming-soon">
-
-              <div className="cyber2-source-pane__coming-soon-title">
-                Coming Soon
-              </div>
-
-              <div className="cyber2-source-pane__coming-soon-text">
-                This structured-data source adapter has been reserved
-                in Cyber² Intake and will use the same INSYT fast-lane
-                detection, document assignment, Files promotion, and
-                downstream Cyber² workflow.
-              </div>
-
-            </div>
-
-          ) : null}
 
 
-          {!comingSoon &&
-          groups.length > 0 ? (
+
+          {groups.length > 0 ? (
 
             <div className="cyber2-source-pane__groups">
 
@@ -215,12 +175,11 @@ export default function StructuredIntakePaneShell({
           ) : null}
 
 
-          {!comingSoon &&
-          groups.length === 0 &&
+          {groups.length === 0 &&
           !children ? (
 
             <div className="cyber2-source-pane__empty">
-              No structured records are currently available.
+              No files available.
             </div>
 
           ) : null}

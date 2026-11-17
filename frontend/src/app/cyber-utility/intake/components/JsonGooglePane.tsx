@@ -6,6 +6,7 @@ import StructuredIntakePaneShell, {
 
 
 type JsonGooglePaneProps = {
+  fileCount?: number;
   recordCount?: number;
   packageCount?: number;
   groups?: StructuredIntakeGroup[];
@@ -13,6 +14,7 @@ type JsonGooglePaneProps = {
 
 
 export default function JsonGooglePane({
+  fileCount = 0,
   recordCount = 0,
   packageCount = 0,
   groups = [],
@@ -28,6 +30,7 @@ export default function JsonGooglePane({
     <StructuredIntakePaneShell
       title="JSON — Google"
       subtitle="Google Workspace and related structured exports preserved in their native logical groupings."
+      fileCount={fileCount}
       recordCount={recordCount}
       packageCount={packageCount}
       groupLabel="Collections"
