@@ -1562,3 +1562,746 @@ def test_approval_provenance_is_from_identification_not_request():
         "request." not in value
         for value in found.values()
     )
+
+# STEP 562A: ATOMIC NATIVE JSON CLAIM
+
+def _atomic_claim_fixture(
+    *,
+    conflict=False,
+    assigned=False,
+    altered_source=False,
+):
+    import copy
+    import json
+    from types import SimpleNamespace
+
+    from azure.core.exceptions import ResourceModifiedError
+    from fastapi import HTTPException
+
+    tree = read_tree("header_sets.py")
+    function = copy.deepcopy(
+        find_function(
+            tree, "_claim_native_json_intake_blob"
+        )
+    )
+
+    module = ast.fix_missing_locations(
+        ast.Module(
+            body=[function],
+            type_ignores=[],
+        )
+    )
+
+    source = {
+        "doc_id": "TEST0001",
+        "source_kind": "native_json",
+        "source_native_path": (
+            "capture/ClientA/ProjectA/"
+            "source/native/TEST0001.json"
+        ),
+        "source_sha256": "a" * 64,
+        "source_bytes": 100,
+        "source_csv_path": "",
+    }
+
+    current = dict(source)
+
+    if assigned:
+        current["header_set_id"] = "HDRSET-EXISTING"
+
+    if altered_source:
+        current["source_sha256"] = "b" * 64
+
+    class FakeBlob:
+        def __init__(self):
+            self.uploads = []
+
+        def get_blob_properties(self):
+            return SimpleNamespace(etag='"original"')
+
+        def download_blob(self, **kwargs):
+            assert kwargs["etag"] == '"original"'
+            assert kwargs["match_condition"] is not None
+            return SimpleNamespace(
+                readall=lambda: json.dumps(
+                    current
+                ).encode("utf-8")
+            )
+
+        def upload_blob(self, content, **kwargs):
+            assert kwargs["overwrite"] is True
+            assert kwargs["etag"] == '"original"'
+            assert kwargs["match_condition"] is not None
+
+            if conflict:
+                raise ResourceModifiedError(
+                    "Synthetic concurrent update"
+                )
+
+            self.uploads.append(
+                json.loads(content.decode("utf-8"))
+            )
+            return {"etag": '"committed"'}
+
+    namespace = {"HTTPException": HTTPException}
+
+    exec(
+        compile(
+            module,
+            "<atomic-claim-runtime>",
+            "exec",
+        ),
+        namespace,
+    )
+
+    blob = FakeBlob()
+
+    try:
+        result = namespace[
+            "_claim_native_json_intake_blob"
+        ](
+            blob_client=blob,
+            expected_document=source,
+            header_set_id="HDRSET-NEW",
+            created_at="2026-11-17T00:00:00Z",
+            requested_by="synthetic-reviewer",
+        )
+        return result, blob.uploads, None
+
+    except HTTPException as exc:
+        return None, blob.uploads, exc
+
+
+def test_atomic_json_claim_success():
+    result, uploads, error = _atomic_claim_fixture()
+
+    assert error is None
+    assert len(uploads) == 1
+    assert result["committed_etag"] == '"committed"'
+    assert uploads[0]["header_set_id"] == "HDRSET-NEW"
+    assert uploads[0]["source_sha256"] == "a" * 64
+    assert uploads[0]["source_csv_path"] == ""
+
+
+def test_atomic_json_claim_rejects_concurrent_update():
+    result, uploads, error = _atomic_claim_fixture(
+        conflict=True
+    )
+
+    assert result is None
+    assert uploads == []
+    assert error.status_code == 409
+
+
+def test_atomic_json_claim_rejects_existing_assignment():
+    result, uploads, error = _atomic_claim_fixture(
+        assigned=True
+    )
+
+    assert result is None
+    assert uploads == []
+    assert error.status_code == 409
+    assert error.detail["header_set_id"] == "HDRSET-EXISTING"
+
+
+def test_atomic_json_claim_rejects_source_change():
+    result, uploads, error = _atomic_claim_fixture(
+        altered_source=True
+    )
+
+    assert result is None
+    assert uploads == []
+    assert error.status_code == 409
+
+
+def test_atomic_json_helper_not_enabled_in_creation_route_yet():
+    tree = read_tree("header_sets.py")
+    route = find_function(
+        tree, "create_cyber2_header_set"
+    )
+
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_claim_native_json_intake_blob"
+        for node in ast.walk(route)
+    )
+
+# STEP 562B: ATOMIC CLAIM ROLLBACK
+
+@pytest.mark.parametrize(
+    "scenario,expected_status,expected_writes",
+    [
+        ("success", None, 1),
+        ("etag_changed", 409, 0),
+        ("owner_changed", 409, 0),
+        ("write_conflict", 409, 0),
+    ],
+)
+def test_json_claim_rollback_is_compare_and_swap(
+    scenario, expected_status, expected_writes
+):
+    import copy
+    import json
+    from types import SimpleNamespace
+
+    from azure.core.exceptions import ResourceModifiedError
+    from fastapi import HTTPException
+
+    tree = read_tree("header_sets.py")
+    function = copy.deepcopy(
+        find_function(
+            tree, "_release_native_json_intake_claim"
+        )
+    )
+
+    module = ast.fix_missing_locations(
+        ast.Module(
+            body=[function],
+            type_ignores=[],
+        )
+    )
+
+    original = {
+        "doc_id": "TEST0001",
+        "source_kind": "native_json",
+        "source_sha256": "a" * 64,
+        "source_native_path": "synthetic/TEST0001.json",
+    }
+
+    assigned = {
+        **original,
+        "header_set_id": "HDRSET-MINE",
+        "header_set_status": "assigned",
+    }
+
+    current = dict(assigned)
+
+    if scenario == "owner_changed":
+        current["header_set_id"] = "HDRSET-OTHER"
+
+    writes = []
+
+    class FakeBlob:
+        def get_blob_properties(self):
+            etag = (
+                '"newer"'
+                if scenario == "etag_changed"
+                else '"claimed"'
+            )
+            return SimpleNamespace(etag=etag)
+
+        def download_blob(self, **kwargs):
+            assert kwargs["etag"] == '"claimed"'
+            assert kwargs["match_condition"] is not None
+            return SimpleNamespace(
+                readall=lambda: json.dumps(current).encode()
+            )
+
+        def upload_blob(self, data, **kwargs):
+            assert kwargs["etag"] == '"claimed"'
+            assert kwargs["overwrite"] is True
+            assert kwargs["match_condition"] is not None
+
+            if scenario == "write_conflict":
+                raise ResourceModifiedError(
+                    "Synthetic concurrent writer"
+                )
+
+            writes.append(json.loads(data.decode()))
+
+    namespace = {"HTTPException": HTTPException}
+
+    exec(
+        compile(module, "<claim-rollback>", "exec"),
+        namespace,
+    )
+
+    claim = {
+        "previous": original,
+        "assigned": assigned,
+        "committed_etag": '"claimed"',
+    }
+
+    error = None
+    result = None
+
+    try:
+        result = namespace[
+            "_release_native_json_intake_claim"
+        ](
+            blob_client=FakeBlob(),
+            claim=claim,
+        )
+    except HTTPException as exc:
+        error = exc
+
+    if expected_status is None:
+        assert error is None
+        assert result["status"] == "released"
+        assert writes == [original]
+    else:
+        assert error is not None
+        assert error.status_code == expected_status
+
+    assert len(writes) == expected_writes
+
+
+def test_claim_rollback_not_yet_active_in_creation_route():
+    tree = read_tree("header_sets.py")
+    route = find_function(
+        tree, "create_cyber2_header_set"
+    )
+
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_release_native_json_intake_claim"
+        for node in ast.walk(route)
+    )
+
+# STEP 562C: MULTI-DOCUMENT CLAIM COORDINATION
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "success",
+        "second_claim_conflict",
+        "rollback_conflict",
+        "invalid_intake_path",
+        "csv_unchanged",
+    ],
+)
+def test_multi_json_claim_batch_coordination(scenario):
+    import copy
+    from fastapi import HTTPException
+
+    tree = read_tree("header_sets.py")
+    function = copy.deepcopy(
+        find_function(
+            tree, "_claim_native_json_header_set_batch"
+        )
+    )
+
+    module = ast.fix_missing_locations(
+        ast.Module(
+            body=[function],
+            type_ignores=[],
+        )
+    )
+
+    base = "capture/ClientA/ProjectA"
+
+    def document(doc_id, kind="native_json"):
+        return {
+            "doc_id": doc_id,
+            "source_kind": kind,
+            "source_native_path": (
+                f"{base}/source/native/{doc_id}.json"
+            ),
+            "source_sha256": "a" * 64,
+            "source_bytes": 100,
+            "intake_index_path": (
+                f"{base}/cyber2/intake/documents/{doc_id}.json"
+            ),
+        }
+
+    documents = {
+        "TEST0001": document("TEST0001"),
+        "TEST0002": document("TEST0002"),
+    }
+
+    if scenario == "invalid_intake_path":
+        documents["TEST0002"]["intake_index_path"] = (
+            "other/project/document.json"
+        )
+
+    if scenario == "csv_unchanged":
+        documents["TEST0001"] = document(
+            "TEST0001", "csv"
+        )
+        documents["TEST0002"] = document(
+            "TEST0002", "csv"
+        )
+
+    events = []
+
+    class FakeContainer:
+        def get_blob_client(self, path):
+            events.append(("blob", path))
+            return path
+
+    def claim(*, blob_client, expected_document, **kwargs):
+        doc_id = expected_document["doc_id"]
+        events.append(("claim", doc_id))
+
+        if (
+            doc_id == "TEST0002"
+            and scenario in {
+                "second_claim_conflict",
+                "rollback_conflict",
+            }
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Synthetic competing claim.",
+            )
+
+        return {"doc_id": doc_id}
+
+    def release(*, blob_client, claim):
+        doc_id = claim["doc_id"]
+        events.append(("release", doc_id))
+
+        if scenario == "rollback_conflict":
+            raise HTTPException(
+                status_code=409,
+                detail="Synthetic rollback conflict.",
+            )
+
+    namespace = {
+        "HTTPException": HTTPException,
+        "_claim_native_json_intake_blob": claim,
+        "_release_native_json_intake_claim": release,
+    }
+
+    exec(
+        compile(module, "<json-batch-claims>", "exec"),
+        namespace,
+    )
+
+    error = None
+    result = None
+
+    try:
+        # Reverse selection order deliberately.
+        result = namespace[
+            "_claim_native_json_header_set_batch"
+        ](
+            container_client=FakeContainer(),
+            base_path=base,
+            document_ids=["TEST0002", "TEST0001"],
+            intake_documents=documents,
+            header_set_id="HDRSET-TEST",
+            created_at="2026-11-17T00:00:00Z",
+            requested_by="synthetic",
+        )
+    except HTTPException as exc:
+        error = exc
+
+    actions = [
+        (kind, value)
+        for kind, value in events
+        if kind in {"claim", "release"}
+    ]
+
+    if scenario == "success":
+        assert error is None
+        assert len(result) == 2
+        assert actions == [
+            ("claim", "TEST0001"),
+            ("claim", "TEST0002"),
+        ]
+
+    elif scenario == "second_claim_conflict":
+        assert result is None
+        assert error.status_code == 409
+        assert actions == [
+            ("claim", "TEST0001"),
+            ("claim", "TEST0002"),
+            ("release", "TEST0001"),
+        ]
+
+    elif scenario == "rollback_conflict":
+        assert result is None
+        assert error.status_code == 503
+        assert error.detail["unreleased_doc_ids"] == [
+            "TEST0001"
+        ]
+        assert error.detail["header_set_id"] == "HDRSET-TEST"
+        assert actions[-1] == ("release", "TEST0001")
+
+    elif scenario == "invalid_intake_path":
+        assert result is None
+        assert error.status_code == 409
+        assert actions == []
+        assert events == []
+
+    else:
+        assert error is None
+        assert result == []
+        assert actions == []
+        assert events == []
+
+
+def test_batch_claim_coordinator_not_activated_yet():
+    tree = read_tree("header_sets.py")
+    route = find_function(
+        tree, "create_cyber2_header_set"
+    )
+
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_claim_native_json_header_set_batch"
+        for node in ast.walk(route)
+    )
+
+# STEP 562E: DURABLE MANIFEST TRANSITION
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "complete",
+        "failure_recorded",
+        "write_conflict",
+        "already_final",
+        "wrong_documents",
+        "missing_etag",
+    ],
+)
+def test_durable_native_json_manifest_transition(scenario):
+    import copy
+    import json
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+    from azure.core.exceptions import ResourceModifiedError
+
+    tree = read_tree("header_sets.py")
+    function = copy.deepcopy(
+        find_function(
+            tree,
+            "_transition_native_json_header_set_manifest",
+        )
+    )
+
+    module = ast.fix_missing_locations(
+        ast.Module(body=[function], type_ignores=[])
+    )
+
+    document_ids = ["TEST0001", "TEST0002"]
+    initial = {
+        "header_set_id": "HDRSET-SYNTHETIC",
+        "status": "assigning_native_json",
+        "doc_ids": document_ids,
+        "documents": [
+            {"doc_id": doc_id, "source_kind": "native_json"}
+            for doc_id in document_ids
+        ],
+    }
+
+    if scenario == "already_final":
+        initial["status"] = "pending_header_identification"
+
+    if scenario == "wrong_documents":
+        initial["doc_ids"] = ["TEST0001", "OTHER"]
+
+    writes = []
+
+    class FakeBlob:
+        def get_blob_properties(self):
+            return SimpleNamespace(
+                etag=(
+                    ""
+                    if scenario == "missing_etag"
+                    else '"manifest-before"'
+                )
+            )
+
+        def download_blob(self, **kwargs):
+            assert kwargs["etag"] == '"manifest-before"'
+            assert kwargs["match_condition"] is not None
+            return SimpleNamespace(
+                readall=lambda: json.dumps(initial).encode()
+            )
+
+        def upload_blob(self, data, **kwargs):
+            assert kwargs["overwrite"] is True
+            assert kwargs["etag"] == '"manifest-before"'
+            assert kwargs["match_condition"] is not None
+
+            if scenario == "write_conflict":
+                raise ResourceModifiedError(
+                    "Synthetic conflicting manifest update"
+                )
+
+            writes.append(json.loads(data.decode()))
+            return {"etag": '"manifest-after"'}
+
+    namespace = {"HTTPException": HTTPException}
+
+    exec(
+        compile(module, "<manifest-transition>", "exec"),
+        namespace,
+    )
+
+    target = (
+        "assignment_failed"
+        if scenario == "failure_recorded"
+        else "pending_header_identification"
+    )
+
+    try:
+        result = namespace[
+            "_transition_native_json_header_set_manifest"
+        ](
+            blob_client=FakeBlob(),
+            header_set_id="HDRSET-SYNTHETIC",
+            document_ids=document_ids,
+            target_status=target,
+            status_detail=(
+                {"reason": "synthetic claim conflict"}
+                if scenario == "failure_recorded"
+                else None
+            ),
+        )
+
+    except HTTPException as exc:
+        assert scenario in {
+            "write_conflict",
+            "already_final",
+            "wrong_documents",
+            "missing_etag",
+        }
+        assert exc.status_code == 409
+        assert writes == []
+        return
+
+    assert scenario in {"complete", "failure_recorded"}
+    assert len(writes) == 1
+    assert result["status"] == target
+    assert result["etag"] == '"manifest-after"'
+    assert writes[0]["status"] == target
+    assert writes[0]["doc_ids"] == document_ids
+
+    if scenario == "failure_recorded":
+        assert writes[0]["assignment_status_detail"] == {
+            "reason": "synthetic claim conflict"
+        }
+
+
+def test_manifest_transition_not_active_in_creation_route():
+    tree = read_tree("header_sets.py")
+    route = find_function(
+        tree, "create_cyber2_header_set"
+    )
+
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id
+        == "_transition_native_json_header_set_manifest"
+        for node in ast.walk(route)
+    )
+
+# STEP 562F: NATIVE JSON ASSIGNMENT READINESS
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "assigning_native_json",
+        "assignment_failed",
+    ],
+)
+def test_identification_rejects_unready_json_header_set(status):
+    import ast
+    import copy
+    from fastapi import HTTPException
+
+    tree = read_tree("header_identification.py")
+
+    route = copy.deepcopy(
+        find_function(tree, "identify_cyber2_header_set")
+    )
+    route.decorator_list = []
+
+    module = ast.fix_missing_locations(
+        ast.Module(
+            body=[
+                ast.ImportFrom(
+                    module="__future__",
+                    names=[ast.alias(name="annotations")],
+                    level=0,
+                ),
+                route,
+            ],
+            type_ignores=[],
+        )
+    )
+
+    events = []
+
+    def authorize(*args):
+        events.append("authorize")
+
+    def load_header_set(**kwargs):
+        events.append("read_manifest")
+        return {
+            "header_set_id": "HDRSET-SYNTHETIC",
+            "status": status,
+            "doc_ids": ["TEST0001"],
+            "documents": [{
+                "doc_id": "TEST0001",
+                "source_kind": "native_json",
+            }],
+        }
+
+    namespace = {
+        "Query": lambda *a, **k: None,
+        "Depends": lambda *a, **k: None,
+        "require_admin": lambda: None,
+        "HTTPException": HTTPException,
+        "require_scoped_project_access": authorize,
+        "_load_header_set": load_header_set,
+    }
+
+    exec(
+        compile(module, "<json-readiness>", "exec"),
+        namespace,
+    )
+
+    with pytest.raises(HTTPException) as error:
+        namespace["identify_cyber2_header_set"](
+            workspace="capture",
+            header_set_id="HDRSET-SYNTHETIC",
+            client="ClientA",
+            project="ProjectA",
+            ai_suggestions=True,
+            admin=object(),
+        )
+
+    assert error.value.status_code == 409
+    assert events == ["authorize", "read_manifest"]
+
+
+def test_identification_readiness_check_follows_manifest_read():
+    import ast
+
+    tree = read_tree("header_identification.py")
+    route = find_function(
+        tree, "identify_cyber2_header_set"
+    )
+
+    reads = [
+        node.lineno
+        for node in ast.walk(route)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_load_header_set"
+    ]
+
+    checks = [
+        node.lineno
+        for node in ast.walk(route)
+        if isinstance(node, ast.Compare)
+        and any(
+            isinstance(part, ast.Constant)
+            and part.value == "assigning_native_json"
+            for part in ast.walk(node)
+        )
+    ]
+
+    assert len(reads) == 1
+    assert len(checks) == 1
+    assert checks[0] > reads[0]

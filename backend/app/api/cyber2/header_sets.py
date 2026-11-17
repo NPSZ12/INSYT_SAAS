@@ -35,6 +35,551 @@ class CreateCyber2HeaderSetRequest(
     requested_by: str = ""
 
 
+
+def _claim_native_json_intake_blob(
+    *,
+    blob_client,
+    expected_document,
+    header_set_id,
+    created_at,
+    requested_by,
+):
+    """Claim one native JSON intake record using Azure ETag CAS.
+
+    Source JSON bytes are never opened or modified. Only the
+    existing intake metadata blob is conditionally updated.
+    """
+    import json
+    from azure.core import MatchConditions
+    from azure.core.exceptions import (
+        HttpResponseError,
+        ResourceModifiedError,
+        ResourceNotFoundError,
+    )
+    from azure.storage.blob import ContentSettings
+
+    try:
+        properties = blob_client.get_blob_properties()
+        etag = str(getattr(properties, "etag", "") or "")
+
+        if not etag:
+            raise HTTPException(
+                status_code=409,
+                detail="Intake record has no usable ETag.",
+            )
+
+        raw = blob_client.download_blob(
+            etag=etag,
+            match_condition=MatchConditions.IfNotModified,
+        ).readall()
+
+    except HTTPException:
+        raise
+    except (ResourceModifiedError, ResourceNotFoundError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="JSON intake record changed; reload and retry.",
+        ) from exc
+    except HttpResponseError as exc:
+        status = getattr(exc, "status_code", None)
+        raise HTTPException(
+            status_code=409 if status in (404, 409, 412) else 503,
+            detail="Unable to obtain a stable JSON intake snapshot.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to read JSON intake record.",
+        ) from exc
+
+    try:
+        current = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="JSON intake metadata is invalid.",
+        ) from exc
+
+    if not isinstance(current, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="JSON intake metadata must be an object.",
+        )
+
+    if current.get("source_kind") != "native_json":
+        raise HTTPException(
+            status_code=409,
+            detail="Source is no longer native JSON.",
+        )
+
+    for key in (
+        "doc_id",
+        "source_native_path",
+        "source_sha256",
+        "source_bytes",
+    ):
+        if current.get(key) != expected_document.get(key):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Native JSON source identity changed. "
+                    "Refresh intake before creating a Header Set."
+                ),
+            )
+
+    assigned = str(
+        current.get("header_set_id") or ""
+    ).strip()
+
+    if assigned:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Native JSON is already assigned.",
+                "header_set_id": assigned,
+                "doc_id": current.get("doc_id"),
+            },
+        )
+
+    updated = dict(current)
+    updated.update({
+        "header_set_id": header_set_id,
+        "cyber2_stage": "header_schema_mapping",
+        "header_set_status": "assigned",
+        "sent_to_header_mapping_at": created_at,
+        "sent_to_header_mapping_by": requested_by,
+    })
+
+    try:
+        result = blob_client.upload_blob(
+            json.dumps(
+                updated, indent=2, default=str
+            ).encode("utf-8"),
+            overwrite=True,
+            etag=etag,
+            match_condition=MatchConditions.IfNotModified,
+            content_settings=ContentSettings(
+                content_type="application/json"
+            ),
+        )
+    except ResourceModifiedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Concurrent JSON assignment detected; "
+                "reload the Header Set listing."
+            ),
+        ) from exc
+    except HttpResponseError as exc:
+        status = getattr(exc, "status_code", None)
+        raise HTTPException(
+            status_code=409 if status in (409, 412) else 503,
+            detail="Conditional JSON assignment failed.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to save JSON intake assignment.",
+        ) from exc
+
+    return {
+        "doc_id": current["doc_id"],
+        "previous": current,
+        "assigned": updated,
+        "previous_etag": etag,
+        "committed_etag": (
+            result.get("etag")
+            if isinstance(result, dict)
+            else getattr(result, "etag", None)
+        ),
+    }
+
+
+
+def _release_native_json_intake_claim(
+    *,
+    blob_client,
+    claim,
+):
+    """Restore pre-claim intake metadata only if unchanged.
+
+    Uses the ETag returned by the successful claim. A newer
+    version or different assignment must not be overwritten.
+    """
+    import json
+    from azure.core import MatchConditions
+    from azure.core.exceptions import (
+        HttpResponseError,
+        ResourceModifiedError,
+        ResourceNotFoundError,
+    )
+    from azure.storage.blob import ContentSettings
+
+    previous = claim.get("previous")
+    assigned = claim.get("assigned")
+    committed_etag = str(
+        claim.get("committed_etag") or ""
+    )
+
+    if (
+        not isinstance(previous, dict)
+        or not isinstance(assigned, dict)
+        or not committed_etag
+        or not str(assigned.get("header_set_id") or "").strip()
+        or previous.get("doc_id") != assigned.get("doc_id")
+        or previous.get("source_sha256")
+        != assigned.get("source_sha256")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Claim cannot be safely released.",
+        )
+
+    try:
+        properties = blob_client.get_blob_properties()
+        current_etag = str(
+            getattr(properties, "etag", "") or ""
+        )
+
+        if current_etag != committed_etag:
+            raise HTTPException(
+                status_code=409,
+                detail="Claim changed after assignment; no rollback.",
+            )
+
+        raw = blob_client.download_blob(
+            etag=committed_etag,
+            match_condition=MatchConditions.IfNotModified,
+        ).readall()
+
+        current = json.loads(raw.decode("utf-8"))
+
+        if current != assigned:
+            raise HTTPException(
+                status_code=409,
+                detail="Assigned metadata changed; no rollback.",
+            )
+
+        blob_client.upload_blob(
+            json.dumps(
+                previous, indent=2, default=str
+            ).encode("utf-8"),
+            overwrite=True,
+            etag=committed_etag,
+            match_condition=MatchConditions.IfNotModified,
+            content_settings=ContentSettings(
+                content_type="application/json"
+            ),
+        )
+
+    except HTTPException:
+        raise
+    except (ResourceModifiedError, ResourceNotFoundError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Concurrent change prevented claim rollback.",
+        ) from exc
+    except HttpResponseError as exc:
+        status = getattr(exc, "status_code", None)
+        raise HTTPException(
+            status_code=409 if status in (404, 409, 412) else 503,
+            detail="Conditional claim rollback failed.",
+        ) from exc
+    except (UnicodeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Assigned metadata cannot be safely verified.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to safely release JSON claim.",
+        ) from exc
+
+    return {
+        "doc_id": previous["doc_id"],
+        "status": "released",
+    }
+
+
+
+def _claim_native_json_header_set_batch(
+    *,
+    container_client,
+    base_path,
+    document_ids,
+    intake_documents,
+    header_set_id,
+    created_at,
+    requested_by,
+):
+    """Claim native JSON intake metadata in deterministic order.
+
+    A failed claim causes conditional rollback of all preceding
+    claims. A rollback conflict is surfaced, never suppressed.
+    The native JSON source files are never modified.
+    """
+    selected = []
+
+    for doc_id in document_ids:
+        document = intake_documents.get(doc_id)
+
+        if not isinstance(document, dict):
+            raise HTTPException(
+                status_code=409,
+                detail="Selected intake document is missing.",
+            )
+
+        if document.get("source_kind") != "native_json":
+            continue
+
+        canonical = (
+            f"{base_path}/cyber2/intake/documents/"
+            f"{doc_id}.json"
+        )
+
+        registered_path = str(
+            document.get("intake_index_path") or canonical
+        ).strip()
+
+        if (
+            registered_path != canonical
+            or document.get("doc_id") != doc_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Native JSON intake identity or "
+                    "index path is invalid."
+                ),
+            )
+
+        selected.append((doc_id, canonical, document))
+
+    if len({item[0] for item in selected}) != len(selected):
+        raise HTTPException(
+            status_code=409,
+            detail="Duplicate native JSON document selection.",
+        )
+
+    acquired = []
+
+    try:
+        # Stable order avoids order-dependent contention.
+        for doc_id, intake_path, document in sorted(selected):
+            blob_client = container_client.get_blob_client(
+                intake_path
+            )
+
+            claim = _claim_native_json_intake_blob(
+                blob_client=blob_client,
+                expected_document=document,
+                header_set_id=header_set_id,
+                created_at=created_at,
+                requested_by=requested_by,
+            )
+
+            acquired.append({
+                "doc_id": doc_id,
+                "blob_client": blob_client,
+                "claim": claim,
+            })
+
+    except Exception as exc:
+        failures = []
+
+        # Roll back all earlier successful claims in reverse order.
+        for entry in reversed(acquired):
+            try:
+                _release_native_json_intake_claim(
+                    blob_client=entry["blob_client"],
+                    claim=entry["claim"],
+                )
+            except Exception:
+                failures.append(entry["doc_id"])
+
+        if failures:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "message": (
+                        "Header Set claim failed and some intake "
+                        "assignments could not be safely released. "
+                        "Manual reconciliation is required before retry."
+                    ),
+                    "unreleased_doc_ids": failures,
+                    "header_set_id": header_set_id,
+                },
+            ) from exc
+
+        raise
+
+    return acquired
+
+
+
+def _transition_native_json_header_set_manifest(
+    *,
+    blob_client,
+    header_set_id,
+    document_ids,
+    target_status,
+    status_detail=None,
+):
+    """Commit an assignment outcome with an Azure ETag CAS.
+
+    The pending manifest is the durable recovery reference.
+    Header Identification must not start until the manifest
+    reaches pending_header_identification.
+    """
+    import json
+    from azure.core import MatchConditions
+    from azure.core.exceptions import (
+        HttpResponseError,
+        ResourceModifiedError,
+        ResourceNotFoundError,
+    )
+    from azure.storage.blob import ContentSettings
+
+    permitted = {
+        "pending_header_identification",
+        "assignment_failed",
+    }
+
+    if target_status not in permitted:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid native JSON manifest transition.",
+        )
+
+    expected_ids = list(document_ids)
+
+    if not expected_ids or len(set(expected_ids)) != len(expected_ids):
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid Header Set document selection.",
+        )
+
+    try:
+        properties = blob_client.get_blob_properties()
+        etag = str(getattr(properties, "etag", "") or "")
+
+        if not etag:
+            raise HTTPException(
+                status_code=409,
+                detail="Header Set manifest has no ETag.",
+            )
+
+        raw = blob_client.download_blob(
+            etag=etag,
+            match_condition=MatchConditions.IfNotModified,
+        ).readall()
+
+    except HTTPException:
+        raise
+    except (ResourceModifiedError, ResourceNotFoundError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Header Set manifest changed during inspection.",
+        ) from exc
+    except HttpResponseError as exc:
+        status = getattr(exc, "status_code", None)
+        raise HTTPException(
+            status_code=409 if status in (404, 409, 412) else 503,
+            detail="Unable to read stable Header Set manifest.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to inspect Header Set manifest.",
+        ) from exc
+
+    try:
+        current = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Header Set manifest is invalid.",
+        ) from exc
+
+    if not isinstance(current, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="Header Set manifest must be an object.",
+        )
+
+    current_ids = current.get("doc_ids")
+    current_documents = current.get("documents")
+
+    if (
+        current.get("header_set_id") != header_set_id
+        or current.get("status") != "assigning_native_json"
+        or not isinstance(current_ids, list)
+        or not isinstance(current_documents, list)
+        or current_ids != expected_ids
+        or len(current_documents) != len(expected_ids)
+        or any(
+            not isinstance(document, dict)
+            or document.get("doc_id") != expected_ids[index]
+            for index, document in enumerate(current_documents)
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Header Set identity or pending state changed.",
+        )
+
+    updated = dict(current)
+    updated["status"] = target_status
+
+    if status_detail is not None:
+        if not isinstance(status_detail, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid assignment status detail.",
+            )
+        updated["assignment_status_detail"] = status_detail
+
+    try:
+        result = blob_client.upload_blob(
+            json.dumps(
+                updated, indent=2, default=str
+            ).encode("utf-8"),
+            overwrite=True,
+            etag=etag,
+            match_condition=MatchConditions.IfNotModified,
+            content_settings=ContentSettings(
+                content_type="application/json"
+            ),
+        )
+    except ResourceModifiedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Concurrent Header Set manifest modification.",
+        ) from exc
+    except HttpResponseError as exc:
+        status = getattr(exc, "status_code", None)
+        raise HTTPException(
+            status_code=409 if status in (409, 412) else 503,
+            detail="Conditional Header Set transition failed.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to publish Header Set state.",
+        ) from exc
+
+    return {
+        "header_set_id": header_set_id,
+        "status": target_status,
+        "etag": (
+            result.get("etag")
+            if isinstance(result, dict)
+            else getattr(result, "etag", None)
+        ),
+    }
+
+
 @router.post(
     "/{workspace}/cyber2/header-sets"
 )

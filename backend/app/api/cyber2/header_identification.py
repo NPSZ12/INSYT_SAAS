@@ -599,6 +599,22 @@ def identify_cyber2_header_set(
         )
     )
 
+    # STEP 562F: NATIVE JSON ASSIGNMENT READINESS
+    # Never identify documents from a partial or failed
+    # multi-document JSON assignment.
+    if manifest.get("status") in {
+        "assigning_native_json",
+        "assignment_failed",
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Native JSON Header Set assignment is not ready. "
+                "Reconcile its assignment state before identification."
+            ),
+        )
+
+
     manifest_documents = (
         manifest.get(
             "documents"
