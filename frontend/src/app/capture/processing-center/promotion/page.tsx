@@ -110,6 +110,7 @@ type PromotionResponse = {
 
 
 type PromotionFolder =
+  | "native_json_hits"
   | "spreadsheet_hits"
   | "review_hits"
   | "no_hits"
@@ -247,6 +248,7 @@ function ProcessingCenterPromotionPageContent() {
   ] = useState<
     Record<PromotionFolder, boolean>
   >({
+    native_json_hits: true,
     spreadsheet_hits: true,
     review_hits: true,
     no_hits: true,
@@ -1534,88 +1536,96 @@ async function promoteSelectedNoHits() {
 
           <div className="space-y-6">
 
-            {/* Native JSON Hits — original source documents only */}
-<div className="rounded-2xl border border-sky-700 bg-slate-900/60 p-5 space-y-4">
-  <div>
-    <h2 className="text-base font-semibold text-white">
-      Native JSON Hits ({nativeJsonHits.length})
-    </h2>
-    <p className="mt-1 text-xs text-slate-400">
-      Original JSON, JSONL and NDJSON documents. Select one
-      completed Detection HIT to promote the original into Files
-      and register it in the appropriate Cyber² JSON pane.
-      No CSV is generated here.
-    </p>
-  </div>
+            {/* Native JSON Hits - shared Promotion layout */}
+            <PromotionSection
+              folderKey="native_json_hits"
+              title="Native JSON Hits"
+              description="Original JSON, JSONL and NDJSON documents. Promote the preserved native source into Files and register it with the appropriate Cyber2 JSON pane. No CSV is generated."
+              count={nativeJsonHits.length}
+              icon={
+                <FileText className="h-5 w-5 text-violet-300" />
+              }
+              open={openFolders.native_json_hits}
+              onToggle={() => toggleFolder("native_json_hits")}
+              headerActions={
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const eligible = nativeJsonHits
+                        .filter(matchesSearch)
+                        .filter(nativeJsonEligible);
+                      if (eligible.length === 1) {
+                        setSelectedNativeJsonId(eligible[0].doc_id);
+                      }
+                    }}
+                    disabled={
+                      sendingNativeJson ||
+                      nativeJsonHits
+                        .filter(matchesSearch)
+                        .filter(nativeJsonEligible).length !== 1
+                    }
+                    title="The current native JSON endpoint promotes one document per request."
+                    className="rounded-lg border border-violet-700 bg-violet-950/30 px-3 py-2 text-xs font-medium text-violet-200 hover:bg-violet-900/50 disabled:opacity-40"
+                  >
+                    Select All
+                  </button>
 
-  <div className="flex flex-wrap items-center gap-3">
-    <button
-      type="button"
-      disabled={
-        !selectedNativeJsonId ||
-        sendingNativeJson ||
-        sendingCyber2
-      }
-      onClick={sendSelectedNativeJson}
-      className="rounded-lg border border-sky-500 bg-sky-700 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      {sendingNativeJson
-        ? "Promoting and registering..."
-        : "Send to Files and Cyber²"}
-    </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedNativeJsonId(null)}
+                    disabled={!selectedNativeJsonId || sendingNativeJson}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                  >
+                    Clear
+                  </button>
 
-    <button
-      type="button"
-      onClick={() => setSelectedNativeJsonId(null)}
-      disabled={!selectedNativeJsonId || sendingNativeJson}
-      className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 disabled:opacity-40"
-    >
-      Clear Selection
-    </button>
-  </div>
+                  <button
+                    type="button"
+                    onClick={sendSelectedNativeJson}
+                    disabled={
+                      !selectedNativeJsonId ||
+                      sendingNativeJson ||
+                      sendingCyber2
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-violet-500 bg-violet-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    {sendingNativeJson
+                      ? "Promoting & Sending..."
+                      : "Promote to Files & Send to Cyber²"}
+                  </button>
+                </div>
+              }
+            >
+              <PromotionTable
+                docs={nativeJsonHits.filter(matchesSearch)}
+                selectable
+                selectedIds={
+                  new Set(
+                    selectedNativeJsonId
+                      ? [selectedNativeJsonId]
+                      : []
+                  )
+                }
+                onToggleSelect={(docId) => {
+                  const doc = nativeJsonHits.find(
+                    (item) => item.doc_id === docId
+                  );
+                  if (doc && nativeJsonEligible(doc)) {
+                    setSelectedNativeJsonId(
+                      (current) =>
+                        current === docId ? null : docId
+                    );
+                  }
+                }}
+                expandedRows={expandedRows}
+                onToggleExpanded={toggleExpandedRow}
+                emptyMessage="No responsive Native JSON Hits."
+              />
+            </PromotionSection>
 
-  {nativeJsonHits.length === 0 ? (
-    <p className="text-sm text-slate-400">
-      No native JSON HITs available.
-    </p>
-  ) : (
-    <div className="space-y-2">
-      {nativeJsonHits.filter(matchesSearch).map((doc) => {
-        const eligible = nativeJsonEligible(doc);
-
-        return (
-          <label
-            key={doc.doc_id}
-            className="flex items-center gap-3 rounded-lg border border-slate-700 p-3 text-sm text-slate-200"
-          >
-            <input
-              type="radio"
-              name="native-json-promotion-selection"
-              checked={selectedNativeJsonId === doc.doc_id}
-              disabled={!eligible || sendingNativeJson}
-              onChange={() => setSelectedNativeJsonId(doc.doc_id)}
-            />
-            <span className="min-w-0 flex-1 break-all">
-              {doc.original_filename || doc.doc_id}
-              <span className="ml-2 text-xs text-slate-400">
-                {doc.doc_id}
-              </span>
-            </span>
-            <span className="text-xs text-slate-400">
-              {doc.cyber2_sent
-                ? "Already registered"
-                : eligible
-                  ? "Ready"
-                  : "Not eligible"}
-            </span>
-          </label>
-        );
-      })}
-    </div>
-  )}
-</div>
-
-{/* Spreadsheet Hits */}
+            {/* Spreadsheet Hits */}
 
             <PromotionSection
               folderKey="spreadsheet_hits"

@@ -61,7 +61,7 @@ def test_native_json_routing():
 
     assert not routed("csv", True, "INSYT000000010.1")
     assert not routed("json", True, "INSYT000000010.1")
-    assert not routed("json", False, "INSYT000000010")
+    assert routed("json", False, "INSYT000000010")
     assert not routed(
         "json", True, "INSYT000000010", workbook=True
     )

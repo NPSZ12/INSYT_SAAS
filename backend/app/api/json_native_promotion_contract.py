@@ -52,17 +52,6 @@ def prepare_json_native_promotion(
             "Not a supported native JSON document."
         )
 
-    source_type = str(row.get("source_type") or "").lower()
-    source_format = str(row.get("source_format") or "").lower()
-
-    if (
-        source_type != "json_structured"
-        and source_format not in {"json", "jsonl", "ndjson"}
-    ):
-        raise JsonPromotionNotEligible(
-            "Missing structured JSON source classification."
-        )
-
     doc_id = str(row.get("doc_id") or "")
     job_id = str(row.get("source_job_id") or "")
 
@@ -89,14 +78,34 @@ def prepare_json_native_promotion(
 
     filename = f"{doc_id}.{extension}"
 
+    standard_staged_path = (
+        f"{base_path}/processing_center/staged/"
+        f"{job_id}/native/{filename}"
+    )
+    legacy_staged_path = (
+        f"{base_path}/processing_center/staged/"
+        f"{job_id}/structured/native/{filename}"
+    )
+
+    recorded_path = str(
+        row.get("native_staged_blob_path") or ""
+    ).strip()
+
+    if recorded_path and recorded_path not in {
+        standard_staged_path,
+        legacy_staged_path,
+    }:
+        raise JsonPromotionNotEligible(
+            "Staged JSON path does not match the source job."
+        )
+
+    staged_native_path = recorded_path or standard_staged_path
+
     return {
         "doc_id": doc_id,
         "source_job_id": job_id,
         "extension": extension,
-        "staged_native_path": (
-            f"{base_path}/processing_center/staged/"
-            f"{job_id}/structured/native/{filename}"
-        ),
+        "staged_native_path": staged_native_path,
         "final_native_path": (
             f"{base_path}/source/native/{filename}"
         ),

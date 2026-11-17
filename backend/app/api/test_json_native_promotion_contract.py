@@ -37,7 +37,7 @@ class JsonNativePromotionContractTests(unittest.TestCase):
         self.assertEqual(
             result["staged_native_path"],
             BASE + "/processing_center/staged/"
-            "JOB-JSON-1/structured/native/INSYT000000001.json",
+            "JOB-JSON-1/native/INSYT000000001.json",
         )
         self.assertEqual(
             result["final_native_path"],
