@@ -14,6 +14,7 @@ export type JsonSlackDataset = {
 
 
 type JsonSlackPaneProps = {
+  fileCount?: number;
   recordCount?: number;
   packageCount?: number;
 
@@ -54,6 +55,7 @@ function formatCount(
 
 
 export default function JsonSlackPane({
+  fileCount = 0,
   recordCount = 0,
   packageCount = 0,
 
@@ -71,10 +73,7 @@ export default function JsonSlackPane({
   onOpenDocument,
 }: JsonSlackPaneProps) {
 
-  const comingSoon =
-    recordCount === 0 &&
-    packageCount === 0 &&
-    datasets.length === 0;
+  const comingSoon = false;
 
 
   const selectedCount =
@@ -92,6 +91,7 @@ export default function JsonSlackPane({
     <StructuredIntakePaneShell
       title="JSON — Slack"
       subtitle="Slack exports preserved by workspace, channel, thread, message, user, and source relationship."
+      fileCount={fileCount}
       recordCount={recordCount}
       packageCount={packageCount}
       groupLabel="Channels"

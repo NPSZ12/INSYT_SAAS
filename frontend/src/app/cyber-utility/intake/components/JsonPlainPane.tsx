@@ -12,6 +12,7 @@ export type JsonPlainDataset = {
 
 
 type JsonPlainPaneProps = {
+  fileCount?: number;
   recordCount?: number;
   packageCount?: number;
 
@@ -50,6 +51,7 @@ function formatCount(
 
 
 export default function JsonPlainPane({
+  fileCount = 0,
   recordCount = 0,
   packageCount = 0,
 
@@ -66,10 +68,7 @@ export default function JsonPlainPane({
   onOpenDocument,
 }: JsonPlainPaneProps) {
 
-  const comingSoon =
-    recordCount === 0 &&
-    packageCount === 0 &&
-    datasets.length === 0;
+  const comingSoon = false;
 
 
   const selectedCount =
@@ -87,6 +86,7 @@ export default function JsonPlainPane({
     <StructuredIntakePaneShell
       title="JSON — Plain"
       subtitle="Generic JSON arrays, objects, nested records, JSONL, and other structured JSON datasets."
+      fileCount={fileCount}
       recordCount={recordCount}
       packageCount={packageCount}
       groupLabel="Datasets"

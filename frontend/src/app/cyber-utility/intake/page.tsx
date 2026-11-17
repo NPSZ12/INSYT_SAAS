@@ -257,7 +257,7 @@ function Cyber2IntakeContent() {
   const [
     intakeExpanded,
     setIntakeExpanded,
-  ] = useState(true);
+  ] = useState(false);
 
   async function loadIntake() {
     if (!client || !project) {
@@ -1848,55 +1848,39 @@ function Cyber2IntakeContent() {
 
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
 
-            <button
-              type="button"
-              onClick={() =>
-                setIntakeExpanded(
-                  (current) => !current
-                )
-              }
-              className="flex items-center gap-3 text-left"
-            >
-              <div>
+            <div>
+              <div className="flex flex-wrap items-center gap-4">
                 <div className="text-sm font-semibold text-white">
                   CSV Intake Inventory
                 </div>
-
-                <div className="mt-1 text-xs text-slate-500">
-                  Filter and select promoted CSVs for downstream Header & Schema Mapping.
-                </div>
+                <span className="text-xs text-slate-300">
+                  Total Files: {documents.length}
+                </span>
               </div>
+              <div className="mt-1 text-xs text-slate-500">
+                Filter and select promoted CSVs for downstream Header & Schema Mapping.
+              </div>
+            </div>
 
-              <span className="text-sm text-slate-400">
-                {intakeExpanded
-                  ? "Collapse ▲"
-                  : "Expand ▼"}
-              </span>
-            </button>
-
-            <div className="text-sm text-slate-300">
-              Ready:{" "}
-              <span className="font-semibold text-sky-400">
-                {availableDocuments.length}
-              </span>
-
-              {" • "}
-
-              Assigned:{" "}
-              <span className="font-semibold text-violet-300">
-                {sentToHeaderDocuments.length}
-              </span>
-
-              {" • "}
-
-              Selected:{" "}
-              <span className="font-semibold text-sky-400">
-                {selectedCount}
-              </span>
+            <div className="flex items-center gap-5">
+              <div className="text-xs text-slate-300">
+                Ready: {availableDocuments.length}
+                {" | "}
+                Assigned: {sentToHeaderDocuments.length}
+                {" | "}
+                Selected: {selectedCount}
+              </div>
+              <button
+                type="button"
+                aria-expanded={intakeExpanded}
+                onClick={() => setIntakeExpanded((current) => !current)}
+                className="text-sm text-slate-300 hover:text-white"
+              >
+                {intakeExpanded ? "Collapse" : "Expand"}
+              </button>
             </div>
 
           </div>
-
 
           {intakeExpanded ? (
 
@@ -2397,6 +2381,7 @@ function Cyber2IntakeContent() {
         <div className="mb-6 space-y-4">
 
           <JsonPlainPane
+            fileCount={jsonPlainDocuments.length}
             recordCount={jsonRecordCount(
               jsonPlainDocuments
             )}
@@ -2441,6 +2426,7 @@ function Cyber2IntakeContent() {
             )}
 
           <JsonSlackPane
+            fileCount={jsonSlackDocuments.length}
             recordCount={jsonRecordCount(
               jsonSlackDocuments
             )}
@@ -2476,6 +2462,7 @@ function Cyber2IntakeContent() {
 
 
           <JsonSalesforcePane
+            fileCount={jsonSalesforceDocuments.length}
             recordCount={jsonRecordCount(
               jsonSalesforceDocuments
             )}
@@ -2486,6 +2473,7 @@ function Cyber2IntakeContent() {
 
 
           <JsonTeamsPane
+            fileCount={jsonTeamsDocuments.length}
             recordCount={jsonRecordCount(
               jsonTeamsDocuments
             )}
@@ -2496,6 +2484,7 @@ function Cyber2IntakeContent() {
 
 
           <JsonGooglePane
+            fileCount={jsonGoogleDocuments.length}
             recordCount={jsonRecordCount(
               jsonGoogleDocuments
             )}
@@ -2506,6 +2495,7 @@ function Cyber2IntakeContent() {
 
 
           <JsonCustomApiPane
+            fileCount={jsonCustomApiDocuments.length}
             recordCount={jsonRecordCount(
               jsonCustomApiDocuments
             )}

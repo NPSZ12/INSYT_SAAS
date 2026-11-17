@@ -88,6 +88,7 @@ export default function AIExtractionsPane({
     <StructuredIntakePaneShell
       title="AI-Extractions"
       subtitle="AI-grouped entities generated from existing Processing Sets and Data Element Detection results."
+      fileCount={datasets.length}
       recordCount={entityCount}
       packageCount={datasets.length}
       groupLabel="Processing Sets"

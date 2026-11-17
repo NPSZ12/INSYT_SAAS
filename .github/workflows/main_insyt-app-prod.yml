@@ -25,6 +25,11 @@ jobs:
           NEXT_PUBLIC_API_BASE_URL: https://api.insyt360.com
         run: npm run build
 
+      - name: Place generated standalone server at deployment root
+        run: |
+          test -f frontend/.next/standalone/server.js
+          cp frontend/.next/standalone/server.js frontend/server.js
+
       - name: Deploy Frontend to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
