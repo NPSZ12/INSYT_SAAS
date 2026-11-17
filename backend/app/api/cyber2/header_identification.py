@@ -741,7 +741,6 @@ def identify_cyber2_header_set(
                 client=client,
                 project=project,
                 doc_id=doc_id,
-                ai_suggestions=ai_suggestions,
                 admin=admin,
             )
 
@@ -760,6 +759,102 @@ def identify_cyber2_header_set(
                 document,
                 preview["header_review"],
             )
+
+            # AI applies only after verified native JSON discovery.
+            # Preserve native source and defer CSV creation.
+            if ai_suggestions:
+                approved_headers = [
+                    str(header).strip()
+                    for header in (
+                        preview["header_review"].get("protocol_headers")
+                        or []
+                    )
+                    if str(header).strip()
+                ]
+                approved_lookup = {
+                    header.casefold(): header
+                    for header in approved_headers
+                }
+
+                for column in identified["columns"]:
+                    source_header = str(
+                        column.get("source_header") or ""
+                    ).strip()
+
+                    if source_header.upper().startswith("INSYT_"):
+                        continue
+
+                    recommended = str(
+                        column.get("recommended_protocol_header") or ""
+                    ).strip()
+
+                    matched = bool(
+                        column.get("matched")
+                        and recommended.casefold() in approved_lookup
+                    )
+                    confidence = 1.0 if matched else 0.0
+
+                    if not should_invoke_ai(
+                        mapping_confidence=confidence,
+                        matched=matched,
+                    ):
+                        continue
+
+                    ai_result = resolve_header_with_ai(
+                        source_header=source_header,
+                        sample_values=[
+                            str(value)
+                            for value in (
+                                column.get("sample_values") or []
+                            )
+                        ],
+                        semantic_type=str(
+                            column.get("semantic_type") or ""
+                        ),
+                        deterministic_recommendation=(
+                            recommended if matched else ""
+                        ),
+                        deterministic_confidence=confidence,
+                        protocol_headers=approved_headers,
+                    )
+
+                    column.update(ai_result)
+
+                    candidate = str(
+                        ai_result.get("ai_recommendation") or ""
+                    ).strip()
+
+                    try:
+                        ai_confidence = float(
+                            ai_result.get("ai_confidence")
+                        )
+                    except (TypeError, ValueError):
+                        ai_confidence = 0.0
+
+                    if (
+                        ai_result.get("ai_invoked") is True
+                        and candidate.casefold() in approved_lookup
+                        and 0.70 <= ai_confidence <= 1.0
+                    ):
+                        column["recommended_protocol_header"] = (
+                            approved_lookup[candidate.casefold()]
+                        )
+                        column["mapping_confidence"] = ai_confidence
+                        column["matched"] = True
+                        column["match_method"] = "ai_assisted"
+
+                identified["matched_column_count"] = sum(
+                    bool(c.get("matched"))
+                    for c in identified["columns"]
+                )
+                identified["unmatched_column_count"] = (
+                    len(identified["columns"])
+                    - identified["matched_column_count"]
+                )
+                identified["ai_invoked_column_count"] = sum(
+                    bool(c.get("ai_invoked"))
+                    for c in identified["columns"]
+                )
 
             analyzed_documents.append(identified)
             header_count += 1
