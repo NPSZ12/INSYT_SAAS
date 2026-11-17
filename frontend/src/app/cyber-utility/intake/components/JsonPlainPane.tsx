@@ -138,7 +138,7 @@ export default function JsonPlainPane({
             >
               {creatingHeaderSet
                 ? "Creating..."
-                : `Create Header Set${
+                : `Generate AI Suggestions${
                     selectedCount
                       ? ` (${selectedCount})`
                       : ""
