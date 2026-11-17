@@ -1638,7 +1638,7 @@ def identify_cyber2_header_set(
         "message": (
             f"Header Identification "
             f"completed for "
-            f"{completed_count} CSV(s)."
+            "1 HDRSET"
         ),
 
         "workspace": workspace,

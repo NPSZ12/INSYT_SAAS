@@ -121,10 +121,37 @@ def build_json_header_review(
 
         # Only exact approved protocol names get a lexical suggestion.
         # Structural JSON parents are never silently treated as CSV text.
-        exact = (
-            approved.get(_normalized_header(source_path))
-            if kind == "scalar" else None
-        )
+        exact = None
+        match_method = "needs_ai_review"
+
+        if kind == "scalar":
+            # Match the full path first, then the final JSON field.
+            # Keep source_path and json_pointer unchanged.
+            full_key = _normalized_header(source_path)
+            leaf = source_path.rsplit(".", 1)[-1]
+            leaf_key = _normalized_header(leaf)
+
+            candidate_keys = {full_key, leaf_key}
+
+            # Common unambiguous abbreviation.
+            if leaf_key == "ssn":
+                candidate_keys.add("social security number")
+
+            matches = {
+                approved[key]
+                for key in candidate_keys
+                if key in approved
+            }
+
+            # Never arbitrarily select between protocol headers.
+            if len(matches) == 1:
+                exact = next(iter(matches))
+                if approved.get(full_key) == exact:
+                    match_method = "protocol_exact"
+                elif approved.get(leaf_key) == exact:
+                    match_method = "protocol_leaf"
+                else:
+                    match_method = "protocol_alias"
 
         rows.append({
             "column_index": index,
@@ -150,7 +177,7 @@ def build_json_header_review(
             ),
             "recommended_protocol_header": exact,
             "match_method": (
-                "protocol_exact" if exact else "needs_ai_review"
+                match_method
             ),
             "mapping_confidence": None,
             "ai_confidence": None,
