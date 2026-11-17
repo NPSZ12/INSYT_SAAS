@@ -119,5 +119,106 @@ class JsonHeaderReviewContractTests(unittest.TestCase):
             build_json_header_review(data, ["A"])
 
 
+
+
+class JsonHeaderAiIntegrationTests(unittest.TestCase):
+
+    def test_ai_suggestions_are_protocol_bound_and_unapproved(self):
+        result = review(
+            [{"employee": {
+                "first_name": "Taylor",
+                "email": "taylor.morgan@example.com",
+                "ssn": "123-45-6789",
+            }}],
+            ["First Name", "Email Address", "Social Security Number"],
+        )
+
+        from json_header_review_contract import (
+            enrich_json_header_review_with_ai,
+        )
+
+        captured = []
+
+        def fake_ai(**kwargs):
+            captured.append(kwargs)
+            name = kwargs["source_header"].replace("/", ".").rsplit(".", 1)[-1]
+            recommendations = {
+                "first_name": "First Name",
+                "email": "Email Address",
+                "ssn": "Social Security Number",
+            }
+            return {
+                "ai_invoked": True,
+                "ai_status": "completed",
+                "ai_recommendation": recommendations.get(name, ""),
+                "ai_confidence": 0.92,
+                "ai_reason": "Matches approved protocol meaning.",
+            }
+
+        mapped = enrich_json_header_review_with_ai(
+            result, ai_resolver=fake_ai
+        )
+
+        self.assertTrue(mapped["ai_invoked"])
+        self.assertFalse(mapped["mapping_approved"])
+        self.assertFalse(mapped["csv_generated"])
+        self.assertEqual(len(captured), 3)
+
+        transmitted = str(captured)
+        self.assertNotIn("Taylor", transmitted)
+        self.assertNotIn("123-45-6789", transmitted)
+        self.assertNotIn("taylor.morgan@example.com", transmitted)
+
+        suggestions = {
+            col["json_pointer"]: col["recommended_protocol_header"]
+            for col in mapped["columns"]
+            if col["json_kind"] == "scalar"
+        }
+        self.assertEqual(
+            suggestions["/employee/first_name"], "First Name"
+        )
+        self.assertEqual(
+            suggestions["/employee/email"], "Email Address"
+        )
+        self.assertEqual(
+            suggestions["/employee/ssn"], "Social Security Number"
+        )
+
+    def test_ai_cannot_invent_protocol_headers(self):
+        from json_header_review_contract import (
+            enrich_json_header_review_with_ai,
+        )
+
+        result = review(
+            [{"unmapped_field": "Example"}],
+            ["Approved Header"],
+        )
+
+        mapped = enrich_json_header_review_with_ai(
+            result,
+            ai_resolver=lambda **kwargs: {
+                "ai_invoked": True,
+                "ai_status": "completed",
+                "ai_recommendation": "Unauthorized Header",
+                "ai_confidence": 0.99,
+                "ai_reason": "Rejected",
+            },
+        )
+
+        col = mapped["columns"][0]
+        self.assertFalse(col["recommended_protocol_header"])
+        self.assertFalse(col["approved"])
+        self.assertFalse(mapped["csv_generated"])
+
+    def test_normal_json_preview_never_invokes_ai(self):
+        result = review(
+            [{"first_name": "Taylor"}],
+            ["First Name"],
+        )
+        self.assertFalse(result["ai_invoked"])
+        self.assertFalse(result["mapping_approved"])
+        self.assertFalse(result["csv_generated"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -13488,6 +13488,7 @@ def preview_cyber2_json_native(
     client: str = Query(...),
     project: str = Query(...),
     doc_id: str = Query(...),
+    ai_suggestions: bool = Query(False),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     """Authorized, read-only preview of registered native JSON."""
@@ -13699,6 +13700,29 @@ def preview_cyber2_json_native(
             evidence,
             list(library.keys()),
         )
+
+        if ai_suggestions:
+            from app.services.ai.header_resolver import (
+                ai_header_resolution_enabled,
+                resolve_header_with_ai,
+            )
+            from app.api.cyber2.json_header_review_contract import (
+                enrich_json_header_review_with_ai,
+            )
+
+            if not ai_header_resolution_enabled():
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "AI Header Resolution is disabled. "
+                        "Existing non-AI JSON mapping remains available."
+                    ),
+                )
+
+            header_review = enrich_json_header_review_with_ai(
+                header_review,
+                ai_resolver=resolve_header_with_ai,
+            )
     except (JsonEvidenceError, JsonHeaderReviewError) as exc:
         raise HTTPException(
             status_code=422,

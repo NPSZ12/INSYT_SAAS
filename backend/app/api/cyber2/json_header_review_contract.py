@@ -175,3 +175,125 @@ def build_json_header_review(
         "mapping_approved": False,
         "csv_generated": False,
     }
+
+def _redacted_ai_sample(value):
+    """Provide semantic evidence without transmitting source PII."""
+    import re
+
+    text = str(value or "").strip()
+
+    if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text):
+        return "<EMAIL>"
+
+    if re.fullmatch(r"\d{3}-\d{2}-\d{4}", text):
+        return "<SSN>"
+
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return "<DATE>"
+
+    if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", text):
+        return "<NUMBER>"
+
+    return "<REDACTED_TEXT>"
+
+
+def enrich_json_header_review_with_ai(
+    review,
+    *,
+    ai_resolver,
+    max_fields=50,
+):
+    """Attach protocol-bound AI suggestions; never approve or save."""
+    if not isinstance(review, dict):
+        raise JsonHeaderReviewError("Invalid JSON header review.")
+
+    columns = review.get("columns")
+    protocol = review.get("protocol_headers")
+
+    if not isinstance(columns, list) or not isinstance(protocol, list):
+        raise JsonHeaderReviewError("Invalid JSON mapping evidence.")
+
+    if len(columns) > max_fields:
+        raise JsonHeaderReviewError(
+            "Too many JSON fields for one bounded AI suggestion request."
+        )
+
+    approved = set(protocol)
+    invoked = 0
+
+    for column in columns:
+        if column.get("json_kind") != "scalar":
+            continue
+
+        # Exact protocol matches already have a deterministic suggestion.
+        if column.get("recommended_protocol_header"):
+            continue
+
+        samples = [
+            _redacted_ai_sample(value)
+            for value in (column.get("sample_values") or [])[:3]
+        ]
+
+        semantic_type = ""
+        if "<EMAIL>" in samples:
+            semantic_type = "email"
+        elif "<SSN>" in samples:
+            semantic_type = "ssn"
+        elif "<DATE>" in samples:
+            semantic_type = "date"
+
+        result = ai_resolver(
+            source_header=str(
+                column.get("source_header") or ""
+            ),
+            sample_values=samples,
+            semantic_type=semantic_type,
+            deterministic_recommendation="",
+            deterministic_confidence=0.0,
+            protocol_headers=list(protocol),
+        )
+
+        invoked += 1
+
+        recommendation = str(
+            result.get("ai_recommendation") or ""
+        ).strip()
+
+        confidence = result.get("ai_confidence")
+        status = str(result.get("ai_status") or "")
+
+        # The protocol remains authoritative, even if the AI
+        # provider returned an unexpected recommendation.
+        if recommendation not in approved:
+            recommendation = ""
+
+        column["ai_invoked"] = bool(
+            result.get("ai_invoked")
+        )
+        column["ai_status"] = status
+        column["ai_recommendation"] = recommendation
+        column["ai_confidence"] = confidence
+        column["ai_reason"] = str(
+            result.get("ai_reason") or ""
+        )
+
+        if (
+            status == "completed"
+            and recommendation
+            and isinstance(confidence, (float, int))
+            and not isinstance(confidence, bool)
+            and 0.70 <= confidence <= 1.0
+        ):
+            column["recommended_protocol_header"] = recommendation
+            column["mapping_confidence"] = float(confidence)
+            column["match_method"] = "ai_assisted"
+
+        # Every field remains unapproved, regardless of confidence.
+        column["approved"] = False
+
+    review["ai_invoked"] = invoked > 0
+    review["ai_suggestion_fields_evaluated"] = invoked
+    review["mapping_approved"] = False
+    review["csv_generated"] = False
+
+    return review

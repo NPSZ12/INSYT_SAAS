@@ -26,6 +26,7 @@ type NativeJsonResult = {
   fields: NativeJsonField[];
   preview: NativeJsonRow[];
   csv_generated: false;
+  header_review?: JsonHeaderReviewContract;
 };
 
 type MappingColumn = {
@@ -83,6 +84,12 @@ export default function NativeJsonPreview({
   const [mapping, setMapping] = useState<MappingResult | null>(null);
   const [mappingError, setMappingError] = useState("");
   const [validating, setValidating] = useState(false);
+  const [aiSuggestionLoading, setAiSuggestionLoading] =
+    useState(false);
+  const [aiSuggestionError, setAiSuggestionError] =
+    useState("");
+  const [aiSuggestionsLoaded, setAiSuggestionsLoaded] =
+    useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +100,10 @@ export default function NativeJsonPreview({
     setHeaders({});
     setMapping(null);
     setMappingError("");
+
+    setAiSuggestionError("");
+    setAiSuggestionLoading(false);
+    setAiSuggestionsLoaded(false);
 
     const params = new URLSearchParams({
       client,
@@ -118,6 +129,58 @@ export default function NativeJsonPreview({
 
     return () => { cancelled = true; };
   }, [workspace, client, project, docId]);
+
+
+  async function generateAiSuggestions() {
+    if (!result || aiSuggestionLoading || aiSuggestionsLoaded) {
+      return;
+    }
+
+    setAiSuggestionError("");
+    setAiSuggestionLoading(true);
+
+    try {
+      const params = new URLSearchParams({
+        client,
+        project,
+        doc_id: docId,
+        ai_suggestions: "true",
+      });
+
+      const response = await apiGet(
+        `/api/${encodeURIComponent(workspace)}/cyber2/intake/json-native-preview?${params.toString()}`
+      ) as NativeJsonResult;
+
+      if (
+        response.doc_id !== docId ||
+        response.sha256 !== result.sha256 ||
+        response.source_sha256_verified !== true ||
+        !response.header_review ||
+        response.header_review.source_sha256 !== result.sha256 ||
+        response.header_review.mapping_approved ||
+        response.header_review.csv_generated ||
+        response.csv_generated
+      ) {
+        throw new Error(
+          "AI suggestions failed JSON source or mapping verification."
+        );
+      }
+
+      // Preserve the same native source and existing preview.
+      // No approval or CSV operation is performed here.
+      setResult(response);
+      setAiSuggestionsLoaded(true);
+
+    } catch (reason: unknown) {
+      setAiSuggestionError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to generate AI header suggestions."
+      );
+    } finally {
+      setAiSuggestionLoading(false);
+    }
+  }
 
   function toggleField(path: string) {
     setSelectedFields((current) =>
@@ -401,14 +464,56 @@ export default function NativeJsonPreview({
               )}
             </section>
 
+            <section className="rounded-xl border border-slate-700 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold">
+                    AI-Assisted Protocol Header Suggestions
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Compare JSON field paths and redacted sample evidence
+                    with the existing client-approved protocol.
+                    Reviewer approval is still required.
+                    No CSV is generated.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={generateAiSuggestions}
+                  disabled={
+                    aiSuggestionLoading ||
+                    aiSuggestionsLoaded ||
+                    !result.header_review
+                  }
+                  className="rounded-lg border border-violet-500 bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {aiSuggestionLoading
+                    ? "Generating AI Suggestions..."
+                    : aiSuggestionsLoaded
+                      ? "AI Suggestions Loaded"
+                      : "Generate AI Suggestions"}
+                </button>
+              </div>
+
+              {aiSuggestionError && (
+                <p role="alert" className="mt-3 text-sm text-rose-300">
+                  {aiSuggestionError}
+                </p>
+              )}
+
+              {aiSuggestionsLoaded && (
+                <p role="status" className="mt-3 text-sm text-emerald-300">
+                  Suggestions received. Review each field below.
+                  No mapping has been approved or saved.
+                </p>
+              )}
+            </section>
+
             <JsonHeaderReviewPanel
-              key={`${docId}:${result.sha256}`}
+              key={`${docId}:${result.sha256}:${aiSuggestionsLoaded ? "ai" : "baseline"}`}
               docId={docId}
-              review={
-                (result as typeof result & {
-                  header_review?: JsonHeaderReviewContract;
-                }).header_review
-              }
+              review={result.header_review}
             />
 
             <section className="rounded-lg border border-slate-700 p-4">
