@@ -578,7 +578,7 @@ def _exercise_identification_source(
     def preview(**kwargs):
         assert kwargs["doc_id"] == doc_id
         assert kwargs["workspace"] == "capture"
-        assert kwargs["ai_suggestions"] is ai
+        assert "ai_suggestions" not in kwargs
         assert kwargs["admin"] is admin
         events.append("verified_json_preview")
         raise ReaderReached()
@@ -1217,7 +1217,7 @@ def test_runtime_json_identification_persists_and_groups(
         doc_id = kwargs["doc_id"]
 
         assert doc_id in doc_ids
-        assert kwargs["ai_suggestions"] is ai_enabled
+        assert "ai_suggestions" not in kwargs
         assert kwargs["workspace"] == "capture"
 
         preview_calls.append(doc_id)
@@ -1234,8 +1234,8 @@ def test_runtime_json_identification_persists_and_groups(
                 "source_header": "employee.first_name",
                 "sample_values": ["SYNTHETIC"],
                 "recommended_protocol_header": "First Name",
-                "ai_invoked": ai_enabled,
-                "ai_confidence": 0.91 if ai_enabled else None,
+                "ai_invoked": False,
+                "ai_confidence": None,
                 "ai_review_required": True,
             },
         ]
@@ -1249,7 +1249,7 @@ def test_runtime_json_identification_persists_and_groups(
                 "recommended_protocol_header": (
                     "Social Security Number"
                 ),
-                "ai_invoked": ai_enabled,
+                "ai_invoked": False,
                 "ai_review_required": True,
             })
 
@@ -1257,6 +1257,9 @@ def test_runtime_json_identification_persists_and_groups(
             "doc_id": doc_id,
             "source_sha256_verified": True,
             "header_review": {
+                "protocol_headers": [
+                    "First Name", "Social Security Number"
+                ],
                 "source_sha256": "a" * 64,
                 "record_count": 2,
                 "mapping_approved": False,
@@ -1292,6 +1295,32 @@ def test_runtime_json_identification_persists_and_groups(
         "_utc_now": lambda: "2026-11-17T00:00:00Z",
         "_write_processing_json_blob": write_blob,
     }
+
+    def fake_should_invoke_ai(**kwargs):
+        assert kwargs["matched"] is True
+        return ai_enabled
+
+    def fake_resolve_header_with_ai(**kwargs):
+        assert ai_enabled
+        assert kwargs["deterministic_recommendation"] in {
+            "First Name", "Social Security Number"
+        }
+        assert set(kwargs["protocol_headers"]) == {
+            "First Name", "Social Security Number"
+        }
+        return {
+            "ai_invoked": True,
+            "ai_status": "completed",
+            "ai_recommendation": kwargs[
+                "deterministic_recommendation"
+            ],
+            "ai_confidence": 0.91,
+        }
+
+    namespace["should_invoke_ai"] = fake_should_invoke_ai
+    namespace["resolve_header_with_ai"] = (
+        fake_resolve_header_with_ai
+    )
 
     exec(
         compile(module, "<json-identification-complete>", "exec"),
@@ -1338,6 +1367,13 @@ def test_runtime_json_identification_persists_and_groups(
         assert document["source_kind"] == "native_json"
         assert document["source_sha256"] == "a" * 64
         assert document["source_csv_path"] == ""
+        assert document["ai_invoked_column_count"] == (
+            len(document["columns"]) if ai_enabled else 0
+        )
+        assert all(
+            bool(c.get("ai_invoked")) is ai_enabled
+            for c in document["columns"]
+        )
         assert document["identification_status"] == "COMPLETED"
         assert document["columns"]
         assert document["structural_fields"]
