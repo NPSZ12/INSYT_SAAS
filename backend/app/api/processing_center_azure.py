@@ -13307,6 +13307,28 @@ def send_processing_center_json_native_to_cyber2(
             )
 
         row = selected[0]
+        # Source profile classification runs only on manual Cyber2 Promotion.
+        # Native bytes have already passed Files SHA-256 verification.
+        from app.services.structured_intake.promotion_profile import (
+            classify_promoted_json,
+        )
+
+        try:
+            promotion_profile = classify_promoted_json(
+                source_bytes=actual_bytes,
+                original_filename=str(
+                    row.get("original_json_filename")
+                    or row.get("original_filename")
+                    or "source.json"
+                ),
+                source_extension=source_native_path.rsplit(".", 1)[-1],
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
+
 
         payload = {
             "schema_version": 1,
@@ -13321,7 +13343,7 @@ def send_processing_center_json_native_to_cyber2(
             "source_type": "json_structured",
             "source_format": row.get("source_format")
                 or row.get("extension"),
-            "source_profile": row.get("source_profile"),
+            "source_profile": promotion_profile,
             "source_family": row.get("source_family"),
             "structured_source": row.get("structured_source") or {},
             "original_filename": row.get("original_filename"),
@@ -13360,6 +13382,7 @@ def send_processing_center_json_native_to_cyber2(
             or saved.get("source_kind") != "native_json"
             or saved.get("source_native_path") != source_native_path
             or saved.get("source_sha256") != result["sha256"]
+            or saved.get("source_profile") != promotion_profile
         ):
             raise HTTPException(
                 status_code=502,

@@ -22,6 +22,8 @@ CONTINUE_EXTENSIONS = {
     ".txt",
     ".csv",
     ".json",
+    ".jsonl",
+    ".ndjson",
     ".xml",
     ".html",
     ".htm",

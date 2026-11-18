@@ -16,7 +16,7 @@ from ..telemetry import StageRunner
 from ..util import json_dumps, utc_now
 
 
-TEXT_EXTENSIONS = {"txt", "csv", "json", "xml", "html", "htm", "md", "log", "rtf"}
+TEXT_EXTENSIONS = {"txt", "csv", "json", "jsonl", "ndjson", "xml", "html", "htm", "md", "log", "rtf"}
 
 DEFAULT_SUMMARIES_STOP_MARKER = "Original Source Medical Records Converted to Text"
 
@@ -190,6 +190,66 @@ def _native_text_signal(
     return 0, 0, "not_applicable", "unsupported_native_text_lite", False, {}
 
 
+def _write_native_json_detection_text(path: Path, doc_id: str) -> str:
+    """Create a detection-only UTF-8 companion; preserve original JSON."""
+    import os
+    import re
+    import tempfile
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", str(doc_id or "")):
+        raise ValueError("Missing or invalid assigned Doc ID.")
+
+    original = path.read_bytes()
+
+    if not original:
+        raise ValueError("Native JSON is empty.")
+
+    # Validate UTF-8 without changing bytes or character positions.
+    original.decode("utf-8", errors="strict")
+
+    destination = path.parent.parent / "text" / f"{doc_id}.txt"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    if destination.exists():
+        if destination.is_file() and destination.read_bytes() == original:
+            return str(destination)
+        raise FileExistsError(
+            "Existing detection text differs from native JSON."
+        )
+
+    temporary = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=destination.parent,
+            prefix=f".{doc_id}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(original)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+        # Atomic create-only publication on the same filesystem.
+        # Never silently replace an existing companion.
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            if destination.read_bytes() != original:
+                raise
+
+        if destination.read_bytes() != original:
+            raise IOError("Detection companion verification failed.")
+
+        return str(destination)
+
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def run_text_extraction(
     db: LedgerDB,
     settings: Settings,
@@ -336,6 +396,11 @@ def run_text_extraction(
                         ext,
                         workspace=workspace,
                     )
+                if ext.lower().lstrip(".") in {"json", "jsonl", "ndjson"}:
+                    _write_native_json_detection_text(
+                        path, str(row["doc_id"] or "")
+                    )
+
                 has_text = 1 if text_bytes >= settings.ocr_low_text_bytes_threshold else 0
                 if has_text:
                     text_docs += 1

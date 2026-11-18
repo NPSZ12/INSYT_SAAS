@@ -436,7 +436,7 @@ function Cyber2IntakeContent() {
 
 
   const jsonPlainDatasets =
-    jsonPlainAvailableDocuments.map(
+    jsonPlainDocuments.map(
       (doc) => ({
         docId:
           doc.doc_id,
@@ -458,6 +458,11 @@ function Cyber2IntakeContent() {
             )
           ),
 
+        classification: doc.classification || "",
+        entityTypes: doc.entity_types || [],
+        headerSetId: String(doc.header_set_id || "").trim(),
+        sourcePath: doc.source_native_path || "",
+        sourceFormat: doc.source_format || doc.source_kind || "",
         secondaryLabel:
           doc.json_package_id
             ? `Package: ${doc.json_package_id}`
@@ -484,7 +489,7 @@ function Cyber2IntakeContent() {
 
 
   const jsonSlackDatasets =
-    jsonSlackAvailableDocuments.map(
+    jsonSlackDocuments.map(
       (doc) => ({
         docId:
           doc.doc_id,
@@ -506,6 +511,11 @@ function Cyber2IntakeContent() {
             )
           ),
 
+        classification: doc.classification || "",
+        entityTypes: doc.entity_types || [],
+        headerSetId: String(doc.header_set_id || "").trim(),
+        sourcePath: doc.source_native_path || doc.source_csv_path || "",
+        sourceFormat: doc.source_format || doc.source_kind || "",
         secondaryLabel:
           doc.json_package_id
             ? `Package: ${doc.json_package_id}`
@@ -608,6 +618,8 @@ function Cyber2IntakeContent() {
             doc.original_filename ||
             ""
           ).trim(),
+
+        headerSetId: String(doc.header_set_id || "").trim(),
 
         assigned:
           Boolean(
@@ -1117,7 +1129,8 @@ function Cyber2IntakeContent() {
   }
 
 
-  function selectAllJsonPlain() {
+  function selectAllJsonPlain(docIds: string[]) {
+    const allowed = new Set(docIds);
     setJsonPlainSelectedDocIds(
       (current) => {
         const next = {
@@ -1128,9 +1141,9 @@ function Cyber2IntakeContent() {
           const doc
           of jsonPlainAvailableDocuments
         ) {
-          next[
-            doc.doc_id
-          ] = true;
+          if (allowed.has(doc.doc_id)) {
+            next[doc.doc_id] = true;
+          }
         }
 
         return next;
@@ -1158,7 +1171,8 @@ function Cyber2IntakeContent() {
   }
 
 
-  function selectAllJsonSlack() {
+  function selectAllJsonSlack(docIds: string[]) {
+    const allowed = new Set(docIds);
     setJsonSlackSelectedDocIds(
       (current) => {
         const next = {
@@ -1169,9 +1183,9 @@ function Cyber2IntakeContent() {
           const doc
           of jsonSlackAvailableDocuments
         ) {
-          next[
-            doc.doc_id
-          ] = true;
+          if (allowed.has(doc.doc_id)) {
+            next[doc.doc_id] = true;
+          }
         }
 
         return next;
@@ -1198,7 +1212,8 @@ function Cyber2IntakeContent() {
     );
   }
 
-  function selectAllAiExtractions() {
+  function selectAllAiExtractions(docIds: string[]) {
+    const allowed = new Set(docIds);
     setAiExtractionSelectedDocIds(
       (current) => {
         const next = {
@@ -1209,9 +1224,9 @@ function Cyber2IntakeContent() {
           const doc
           of aiExtractionAvailableDocuments
         ) {
-          next[
-            doc.doc_id
-          ] = true;
+          if (allowed.has(doc.doc_id)) {
+            next[doc.doc_id] = true;
+          }
         }
 
         return next;
@@ -1492,28 +1507,205 @@ function Cyber2IntakeContent() {
   }
 
 
-  async function createJsonSlackHeaderSet() {
+  async function createNativeProfileHeaderSet(
+    profile: string,
+    selectedDocIds: string[]
+  ): Promise<void> {
+    const ids = new Set(selectedDocIds);
 
-    const selectedDocuments =
-      jsonSlackAvailableDocuments.filter(
+    const selected = jsonDocuments.filter(
+      (doc) =>
+        jsonProfile(doc) === profile &&
+        ids.has(doc.doc_id) &&
+        !String(doc.header_set_id || "").trim()
+    );
+
+    if (!ids.size || selected.length !== ids.size) {
+      setError("Select unassigned documents in this pane only.");
+      return;
+    }
+
+    if (
+      selected.some(
         (doc) =>
-          Boolean(
-            jsonSlackSelectedDocIds[
-              doc.doc_id
-            ]
-          )
+          doc.source_kind !== "native_json" ||
+          !String(doc.source_native_path || "").trim()
+      )
+    ) {
+      setError(
+        "Header Mapping requires staged native JSON. " +
+        "No CSV conversion occurs during intake."
       );
+      return;
+    }
 
+    if (workspace !== "capture" && workspace !== "discovery") {
+      setError("Header Mapping requires Capture or Discovery.");
+      return;
+    }
 
-    await createHeaderSetFromDocuments(
-      selectedDocuments,
-      "Select at least one Slack-derived CSV."
+    setCreatingHeaderSet(true);
+    setError("");
+    setHeaderSetMessage("");
+
+    let createdId = "";
+
+    try {
+      const docIds = selected.map((doc) => doc.doc_id);
+
+      const created = await apiPost(
+        `/api/${encodeURIComponent(workspace)}/cyber2/header-sets`,
+        {
+          client,
+          project,
+          doc_ids: docIds,
+          requested_by: "",
+        }
+      ) as { header_set_id?: string; status?: string };
+
+      createdId = String(created?.header_set_id || "").trim();
+
+      if (
+        created?.status !== "created" ||
+        !createdId.startsWith("HDRSET-")
+      ) {
+        throw new Error("Header Set creation returned an invalid result.");
+      }
+
+      const identifyParams = new URLSearchParams({
+        client,
+        project,
+        ai_suggestions: "true",
+      });
+
+      const identified = await apiPost(
+        `/api/${encodeURIComponent(workspace)}/cyber2/header-sets/${encodeURIComponent(createdId)}/identify?${identifyParams.toString()}`,
+        {}
+      ) as { status?: string };
+
+      if (identified?.status !== "completed") {
+        throw new Error("Header Identification did not complete.");
+      }
+
+      const detailParams = new URLSearchParams({
+        client,
+        project,
+      });
+
+      const detail = await apiGet(
+        `/api/${encodeURIComponent(workspace)}/cyber2/header-sets/${encodeURIComponent(createdId)}?${detailParams.toString()}`
+      ) as {
+        identification_exists?: boolean;
+        identification?: {
+          status?: string;
+          documents?: Array<{
+            doc_id?: string;
+            source_kind?: string;
+            identification_status?: string;
+            source_sha256?: string;
+          }>;
+        };
+      };
+
+      const verified = detail?.identification?.documents;
+
+      if (
+        detail?.identification_exists !== true ||
+        detail.identification?.status !== "completed" ||
+        !Array.isArray(verified) ||
+        verified.length !== docIds.length ||
+        verified.some(
+          (doc) =>
+            !docIds.includes(String(doc.doc_id || "")) ||
+            doc.source_kind !== "native_json" ||
+            doc.identification_status !== "COMPLETED" ||
+            !/^[0-9a-f]{64}$/i.test(
+              String(doc.source_sha256 || "")
+            )
+        ) ||
+        new Set(verified.map((doc) => doc.doc_id)).size !== docIds.length
+      ) {
+        throw new Error("Saved JSON identification failed verification.");
+      }
+
+      const params = new URLSearchParams({
+        workspace,
+        client,
+        project,
+        header_set: createdId,
+      });
+
+      window.location.assign(
+        `/cyber-utility/schema-mapping/set?${params.toString()}`
+      );
+    } catch (reason: unknown) {
+      const message = reason instanceof Error
+        ? reason.message
+        : "Native JSON Header Set processing failed.";
+
+      if (createdId) {
+        setHeaderSetMessage(
+          `Header Set ${createdId} was created. ` +
+          "Use the existing Header Set to retry. " +
+          "Do not create a duplicate."
+        );
+        await loadIntake();
+      }
+
+      setError(message);
+    } finally {
+      setCreatingHeaderSet(false);
+    }
+  }
+
+  async function createJsonSlackHeaderSet() {
+    const selectedDocuments = jsonSlackAvailableDocuments.filter(
+      (doc) => Boolean(jsonSlackSelectedDocIds[doc.doc_id])
     );
 
+    if (selectedDocuments.length === 0) {
+      setError("Select at least one Slack document.");
+      return;
+    }
 
-    setJsonSlackSelectedDocIds(
-      {}
+    const native = selectedDocuments.filter(
+      (doc) => doc.source_kind === "native_json"
     );
+
+    const legacy = selectedDocuments.filter(
+      (doc) => doc.source_kind !== "native_json"
+    );
+
+    if (native.length > 0 && legacy.length > 0) {
+      setError(
+        "Select either native Slack JSON or legacy Slack-derived CSV, " +
+        "not both in the same Header Set."
+      );
+      return;
+    }
+
+    if (native.length > 0) {
+      await createNativeProfileHeaderSet(
+        "slack",
+        native.map((doc) => doc.doc_id)
+      );
+    } else {
+      if (
+        legacy.some(
+          (doc) => !String(doc.source_csv_path || "").trim()
+        )
+      ) {
+        setError("A selected legacy Slack CSV source path is missing.");
+        return;
+      }
+
+      await createHeaderSetFromDocuments(
+        legacy,
+        "Select at least one Slack-derived CSV."
+      );
+    }
+
+    setJsonSlackSelectedDocIds({});
   }
 
   async function createAiExtractionHeaderSet() {
@@ -1664,6 +1856,35 @@ function Cyber2IntakeContent() {
     );
   }
 
+  function openProfileNativeDocument(
+    docId: string,
+    profile: string
+  ) {
+    const doc = jsonDocuments.find(
+      (item) =>
+        item.doc_id === docId &&
+        jsonProfile(item) === profile
+    );
+
+    if (!doc) {
+      setError("Document is not available in this source pane.");
+      return;
+    }
+
+    if (
+      doc.source_kind !== "native_json" ||
+      !String(doc.source_native_path || "").trim()
+    ) {
+      setError(
+        "This document has no staged native JSON source."
+      );
+      return;
+    }
+
+    setError("");
+    setNativeJsonPreviewDocId(docId);
+  }
+
   function openJsonPlainDocument(docId: string) {
     const doc = jsonPlainDocuments.find(
       (item) => item.doc_id === docId
@@ -1694,6 +1915,14 @@ function Cyber2IntakeContent() {
       );
 
     if (!doc) {
+      return;
+    }
+
+    if (
+      doc.source_kind === "native_json" &&
+      String(doc.source_native_path || "").trim()
+    ) {
+      openProfileNativeDocument(docId, "slack");
       return;
     }
 
@@ -2374,6 +2603,18 @@ function Cyber2IntakeContent() {
             onOpenDocument={
               openAiExtractionDocument
             }
+            onOpenHeaderSet={(headerSetId) => {
+              if (!headerSetId.startsWith("HDRSET-")) return;
+              const params = new URLSearchParams({
+                workspace,
+                client,
+                project,
+                header_set: headerSetId,
+              });
+              router.push(
+                `/cyber-utility/schema-mapping/set?${params.toString()}`
+              );
+            }}
           />
 
         </div>
@@ -2412,6 +2653,18 @@ function Cyber2IntakeContent() {
             onOpenDocument={
               openJsonPlainDocument
             }
+            onOpenHeaderSet={(headerSetId) => {
+              if (!headerSetId.startsWith("HDRSET-")) return;
+              const params = new URLSearchParams({
+                workspace,
+                client,
+                project,
+                header_set: headerSetId,
+              });
+              router.push(
+                `/cyber-utility/schema-mapping/set?${params.toString()}`
+              );
+            }}
           />
 
 
@@ -2458,10 +2711,66 @@ function Cyber2IntakeContent() {
             onOpenDocument={
               openJsonSlackDocument
             }
+            onOpenHeaderSet={(headerSetId) => {
+              if (!headerSetId.startsWith("HDRSET-")) return;
+              const params = new URLSearchParams({
+                workspace,
+                client,
+                project,
+                header_set: headerSetId,
+              });
+              router.push(
+                `/cyber-utility/schema-mapping/set?${params.toString()}`
+              );
+            }}
           />
 
 
           <JsonSalesforcePane
+            onOpenDocument={(docId) =>
+              openProfileNativeDocument(docId, "salesforce")
+            }
+            onCreateHeaderSet={(ids) =>
+              createNativeProfileHeaderSet("salesforce", ids)
+            }
+            onOpenHeaderSet={(headerSetId) => {
+              if (!headerSetId.startsWith("HDRSET-")) return;
+              const params = new URLSearchParams({
+                workspace,
+                client,
+                project,
+                header_set: headerSetId,
+              });
+              router.push(
+                `/cyber-utility/schema-mapping/set?${params.toString()}`
+              );
+            }}
+            files={jsonSalesforceDocuments.map((doc) => ({
+              docId: doc.doc_id,
+              filename: String(
+                doc.original_json_filename ||
+                doc.normalized_source_filename ||
+                doc.original_filename ||
+                doc.doc_id
+              ).trim(),
+              classification: doc.classification,
+              entityTypes: doc.entity_types || [],
+              source: String(
+                doc.original_json_filename ||
+                doc.original_filename ||
+                doc.doc_id
+              ).trim(),
+              sourcePath: doc.source_native_path || doc.source_csv_path || "",
+              headerSetId: String(doc.header_set_id || "").trim(),
+              recordCount: Number(doc.json_record_count || 0),
+              selectable:
+                doc.source_kind === "native_json" &&
+                Boolean(String(doc.source_native_path || "").trim()) &&
+                !Boolean(String(doc.header_set_id || "").trim()),
+              openable:
+                doc.source_kind === "native_json" &&
+                Boolean(String(doc.source_native_path || "").trim()),
+            }))}
             fileCount={jsonSalesforceDocuments.length}
             recordCount={jsonRecordCount(
               jsonSalesforceDocuments
@@ -2473,6 +2782,50 @@ function Cyber2IntakeContent() {
 
 
           <JsonTeamsPane
+            onOpenDocument={(docId) =>
+              openProfileNativeDocument(docId, "teams")
+            }
+            onCreateHeaderSet={(ids) =>
+              createNativeProfileHeaderSet("teams", ids)
+            }
+            onOpenHeaderSet={(headerSetId) => {
+              if (!headerSetId.startsWith("HDRSET-")) return;
+              const params = new URLSearchParams({
+                workspace,
+                client,
+                project,
+                header_set: headerSetId,
+              });
+              router.push(
+                `/cyber-utility/schema-mapping/set?${params.toString()}`
+              );
+            }}
+            files={jsonTeamsDocuments.map((doc) => ({
+              docId: doc.doc_id,
+              filename: String(
+                doc.original_json_filename ||
+                doc.normalized_source_filename ||
+                doc.original_filename ||
+                doc.doc_id
+              ).trim(),
+              classification: doc.classification,
+              entityTypes: doc.entity_types || [],
+              source: String(
+                doc.original_json_filename ||
+                doc.original_filename ||
+                doc.doc_id
+              ).trim(),
+              sourcePath: doc.source_native_path || doc.source_csv_path || "",
+              headerSetId: String(doc.header_set_id || "").trim(),
+              recordCount: Number(doc.json_record_count || 0),
+              selectable:
+                doc.source_kind === "native_json" &&
+                Boolean(String(doc.source_native_path || "").trim()) &&
+                !Boolean(String(doc.header_set_id || "").trim()),
+              openable:
+                doc.source_kind === "native_json" &&
+                Boolean(String(doc.source_native_path || "").trim()),
+            }))}
             fileCount={jsonTeamsDocuments.length}
             recordCount={jsonRecordCount(
               jsonTeamsDocuments
@@ -2484,6 +2837,50 @@ function Cyber2IntakeContent() {
 
 
           <JsonGooglePane
+            onOpenDocument={(docId) =>
+              openProfileNativeDocument(docId, "google")
+            }
+            onCreateHeaderSet={(ids) =>
+              createNativeProfileHeaderSet("google", ids)
+            }
+            onOpenHeaderSet={(headerSetId) => {
+              if (!headerSetId.startsWith("HDRSET-")) return;
+              const params = new URLSearchParams({
+                workspace,
+                client,
+                project,
+                header_set: headerSetId,
+              });
+              router.push(
+                `/cyber-utility/schema-mapping/set?${params.toString()}`
+              );
+            }}
+            files={jsonGoogleDocuments.map((doc) => ({
+              docId: doc.doc_id,
+              filename: String(
+                doc.original_json_filename ||
+                doc.normalized_source_filename ||
+                doc.original_filename ||
+                doc.doc_id
+              ).trim(),
+              classification: doc.classification,
+              entityTypes: doc.entity_types || [],
+              source: String(
+                doc.original_json_filename ||
+                doc.original_filename ||
+                doc.doc_id
+              ).trim(),
+              sourcePath: doc.source_native_path || doc.source_csv_path || "",
+              headerSetId: String(doc.header_set_id || "").trim(),
+              recordCount: Number(doc.json_record_count || 0),
+              selectable:
+                doc.source_kind === "native_json" &&
+                Boolean(String(doc.source_native_path || "").trim()) &&
+                !Boolean(String(doc.header_set_id || "").trim()),
+              openable:
+                doc.source_kind === "native_json" &&
+                Boolean(String(doc.source_native_path || "").trim()),
+            }))}
             fileCount={jsonGoogleDocuments.length}
             recordCount={jsonRecordCount(
               jsonGoogleDocuments
@@ -2495,6 +2892,50 @@ function Cyber2IntakeContent() {
 
 
           <JsonCustomApiPane
+            onOpenDocument={(docId) =>
+              openProfileNativeDocument(docId, "custom_api")
+            }
+            onCreateHeaderSet={(ids) =>
+              createNativeProfileHeaderSet("custom_api", ids)
+            }
+            onOpenHeaderSet={(headerSetId) => {
+              if (!headerSetId.startsWith("HDRSET-")) return;
+              const params = new URLSearchParams({
+                workspace,
+                client,
+                project,
+                header_set: headerSetId,
+              });
+              router.push(
+                `/cyber-utility/schema-mapping/set?${params.toString()}`
+              );
+            }}
+            files={jsonCustomApiDocuments.map((doc) => ({
+              docId: doc.doc_id,
+              filename: String(
+                doc.original_json_filename ||
+                doc.normalized_source_filename ||
+                doc.original_filename ||
+                doc.doc_id
+              ).trim(),
+              classification: doc.classification,
+              entityTypes: doc.entity_types || [],
+              source: String(
+                doc.original_json_filename ||
+                doc.original_filename ||
+                doc.doc_id
+              ).trim(),
+              sourcePath: doc.source_native_path || doc.source_csv_path || "",
+              headerSetId: String(doc.header_set_id || "").trim(),
+              recordCount: Number(doc.json_record_count || 0),
+              selectable:
+                doc.source_kind === "native_json" &&
+                Boolean(String(doc.source_native_path || "").trim()) &&
+                !Boolean(String(doc.header_set_id || "").trim()),
+              openable:
+                doc.source_kind === "native_json" &&
+                Boolean(String(doc.source_native_path || "").trim()),
+            }))}
             fileCount={jsonCustomApiDocuments.length}
             recordCount={jsonRecordCount(
               jsonCustomApiDocuments

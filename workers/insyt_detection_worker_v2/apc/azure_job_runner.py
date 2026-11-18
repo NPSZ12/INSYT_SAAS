@@ -15,13 +15,7 @@ from .azure_blob_adapter import (
     azure_upload_xl_files_outputs,
 )
 
-from app.services.structured_intake.worker_prepare import (
-    prepare_json_structured_sources,
-)
 
-from app.services.structured_intake.provenance import (
-    apply_structured_json_provenance,
-)
 
 from .azure_layout import AzureRoutingConfig, build_azure_routing_summary
 from .config import DEFAULT_SETTINGS
@@ -166,81 +160,6 @@ def run_azure_processing_job(
             )
             return result
         
-        json_preparation = (
-            prepare_json_structured_sources(
-                staging_dir=staging_dir,
-            )
-        )
-        
-        def apply_json_provenance_after_inventory(
-            *,
-            db,
-            job_id,
-            input_dir,
-        ):
-            manifest_path = (
-                json_preparation.get(
-                    "manifest_path"
-                )
-            )
-
-            if not manifest_path:
-                return
-
-            return apply_structured_json_provenance(
-                db=db,
-                job_id=job_id,
-                staging_dir=Path(
-                    input_dir
-                ),
-                manifest_path=Path(
-                    manifest_path
-                ),
-            )
-
-        if (
-            json_preparation.get(
-                "json_package_count",
-                0,
-            )
-            > 0
-        ):
-            warnings.append(
-                {
-                    "type":
-                        "json_structured_intake",
-
-                    "message":
-                        (
-                            "JSON structured intake "
-                            "preparation completed."
-                        ),
-
-                    "json_package_count":
-                        json_preparation.get(
-                            "json_package_count",
-                            0,
-                        ),
-
-                    "json_record_count":
-                        json_preparation.get(
-                            "json_record_count",
-                            0,
-                        ),
-
-                    "normalized_csv_count":
-                        json_preparation.get(
-                            "normalized_csv_count",
-                            0,
-                        ),
-
-                    "manifest_path":
-                        json_preparation.get(
-                            "manifest_path"
-                        ),
-                }
-            )
-
         prior_processed_index = azure_read_processed_hash_index(routing)
 
         job_id = run_local_pipeline(
@@ -259,9 +178,7 @@ def run_azure_processing_job(
             prior_processed_index=prior_processed_index,
             progress_callback=progress_callback,
             cancellation_callback=cancellation_callback,
-            after_inventory_callback=(
-                apply_json_provenance_after_inventory
-            ),
+            after_inventory_callback=None,
             after_ocr_preflight_callback=after_ocr_preflight_callback,
             ocr_dispatch_callback=ocr_dispatch_callback,
             job_id=tracked_job_id,
