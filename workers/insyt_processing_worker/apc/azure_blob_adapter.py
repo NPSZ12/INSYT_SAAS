@@ -427,6 +427,98 @@ def azure_archive_processing_uploads(
 
     return payload
 
+def _stage_native_json_detection_text(
+    *,
+    adapter,
+    promotion_plan,
+    uploads,
+    local_review_root,
+    job_id,
+):
+    """Publish JSON text to the existing Detection V2 processing entrance.
+
+    Preserve the original Review staging and never overwrite processing
+    content. Existing non-JSON formats are not affected.
+    """
+    import hashlib
+    import re
+
+    for row in promotion_plan:
+        extension = str(row.get("extension") or "").lower().lstrip(".")
+        if extension not in {"json", "jsonl", "ndjson"}:
+            continue
+
+        doc_id = str(row.get("doc_id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", doc_id):
+            raise ValueError("Invalid native JSON Doc ID.")
+
+        blob_path = (
+            f"{adapter.routing.prefix}/processing_center/staged/"
+            f"{job_id}/text/{doc_id}.txt"
+        )
+
+        uploaded_to_review = any(
+            item.get("doc_id") == doc_id
+            and item.get("kind") == "text"
+            and item.get("status") == "uploaded"
+            and item.get("blob_path") == blob_path
+            for item in uploads
+        )
+
+        if not uploaded_to_review:
+            raise RuntimeError(
+                f"JSON Review text staging not complete for {doc_id}."
+            )
+
+        local_path = (
+            Path(local_review_root)
+            / "source"
+            / "text"
+            / f"{doc_id}.txt"
+        )
+
+        if not local_path.is_file():
+            raise FileNotFoundError(
+                f"Missing local JSON extracted text for {doc_id}."
+            )
+
+        expected_bytes = local_path.read_bytes()
+        if not expected_bytes:
+            raise ValueError(
+                f"Empty JSON extracted text for {doc_id}."
+            )
+
+        expected_hash = hashlib.sha256(expected_bytes).hexdigest()
+        blob = adapter.processing_container.get_blob_client(blob_path)
+
+        if not blob.exists():
+            # Create only: never replace a prior processing artifact.
+            with local_path.open("rb") as handle:
+                blob.upload_blob(
+                    handle,
+                    overwrite=False,
+                    content_settings=adapter._content_settings_cls(
+                        content_type="text/plain; charset=utf-8"
+                    ),
+                )
+
+        # Verify the actual bytes that Detection V2 will read.
+        digest = hashlib.sha256()
+        byte_count = 0
+
+        for chunk in blob.download_blob().chunks():
+            digest.update(chunk)
+            byte_count += len(chunk)
+
+        if (
+            byte_count != len(expected_bytes)
+            or digest.hexdigest() != expected_hash
+        ):
+            raise ValueError(
+                f"Conflicting Detection text blob for {doc_id}."
+            )
+
+
 def azure_upload_review_outputs(
     db: LedgerDB,
     routing: AzureRoutingConfig,
@@ -458,6 +550,13 @@ def azure_upload_review_outputs(
         job_id=job_id,
         overwrite=overwrite,
         promote_to_source=False,
+    )
+    _stage_native_json_detection_text(
+        adapter=adapter,
+        promotion_plan=plan,
+        uploads=uploads,
+        local_review_root=local_review_root,
+        job_id=job_id,
     )
     staged_prefix = f"{routing.prefix}/processing_center/staged/{job_id}"
 
