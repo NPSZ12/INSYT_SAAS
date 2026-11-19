@@ -551,13 +551,56 @@ def azure_upload_review_outputs(
         overwrite=overwrite,
         promote_to_source=False,
     )
-    _stage_native_json_detection_text(
-        adapter=adapter,
-        promotion_plan=plan,
-        uploads=uploads,
-        local_review_root=local_review_root,
-        job_id=job_id,
-    )
+    # Isolate the native JSON Detection entrance by document.
+    # Preserve existing Review staging and other formats.
+    json_detection_handoff = []
+
+    for row in plan:
+        extension = str(
+            row.get("extension") or ""
+        ).strip().lower().lstrip(".")
+
+        if extension not in {"json", "jsonl", "ndjson"}:
+            continue
+
+        doc_id = str(row.get("doc_id") or "").strip()
+
+        try:
+            _stage_native_json_detection_text(
+                adapter=adapter,
+                promotion_plan=[row],
+                uploads=uploads,
+                local_review_root=local_review_root,
+                job_id=job_id,
+            )
+
+            json_detection_handoff.append({
+                "doc_id": doc_id,
+                "status": "ready",
+                "text_staged_blob_path": (
+                    f"{routing.prefix}/processing_center/staged/"
+                    f"{job_id}/text/{doc_id}.txt"
+                ),
+            })
+
+        except Exception as exc:
+            json_detection_handoff.append({
+                "doc_id": doc_id,
+                "status": "failed",
+                "error_type": type(exc).__name__,
+            })
+
+            warnings.append({
+                "type": "native_json_detection_text_handoff_failed",
+                "doc_id": doc_id,
+                "status": "failed",
+                "reconciliation_required": True,
+                "message": (
+                    "Native JSON text was not verified in "
+                    "Detection processing storage."
+                ),
+                "error_type": type(exc).__name__,
+            })
     staged_prefix = f"{routing.prefix}/processing_center/staged/{job_id}"
 
     payload = {
@@ -588,6 +631,7 @@ def azure_upload_review_outputs(
             ),
         },
         "uploads": uploads,
+        "json_detection_handoff": json_detection_handoff,
     }
     if export_dir:
         export_json(Path(export_dir) / f"{job_id}.azure_upload_results.json", payload)
