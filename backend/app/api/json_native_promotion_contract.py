@@ -52,15 +52,26 @@ def prepare_json_native_promotion(
             "Not a supported native JSON document."
         )
 
-    source_type = str(row.get("source_type") or "").lower()
-    source_format = str(row.get("source_format") or "").lower()
+    # Source-system/profile classification is intentionally deferred
+    # until explicit manual Promotion. Do not require it during
+    # ingestion or Detection. Eligibility is instead established by
+    # HIT, JSON destination, supported extension, and authoritative
+    # source-job native staging path (validated below).
+    source_type = str(row.get("source_type") or "").strip().lower()
+    source_format = str(row.get("source_format") or "").strip().lower()
+
+    non_json_types = {
+        "csv", "worksheet_csv", "spreadsheet",
+        "excel", "xls", "xlsx", "xlsm",
+        "pdf", "application/pdf", "text/csv",
+    }
 
     if (
-        source_type != "json_structured"
-        and source_format not in {"json", "jsonl", "ndjson"}
+        source_type in non_json_types
+        or source_format in non_json_types
     ):
         raise JsonPromotionNotEligible(
-            "Missing structured JSON source classification."
+            "Conflicting non-JSON source metadata."
         )
 
     doc_id = str(row.get("doc_id") or "")
