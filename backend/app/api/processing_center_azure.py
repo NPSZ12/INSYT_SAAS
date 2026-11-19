@@ -1,4 +1,4 @@
-﻿"""INSYT FastAPI router wrapper for Azure Processing Center v1.0.
+"""INSYT FastAPI router wrapper for Azure Processing Center v1.0.
 
 Copy this file into the INSYT backend at:
     app/api/processing_center_azure.py
@@ -9216,13 +9216,7 @@ def get_processing_center_promotion_population(
                 == "json"
             )
 
-            if (
-                classification == "HIT"
-                and (
-                    is_spreadsheet_data
-                    or is_json_structured_data
-                )
-            ):
+            if classification == "HIT" and is_spreadsheet_data:
                 destination = "cyber2"
 
             elif classification == "HIT":
@@ -10567,6 +10561,242 @@ def promote_processing_center_xl_files(
         ),
     }
 
+
+def _register_existing_capture_json_for_cyber2(
+    *,
+    client: str,
+    project: str,
+    doc_id: str,
+    source_row: dict[str, Any],
+) -> dict[str, Any]:
+    """Register existing native JSON only; never repeat Files Promotion."""
+    from azure.core.exceptions import (
+        ResourceExistsError,
+        ResourceNotFoundError,
+    )
+    from app.api.json_native_detection_gate import (
+        require_completed_json_detection,
+    )
+    from app.services.structured_intake.native_json_handoff_execution import (
+        register_verified_native_json,
+    )
+
+    if str(source_row.get("doc_id") or "") != doc_id:
+        raise ValueError("Promotion Doc ID mismatch.")
+
+    if str(source_row.get("classification") or "").upper() != "HIT":
+        raise ValueError("Current document is not HIT.")
+
+    extension = str(
+        source_row.get("extension") or ""
+    ).strip().lower().lstrip(".")
+
+    if extension not in {"json", "jsonl", "ndjson"}:
+        raise ValueError("Not a native JSON file.")
+
+    source_job_id = str(
+        source_row.get("source_job_id") or ""
+    ).strip()
+
+    detection_job_id = str(
+        source_row.get("detection_job_id") or ""
+    ).strip()
+
+    if not source_job_id or not detection_job_id:
+        raise ValueError("Missing APC or Detection job.")
+
+    base = _project_base_path(
+        workspace="capture",
+        client=client,
+        project=project,
+    )
+
+    canonical = _read_processing_json_blob(
+        f"{base}/processing_center/detection/"
+        f"documents/{doc_id}.json"
+    )
+
+    detection_status = _read_processing_json_blob(
+        f"{base}/processing_center/detection/jobs/"
+        f"{detection_job_id}/status.json"
+    )
+
+    require_completed_json_detection(
+        doc_id=doc_id,
+        source_job_id=source_job_id,
+        detection_job_id=detection_job_id,
+        document_index=canonical,
+        detection_status=detection_status,
+    )
+
+    staged = _build_staged_results_payload(
+        workspace="capture",
+        client=client,
+        project=project,
+        job_id=source_job_id,
+    )
+
+    matches = [
+        row
+        for row in staged.get("docs", [])
+        if isinstance(row, dict)
+        and str(row.get("doc_id") or "") == doc_id
+    ]
+
+    if len(matches) != 1:
+        raise ValueError("Exactly one staged native record is required.")
+
+    staged_row = matches[0]
+
+    staged_path = str(
+        staged_row.get("native_staged_blob_path") or ""
+    )
+
+    final_path = str(
+        staged_row.get("final_native_blob_path") or ""
+    )
+
+    if not staged_path or not final_path:
+        raise ValueError("Native staging/Files paths unavailable.")
+
+    if not final_path.endswith(f"/{doc_id}.{extension}"):
+        raise ValueError("Final native filename mismatch.")
+
+    original_filename = str(
+        source_row.get("original_json_filename")
+        or staged_row.get("original_json_filename")
+        or source_row.get("original_filename")
+        or staged_row.get("original_filename")
+        or ""
+    ).strip()
+
+    if not original_filename:
+        raise ValueError("Original filename unavailable.")
+
+    review_container = _review_container("capture")
+    live_container = _live_source_container("capture")
+    live_service = _get_live_source_blob_service_client()
+
+    def read_staged(blob_path):
+        return _read_review_blob_bytes(
+            container_name=review_container,
+            blob_path=blob_path,
+        )
+
+    def read_final(blob_path):
+        blob = live_service.get_blob_client(
+            container=live_container,
+            blob=blob_path,
+        )
+        try:
+            return blob.download_blob().readall()
+        except ResourceNotFoundError:
+            return None
+
+    def read_index(blob_path):
+        try:
+            return _read_processing_json_blob(blob_path)
+        except ResourceNotFoundError:
+            return None
+
+    def create_index(blob_path, payload):
+        try:
+            return _write_processing_json_blob(
+                blob_path=blob_path,
+                payload=payload,
+                overwrite=False,
+            )
+        except ResourceExistsError as exc:
+            raise FileExistsError(blob_path) from exc
+
+    return register_verified_native_json(
+        workspace="capture",
+        client=client,
+        project=project,
+        project_base=base,
+        doc_id=doc_id,
+        original_filename=original_filename,
+        source_row=source_row,
+        staged_path=staged_path,
+        final_path=final_path,
+        read_staged=read_staged,
+        read_final=read_final,
+        read_index=read_index,
+        create_index=create_index,
+    )
+
+
+@router.post(
+    "/capture/processing-center/promotion/"
+    "register-promoted-json-cyber2"
+)
+def register_promoted_capture_json_cyber2(
+    request: SendCyber2PopulationRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Explicit recovery of an already-promoted native JSON HIT."""
+    require_scoped_project_access(
+        admin,
+        "capture",
+        request.client,
+        request.project,
+    )
+
+    selected = {
+        str(value or "").strip()
+        for value in (request.doc_ids or [])
+        if str(value or "").strip()
+    }
+
+    if len(selected) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Select exactly one native JSON Doc ID.",
+        )
+
+    doc_id = next(iter(selected))
+
+    population = get_processing_center_promotion_population(
+        workspace="capture",
+        client=request.client,
+        project=request.project,
+    )
+
+    matches = [
+        row
+        for row in (population.get("review_hits") or [])
+        if isinstance(row, dict)
+        and str(row.get("doc_id") or "") == doc_id
+    ]
+
+    if len(matches) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Authoritative Review HIT record unavailable.",
+        )
+
+    try:
+        return _register_existing_capture_json_for_cyber2(
+            client=request.client,
+            project=request.project,
+            doc_id=doc_id,
+            source_row=matches[0],
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Native JSON registration verification failed: "
+                f"{type(exc).__name__}"
+            ),
+        ) from exc
+
+
 @router.post(
     "/{workspace}/processing-center/"
     "promotion/promote-review"
@@ -10699,6 +10929,24 @@ def promote_processing_center_review_population(
                 ),
             },
         )
+
+    #
+    # Native JSON is immutable once promoted.
+    # Other format promotion behavior is unchanged.
+    #
+    if workspace == "capture" and request.overwrite:
+        if any(
+            str(
+                (review_by_doc_id.get(doc_id) or {}).get("extension")
+                or ""
+            ).strip().lower().lstrip(".")
+            in {"json", "jsonl", "ndjson"}
+            for doc_id in eligible_doc_ids
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Native JSON overwrite is prohibited.",
+            )
 
     #
     # Group eligible docs by their originating APC source job.
@@ -10925,6 +11173,60 @@ def promote_processing_center_review_population(
                     ),
                 }
             )
+
+    #
+    # ADDITIVE CAPTURE JSON -> CYBER2 REGISTRATION
+    #
+    # Files promotion has already completed. The registration helper
+    # reads the independently staged source and the existing Files copy.
+    # It creates only a missing Cyber2 intake index.
+    #
+    json_cyber2_results: list[dict[str, Any]] = []
+    json_cyber2_errors: list[dict[str, Any]] = []
+
+    if workspace == "capture":
+        # Retry only documents explicitly selected for this Promotion.
+        # Already-promoted Files are verified, never copied again.
+        json_registration_candidates = [
+            *promoted,
+            *(
+                item
+                for item in skipped
+                if isinstance(item, dict)
+                and item.get("status") == "already_promoted"
+            ),
+        ]
+
+        for item in json_registration_candidates:
+            if not isinstance(item, dict):
+                continue
+
+            doc_id = str(item.get("doc_id") or "").strip()
+            source_row = review_by_doc_id.get(doc_id) or {}
+
+            extension = str(
+                source_row.get("extension") or ""
+            ).strip().lower().lstrip(".")
+
+            if extension not in {"json", "jsonl", "ndjson"}:
+                continue
+
+            try:
+                result = _register_existing_capture_json_for_cyber2(
+                    client=request.client,
+                    project=request.project,
+                    doc_id=doc_id,
+                    source_row=source_row,
+                )
+                json_cyber2_results.append(result)
+
+            except Exception as exc:
+                json_cyber2_errors.append({
+                    "doc_id": doc_id,
+                    "stage": "native_json_cyber2_registration",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                })
 
     #
     # ADDITIVE AI EXTRACTION HANDOFF
@@ -11199,7 +11501,7 @@ def promote_processing_center_review_population(
 
         "status": (
             "completed"
-            if not source_job_errors
+            if not source_job_errors and not json_cyber2_errors
             else "completed_with_errors"
         ),
 
@@ -11207,6 +11509,10 @@ def promote_processing_center_review_population(
             f"{len(promoted_doc_ids)} "
             "document(s) promoted to Review."
         ),
+
+        "json_cyber2_results": json_cyber2_results,
+        "json_cyber2_error_count": len(json_cyber2_errors),
+        "json_cyber2_errors": json_cyber2_errors,
 
         "ai_extraction_result_count": len(
             ai_extraction_results
