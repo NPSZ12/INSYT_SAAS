@@ -22,9 +22,13 @@ class JsonNativeHandoffOrderTests(unittest.TestCase):
                 "doc_id": "INSYT000000001",
                 "source_job_id": "JOB-JSON-1",
                 "extension": "json",
+                "native_staged_blob_path": (
+                    "Client/capture/Project/processing_center/staged/"
+                    "JOB-JSON-1/native/INSYT000000001.json"
+                ),
                 "source_type": "json_structured",
                 "classification": "HIT",
-                "destination": "cyber2",
+                "destination": "json_cyber2",
                 "cyber2_sent": False,
             },
             base_path="Client/capture/Project",

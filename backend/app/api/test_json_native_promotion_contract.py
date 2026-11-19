@@ -14,9 +14,13 @@ def eligible_row():
         "doc_id": "INSYT000000001",
         "source_job_id": "JOB-JSON-1",
         "extension": "json",
+        "native_staged_blob_path": (
+            BASE + "/processing_center/staged/"
+            "JOB-JSON-1/native/INSYT000000001.json"
+        ),
         "source_type": "json_structured",
         "classification": "HIT",
-        "destination": "cyber2",
+        "destination": "json_cyber2",
         "cyber2_sent": False,
     }
 
@@ -37,7 +41,7 @@ class JsonNativePromotionContractTests(unittest.TestCase):
         self.assertEqual(
             result["staged_native_path"],
             BASE + "/processing_center/staged/"
-            "JOB-JSON-1/xl/native/INSYT000000001.json",
+            "JOB-JSON-1/native/INSYT000000001.json",
         )
         self.assertEqual(
             result["final_native_path"],
@@ -65,6 +69,32 @@ class JsonNativePromotionContractTests(unittest.TestCase):
         with self.assertRaises(JsonPromotionNotEligible):
             prepare(row)
 
+    def test_missing_staged_native_path_rejected(self):
+        row = eligible_row()
+        row.pop("native_staged_blob_path")
+        with self.assertRaises(JsonPromotionNotEligible):
+            prepare(row)
+
+    def test_excel_staging_path_rejected(self):
+        row = eligible_row()
+        row["native_staged_blob_path"] = (
+            row["native_staged_blob_path"].replace(
+                "/native/", "/xl/native/"
+            )
+        )
+        with self.assertRaises(JsonPromotionNotEligible):
+            prepare(row)
+
+    def test_wrong_source_job_path_rejected(self):
+        row = eligible_row()
+        row["native_staged_blob_path"] = (
+            row["native_staged_blob_path"].replace(
+                "JOB-JSON-1", "JOB-OTHER"
+            )
+        )
+        with self.assertRaises(JsonPromotionNotEligible):
+            prepare(row)
+
     def test_csv_rejected(self):
         row = eligible_row()
         row["extension"] = "csv"
@@ -89,6 +119,10 @@ class JsonNativePromotionContractTests(unittest.TestCase):
         for extension in ("jsonl", "ndjson"):
             row = eligible_row()
             row["extension"] = extension
+            row["native_staged_blob_path"] = (
+                BASE + "/processing_center/staged/"
+                f"JOB-JSON-1/native/INSYT000000001.{extension}"
+            )
             result = prepare(row)
             self.assertTrue(
                 result["staged_native_path"].endswith(

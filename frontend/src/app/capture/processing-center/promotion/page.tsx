@@ -84,6 +84,7 @@ type PromotionResponse = {
   detection_job_id?: string | null;
   source_job_id?: string | null;
 
+  json_hits?: PromotionDoc[];
   spreadsheet_hits?: PromotionDoc[];
   review_hits?: PromotionDoc[];
   no_hits?: PromotionDoc[];
@@ -91,6 +92,7 @@ type PromotionResponse = {
   exceptions?: PromotionDoc[];
 
   counts?: {
+    json_hits?: number;
     spreadsheet_hits?: number;
     review_hits?: number;
     no_hits?: number;
@@ -108,6 +110,7 @@ type PromotionResponse = {
 
 
 type PromotionFolder =
+  | "json_hits"
   | "spreadsheet_hits"
   | "review_hits"
   | "no_hits"
@@ -124,6 +127,13 @@ type FolderDefinition = {
 
 
 const FOLDERS: FolderDefinition[] = [
+  {
+    key: "json_hits",
+    title: "Native JSON / JSONL / NDJSON Hits",
+    shortTitle: "JSON Hits",
+    description:
+      "Responsive native JSON documents. Source-profile classification and Cyber2 registration occur only after manual promotion.",
+  },
   {
     key: "spreadsheet_hits",
     title: "Spreadsheet / CSV Hits",
@@ -197,6 +207,15 @@ function ProcessingCenterPromotionPageContent() {
   const [sendingCyber2, setSendingCyber2] =
     useState(false);
 
+  const [promotingJson, setPromotingJson] =
+    useState(false);
+
+  const [jsonResultMessage, setJsonResultMessage] =
+    useState("");
+
+  const [selectedJsonIds, setSelectedJsonIds] =
+    useState<Set<string>>(new Set());
+
   const [searchText, setSearchText] =
     useState("");
 
@@ -239,6 +258,7 @@ function ProcessingCenterPromotionPageContent() {
   ] = useState<
     Record<PromotionFolder, boolean>
   >({
+    json_hits: true,
     spreadsheet_hits: true,
     review_hits: true,
     no_hits: true,
@@ -246,6 +266,9 @@ function ProcessingCenterPromotionPageContent() {
     exceptions: false,
   });
 
+
+  const jsonHits =
+    promotionData?.json_hits || [];
 
   const spreadsheetHits =
     promotionData?.spreadsheet_hits || [];
@@ -281,7 +304,11 @@ function ProcessingCenterPromotionPageContent() {
       setInitialLoading(true);
     }
 
-    setError("");
+    // Preserve an existing error during background refresh.
+    // Initial loading may clear stale messages.
+    if (!isRefresh) {
+      setError("");
+    }
 
     try {
       const params =
@@ -298,6 +325,18 @@ function ProcessingCenterPromotionPageContent() {
         );
 
       setPromotionData(response);
+
+      const validJsonIds = new Set<string>(
+        (response?.json_hits || [])
+          .filter(
+            (doc: PromotionDoc) =>
+              !doc.cyber2_sent &&
+              doc.ready_for_promotion !== false
+          )
+          .map(
+            (doc: PromotionDoc) => doc.doc_id
+          )
+      );
 
       const validSpreadsheetIds =
         new Set(
@@ -347,6 +386,18 @@ function ProcessingCenterPromotionPageContent() {
                 doc.doc_id
             )
         );
+
+      setSelectedJsonIds((current) => {
+        const next = new Set<string>();
+
+        for (const docId of current) {
+          if (validJsonIds.has(docId)) {
+            next.add(docId);
+          }
+        }
+
+        return next;
+      });
 
       setSelectedSpreadsheetIds(
         (current) => {
@@ -569,6 +620,12 @@ function ProcessingCenterPromotionPageContent() {
   }
 
 
+  const filteredJsonHits =
+    useMemo(
+      () => jsonHits.filter(matchesSearch),
+      [jsonHits, searchText]
+    );
+
   const filteredSpreadsheetHits =
     useMemo(
       () =>
@@ -633,6 +690,49 @@ function ProcessingCenterPromotionPageContent() {
       ]
     );
 
+
+  function toggleJsonDoc(docId: string) {
+    const eligible = jsonHits.some(
+      (doc) =>
+        doc.doc_id === docId &&
+        !doc.cyber2_sent &&
+        doc.ready_for_promotion !== false
+    );
+
+    if (!eligible) {
+      return;
+    }
+
+    setSelectedJsonIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(docId)) {
+        next.delete(docId);
+      } else {
+        next.add(docId);
+      }
+
+      return next;
+    });
+  }
+
+  function selectAllJsonHits() {
+    setSelectedJsonIds(
+      new Set(
+        filteredJsonHits
+          .filter(
+            (doc) =>
+              !doc.cyber2_sent &&
+              doc.ready_for_promotion !== false
+          )
+          .map((doc) => doc.doc_id)
+      )
+    );
+  }
+
+  function clearJsonSelection() {
+    setSelectedJsonIds(new Set());
+  }
 
   function selectAllSpreadsheetHits() {
     setSelectedSpreadsheetIds(
@@ -702,6 +802,149 @@ function ProcessingCenterPromotionPageContent() {
       new Set()
     );
   }
+
+async function promoteSelectedJsonToCyber2() {
+  if (promotingJson) {
+    return;
+  }
+
+  if (!clientId || !projectId) {
+    setError("Client and project are required.");
+    return;
+  }
+
+  if (workspace !== "capture" && workspace !== "discovery") {
+    setError("Native JSON promotion is unavailable in this workspace.");
+    return;
+  }
+
+  const selectedDocs = jsonHits.filter(
+    (doc) => selectedJsonIds.has(doc.doc_id)
+  );
+
+  if (selectedDocs.length === 0) {
+    setError("Select at least one Native JSON Hit.");
+    return;
+  }
+
+  const invalid = selectedDocs.find(
+    (doc) =>
+      doc.cyber2_sent ||
+      doc.ready_for_promotion === false ||
+      doc.destination !== "json_cyber2" ||
+      doc.classification !== "HIT"
+  );
+
+  if (invalid) {
+    setError(
+      `JSON document ${invalid.doc_id} is not eligible for promotion.`
+    );
+    return;
+  }
+
+  setPromotingJson(true);
+  setError("");
+  setJsonResultMessage("");
+
+  const completed: string[] = [];
+  const failed: {
+    docId: string;
+    detail: string;
+  }[] = [];
+
+  try {
+    for (const doc of selectedDocs) {
+      try {
+        const response = await apiPost(
+          `/api/${encodeURIComponent(workspace)}/processing-center/promotion/send-json-native-cyber2`,
+          {
+            client: clientId,
+            project: projectId,
+            doc_ids: [doc.doc_id],
+          }
+        );
+
+        const validProfiles = new Set([
+          "plain",
+          "slack",
+          "teams",
+          "salesforce",
+          "google",
+          "custom_api",
+        ]);
+
+        const valid =
+          response?.status === "completed" &&
+          response?.verified === true &&
+          response?.files_verified === true &&
+          response?.cyber2_verified === true &&
+          (
+            response?.registration_status === "registered_verified" ||
+            response?.registration_status === "already_registered_verified"
+          ) &&
+          Number(response?.sent_count) === 1 &&
+          response?.doc_id === doc.doc_id &&
+          validProfiles.has(
+            String(response?.source_profile || "")
+          ) &&
+          response?.csv_generated === false &&
+          typeof response?.intake_index_path === "string" &&
+          response.intake_index_path.length > 0;
+
+        if (!valid) {
+          throw new Error(
+            "Cyber2 registration was not independently verified."
+          );
+        }
+
+        completed.push(doc.doc_id);
+      } catch (err: any) {
+        const detail =
+          typeof err?.detail === "string"
+            ? err.detail
+            : err?.message || "Unknown promotion failure";
+
+        failed.push({
+          docId: doc.doc_id,
+          detail: String(detail),
+        });
+      }
+    }
+
+    await loadPromotionPopulation(true);
+
+    setSelectedJsonIds(
+      new Set(
+        failed.map(
+          (entry) => entry.docId
+        )
+      )
+    );
+
+    if (failed.length > 0) {
+      setError(
+        `${completed.length} JSON document(s) completed; ` +
+        `${failed.length} failed. ` +
+        "Files may already be promoted for failed registrations. " +
+        "Do not re-upload the originals. " +
+        failed
+          .map(
+            (entry) => `${entry.docId}: ${entry.detail}`
+          )
+          .join(" | ")
+      );
+    }
+
+    if (completed.length > 0) {
+      setJsonResultMessage(
+        `${completed.length} JSON document(s) verified in Files and Cyber2. ` +
+        "Source profiles determine their Cyber2 JSON panes."
+      );
+    }
+  } finally {
+    setPromotingJson(false);
+  }
+}
 
 async function sendSelectedToCyber2() {
   if (
@@ -1127,6 +1370,7 @@ async function promoteSelectedNoHits() {
   const totalProcessed =
     counts.total ??
     (
+      jsonHits.length +
       spreadsheetHits.length +
       reviewHits.length +
       noHits.length +
@@ -1134,6 +1378,10 @@ async function promoteSelectedNoHits() {
       exceptions.length
     );
 
+
+  const jsonHitCount =
+    counts.json_hits ??
+    jsonHits.length;
 
   const spreadsheetHitCount =
     counts.spreadsheet_hits ??
@@ -1269,9 +1517,15 @@ async function promoteSelectedNoHits() {
         ) : null}
 
 
+        {jsonResultMessage ? (
+          <div className="mb-5 rounded-xl border border-sky-800 bg-sky-950/30 px-4 py-3 text-sm text-sky-200">
+            {jsonResultMessage}
+          </div>
+        ) : null}
+
         {/* Metrics */}
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-7">
 
           <MetricCard
             label="Total Processed"
@@ -1279,6 +1533,12 @@ async function promoteSelectedNoHits() {
               totalProcessed
             )}
             detail="Latest Detection population"
+          />
+
+          <MetricCard
+            label="JSON Hits"
+            value={String(jsonHitCount)}
+            detail="Native JSON / Cyber2"
           />
 
           <MetricCard
@@ -1441,6 +1701,78 @@ async function promoteSelectedNoHits() {
         ) : (
 
           <div className="space-y-6">
+
+            {/* Native JSON Hits */}
+
+            <PromotionSection
+              folderKey="json_hits"
+              title="Native JSON / JSONL / NDJSON Hits"
+              description="Responsive native JSON documents. Select and manually promote them to Files and the appropriate Cyber2 JSON source pane."
+              count={jsonHitCount}
+              icon={
+                <FileText className="h-5 w-5 text-emerald-300" />
+              }
+              open={openFolders.json_hits}
+              onToggle={() => toggleFolder("json_hits")}
+              headerActions={
+                <div className="flex flex-wrap items-center gap-2">
+
+                  <button
+                    type="button"
+                    onClick={selectAllJsonHits}
+                    disabled={
+                      promotingJson ||
+                      !filteredJsonHits.some(
+                        (doc) =>
+                          !doc.cyber2_sent &&
+                          doc.ready_for_promotion !== false
+                      )
+                    }
+                    className="rounded-lg border border-emerald-700 bg-emerald-950/30 px-3 py-2 text-xs font-medium text-emerald-200 hover:bg-emerald-900/50 disabled:opacity-40"
+                  >
+                    Select All
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={clearJsonSelection}
+                    disabled={
+                      promotingJson ||
+                      selectedJsonIds.size === 0
+                    }
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                  >
+                    Clear
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={promoteSelectedJsonToCyber2}
+                    disabled={
+                      promotingJson ||
+                      selectedJsonIds.size === 0
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-500 bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    {promotingJson
+                      ? "Promoting JSON..."
+                      : "Promote to Files & Cyber? JSON"}
+                  </button>
+
+                </div>
+              }
+            >
+              <PromotionTable
+                docs={filteredJsonHits}
+                selectable
+                selectedIds={selectedJsonIds}
+                onToggleSelect={toggleJsonDoc}
+                expandedRows={expandedRows}
+                onToggleExpanded={toggleExpandedRow}
+                emptyMessage="No responsive native JSON Hits."
+              />
+            </PromotionSection>
 
             {/* Spreadsheet Hits */}
 
