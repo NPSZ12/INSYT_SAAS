@@ -2834,7 +2834,10 @@ function DocumentDetails({
               }
             />
 
-            {doc.destination === "cyber2" ? (
+            {(
+              doc.destination === "cyber2" ||
+              doc.destination === "json_cyber2"
+            ) ? (
               <PathValue
                 label="Cyber² Intake Index"
                 value={
@@ -3053,6 +3056,14 @@ function DestinationBadge({
     String(
       destination || ""
     ).toLowerCase();
+
+  if (normalized === "json_cyber2") {
+    return (
+      <span className="rounded-full border border-emerald-700 bg-emerald-950/40 px-2.5 py-1 text-xs font-semibold text-emerald-200">
+        {"Cyber\u00b2 JSON"}
+      </span>
+    );
+  }
 
   if (normalized === "cyber2") {
     return (
