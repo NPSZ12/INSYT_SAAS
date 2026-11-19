@@ -3787,6 +3787,100 @@ def start_data_element_detection(
             job_id=request.source_job_id,
         )
 
+        # Native JSON only: independently verify the Detection entrance.
+        # Do not alter existing non-JSON selection or Detection V2.
+        blocked_native_json = []
+
+        def native_json_detection_text_ready(doc):
+            import hashlib
+
+            doc_id = str(doc.get("doc_id") or "").strip()
+            native_path = str(
+                doc.get("native_staged_blob_path") or ""
+            ).strip()
+
+            extension = str(
+                doc.get("extension")
+                or native_path.rsplit(".", 1)[-1]
+                or ""
+            ).strip().lower().lstrip(".")
+
+            if (
+                workspace != "capture"
+                or extension not in {"json", "jsonl", "ndjson"}
+            ):
+                return True
+
+            base = _project_base_path(
+                workspace=workspace,
+                client=request.client,
+                project=request.project,
+            )
+
+            expected_path = (
+                f"{base}/processing_center/staged/"
+                f"{request.source_job_id}/text/{doc_id}.txt"
+            )
+
+            text_path = str(
+                doc.get("text_staged_blob_path") or ""
+            ).strip()
+
+            if not doc_id or text_path != expected_path:
+                blocked_native_json.append(doc_id)
+                return False
+
+            try:
+                review_blob = (
+                    _get_review_blob_service_client()
+                    .get_blob_client(
+                        container=_review_container(workspace),
+                        blob=text_path,
+                    )
+                )
+
+                processing_blob = (
+                    _processing_container_client()
+                    .get_blob_client(text_path)
+                )
+
+                def stream_digest(blob_client):
+                    digest = hashlib.sha256()
+                    total = 0
+
+                    for chunk in blob_client.download_blob().chunks():
+                        if not isinstance(chunk, bytes):
+                            raise ValueError("Invalid text blob chunk.")
+
+                        digest.update(chunk)
+                        total += len(chunk)
+
+                    if total == 0:
+                        raise ValueError("Empty Detection text.")
+
+                    return total, digest.digest()
+
+                review_length, review_hash = stream_digest(
+                    review_blob
+                )
+                processing_length, processing_hash = stream_digest(
+                    processing_blob
+                )
+
+                if (
+                    review_length != processing_length
+                    or review_hash != processing_hash
+                ):
+                    raise ValueError(
+                        "Detection text integrity mismatch."
+                    )
+
+            except Exception:
+                blocked_native_json.append(doc_id)
+                return False
+
+            return True
+
         ready_docs = []
 
         for doc in staged.get("docs") or []:
@@ -3810,6 +3904,9 @@ def start_data_element_detection(
             ).strip().lower() == "promoted":
                 continue
 
+            if not native_json_detection_text_ready(doc):
+                continue
+
             ready_docs.append(doc)
 
         if request.detect_all_ready:
@@ -3826,6 +3923,25 @@ def start_data_element_detection(
                 for doc in ready_docs
                 if str(doc.get("doc_id") or "") in requested_doc_ids
             ]
+
+        # Explicitly selected unverified JSON must fail closed.
+        if not request.detect_all_ready:
+            requested_blocked = sorted(
+                set(blocked_native_json)
+                & {
+                    str(value or "").strip()
+                    for value in request.doc_ids
+                }
+            )
+            if requested_blocked:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Native JSON Detection text is not verified "
+                        "in Processing storage: "
+                        + ", ".join(requested_blocked)
+                    ),
+                )
 
         if not selected_docs:
             raise HTTPException(
