@@ -9098,12 +9098,14 @@ def get_processing_center_promotion_population(
                 "detection_job_ids": [],
                 "source_job_id": None,
                 "source_job_ids": [],
+                "json_hits": [],
                 "spreadsheet_hits": [],
                 "review_hits": [],
                 "no_hits": [],
                 "nfr": [],
                 "exceptions": [],
                 "counts": {
+                    "json_hits": 0,
                     "spreadsheet_hits": 0,
                     "review_hits": 0,
                     "no_hits": 0,
@@ -9176,6 +9178,8 @@ def get_processing_center_promotion_population(
         spreadsheet_hits: list[
             dict[str, Any]
         ] = []
+
+        json_hits: list[dict[str, Any]] = []
 
         review_hits: list[
             dict[str, Any]
@@ -9332,7 +9336,14 @@ def get_processing_center_promotion_population(
                 == "json"
             )
 
-            if classification == "HIT" and is_spreadsheet_data:
+            if (
+                classification == "HIT"
+                and extension.lstrip(".") in {"json", "jsonl", "ndjson"}
+                and not is_workbook_sheet
+            ):
+                destination = "json_cyber2"
+
+            elif classification == "HIT" and is_spreadsheet_data:
                 destination = "cyber2"
 
             elif classification == "HIT":
@@ -9350,7 +9361,7 @@ def get_processing_center_promotion_population(
             cyber2_intake_path = None
             cyber2_intake_record = None
 
-            if destination == "cyber2":
+            if destination in {"cyber2", "json_cyber2"}:
                 cyber2_intake_path = (
                     _cyber2_intake_document_path(
                         workspace=workspace,
@@ -9369,12 +9380,28 @@ def get_processing_center_promotion_population(
                 except Exception:
                     cyber2_intake_record = None
 
-            cyber2_sent = bool(
-                isinstance(
-                    cyber2_intake_record,
-                    dict,
+            if destination == "json_cyber2":
+                from app.api.json_native_promotion_status import (
+                    matches_native_json_intake_identity,
                 )
-            )
+
+                cyber2_sent = matches_native_json_intake_identity(
+                    cyber2_intake_record,
+                    workspace=workspace,
+                    client=client,
+                    project=project,
+                    project_base=_project_base_path(
+                        workspace=workspace,
+                        client=client,
+                        project=project,
+                    ),
+                    doc_id=doc_id,
+                    extension=extension.lstrip("."),
+                    source_job_id=source_job_id,
+                    detection_job_id=detection_job_id,
+                )
+            else:
+                cyber2_sent = isinstance(cyber2_intake_record, dict)
 
             row = {
                 "doc_id": doc_id,
@@ -9413,7 +9440,7 @@ def get_processing_center_promotion_population(
                 "promotion_status": (
                     "Sent to CyberÂ²"
                     if (
-                        destination == "cyber2"
+                        destination in {"cyber2", "json_cyber2"}
                         and cyber2_sent
                     )
                     else (
@@ -9430,7 +9457,7 @@ def get_processing_center_promotion_population(
 
                 "cyber2_intake_index_path": (
                     cyber2_intake_path
-                    if destination == "cyber2"
+                    if destination in {"cyber2", "json_cyber2"}
                     else None
                 ),
 
@@ -9659,7 +9686,7 @@ def get_processing_center_promotion_population(
                         "NO_HIT",
                     }
                     and not (
-                        destination == "cyber2"
+                        destination in {"cyber2", "json_cyber2"}
                         and cyber2_sent
                     )
                 ),
@@ -9680,7 +9707,10 @@ def get_processing_center_promotion_population(
                 ),
             }
 
-            if destination == "cyber2":
+            if destination == "json_cyber2":
+                json_hits.append(row)
+
+            elif destination == "cyber2":
                 spreadsheet_hits.append(
                     row
                 )
@@ -9733,6 +9763,8 @@ def get_processing_center_promotion_population(
                 )
             )
 
+        sort_rows(json_hits)
+
         sort_rows(
             spreadsheet_hits
         )
@@ -9782,6 +9814,8 @@ def get_processing_center_promotion_population(
                 source_job_ids
             ),
 
+            "json_hits": json_hits,
+
             "spreadsheet_hits": (
                 spreadsheet_hits
             ),
@@ -9801,6 +9835,8 @@ def get_processing_center_promotion_population(
             ),
 
             "counts": {
+                "json_hits": len(json_hits),
+
                 "spreadsheet_hits": len(
                     spreadsheet_hits
                 ),
@@ -9822,7 +9858,8 @@ def get_processing_center_promotion_population(
                 ),
 
                 "total": (
-                    len(
+                    len(json_hits)
+                    + len(
                         spreadsheet_hits
                     )
                     + len(
@@ -10880,7 +10917,7 @@ def register_promoted_capture_json_cyber2(
 
     matches = [
         row
-        for row in (population.get("review_hits") or [])
+        for row in (population.get("json_hits") or [])
         if isinstance(row, dict)
         and str(row.get("doc_id") or "") == doc_id
     ]
@@ -13395,7 +13432,7 @@ def promote_processing_center_json_native(
             project=request.project,
         )
 
-        rows = population.get("spreadsheet_hits") or []
+        rows = population.get("json_hits") or []
 
         selected = {
             str(row.get("doc_id") or ""): row
@@ -13594,7 +13631,13 @@ def send_processing_center_json_native_to_cyber2(
     """
     import hashlib
     import re
-    from azure.core.exceptions import ResourceNotFoundError
+    from azure.core.exceptions import (
+        ResourceExistsError,
+        ResourceNotFoundError,
+    )
+    from app.services.structured_intake.native_json_handoff import (
+        verify_existing_native_json_intake,
+    )
 
     enabled = os.environ.get(
         "INSYT_JSON_NATIVE_PROMOTION_ENABLED", ""
@@ -13651,14 +13694,8 @@ def send_processing_center_json_native_to_cyber2(
         except ResourceNotFoundError:
             pass
 
-        if existing is not None:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Cyber2 intake record already exists. "
-                    "No overwrite performed."
-                ),
-            )
+        # Existing intake is not automatically a failure.
+        # Verify Files and the expected intake contract first.
 
         # Reuse the authenticated, completed-ingestion,
         # completed-Detection, byte-verified Files operation.
@@ -13717,7 +13754,7 @@ def send_processing_center_json_native_to_cyber2(
         )
 
         selected = [
-            row for row in population.get("spreadsheet_hits") or []
+            row for row in population.get("json_hits") or []
             if isinstance(row, dict)
             and str(row.get("doc_id") or "") == doc_id
         ]
@@ -13788,36 +13825,50 @@ def send_processing_center_json_native_to_cyber2(
             ),
         }
 
-        # Atomic create-only write through the existing
-        # processing storage service; never replace CSV intake.
-        _write_processing_json_blob(
-            blob_path=index_path,
-            payload=payload,
-            overwrite=False,
-        )
+        # Registration is create-only, never overwrite.
+        # A repeat or concurrent request must verify the existing
+        # index against the independently verified Files native.
+
+        registration_status = "registered_verified"
+
+        if existing is None:
+            try:
+                _write_processing_json_blob(
+                    blob_path=index_path,
+                    payload=payload,
+                    overwrite=False,
+                )
+            except ResourceExistsError:
+                # Another request registered concurrently.
+                # Verify its actual contents below.
+                registration_status = "already_registered_verified"
+        else:
+            registration_status = "already_registered_verified"
 
         saved = _read_processing_json_blob(index_path)
 
-        if (
-            not isinstance(saved, dict)
-            or saved.get("doc_id") != doc_id
-            or saved.get("source_kind") != "native_json"
-            or saved.get("source_native_path") != source_native_path
-            or saved.get("source_sha256") != result["sha256"]
-            or saved.get("source_profile") != promotion_profile
-        ):
+        try:
+            verify_existing_native_json_intake(saved, payload)
+        except ValueError as exc:
             raise HTTPException(
-                status_code=502,
-                detail="Cyber2 native intake verification failed.",
-            )
+                status_code=409,
+                detail=(
+                    "Conflicting Cyber2 native JSON intake record. "
+                    "No overwrite performed."
+                ),
+            ) from exc
 
         return {
             "status": "completed",
+            "registration_status": registration_status,
             "sent_count": 1,
             "skipped_count": 0,
             "doc_id": doc_id,
             "source_native_path": source_native_path,
             "intake_index_path": index_path,
+            "source_profile": promotion_profile,
+            "files_verified": True,
+            "cyber2_verified": True,
             "verified": True,
             "csv_generated": False,
         }

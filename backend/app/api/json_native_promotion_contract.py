@@ -33,7 +33,7 @@ def prepare_json_native_promotion(
             "Document requires a completed HIT classification."
         )
 
-    if str(row.get("destination") or "") != "cyber2":
+    if str(row.get("destination") or "") != "json_cyber2":
         raise JsonPromotionNotEligible(
             "Document is not routed to Cyber2."
         )
@@ -89,14 +89,25 @@ def prepare_json_native_promotion(
 
     filename = f"{doc_id}.{extension}"
 
+    expected_staged_path = (
+        f"{base_path}/processing_center/staged/"
+        f"{job_id}/native/{filename}"
+    )
+
+    recorded_staged_path = str(
+        row.get("native_staged_blob_path") or ""
+    ).strip()
+
+    if recorded_staged_path != expected_staged_path:
+        raise JsonPromotionNotEligible(
+            "Authoritative native JSON staging path mismatch."
+        )
+
     return {
         "doc_id": doc_id,
         "source_job_id": job_id,
         "extension": extension,
-        "staged_native_path": (
-            f"{base_path}/processing_center/staged/"
-            f"{job_id}/xl/native/{filename}"
-        ),
+        "staged_native_path": recorded_staged_path,
         "final_native_path": (
             f"{base_path}/source/native/{filename}"
         ),
