@@ -13620,6 +13620,118 @@ def promote_processing_center_json_native(
 
 
 @router.post(
+    "/capture/processing-center/promotion/repair-json-text-22"
+)
+def repair_capture_json_text_22(
+    request: SendCyber2PopulationRequest,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Temporary administrator-only synthetic Doc 22 recovery."""
+    from azure.core.exceptions import ResourceNotFoundError
+    from app.api.json_native_text_recovery_22 import (
+        BASE,
+        DOC,
+        FINAL_TEXT,
+        JsonTextRecoveryRejected,
+        recover_doc22_text_verified,
+    )
+
+    require_scoped_project_access(
+        admin, "capture", request.client, request.project
+    )
+
+    if (
+        request.client != "INSYT_Demo"
+        or request.project != "Project_Payroll_Dedupe_Test"
+        or request.doc_ids != [DOC]
+        or _project_base_path(
+            workspace="capture",
+            client=request.client,
+            project=request.project,
+        ) != BASE
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Recovery is restricted to synthetic Capture Doc 22.",
+        )
+
+    if os.environ.get(
+        "INSYT_JSON_NATIVE_PROMOTION_ENABLED", ""
+    ).strip().lower() not in {"1", "true", "yes"}:
+        raise HTTPException(
+            status_code=404,
+            detail="Native JSON promotion is disabled.",
+        )
+
+    try:
+        index_path = f"{BASE}/cyber2/intake/documents/{DOC}.json"
+        intake = _read_processing_json_blob(index_path)
+
+        staged_service = _get_review_blob_service_client()
+        staged_container = _review_container("capture")
+        live_service = _get_live_source_blob_service_client()
+        live_container = _live_source_container("capture")
+
+        def read_staged(path):
+            try:
+                return staged_service.get_blob_client(
+                    container=staged_container,
+                    blob=path,
+                ).download_blob().readall()
+            except ResourceNotFoundError:
+                return None
+
+        def read_final(path):
+            try:
+                return live_service.get_blob_client(
+                    container=live_container,
+                    blob=path,
+                ).download_blob().readall()
+            except ResourceNotFoundError:
+                return None
+
+        def write_final(path, data):
+            if path != FINAL_TEXT:
+                raise JsonTextRecoveryRejected(
+                    "Recovery write target is prohibited."
+                )
+            live_service.get_blob_client(
+                container=live_container,
+                blob=path,
+            ).upload_blob(
+                data,
+                overwrite=False,
+                content_settings=ContentSettings(
+                    content_type="text/plain; charset=utf-8"
+                ),
+            )
+
+        return recover_doc22_text_verified(
+            workspace="capture",
+            client=request.client,
+            project=request.project,
+            doc_ids=request.doc_ids,
+            intake=intake,
+            read_staged=read_staged,
+            read_final=read_final,
+            write_final=write_final,
+        )
+
+    except HTTPException:
+        raise
+    except JsonTextRecoveryRejected as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Doc 22 recovery could not be verified.",
+        ) from exc
+
+
+@router.post(
     "/{workspace}/processing-center/"
     "promotion/send-json-native-cyber2"
 )
