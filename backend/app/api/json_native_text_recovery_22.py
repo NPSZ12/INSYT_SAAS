@@ -2,7 +2,7 @@
 
 import hashlib
 
-from json_native_promotion_execution import (
+from app.api.json_native_promotion_execution import (
     JsonNativePromotionFailed,
     promote_json_native_verified,
 )
