@@ -29,6 +29,7 @@ type StructuredIntakePaneShellProps = {
 
   comingSoon?: boolean;
   defaultExpanded?: boolean;
+  paneId?: string;
 
   children?: ReactNode;
 };
@@ -50,6 +51,7 @@ export default function StructuredIntakePaneShell({
   groups = [],
 
   defaultExpanded = false,
+  paneId,
 
   children,
 }: StructuredIntakePaneShellProps) {
@@ -60,7 +62,7 @@ export default function StructuredIntakePaneShell({
 
 
   return (
-    <section className="cyber2-source-pane">
+    <section id={paneId} className="cyber2-source-pane">
 
       <div className="cyber2-source-pane__header">
 

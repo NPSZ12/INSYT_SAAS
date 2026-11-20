@@ -43,6 +43,10 @@ type Props = {
   onClearSelection?: () => void;
   onCreateHeaderSet?: () => void;
   onOpenDocument?: (docId: string) => void;
+  onOpenDocId?: (docId: string) => void;
+  hideRecordCount?: boolean;
+  defaultExpanded?: boolean;
+  paneId?: string;
   onOpenHeaderSet?: (headerSetId: string) => void;
 };
 
@@ -60,6 +64,10 @@ export default function SharedIntakeInventory({
   onClearSelection,
   onCreateHeaderSet,
   onOpenDocument,
+  onOpenDocId,
+  hideRecordCount = false,
+  defaultExpanded = false,
+  paneId,
   onOpenHeaderSet,
 }: Props) {
   const [classification, setClassification] = useState("all");
@@ -134,6 +142,8 @@ export default function SharedIntakeInventory({
       title={title}
       subtitle={subtitle}
       fileCount={files.length}
+      defaultExpanded={defaultExpanded}
+      paneId={paneId}
     >
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -230,7 +240,7 @@ export default function SharedIntakeInventory({
                 <th className="px-3 py-3">Detected Types</th>
                 <th className="px-3 py-3">Status</th>
                 <th className="px-3 py-3">Source Path</th>
-                <th className="px-3 py-3">Records</th>
+                {!hideRecordCount && <th className="px-3 py-3">Records</th>}
                 <th className="px-3 py-3">Header Set / Action</th>
               </tr>
             </thead>
@@ -247,9 +257,9 @@ export default function SharedIntakeInventory({
                       } />
                   </td>
                   <td className="px-3 py-3 font-mono text-xs">
-                    {onOpenDocument && file.openable !== false ? (
+                    {(onOpenDocId || onOpenDocument) && file.openable !== false ? (
                       <button type="button" className="text-sky-400 underline"
-                        onClick={() => onOpenDocument(file.docId)}>
+                        onClick={() => (onOpenDocId || onOpenDocument)?.(file.docId)}>
                         {file.docId}
                       </button>
                     ) : file.docId}
@@ -278,9 +288,11 @@ export default function SharedIntakeInventory({
                     title={file.sourcePath || ""}>
                     {file.sourcePath || "-"}
                   </td>
-                  <td className="px-3 py-3 text-right">
-                    {file.recordCount ?? "-"}
-                  </td>
+                  {!hideRecordCount && (
+                    <td className="px-3 py-3 text-right">
+                      {file.recordCount ?? "-"}
+                    </td>
+                  )}
                   <td className="px-3 py-3">
                     {file.headerSetId && onOpenHeaderSet ? (
                       <button type="button" className="text-sky-400 underline"
@@ -300,7 +312,7 @@ export default function SharedIntakeInventory({
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11}
+                  <td colSpan={hideRecordCount ? 10 : 11}
                     className="px-4 py-10 text-center text-slate-400">
                     No files match the current filters.
                   </td>
@@ -324,9 +336,11 @@ export default function SharedIntakeInventory({
                     <div className="text-slate-500">{group.secondaryLabel}</div>
                   )}
                 </div>
-                <div className="text-slate-400">
-                  {group.recordCount} records
-                </div>
+                {!hideRecordCount && (
+                  <div className="text-slate-400">
+                    {group.recordCount} records
+                  </div>
+                )}
               </div>
             ))}
           </div>

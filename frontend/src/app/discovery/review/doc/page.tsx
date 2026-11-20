@@ -76,6 +76,8 @@ function ReviewPageContent() {
   const projectId = searchParams.get("project") || "";
   const batchId = searchParams.get("batch") || "";
   const docId = searchParams.get("doc") || "";
+  const returnTo = searchParams.get("return_to") || "";
+  const returnLabel = searchParams.get("return_label") || "";
 
   const [error, setError] = useState("");
   const [protocolMessage, setProtocolMessage] = useState("");
@@ -407,6 +409,19 @@ function ReviewPageContent() {
           onNextDoc={goNextDoc}
           onLastDoc={goLastDoc}
         />
+
+        {returnTo && (
+          <div className="mx-4 mt-4 flex items-center">
+            <button
+              type="button"
+              onClick={() => router.push(returnTo)}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-sky-700 hover:bg-slate-800 hover:text-white"
+            >
+              <span aria-hidden="true" className="text-base">?</span>
+              Return to {returnLabel || "Cyber²"}
+            </button>
+          </div>
+        )}
 
         {protocolMessage && (
           <div className="mx-4 mt-4 rounded-xl border border-amber-700 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">

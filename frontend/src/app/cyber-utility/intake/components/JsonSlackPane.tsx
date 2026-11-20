@@ -32,6 +32,10 @@ type JsonSlackPaneProps = {
   onClearSelection?: () => void;
   onCreateHeaderSet?: () => void;
   onOpenDocument?: (docId: string) => void;
+  onOpenDocId?: (docId: string) => void;
+  hideRecordCount?: boolean;
+  defaultExpanded?: boolean;
+  paneId?: string;
   onOpenHeaderSet?: (headerSetId: string) => void;
 };
 
@@ -45,6 +49,10 @@ export default function JsonSlackPane({
   onClearSelection,
   onCreateHeaderSet,
   onOpenDocument,
+  onOpenDocId,
+  hideRecordCount = false,
+  defaultExpanded = false,
+  paneId,
   onOpenHeaderSet,
 }: JsonSlackPaneProps) {
   const files: SharedIntakeFile[] = datasets.map((doc) => ({
@@ -79,6 +87,10 @@ export default function JsonSlackPane({
       onClearSelection={onClearSelection}
       onCreateHeaderSet={onCreateHeaderSet}
       onOpenDocument={onOpenDocument}
+      onOpenDocId={onOpenDocId}
+      hideRecordCount={hideRecordCount}
+      defaultExpanded={defaultExpanded}
+      paneId={paneId}
       onOpenHeaderSet={onOpenHeaderSet}
     />
   );

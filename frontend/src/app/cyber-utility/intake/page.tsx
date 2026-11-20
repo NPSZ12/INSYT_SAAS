@@ -1856,6 +1856,78 @@ function Cyber2IntakeContent() {
     );
   }
 
+  function openJsonDocumentInReview(
+    docId: string,
+    profile: string
+  ) {
+    const doc = jsonDocuments.find(
+      (item) =>
+        item.doc_id === docId &&
+        jsonProfile(item) === profile
+    );
+
+    if (!doc) {
+      setError("Document is not available in this JSON pane.");
+      return;
+    }
+
+    if (doc.source_kind !== "native_json") {
+      // Preserve the existing legacy CSV-backed opening path.
+      openDocument(doc);
+      return;
+    }
+
+    if (workspace !== "capture" && workspace !== "discovery") {
+      setError("Unsupported Review workspace.");
+      return;
+    }
+
+    const nativeBlob = String(
+      doc.source_native_path || ""
+    ).trim();
+
+    // Reuse the authoritative path recorded by native JSON promotion.
+    // Project storage keys are resolved by the existing backend.
+    const nativeFilename = nativeBlob.split("/").pop() || "";
+    const nativeDocId = nativeFilename.replace(
+      /\.(json|jsonl|ndjson)$/i,
+      ""
+    );
+
+    if (
+      !nativeBlob.includes("/source/native/") ||
+      !/\.(json|jsonl|ndjson)$/i.test(nativeFilename) ||
+      nativeDocId !== docId
+    ) {
+      setError(
+        "Verified native JSON source path is unavailable."
+      );
+      return;
+    }
+
+    const returnParams = new URLSearchParams({
+      workspace,
+      client,
+      project,
+      json_pane: profile,
+    });
+
+    const params = new URLSearchParams({
+      client,
+      project,
+      doc: docId,
+      native_blob: nativeBlob,
+      return_to:
+        `/cyber-utility/intake?${returnParams.toString()}#json-pane-${profile}`,
+      return_label: "Cyber²",
+    });
+
+    setError("");
+    router.push(
+      `/${workspace}/review/doc?${params.toString()}`
+    );
+  }
+
   function openProfileNativeDocument(
     docId: string,
     profile: string
@@ -2653,6 +2725,12 @@ function Cyber2IntakeContent() {
             onOpenDocument={
               openJsonPlainDocument
             }
+            onOpenDocId={(docId) =>
+              openJsonDocumentInReview(docId, "plain")
+            }
+            hideRecordCount
+            defaultExpanded={searchParams.get("json_pane") === "plain"}
+            paneId="json-pane-plain"
             onOpenHeaderSet={(headerSetId) => {
               if (!headerSetId.startsWith("HDRSET-")) return;
               const params = new URLSearchParams({
@@ -2711,6 +2789,12 @@ function Cyber2IntakeContent() {
             onOpenDocument={
               openJsonSlackDocument
             }
+            onOpenDocId={(docId) =>
+              openJsonDocumentInReview(docId, "slack")
+            }
+            hideRecordCount
+            defaultExpanded={searchParams.get("json_pane") === "slack"}
+            paneId="json-pane-slack"
             onOpenHeaderSet={(headerSetId) => {
               if (!headerSetId.startsWith("HDRSET-")) return;
               const params = new URLSearchParams({
@@ -2733,6 +2817,12 @@ function Cyber2IntakeContent() {
             onCreateHeaderSet={(ids) =>
               createNativeProfileHeaderSet("salesforce", ids)
             }
+            onOpenDocId={(docId) =>
+              openJsonDocumentInReview(docId, "salesforce")
+            }
+            hideRecordCount
+            defaultExpanded={searchParams.get("json_pane") === "salesforce"}
+            paneId="json-pane-salesforce"
             onOpenHeaderSet={(headerSetId) => {
               if (!headerSetId.startsWith("HDRSET-")) return;
               const params = new URLSearchParams({
@@ -2788,6 +2878,12 @@ function Cyber2IntakeContent() {
             onCreateHeaderSet={(ids) =>
               createNativeProfileHeaderSet("teams", ids)
             }
+            onOpenDocId={(docId) =>
+              openJsonDocumentInReview(docId, "teams")
+            }
+            hideRecordCount
+            defaultExpanded={searchParams.get("json_pane") === "teams"}
+            paneId="json-pane-teams"
             onOpenHeaderSet={(headerSetId) => {
               if (!headerSetId.startsWith("HDRSET-")) return;
               const params = new URLSearchParams({
@@ -2843,6 +2939,12 @@ function Cyber2IntakeContent() {
             onCreateHeaderSet={(ids) =>
               createNativeProfileHeaderSet("google", ids)
             }
+            onOpenDocId={(docId) =>
+              openJsonDocumentInReview(docId, "google")
+            }
+            hideRecordCount
+            defaultExpanded={searchParams.get("json_pane") === "google"}
+            paneId="json-pane-google"
             onOpenHeaderSet={(headerSetId) => {
               if (!headerSetId.startsWith("HDRSET-")) return;
               const params = new URLSearchParams({
@@ -2898,6 +3000,12 @@ function Cyber2IntakeContent() {
             onCreateHeaderSet={(ids) =>
               createNativeProfileHeaderSet("custom_api", ids)
             }
+            onOpenDocId={(docId) =>
+              openJsonDocumentInReview(docId, "custom_api")
+            }
+            hideRecordCount
+            defaultExpanded={searchParams.get("json_pane") === "custom_api"}
+            paneId="json-pane-custom_api"
             onOpenHeaderSet={(headerSetId) => {
               if (!headerSetId.startsWith("HDRSET-")) return;
               const params = new URLSearchParams({

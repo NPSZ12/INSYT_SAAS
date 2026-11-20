@@ -15,6 +15,10 @@ type Props = {
   files?: SharedIntakeFile[];
   channels?: StructuredIntakeGroup[];
   onOpenDocument?: (docId: string) => void;
+  onOpenDocId?: (docId: string) => void;
+  hideRecordCount?: boolean;
+  defaultExpanded?: boolean;
+  paneId?: string;
   onCreateHeaderSet?: (docIds: string[]) => Promise<void>;
   onOpenHeaderSet?: (headerSetId: string) => void;
 };
@@ -23,6 +27,10 @@ export default function JsonTeamsPane({
   files = [],
   channels = [],
   onOpenDocument,
+  onOpenDocId,
+  hideRecordCount = false,
+  defaultExpanded = false,
+  paneId,
   onCreateHeaderSet,
   onOpenHeaderSet,
 }: Props) {
@@ -90,6 +98,10 @@ export default function JsonTeamsPane({
       onClearSelection={() => setSelectedDocIds({})}
       onCreateHeaderSet={createSelectedHeaderSet}
       onOpenDocument={onOpenDocument}
+      onOpenDocId={onOpenDocId}
+      hideRecordCount={hideRecordCount}
+      defaultExpanded={defaultExpanded}
+      paneId={paneId}
       onOpenHeaderSet={onOpenHeaderSet}
     />
   );

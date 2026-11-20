@@ -28,6 +28,10 @@ type JsonPlainPaneProps = {
   onClearSelection?: () => void;
   onCreateHeaderSet?: () => void;
   onOpenDocument?: (docId: string) => void;
+  onOpenDocId?: (docId: string) => void;
+  hideRecordCount?: boolean;
+  defaultExpanded?: boolean;
+  paneId?: string;
   onOpenHeaderSet?: (headerSetId: string) => void;
 };
 
@@ -40,6 +44,10 @@ export default function JsonPlainPane({
   onClearSelection,
   onCreateHeaderSet,
   onOpenDocument,
+  onOpenDocId,
+  hideRecordCount = false,
+  defaultExpanded = false,
+  paneId,
   onOpenHeaderSet,
 }: JsonPlainPaneProps) {
   const files: SharedIntakeFile[] = datasets.map((doc) => ({
@@ -69,6 +77,10 @@ export default function JsonPlainPane({
       onClearSelection={onClearSelection}
       onCreateHeaderSet={onCreateHeaderSet}
       onOpenDocument={onOpenDocument}
+      onOpenDocId={onOpenDocId}
+      hideRecordCount={hideRecordCount}
+      defaultExpanded={defaultExpanded}
+      paneId={paneId}
       onOpenHeaderSet={onOpenHeaderSet}
     />
   );
