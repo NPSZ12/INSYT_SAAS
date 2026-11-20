@@ -13570,7 +13570,11 @@ def promote_processing_center_json_native(
                 data,
                 overwrite=False,
                 content_settings=ContentSettings(
-                    content_type="application/json"
+                    content_type=(
+                        "text/plain; charset=utf-8"
+                        if path.endswith(".txt")
+                        else "application/json"
+                    )
                 ),
             )
 

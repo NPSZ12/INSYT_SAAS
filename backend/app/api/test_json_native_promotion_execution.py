@@ -36,6 +36,7 @@ class PromotionTests(unittest.TestCase):
     def setUp(self):
         self.contract = build_contract()
         self.original = b'{"Email":"jane@example.com"}'
+        self.original_text = b"Email: jane@example.com"
         self.store = {}
         self.writes = 0
 
@@ -43,6 +44,8 @@ class PromotionTests(unittest.TestCase):
         def read_staged(path):
             if path == self.contract["staged_native_path"]:
                 return self.original
+            if path == self.contract["staged_text_path"]:
+                return self.original_text
             return None
 
         def read_final(path):
@@ -66,7 +69,12 @@ class PromotionTests(unittest.TestCase):
         self.assertEqual(result["status"], "promoted")
         self.assertTrue(result["verified"])
         self.assertFalse(result["generate_csv"])
-        self.assertEqual(self.writes, 1)
+        self.assertEqual(self.writes, 2)
+        self.assertTrue(result["text_verified"])
+        self.assertEqual(
+            self.store[self.contract["final_text_path"]],
+            self.original_text,
+        )
         self.assertEqual(
             self.store[self.contract["final_native_path"]],
             self.original,
@@ -78,7 +86,7 @@ class PromotionTests(unittest.TestCase):
         self.assertEqual(
             result["status"], "already_promoted_verified"
         )
-        self.assertEqual(self.writes, 1)
+        self.assertEqual(self.writes, 2)
 
     def test_existing_different_native_rejected(self):
         self.store[self.contract["final_native_path"]] = b"different"
@@ -104,6 +112,48 @@ class PromotionTests(unittest.TestCase):
             self.execute()
         self.assertEqual(self.writes, 0)
 
+
+
+    def test_missing_staged_text_rejected_before_writes(self):
+        self.original_text = None
+        with self.assertRaises(JsonNativePromotionFailed):
+            self.execute()
+        self.assertEqual(self.writes, 0)
+
+    def test_existing_different_text_rejected_before_writes(self):
+        self.store[self.contract["final_text_path"]] = b"wrong text"
+        with self.assertRaises(JsonNativePromotionFailed):
+            self.execute()
+        self.assertEqual(self.writes, 0)
+
+    def test_native_existing_text_missing_recovered(self):
+        self.store[self.contract["final_native_path"]] = self.original
+        result = self.execute()
+        self.assertEqual(
+            result["status"], "already_promoted_verified"
+        )
+        self.assertEqual(result["text_status"], "promoted")
+        self.assertEqual(self.writes, 1)
+        self.assertEqual(
+            self.store[self.contract["final_text_path"]],
+            self.original_text,
+        )
+
+    def test_text_lineage_mismatch_rejected(self):
+        self.contract["staged_text_path"] = "wrong/text.txt"
+        with self.assertRaises(JsonNativePromotionFailed):
+            self.execute()
+        self.assertEqual(self.writes, 0)
+
+    def test_repeated_native_and_text_are_idempotent(self):
+        self.execute()
+        result = self.execute()
+        self.assertEqual(self.writes, 2)
+        self.assertEqual(
+            result["text_status"],
+            "already_promoted_verified",
+        )
+        self.assertTrue(result["text_verified"])
 
 if __name__ == "__main__":
     unittest.main()

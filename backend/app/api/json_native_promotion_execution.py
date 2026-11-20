@@ -35,10 +35,18 @@ def promote_json_native_verified(
 
     source = contract.get("staged_native_path")
     destination = contract.get("final_native_path")
+    text_source = contract.get("staged_text_path")
+    text_destination = contract.get("final_text_path")
+    doc_id = contract.get("doc_id")
+    job_id = contract.get("source_job_id")
 
     if (
-        not isinstance(source, str)
+        not isinstance(doc_id, str)
+        or not isinstance(job_id, str)
+        or not isinstance(source, str)
         or not isinstance(destination, str)
+        or not isinstance(text_source, str)
+        or not isinstance(text_destination, str)
         or "/processing_center/staged/" not in source
         or "/native/" not in source
         or "/xl/native/" in source
@@ -49,50 +57,106 @@ def promote_json_native_verified(
             "Invalid native source or destination."
         )
 
+    expected_staged_text = (
+        source.rsplit("/native/", 1)[0]
+        + f"/text/{doc_id}.txt"
+    )
+    expected_final_text = (
+        destination.rsplit("/source/native/", 1)[0]
+        + f"/source/text/{doc_id}.txt"
+    )
+
+    if (
+        text_source != expected_staged_text
+        or text_destination != expected_final_text
+        or f"/staged/{job_id}/" not in text_source
+    ):
+        raise JsonNativePromotionFailed(
+            "JSON extracted-text lineage mismatch."
+        )
+
+    # Read and validate both original staged artifacts before writes.
     original = read_staged(source)
+    original_text = read_staged(text_source)
 
     if not isinstance(original, bytes) or not original:
         raise JsonNativePromotionFailed(
             "Original staged JSON is missing or empty."
         )
 
+    if not isinstance(original_text, bytes) or not original_text:
+        raise JsonNativePromotionFailed(
+            "Original staged extracted text is missing or empty."
+        )
+
     original_sha = hashlib.sha256(original).hexdigest()
+    text_sha = hashlib.sha256(original_text).hexdigest()
 
     existing = read_final(destination)
+    existing_text = read_final(text_destination)
 
-    if existing is not None:
-        if not isinstance(existing, bytes) or existing != original:
+    # Never overwrite mismatched existing native or text artifacts.
+    if existing is not None and (
+        not isinstance(existing, bytes) or existing != original
+    ):
+        raise JsonNativePromotionFailed(
+            "Existing Files native differs from staged source. "
+            "Overwrite prohibited."
+        )
+
+    if existing_text is not None and (
+        not isinstance(existing_text, bytes)
+        or existing_text != original_text
+    ):
+        raise JsonNativePromotionFailed(
+            "Existing Files text differs from staged text. "
+            "Overwrite prohibited."
+        )
+
+    def ensure_final(path, expected, label):
+        current = read_final(path)
+
+        if current is None:
+            try:
+                write_final(path, expected)
+            except Exception as exc:
+                # A concurrent create-only writer may have won.
+                # Accept only byte-identical, verified results.
+                current = read_final(path)
+                if current != expected:
+                    raise JsonNativePromotionFailed(
+                        f"{label} promotion write failed."
+                    ) from exc
+
+        verified = read_final(path)
+
+        if not isinstance(verified, bytes):
             raise JsonNativePromotionFailed(
-                "Existing Files native differs from staged source. "
-                "Overwrite prohibited."
+                f"{label} could not be read back."
             )
-        status = "already_promoted_verified"
-    else:
-        try:
-            write_final(destination, original)
-        except Exception as exc:
+
+        if (
+            verified != expected
+            or hashlib.sha256(verified).hexdigest()
+            != hashlib.sha256(expected).hexdigest()
+        ):
             raise JsonNativePromotionFailed(
-                "Native promotion write failed."
-            ) from exc
+                f"{label} byte or SHA256 verification failed."
+            )
 
-        status = "promoted"
+    ensure_final(destination, original, "Native JSON")
+    ensure_final(text_destination, original_text, "JSON extracted text")
 
-    verified = read_final(destination)
-
-    if not isinstance(verified, bytes):
-        raise JsonNativePromotionFailed(
-            "Promoted native could not be read back."
-        )
-
-    if hashlib.sha256(verified).hexdigest() != original_sha:
-        raise JsonNativePromotionFailed(
-            "Promoted native hash verification failed."
-        )
-
-    if verified != original:
-        raise JsonNativePromotionFailed(
-            "Promoted native bytes do not match source."
-        )
+    status = (
+        "already_promoted_verified"
+        if existing is not None
+        else "promoted"
+    )
+    text_status = (
+        "already_promoted_verified"
+        if existing_text is not None
+        else "promoted"
+    )
 
     return {
         "doc_id": contract["doc_id"],
@@ -102,5 +166,10 @@ def promote_json_native_verified(
         "sha256": original_sha,
         "bytes": len(original),
         "verified": True,
+        "text_status": text_status,
+        "text_path": text_destination,
+        "text_sha256": text_sha,
+        "text_bytes": len(original_text),
+        "text_verified": True,
         "generate_csv": False,
     }

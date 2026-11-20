@@ -119,6 +119,13 @@ def prepare_json_native_promotion(
         "source_job_id": job_id,
         "extension": extension,
         "staged_native_path": recorded_staged_path,
+        "staged_text_path": (
+            f"{base_path}/processing_center/staged/"
+            f"{job_id}/text/{doc_id}.txt"
+        ),
+        "final_text_path": (
+            f"{base_path}/source/text/{doc_id}.txt"
+        ),
         "final_native_path": (
             f"{base_path}/source/native/{filename}"
         ),

@@ -112,7 +112,7 @@ class JsonNativeHandoffOrderTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.handoff(fail_register=True)
 
-        self.assertEqual(len(self.files), 1)
+        self.assertEqual(len(self.files), 2)
         self.assertEqual(self.cyber2, {})
 
         self.events.clear()
@@ -122,7 +122,7 @@ class JsonNativeHandoffOrderTests(unittest.TestCase):
             result["status"],
             "already_promoted_verified",
         )
-        self.assertEqual(len(self.files), 1)
+        self.assertEqual(len(self.files), 2)
         self.assertEqual(len(self.cyber2), 1)
         self.assertNotIn("write_files", self.events)
 
