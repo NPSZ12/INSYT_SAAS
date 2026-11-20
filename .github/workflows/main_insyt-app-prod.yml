@@ -25,14 +25,32 @@ jobs:
           NEXT_PUBLIC_API_BASE_URL: https://api.insyt360.com
         run: npm run build
 
-      - name: Place generated standalone server at deployment root
+      - name: Package the existing Next.js standalone frontend
         run: |
+          set -euo pipefail
           test -f frontend/.next/standalone/server.js
-          cp frontend/.next/standalone/server.js frontend/server.js
+          test -f frontend/.next/BUILD_ID
+          test -f frontend/.next/standalone/.next/BUILD_ID
+          test -d frontend/.next/static
+
+          test "$(cat frontend/.next/BUILD_ID)" = "$(cat frontend/.next/standalone/.next/BUILD_ID)"
+
+          mkdir -p frontend_release_package/.next
+          cp -a frontend/.next/standalone/. frontend_release_package/
+          cp -a frontend/.next/static frontend_release_package/.next/static
+          cp -a frontend/public frontend_release_package/public
+
+          test -f frontend_release_package/server.js
+          test -f frontend_release_package/.next/BUILD_ID
+          test -d frontend_release_package/.next/static
+
+          test "$(cat frontend/.next/BUILD_ID)" = "$(cat frontend_release_package/.next/BUILD_ID)"
+
+          echo "Verified one consistent Next.js standalone deployment package"
 
       - name: Deploy Frontend to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: insyt-app-prod
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_INSYT_APP }}
-          package: frontend
+          package: frontend_release_package
