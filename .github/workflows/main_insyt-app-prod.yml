@@ -3,6 +3,10 @@ name: Deploy INSYT Frontend
 on:
   workflow_dispatch:
 
+concurrency:
+  group: insyt-app-prod-frontend
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -34,7 +38,6 @@ jobs:
           test -d frontend/.next/static
 
           test "$(cat frontend/.next/BUILD_ID)" = "$(cat frontend/.next/standalone/.next/BUILD_ID)"
-
           mkdir -p frontend_release_package/.next
           cp -a frontend/.next/standalone/. frontend_release_package/
           cp -a frontend/.next/static frontend_release_package/.next/static
@@ -43,14 +46,16 @@ jobs:
           test -f frontend_release_package/server.js
           test -f frontend_release_package/.next/BUILD_ID
           test -d frontend_release_package/.next/static
-
           test "$(cat frontend/.next/BUILD_ID)" = "$(cat frontend_release_package/.next/BUILD_ID)"
 
+          # Do not ship generated runtime cache or duplicate standalone trees.
+          rm -rf frontend_release_package/.next/server/route-cache
+          test ! -e frontend_release_package/.next/standalone
           echo "Verified one consistent Next.js standalone deployment package"
 
-      - name: Deploy Frontend to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: insyt-app-prod
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_INSYT_APP }}
-          package: frontend_release_package
+      - name: Deploy cleanly to the existing INSYT Azure App Service
+        env:
+          INSYT_AZURE_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_INSYT_APP }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/deploy_frontend_clean.py frontend_release_package
