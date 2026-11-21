@@ -58,7 +58,7 @@ class RegistrationTests(unittest.TestCase):
     def test_creates_only_intake_record(self):
         result = self.register()
         self.assertEqual(result["status"], "registered_verified")
-        self.assertEqual(result["source_profile"], "plain")
+        self.assertEqual(result["source_profile"], "custom_api")
         self.assertFalse(result["csv_generated"])
         self.assertEqual(self.writes, 1)
         self.assertEqual(self.blobs[STAGED], DATA)

@@ -37,7 +37,7 @@ class NativeJsonHandoffTests(unittest.TestCase):
     def test_valid_native_json(self):
         record = make_record()
         self.assertEqual(record["doc_id"], DOC)
-        self.assertEqual(record["source_profile"], "plain")
+        self.assertEqual(record["source_profile"], "custom_api")
         self.assertEqual(record["source_kind"], "native_json")
         self.assertIsNone(record["source_csv_path"])
         self.assertEqual(record["csv_generation_status"], "not_started")
