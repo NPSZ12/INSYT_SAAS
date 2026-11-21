@@ -3890,7 +3890,7 @@ def start_data_element_detection(
             doc_id = str(doc.get("doc_id") or "").strip()
             text_blob_path = doc.get("text_staged_blob_path")
 
-            if not doc_id or not text_blob_path:
+            if not doc_id:
                 continue
 
             if doc.get("is_duplicate"):
@@ -3907,9 +3907,21 @@ def start_data_element_detection(
             if not native_json_detection_text_ready(doc):
                 continue
 
+            if not text_blob_path:
+                continue
+
             ready_docs.append(doc)
 
         if request.detect_all_ready:
+            if blocked_native_json:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Native JSON Detection text is not verified "
+                        "for these documents: "
+                        + ", ".join(sorted(set(blocked_native_json)))
+                    ),
+                )
             selected_docs = ready_docs
         else:
             requested_doc_ids = {

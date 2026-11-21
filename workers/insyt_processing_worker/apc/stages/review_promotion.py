@@ -25,7 +25,7 @@ except ImportError:
     extract_msg = None
 
 
-TEXT_EXTENSIONS = {"txt", "csv", "json", "xml", "html", "htm", "md", "log", "rtf"}
+TEXT_EXTENSIONS = {"txt", "csv", "json", "jsonl", "ndjson", "xml", "html", "htm", "md", "log", "rtf"}
 
 DOCX_EXTENSIONS = {
     "docx",
