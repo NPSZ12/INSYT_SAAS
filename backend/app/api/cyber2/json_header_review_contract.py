@@ -153,6 +153,14 @@ def build_json_header_review(
                 else:
                     match_method = "protocol_alias"
 
+        # Deterministic recommendations are not approval decisions.
+        if match_method in {"protocol_exact", "protocol_leaf"}:
+            deterministic_confidence = 1.0
+        elif match_method == "protocol_alias":
+            deterministic_confidence = 0.95
+        else:
+            deterministic_confidence = None
+
         rows.append({
             "column_index": index,
             "column_number": index + 1,
@@ -179,10 +187,10 @@ def build_json_header_review(
             "match_method": (
                 match_method
             ),
-            "mapping_confidence": None,
+            "mapping_confidence": deterministic_confidence,
             "ai_confidence": None,
             "ai_invoked": False,
-            "ai_review_required": True,
+            "ai_review_required": exact is None,
             "default_disposition": "delete",
             "proposed_final_header": exact or "",
             "approved": False,

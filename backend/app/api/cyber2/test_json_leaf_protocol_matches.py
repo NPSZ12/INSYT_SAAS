@@ -64,3 +64,48 @@ def test_structural_fields_never_receive_protocol_match():
     review = build_json_header_review(evidence, ["First Name"])
 
     assert not review["columns"][0]["recommended_protocol_header"]
+
+
+@pytest.mark.parametrize(
+    "source,protocol,method,confidence",
+    [
+        ("employee.first_name", "First Name", "protocol_leaf", 1.0),
+        ("employee.date_of_birth", "Date of Birth", "protocol_leaf", 1.0),
+        ("employee.ssn", "Social Security Number", "protocol_alias", 0.95),
+    ],
+)
+def test_deterministic_mapping_confidence(
+    source, protocol, method, confidence
+):
+    review = build_json_header_review(
+        make_evidence(source), [protocol]
+    )
+    column = review["columns"][0]
+
+    assert column["recommended_protocol_header"] == protocol
+    assert column["match_method"] == method
+    assert column["mapping_confidence"] == confidence
+    assert column["ai_confidence"] is None
+    assert column["ai_invoked"] is False
+    assert column["ai_review_required"] is False
+    assert column["approved"] is False
+    assert review["mapping_approved"] is False
+    assert review["csv_generated"] is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["employee.fname", "employee.social"],
+)
+def test_unmatched_field_needs_ai_review(source):
+    review = build_json_header_review(
+        make_evidence(source),
+        ["First Name", "Social Security Number"],
+    )
+    column = review["columns"][0]
+
+    assert column["recommended_protocol_header"] is None
+    assert column["mapping_confidence"] is None
+    assert column["ai_review_required"] is True
+    assert column["approved"] is False
+    assert review["csv_generated"] is False
