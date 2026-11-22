@@ -330,14 +330,120 @@ class DualStorageBlobAdapter:
 
                 blob_client = self.review_container.get_blob_client(blob_path)
 
-                with local_path.open("rb") as fh:
-                    blob_client.upload_blob(
-                        fh,
-                        overwrite=overwrite,
-                        content_settings=self._content_settings_cls(
-                            content_type=content_type
-                        ),
+                # Initial JSON staging must be safely retryable without
+                # changing existing non-JSON or final-promotion behavior.
+                json_staging = (
+                    not promote_to_source
+                    and ext.lower() in {"json", "jsonl", "ndjson"}
+                )
+
+                if json_staging:
+                    import hashlib
+
+                    def file_digest():
+                        digest = hashlib.sha256()
+                        total = 0
+                        with local_path.open("rb") as fh:
+                            for chunk in iter(
+                                lambda: fh.read(1024 * 1024), b""
+                            ):
+                                digest.update(chunk)
+                                total += len(chunk)
+                        return total, digest.digest()
+
+                    def blob_digest():
+                        digest = hashlib.sha256()
+                        total = 0
+                        for chunk in blob_client.download_blob().chunks():
+                            digest.update(chunk)
+                            total += len(chunk)
+                        return total, digest.digest()
+
+                    local_signature = file_digest()
+
+                    if kind == "text" and local_signature[0] == 0:
+                        raise ValueError(
+                            f"Empty native JSON Detection text: {doc_id}"
+                        )
+
+                    if blob_client.exists():
+                        if blob_digest() != local_signature:
+                            raise ValueError(
+                                f"Review staging integrity mismatch: {doc_id}"
+                            )
+                    else:
+                        with local_path.open("rb") as fh:
+                            blob_client.upload_blob(
+                                fh,
+                                overwrite=False,
+                                content_settings=self._content_settings_cls(
+                                    content_type=content_type
+                                ),
+                            )
+                        if blob_digest() != local_signature:
+                            raise ValueError(
+                                f"Review staging verification failed: {doc_id}"
+                            )
+                else:
+                    with local_path.open("rb") as fh:
+                        blob_client.upload_blob(
+                            fh,
+                            overwrite=overwrite,
+                            content_settings=self._content_settings_cls(
+                                content_type=content_type
+                            ),
+                        )
+
+                # Native JSON Detection V2 reads staged text from the
+                # existing Processing storage account. Keep Review staging
+                # unchanged and publish only the detection-text companion.
+                if (
+                    not promote_to_source
+                    and kind == "text"
+                    and ext.lower() in {"json", "jsonl", "ndjson"}
+                ):
+                    import hashlib
+
+                    processing_blob = self.processing_container.get_blob_client(
+                        blob_path
                     )
+
+                    local_hash = hashlib.sha256()
+                    with local_path.open("rb") as fh:
+                        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                            local_hash.update(chunk)
+
+                    if local_path.stat().st_size == 0:
+                        raise ValueError(
+                            f"Empty native JSON Detection text: {doc_id}"
+                        )
+
+                    def verify_processing_copy():
+                        digest = hashlib.sha256()
+                        total = 0
+                        for chunk in processing_blob.download_blob().chunks():
+                            digest.update(chunk)
+                            total += len(chunk)
+                        if (
+                            total != local_path.stat().st_size
+                            or digest.digest() != local_hash.digest()
+                        ):
+                            raise ValueError(
+                                f"Processing text integrity mismatch: {doc_id}"
+                            )
+
+                    if processing_blob.exists():
+                        verify_processing_copy()
+                    else:
+                        with local_path.open("rb") as fh:
+                            processing_blob.upload_blob(
+                                fh,
+                                overwrite=False,
+                                content_settings=self._content_settings_cls(
+                                    content_type="text/plain; charset=utf-8"
+                                ),
+                            )
+                        verify_processing_copy()
 
                 results.append(
                     {
