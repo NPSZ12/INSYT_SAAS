@@ -853,63 +853,76 @@ async function promoteSelectedJsonToCyber2() {
   }[] = [];
 
   try {
-    for (const doc of selectedDocs) {
-      try {
-        const response = await apiPost(
-          `/api/${encodeURIComponent(workspace)}/processing-center/promotion/send-json-native-cyber2`,
-          {
-            client: clientId,
-            project: projectId,
-            doc_ids: [doc.doc_id],
-          }
-        );
-
-        const validProfiles = new Set([
-          "plain",
-          "slack",
-          "teams",
-          "salesforce",
-          "google",
-          "custom_api",
-        ]);
-
-        const valid =
-          response?.status === "completed" &&
-          response?.verified === true &&
-          response?.files_verified === true &&
-          response?.cyber2_verified === true &&
-          (
-            response?.registration_status === "registered_verified" ||
-            response?.registration_status === "already_registered_verified"
-          ) &&
-          Number(response?.sent_count) === 1 &&
-          response?.doc_id === doc.doc_id &&
-          validProfiles.has(
-            String(response?.source_profile || "")
-          ) &&
-          response?.csv_generated === false &&
-          typeof response?.intake_index_path === "string" &&
-          response.intake_index_path.length > 0;
-
-        if (!valid) {
-          throw new Error(
-            "Cyber2 registration was not independently verified."
+    // Bounded JSON promotion: at most four requests in flight.
+    // Each Doc ID retains its existing independent verification.
+    let nextJsonIndex = 0;
+    const promoteNextJson = async () => {
+      while (nextJsonIndex < selectedDocs.length) {
+        const doc = selectedDocs[nextJsonIndex++];
+        try {
+          const response = await apiPost(
+            `/api/${encodeURIComponent(workspace)}/processing-center/promotion/send-json-native-cyber2`,
+            {
+              client: clientId,
+              project: projectId,
+              doc_ids: [doc.doc_id],
+            }
           );
+
+          const validProfiles = new Set([
+            "plain",
+            "slack",
+            "teams",
+            "salesforce",
+            "google",
+            "custom_api",
+          ]);
+
+          const valid =
+            response?.status === "completed" &&
+            response?.verified === true &&
+            response?.files_verified === true &&
+            response?.cyber2_verified === true &&
+            (
+              response?.registration_status === "registered_verified" ||
+              response?.registration_status === "already_registered_verified"
+            ) &&
+            Number(response?.sent_count) === 1 &&
+            response?.doc_id === doc.doc_id &&
+            validProfiles.has(
+              String(response?.source_profile || "")
+            ) &&
+            response?.csv_generated === false &&
+            typeof response?.intake_index_path === "string" &&
+            response.intake_index_path.length > 0;
+
+          if (!valid) {
+            throw new Error(
+              "Cyber2 registration was not independently verified."
+            );
+          }
+
+          completed.push(doc.doc_id);
+        } catch (err: any) {
+          const detail =
+            typeof err?.detail === "string"
+              ? err.detail
+              : err?.message || "Unknown promotion failure";
+
+          failed.push({
+            docId: doc.doc_id,
+            detail: String(detail),
+          });
         }
-
-        completed.push(doc.doc_id);
-      } catch (err: any) {
-        const detail =
-          typeof err?.detail === "string"
-            ? err.detail
-            : err?.message || "Unknown promotion failure";
-
-        failed.push({
-          docId: doc.doc_id,
-          detail: String(detail),
-        });
       }
-    }
+    };
+
+    await Promise.all(
+      Array.from(
+        { length: Math.min(4, selectedDocs.length) },
+        () => promoteNextJson()
+      )
+    );
 
     await loadPromotionPopulation(true);
 

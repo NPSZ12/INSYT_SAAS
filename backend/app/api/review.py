@@ -406,6 +406,8 @@ SUPPORTED_REVIEW_EXTENSIONS = (
     ".csv",
     ".dat",
     ".json",
+    ".jsonl",
+    ".ndjson",
     ".xml",
     ".html",
     ".htm",
@@ -662,6 +664,8 @@ def normalize_doc_lookup(value: str) -> str:
         ".htm",
         ".xml",
         ".json",
+        ".jsonl",
+        ".ndjson",
     )
 
     lower_clean = clean.lower()
@@ -741,6 +745,8 @@ def get_document_review_blob_name(
         ".htm",
         ".xml",
         ".json",
+        ".jsonl",
+        ".ndjson",
     )
 
     lower_clean_doc_id = (
@@ -1039,6 +1045,8 @@ def load_review_document_by_doc_id(
         ".htm",
         ".xml",
         ".json",
+        ".jsonl",
+        ".ndjson",
     )
 
     lower_matched_doc_id = (
