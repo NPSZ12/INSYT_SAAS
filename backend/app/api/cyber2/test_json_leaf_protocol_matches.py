@@ -109,3 +109,93 @@ def test_unmatched_field_needs_ai_review(source):
     assert column["ai_review_required"] is True
     assert column["approved"] is False
     assert review["csv_generated"] is False
+
+
+@pytest.mark.parametrize(
+    "source,protocol",
+    [
+        ("employee.first_name", "First Name (or Initial)"),
+        ("employee.fname", "First Name (or Initial)"),
+        ("employee.last_name", "Last Name (FULL)"),
+        ("employee.lname", "Last Name (FULL)"),
+        ("employee.date_of_birth", "Date of Birth (DOB)"),
+        ("employee.dob", "Date of Birth (DOB)"),
+        ("employee.birth_dt", "Date of Birth (DOB)"),
+        ("employee.ssn", "Social Security number (SSN)"),
+        ("employee.social", "Social Security number (SSN)"),
+    ],
+)
+def test_long_form_client_protocol_aliases(source, protocol):
+    review = build_json_header_review(
+        make_evidence(source),
+        [protocol],
+    )
+    column = review["columns"][0]
+
+    assert column["recommended_protocol_header"] == protocol
+    assert column["match_method"] == "protocol_alias"
+    assert column["mapping_confidence"] == 0.95
+    assert column["ai_invoked"] is False
+    assert column["approved"] is False
+    assert review["mapping_approved"] is False
+    assert review["csv_generated"] is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "employee.email",
+        "employee.phone",
+        "employee.full_name",
+        "collection.batch_key",
+        "__insyt_test_metadata.case",
+    ],
+)
+def test_unapproved_json_headers_remain_unmatched(source):
+    protocol = [
+        "First Name (or Initial)",
+        "Last Name (FULL)",
+        "Date of Birth (DOB)",
+        "Social Security number (SSN)",
+    ]
+
+    review = build_json_header_review(
+        make_evidence(source),
+        protocol,
+    )
+
+    column = review["columns"][0]
+
+    assert not column["recommended_protocol_header"]
+    assert column["mapping_confidence"] is None
+    assert column["approved"] is False
+    assert review["csv_generated"] is False
+
+
+def test_multiple_valid_protocol_targets_remain_ambiguous():
+    review = build_json_header_review(
+        make_evidence("employee.ssn"),
+        [
+            "SSN",
+            "Social Security Number",
+            "Social Security number (SSN)",
+        ],
+    )
+
+    column = review["columns"][0]
+
+    assert not column["recommended_protocol_header"]
+    assert column["mapping_confidence"] is None
+    assert column["approved"] is False
+
+
+def test_structural_json_parent_remains_unmatched_with_alias():
+    evidence = make_evidence("employee.fname")
+    evidence["fields"][0]["kind"] = "object"
+
+    review = build_json_header_review(
+        evidence,
+        ["First Name (or Initial)"],
+    )
+
+    assert not review["columns"][0]["recommended_protocol_header"]

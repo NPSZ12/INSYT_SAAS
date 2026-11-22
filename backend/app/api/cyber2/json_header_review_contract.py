@@ -137,6 +137,26 @@ def build_json_header_review(
             if leaf_key == "ssn":
                 candidate_keys.add("social security number")
 
+            # Canonical labels from approved client protocols.
+            # These are suggestions, never approval decisions.
+            # Only a header actually present in the approved
+            # Project Protocol can become a recommendation.
+            protocol_aliases = {
+                "first name": "first name (or initial)",
+                "fname": "first name (or initial)",
+                "last name": "last name (full)",
+                "lname": "last name (full)",
+                "date of birth": "date of birth (dob)",
+                "dob": "date of birth (dob)",
+                "birth dt": "date of birth (dob)",
+                "ssn": "social security number (ssn)",
+                "social": "social security number (ssn)",
+            }
+
+            alias = protocol_aliases.get(leaf_key)
+            if alias:
+                candidate_keys.add(alias)
+
             matches = {
                 approved[key]
                 for key in candidate_keys
