@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import io
+import hashlib
+import re
 
 from typing import Any, Literal
 from uuid import uuid4
@@ -87,6 +89,8 @@ class GenerateMappedCsvsRequest(
     generated_by: str = ""
 
     overwrite_existing: bool = True
+
+    record_array_paths: dict[str, str] = Field(default_factory=dict)
 
 class GenerateRawCaptureRequest(
     BaseModel
@@ -318,6 +322,150 @@ def _load_required_json(
         )
 
     return payload
+
+
+
+def _read_verified_native_json_for_mapping(
+    *,
+    workspace: str,
+    client: str,
+    project: str,
+    approved_document: dict[str, Any],
+) -> bytes:
+    """Read registered native JSON without changing the original.
+
+    Caller must already have project authorization and a verified
+    approved mapping. This is a bounded, read-only operation.
+    """
+    doc_id = str(approved_document.get("doc_id") or "").strip()
+    source_kind = approved_document.get("source_kind")
+    native_path = str(
+        approved_document.get("source_native_path") or ""
+    ).strip()
+    source_hash = str(
+        approved_document.get("source_sha256") or ""
+    ).strip().lower()
+    source_format = str(
+        approved_document.get("source_format") or ""
+    ).strip().lower().lstrip(".")
+
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", doc_id)
+        or source_kind != "native_json"
+        or source_format not in {"json", "jsonl", "ndjson"}
+        or not re.fullmatch(r"[0-9a-f]{64}", source_hash)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Approved native JSON identity is invalid.",
+        )
+
+    base = _project_base_path(
+        workspace=workspace,
+        client=client,
+        project=project,
+    )
+
+    expected_path = f"{base}/source/native/{doc_id}.{source_format}"
+
+    if native_path != expected_path:
+        raise HTTPException(
+            status_code=409,
+            detail="Approved native JSON path is not project-scoped.",
+        )
+
+    registration_path = (
+        f"{base}/cyber2/intake/documents/{doc_id}.json"
+    )
+
+    registration = _read_processing_json_blob(
+        registration_path
+    )
+
+    if not isinstance(registration, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON intake registration is invalid.",
+        )
+
+    if (
+        registration.get("doc_id") != doc_id
+        or registration.get("source_kind") != "native_json"
+        or registration.get("source_native_path") != native_path
+        or str(
+            registration.get("source_sha256") or ""
+        ).lower() != source_hash
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON approval and intake registration differ.",
+        )
+
+    approved_bytes = approved_document.get("source_bytes")
+    registered_bytes = registration.get("source_bytes")
+
+    if (
+        approved_bytes is None
+        or registered_bytes is None
+        or isinstance(approved_bytes, bool)
+        or isinstance(registered_bytes, bool)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON byte-count evidence is missing.",
+        )
+
+    try:
+        approved_count = int(approved_bytes)
+        registered_count = int(registered_bytes)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON byte-count evidence is invalid.",
+        ) from exc
+
+    max_bytes = 4 * 1024 * 1024
+
+    if (
+        approved_count <= 0
+        or approved_count != registered_count
+        or approved_count > max_bytes
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON byte-count evidence does not match limits.",
+        )
+
+    blob = (
+        _get_live_source_blob_service_client()
+        .get_blob_client(
+            container=_live_source_container(workspace),
+            blob=native_path,
+        )
+    )
+
+    try:
+        data = blob.download_blob(
+            offset=0,
+            length=max_bytes + 1,
+        ).readall()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to read registered native JSON source.",
+        ) from exc
+
+    if (
+        not isinstance(data, bytes)
+        or len(data) != approved_count
+        or hashlib.sha256(data).hexdigest() != source_hash
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Native JSON integrity verification failed.",
+        )
+
+    return data
 
 
 def _load_protocol_library(
