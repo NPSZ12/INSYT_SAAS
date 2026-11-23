@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 
@@ -28,6 +29,74 @@ def _unique_headers(headers: list[str]) -> bool:
         all(normalized)
         and len(normalized) == len(set(normalized))
     )
+
+
+def _validated_native_json_pointers(
+    document: dict[str, Any],
+    approved_document: dict[str, Any],
+    row_count: int,
+) -> list[str] | None:
+    """Verify manifest JSON pointers against approved source identity.
+
+    Ordinary CSV documents retain their existing provenance.
+    """
+    approved_kind = approved_document.get("source_kind")
+    manifest_kind = document.get("source_kind")
+
+    if approved_kind != "native_json":
+        _require(
+            manifest_kind != "native_json",
+            "Unapproved native JSON provenance",
+        )
+        return None
+
+    _require(
+        manifest_kind == "native_json",
+        "Native JSON manifest source kind mismatch",
+    )
+
+    for key in ("source_native_path", "source_sha256"):
+        value = approved_document.get(key)
+        _require(
+            isinstance(value, str)
+            and bool(value)
+            and document.get(key) == value,
+            "Native JSON source identity mismatch",
+        )
+
+    _require(
+        re.fullmatch(
+            r"[0-9a-fA-F]{64}",
+            document["source_sha256"],
+        ) is not None,
+        "Invalid native JSON source hash",
+    )
+
+    boundary = document.get("record_array_path")
+    pointers = document.get("row_source_pointers")
+
+    _require(
+        isinstance(boundary, str)
+        and boundary.startswith("/")
+        and boundary != "/"
+        and not boundary.endswith("/"),
+        "Native JSON record boundary is invalid",
+    )
+
+    _require(
+        isinstance(pointers, list)
+        and len(pointers) == row_count,
+        "Native JSON row pointer count mismatch",
+    )
+
+    for index, pointer in enumerate(pointers):
+        _require(
+            isinstance(pointer, str)
+            and pointer == f"{boundary}/{index}",
+            "Native JSON row pointer mismatch",
+        )
+
+    return pointers
 
 
 def _stable_ucid(
@@ -111,6 +180,10 @@ def load_cyber2_mapped_processing_set(
         "Invalid approved document membership",
     )
 
+    approved_by_id = {
+        str(doc["doc_id"]): doc for doc in approved_docs
+    }
+
     manifest_path = _mapped_csv_manifest_path(
         workspace=workspace,
         client=client,
@@ -180,6 +253,7 @@ def load_cyber2_mapped_processing_set(
 
     for doc_id in approved_ids:
         document = mapped_by_id[doc_id]
+        approved_document = approved_by_id[doc_id]
 
         expected_path = _mapped_csv_path(
             workspace=workspace,
@@ -240,6 +314,12 @@ def load_cyber2_mapped_processing_set(
             "Mapped CSV row count differs from manifest",
         )
 
+        native_pointers = _validated_native_json_pointers(
+            document,
+            approved_document,
+            len(data_rows),
+        )
+
         header_status = str(
             document.get("header_status") or ""
         ).upper()
@@ -293,6 +373,13 @@ def load_cyber2_mapped_processing_set(
                     ),
                     "sheet_name": document.get("sheet_name", ""),
                     "column_lineage": lineage,
+                    **({
+                        "source_kind": "native_json",
+                        "source_native_path": document["source_native_path"],
+                        "source_sha256": document["source_sha256"],
+                        "record_array_path": document["record_array_path"],
+                        "native_record_pointer": native_pointers[data_index],
+                    } if native_pointers is not None else {}),
                 },
             })
 

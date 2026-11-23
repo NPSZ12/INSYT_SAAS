@@ -37,6 +37,12 @@ from app.api.processing_center_azure import (
 from app.services.batch_service import get_container_client
 
 
+from app.api.cyber2.json_mapped_preview import (
+    JsonTransformError,
+    construct_approved_json_csv_rows,
+)
+
+
 router = APIRouter(
     prefix="/api",
     tags=["cyber2-schema-mapping"],
@@ -2357,9 +2363,43 @@ def generate_cyber2_mapped_csvs(
         description="Header Identification result",
     )
 
-    _require_csv_sources_for_legacy_generation(
-        source_identification
-    )
+    identified_documents = source_identification.get("documents")
+
+    if not isinstance(identified_documents, list) or not identified_documents:
+        raise HTTPException(
+            status_code=409,
+            detail="Header Identification documents are missing.",
+        )
+
+    native_flags = [
+        isinstance(document, dict)
+        and document.get("source_kind") == "native_json"
+        for document in identified_documents
+    ]
+
+    if any(native_flags) and not all(native_flags):
+        raise HTTPException(
+            status_code=409,
+            detail="Mixed native JSON and CSV Header Sets are not supported.",
+        )
+
+    native_json_generation = all(native_flags)
+
+    if not native_json_generation:
+        _require_csv_sources_for_legacy_generation(
+            source_identification
+        )
+
+    if native_json_generation:
+        identified_ids = {
+            str(document.get("doc_id") or "").strip()
+            for document in identified_documents
+        }
+        if not all(identified_ids) or len(identified_ids) != len(identified_documents):
+            raise HTTPException(
+                status_code=409,
+                detail="Native JSON identification has invalid Doc IDs.",
+            )
 
     approved_mapping_blob_path = (
         _approved_mapping_path(
@@ -2435,6 +2475,26 @@ def generate_cyber2_mapped_csvs(
             ),
         )
 
+    if native_json_generation:
+        approved_ids = [
+            str(document.get("doc_id") or "").strip()
+            if isinstance(document, dict) else ""
+            for document in approved_documents
+        ]
+
+        if (
+            any(not doc_id for doc_id in approved_ids)
+            or len(set(approved_ids)) != len(approved_ids)
+            or set(approved_ids) != identified_ids
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Native JSON approved document population differs "
+                    "from Header Identification."
+                ),
+            )
+
     output_container = (
         _processing_container_client()
     )
@@ -2486,7 +2546,7 @@ def generate_cyber2_mapped_csvs(
 
         if (
             not doc_id
-            or not source_csv_path
+            or (not native_json_generation and not source_csv_path)
         ):
             failed_documents.append(
                 {
@@ -2521,59 +2581,134 @@ def generate_cyber2_mapped_csvs(
         )
 
         try:
-            csv_bytes = (
-                _read_review_blob_bytes(
-                    container_name=(
-                        review_container_name
-                    ),
-                    blob_path=(
-                        source_csv_path
-                    ),
-                )
-            )
+            if native_json_generation:
+                if approved_document.get("source_kind") != "native_json":
+                    raise ValueError(
+                        "Approved source type differs from native identification."
+                    )
 
-            if csv_bytes is None:
-                raise FileNotFoundError(
-                    f"Source CSV not found: "
-                    f"{source_csv_path}"
+                if doc_id not in identified_ids:
+                    raise ValueError(
+                        "Approved native Doc ID is absent from identification."
+                    )
+
+                record_array_path = request.record_array_paths.get(doc_id)
+
+                if (
+                    not isinstance(record_array_path, str)
+                    or not record_array_path.startswith("/")
+                    or record_array_path == "/"
+                ):
+                    raise ValueError(
+                        "Explicit native JSON record-array path is required."
+                    )
+
+                native_bytes = _read_verified_native_json_for_mapping(
+                    workspace=workspace,
+                    client=client,
+                    project=project,
+                    approved_document=approved_document,
                 )
 
-            source_text = (
-                _decode_csv_bytes(
-                    csv_bytes
+                transformed = construct_approved_json_csv_rows(
+                    native_bytes,
+                    approved_document.get("source_format"),
+                    approved_document,
+                    protocol_headers,
+                    approved_document["source_sha256"],
+                    record_array_path=record_array_path,
                 )
-            )
 
-            source_delimiter = (
-                _detect_csv_delimiter(
-                    source_text
+                source_delimiter = ","
+
+                protocol_set = {
+                    str(header).casefold()
+                    for header in protocol_headers
+                }
+
+                retained_columns = [
+                    column
+                    for column in approved_document["columns"]
+                    if not column.get("delete_column")
+                ]
+
+                transformed["protocol_headers_present"] = [
+                    header
+                    for header in protocol_headers
+                    if any(
+                        str(column.get("final_header") or "").casefold()
+                        == str(header).casefold()
+                        for column in retained_columns
+                    )
+                ]
+
+                transformed["custom_headers_retained"] = [
+                    str(column.get("final_header") or "")
+                    for column in retained_columns
+                    if str(column.get("final_header") or "").casefold()
+                    not in protocol_set
+                ]
+
+                transformed["deleted_headers"] = [
+                    str(column.get("source_header") or "")
+                    for column in approved_document["columns"]
+                    if column.get("delete_column")
+                ]
+
+            else:
+                csv_bytes = (
+                    _read_review_blob_bytes(
+                        container_name=(
+                            review_container_name
+                        ),
+                        blob_path=(
+                            source_csv_path
+                        ),
+                    )
                 )
-            )
 
-            source_rows = list(
-                csv.reader(
-                    io.StringIO(
+                if csv_bytes is None:
+                    raise FileNotFoundError(
+                        f"Source CSV not found: "
+                        f"{source_csv_path}"
+                    )
+
+                source_text = (
+                    _decode_csv_bytes(
+                        csv_bytes
+                    )
+                )
+
+                source_delimiter = (
+                    _detect_csv_delimiter(
                         source_text
-                    ),
-                    delimiter=(
-                        source_delimiter
-                    ),
+                    )
                 )
-            )
 
-            transformed = (
-                _generate_mapped_document_rows(
-                    source_rows=(
-                        source_rows
-                    ),
-                    approved_document=(
-                        approved_document
-                    ),
-                    protocol_headers=(
-                        protocol_headers
-                    ),
+                source_rows = list(
+                    csv.reader(
+                        io.StringIO(
+                            source_text
+                        ),
+                        delimiter=(
+                            source_delimiter
+                        ),
+                    )
                 )
-            )
+
+                transformed = (
+                    _generate_mapped_document_rows(
+                        source_rows=(
+                            source_rows
+                        ),
+                        approved_document=(
+                            approved_document
+                        ),
+                        protocol_headers=(
+                            protocol_headers
+                        ),
+                    )
+                )
 
             _write_csv_blob_rows(
                 container=(
@@ -2725,6 +2860,34 @@ def generate_cyber2_mapped_csvs(
                         transformed[
                             "deleted_headers"
                         ]
+                    ),
+
+                    "source_kind": (
+                        approved_document.get("source_kind") or "csv"
+                    ),
+
+                    "source_native_path": (
+                        transformed.get("source_native_path") or ""
+                    ),
+
+                    "source_sha256": (
+                        transformed.get("source_sha256") or ""
+                    ),
+
+                    "source_format": (
+                        transformed.get("source_format") or ""
+                    ),
+
+                    "record_array_path": (
+                        transformed.get("record_array_path")
+                    ),
+
+                    "row_source_pointers": (
+                        transformed.get("row_source_pointers") or []
+                    ),
+
+                    "source_origin": (
+                        approved_document.get("source_origin") or ""
                     ),
 
                     "generated_at":
