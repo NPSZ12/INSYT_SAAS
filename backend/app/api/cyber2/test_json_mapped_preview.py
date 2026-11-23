@@ -5,6 +5,7 @@ import unittest
 from json_mapped_preview import (
     JsonTransformError,
     preview_json_mapped_rows,
+    construct_approved_json_csv_rows,
     decisions_from_approved_json_mapping,
 )
 from json_header_evidence import discover_json_header_evidence
@@ -665,6 +666,172 @@ class JsonMappedPreviewTests(unittest.TestCase):
         self.assertFalse(result["csv_generated"])
         self.assertFalse(result["source_modified"])
         self.assertFalse(result["mapping_saved"])
+
+
+
+    def test_existing_csv_handoff_preserves_rows_and_lineage(self):
+        data = json.dumps({
+            "collection": {
+                "people": [
+                    {
+                        "first_name": "Avery",
+                        "fname": "Avery",
+                        "email": "avery@example.invalid",
+                    },
+                    {
+                        "first_name": "Jordan",
+                        "fname": "Jordan",
+                        "email": "jordan@example.invalid",
+                    },
+                ]
+            }
+        }).encode("utf-8")
+
+        evidence = discover_json_header_evidence(data, "json")
+        columns = []
+
+        for index, field in enumerate(evidence["fields"]):
+            if field["kind"] != "scalar":
+                continue
+
+            pointer = field["json_pointer"]
+
+            if pointer.endswith(("/first_name", "/fname")):
+                disposition = "map"
+                header = "First Name (or Initial)"
+            elif pointer.endswith("/email"):
+                disposition = "keep"
+                header = "Secondary Email"
+            else:
+                disposition = "delete"
+                header = ""
+
+            columns.append({
+                "column_index": index,
+                "json_pointer": pointer,
+                "source_header": field["source_path"],
+                "disposition": disposition,
+                "final_header": header,
+                "delete_column": disposition == "delete",
+                "mapped_to_protocol": disposition == "map",
+            })
+
+        sha = hashlib.sha256(data).hexdigest()
+
+        document = {
+            "doc_id": "INSYT000000077",
+            "source_kind": "native_json",
+            "source_native_path": (
+                "synthetic/source/native/INSYT000000077.json"
+            ),
+            "source_sha256": sha,
+            "source_format": "json",
+            "columns": columns,
+        }
+
+        result = construct_approved_json_csv_rows(
+            data,
+            "json",
+            document,
+            ["First Name (or Initial)"],
+            sha,
+            record_array_path="/collection/people",
+        )
+
+        self.assertEqual(result["mapped_row_count"], 2)
+        self.assertEqual(len(result["rows"]), 3)
+        self.assertEqual(
+            result["row_source_pointers"],
+            ["/collection/people/0", "/collection/people/1"],
+        )
+
+        self.assertEqual(
+            result["rows"][0],
+            [
+                "Secondary Email",
+                "First Name (or Initial)",
+                "First Name (or Initial)_2",
+            ],
+        )
+
+        self.assertEqual(
+            result["rows"][1],
+            ["avery@example.invalid", "Avery", "Avery"],
+        )
+        self.assertEqual(
+            result["rows"][2],
+            ["jordan@example.invalid", "Jordan", "Jordan"],
+        )
+
+        self.assertEqual(
+            [c["output_header"] for c in result["column_lineage"]],
+            result["output_headers"],
+        )
+
+        self.assertEqual(
+            [c["output_column_index"] for c in result["column_lineage"]],
+            list(range(len(result["output_headers"]))),
+        )
+
+        self.assertFalse(result["source_modified"])
+
+    def test_csv_handoff_requires_explicit_nested_boundary(self):
+        data = json.dumps({
+            "collection": {"people": [{"first_name": "Avery"}]}
+        }).encode("utf-8")
+
+        evidence = discover_json_header_evidence(data, "json")
+        sha = hashlib.sha256(data).hexdigest()
+
+        columns = [
+            {
+                "column_index": index,
+                "json_pointer": field["json_pointer"],
+                "disposition": (
+                    "map" if field["kind"] == "scalar" else "delete"
+                ),
+                "final_header": (
+                    "First Name" if field["kind"] == "scalar" else ""
+                ),
+                "delete_column": field["kind"] != "scalar",
+            }
+            for index, field in enumerate(evidence["fields"])
+            if field["kind"] == "scalar"
+        ]
+
+        document = {
+            "doc_id": "TEST001",
+            "source_kind": "native_json",
+            "source_native_path": "synthetic/native/TEST001.json",
+            "source_sha256": sha,
+            "source_format": "json",
+            "columns": columns,
+        }
+
+        with self.assertRaises(JsonTransformError):
+            construct_approved_json_csv_rows(
+                data, "json", document, ["First Name"], sha
+            )
+
+    def test_csv_handoff_rejects_source_hash_mismatch(self):
+        data = b'{"name":"Avery"}'
+        sha = hashlib.sha256(data).hexdigest()
+
+        with self.assertRaises(JsonTransformError):
+            construct_approved_json_csv_rows(
+                data,
+                "json",
+                {
+                    "doc_id": "TEST001",
+                    "source_kind": "native_json",
+                    "source_native_path": "synthetic/native/TEST001.json",
+                    "source_sha256": "0" * 64,
+                    "source_format": "json",
+                    "columns": [],
+                },
+                ["Name"],
+                sha,
+            )
 
 
 if __name__ == "__main__":

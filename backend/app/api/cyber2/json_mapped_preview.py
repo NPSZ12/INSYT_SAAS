@@ -482,3 +482,169 @@ def preview_json_mapped_rows(
         "csv_generated": False,
         "mapping_saved": False,
     }
+
+def construct_approved_json_csv_rows(
+    data,
+    extension,
+    approved_document,
+    protocol_headers,
+    expected_sha256,
+    *,
+    record_array_path=None,
+):
+    """Prepare verified JSON-derived rows for the existing CSV writer.
+
+    The caller must verify the approved mapping status, project
+    authorization, and registered native source path before calling.
+    No storage or approval operations occur here.
+    """
+    if not isinstance(approved_document, dict):
+        raise JsonTransformError("Invalid approved JSON document.")
+
+    if approved_document.get("source_kind") != "native_json":
+        raise JsonTransformError("Native JSON source required.")
+
+    doc_id = str(approved_document.get("doc_id") or "").strip()
+    native_path = str(
+        approved_document.get("source_native_path") or ""
+    ).strip()
+
+    source_hash = str(
+        approved_document.get("source_sha256") or ""
+    ).lower()
+
+    source_format = str(
+        approved_document.get("source_format") or ""
+    ).lower().lstrip(".")
+
+    extension = str(extension).lower().lstrip(".")
+
+    if not doc_id or not native_path:
+        raise JsonTransformError("Native source identity missing.")
+
+    if (
+        source_format != extension
+        or extension not in {"json", "jsonl", "ndjson"}
+    ):
+        raise JsonTransformError("Native source format mismatch.")
+
+    if (
+        not isinstance(expected_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+        or source_hash != expected_sha256
+        or hashlib.sha256(data).hexdigest() != expected_sha256
+    ):
+        raise JsonTransformError("Native source integrity mismatch.")
+
+    try:
+        evidence = discover_json_header_evidence(data, extension)
+    except JsonEvidenceError as exc:
+        raise JsonTransformError(str(exc)) from exc
+
+    decisions = decisions_from_approved_json_mapping(
+        approved_document,
+        evidence,
+        protocol_headers,
+    )
+
+    retained_paths = [
+        item["json_pointer"]
+        for item in decisions
+        if item["action"] != "discard"
+    ]
+
+    if record_array_path is None and any(
+        "/[]/" in path for path in retained_paths
+    ):
+        raise JsonTransformError(
+            "Nested array fields require an explicit record boundary."
+        )
+
+    result = preview_json_mapped_rows(
+        data,
+        extension,
+        decisions,
+        protocol_headers,
+        expected_sha256,
+        record_array_path=record_array_path,
+        include_all_rows=True,
+    )
+
+    rows = result["all_rows"]
+    headers = result["output_headers"]
+    pointers = result["row_source_pointers"]
+
+    if (
+        not result["validation_complete"]
+        or not isinstance(rows, list)
+        or len(rows) != result["validated_record_count"] + 1
+        or rows[0] != headers
+        or len(pointers) != result["validated_record_count"]
+        or any(len(row) != len(headers) for row in rows)
+    ):
+        raise JsonTransformError("Incomplete constructed CSV rows.")
+
+    approved_columns = approved_document.get("columns")
+    if not isinstance(approved_columns, list):
+        raise JsonTransformError("Approved column lineage missing.")
+
+    by_pointer = {}
+
+    for column in approved_columns:
+        if not isinstance(column, dict):
+            raise JsonTransformError("Invalid column lineage.")
+
+        pointer = column.get("json_pointer")
+        index = column.get("column_index")
+
+        if (
+            not isinstance(pointer, str)
+            or not isinstance(index, int)
+            or isinstance(index, bool)
+            or index < 0
+            or pointer in by_pointer
+        ):
+            raise JsonTransformError("Invalid source column identity.")
+
+        by_pointer[pointer] = column
+
+    lineage = []
+
+    for output_index, output_column in enumerate(result["columns"]):
+        pointer = output_column["json_pointer"]
+        original = by_pointer.get(pointer)
+
+        if original is None:
+            raise JsonTransformError("Missing approved column lineage.")
+
+        lineage.append({
+            "output_column_index": output_index,
+            "source_column_index": original["column_index"],
+            "source_header": str(original.get("source_header") or ""),
+            "canonical_header": str(
+                original.get("final_header") or ""
+            ),
+            "output_header": output_column["output_header"],
+            "mapped_to_protocol": bool(
+                original.get("mapped_to_protocol", False)
+            ),
+            "json_pointer": pointer,
+        })
+
+    return {
+        "doc_id": doc_id,
+        "source_kind": "native_json",
+        "source_native_path": native_path,
+        "source_sha256": source_hash,
+        "source_format": source_format,
+        "record_array_path": record_array_path,
+        "rows": rows,
+        "output_headers": headers,
+        "column_lineage": lineage,
+        "row_source_pointers": pointers,
+        "source_row_count": result["record_count"],
+        "mapped_row_count": result["validated_record_count"],
+        "source_column_count": len(approved_columns),
+        "mapped_column_count": len(headers),
+        "source_modified": False,
+    }
