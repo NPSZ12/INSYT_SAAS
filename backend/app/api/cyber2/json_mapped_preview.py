@@ -271,6 +271,7 @@ def preview_json_mapped_rows(
     *,
     preview_limit=25,
     record_array_path=None,
+    include_all_rows=False,
 ):
     """Validate every record; return bounded output-row preview."""
 
@@ -408,7 +409,19 @@ def preview_json_mapped_rows(
                 "Approved record array contains no records."
             )
 
+    if not isinstance(include_all_rows, bool):
+        raise JsonTransformError("Invalid full-row request.")
+
+    # Bound in-memory generation until the existing Azure
+    # processing expansion supports partitioned CSV writes.
+    if include_all_rows and len(logical_records) > 10000:
+        raise JsonTransformError(
+            "Full-row construction exceeds bounded limit."
+        )
+
     preview = []
+    all_rows = []
+    row_source_pointers = []
 
     for index, (root, record, source_pointer, prefix) in enumerate(
         logical_records
@@ -434,6 +447,12 @@ def preview_json_mapped_rows(
                 column["data_treatment"],
             )
 
+        if include_all_rows:
+            all_rows.append([
+                mapped[header] for header in plan["output_headers"]
+            ])
+            row_source_pointers.append(source_pointer)
+
         if index < preview_limit:
             preview.append({
                 "record_index": index,
@@ -451,7 +470,14 @@ def preview_json_mapped_rows(
         "output_headers": plan["output_headers"],
         "columns": plan["columns"],
         "preview": preview,
-        "preview_truncated": len(rows) > len(preview),
+        "preview_truncated": len(logical_records) > len(preview),
+        "all_rows": (
+            [list(plan["output_headers"])] + all_rows
+            if include_all_rows else None
+        ),
+        "row_source_pointers": (
+            row_source_pointers if include_all_rows else None
+        ),
         "source_modified": False,
         "csv_generated": False,
         "mapping_saved": False,

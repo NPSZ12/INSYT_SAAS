@@ -457,6 +457,117 @@ class JsonMappedPreviewTests(unittest.TestCase):
                 ["First Name (or Initial)"],
             )
 
+    def test_full_rows_exceed_preview_limit(self):
+        data = json.dumps([
+            {"name": f"Person-{i:03d}"}
+            for i in range(30)
+        ]).encode("utf-8")
+
+        evidence = discover_json_header_evidence(data, "json")
+
+        decisions = [{
+            "json_pointer": field["json_pointer"],
+            "action": "map",
+            "header": "Name",
+            "treatment": "text",
+            "reviewed": True,
+        } for field in evidence["fields"]]
+
+        result = preview_json_mapped_rows(
+            data,
+            "json",
+            decisions,
+            ["Name"],
+            hashlib.sha256(data).hexdigest(),
+            include_all_rows=True,
+        )
+
+        self.assertEqual(result["record_count"], 30)
+        self.assertEqual(len(result["preview"]), 25)
+        self.assertTrue(result["preview_truncated"])
+        self.assertEqual(len(result["all_rows"]), 31)
+        self.assertEqual(result["all_rows"][0], ["Name"])
+        self.assertEqual(result["all_rows"][1], ["Person-000"])
+        self.assertEqual(result["all_rows"][30], ["Person-029"])
+        self.assertEqual(
+            len(result["row_source_pointers"]), 30
+        )
+        self.assertEqual(
+            result["row_source_pointers"][-1], "/29"
+        )
+        self.assertFalse(result["csv_generated"])
+        self.assertFalse(result["source_modified"])
+
+    def test_default_preview_does_not_materialize_csv_rows(self):
+        data = json.dumps([
+            {"name": "Avery"}
+        ]).encode("utf-8")
+
+        evidence = discover_json_header_evidence(data, "json")
+
+        decisions = [{
+            "json_pointer": field["json_pointer"],
+            "action": "map",
+            "header": "Name",
+            "treatment": "text",
+            "reviewed": True,
+        } for field in evidence["fields"]]
+
+        result = preview_json_mapped_rows(
+            data,
+            "json",
+            decisions,
+            ["Name"],
+            hashlib.sha256(data).hexdigest(),
+        )
+
+        self.assertIsNone(result["all_rows"])
+        self.assertIsNone(result["row_source_pointers"])
+        self.assertFalse(result["csv_generated"])
+
+    def test_full_rows_retain_nested_source_pointers(self):
+        data = json.dumps({
+            "collection": {
+                "people": [
+                    {"name": "Avery"},
+                    {"name": "Jordan"},
+                ]
+            }
+        }).encode("utf-8")
+
+        evidence = discover_json_header_evidence(data, "json")
+
+        decisions = []
+        for field in evidence["fields"]:
+            selected = field["json_pointer"].endswith("/name")
+            decisions.append({
+                "json_pointer": field["json_pointer"],
+                "action": "map" if selected else "discard",
+                "header": "Name" if selected else "",
+                "treatment": "text" if selected else "discard",
+                "reviewed": True,
+            })
+
+        result = preview_json_mapped_rows(
+            data,
+            "json",
+            decisions,
+            ["Name"],
+            hashlib.sha256(data).hexdigest(),
+            record_array_path="/collection/people",
+            include_all_rows=True,
+        )
+
+        self.assertEqual(
+            result["all_rows"],
+            [["Name"], ["Avery"], ["Jordan"]],
+        )
+        self.assertEqual(
+            result["row_source_pointers"],
+            ["/collection/people/0", "/collection/people/1"],
+        )
+        self.assertFalse(result["csv_generated"])
+
     def test_concat_distinct_array_values(self):
         result = convert(
             [{"phones": [
