@@ -62,7 +62,7 @@ def assign_json_output_headers(decisions, protocol_headers):
         if action == "discard" or treatment == "discard":
             continue
 
-        if action not in {"approve", "keep", "map"}:
+        if action not in {"approve", "keep", "map", "rename"}:
             raise DuplicateHeaderError("Invalid mapping action.")
 
         if treatment not in {
@@ -82,12 +82,25 @@ def assign_json_output_headers(decisions, protocol_headers):
                 "Missing approved protocol header."
             )
 
-        base = approved.get(requested.strip().casefold())
-
-        if base is None:
-            raise DuplicateHeaderError(
-                "Output header is not in the approved protocol."
-            )
+        if action in {"approve", "map"}:
+            # Canonical mappings must remain protocol-restricted.
+            base = approved.get(requested.strip().casefold())
+            if base is None:
+                raise DuplicateHeaderError(
+                    "Output header is not in the approved protocol."
+                )
+        else:
+            # Explicit reviewer-approved Keep/Rename may retain
+            # secondary identifiers outside the Project Protocol.
+            base = requested.strip()
+            if (
+                not base
+                or len(base) > 128
+                or any(ch in base for ch in "\r\n\x00")
+            ):
+                raise DuplicateHeaderError(
+                    "Invalid retained source header."
+                )
 
         candidate = base
         counter = 2
