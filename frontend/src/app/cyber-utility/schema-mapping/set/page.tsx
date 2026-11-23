@@ -85,6 +85,7 @@ type IdentificationDocument = {
   doc_id: string;
 
   source_csv_path?: string;
+  source_kind?: string;
 
   classification?: string;
 
@@ -882,6 +883,32 @@ function SchemaMappingSetContent() {
   const documents =
     identification?.documents ||
     [];
+
+  const [
+    nativeJsonRecordArrayPaths,
+    setNativeJsonRecordArrayPaths,
+  ] = useState<Record<string, string>>({});
+
+  const nativeJsonDocuments =
+    documents.filter(
+      (document) =>
+        document.source_kind === "native_json"
+    );
+
+  const missingNativeJsonBoundaries =
+    nativeJsonDocuments.some((document) => {
+      const value =
+        nativeJsonRecordArrayPaths[
+          document.doc_id
+        ]?.trim() || "";
+
+      return (
+        !value.startsWith("/") ||
+        value === "/" ||
+        value.endsWith("/") ||
+        value.includes("//")
+      );
+    });
 
 
   const isAiExtractionHeaderSet =
@@ -2003,6 +2030,22 @@ function SchemaMappingSetContent() {
   }
 
   async function generateMappedCsvs() {
+    if (missingNativeJsonBoundaries) {
+      setError(
+        "Enter a valid Record Array Path for every native JSON document."
+      );
+      return;
+    }
+
+    const recordArrayPaths: Record<string, string> = {};
+
+    for (const document of nativeJsonDocuments) {
+      recordArrayPaths[document.doc_id] =
+        nativeJsonRecordArrayPaths[
+          document.doc_id
+        ].trim();
+    }
+
     if (
       !client ||
       !project ||
@@ -2028,6 +2071,9 @@ function SchemaMappingSetContent() {
             project,
             generated_by: "",
             overwrite_existing: true,
+            ...(nativeJsonDocuments.length > 0
+              ? { record_array_paths: recordArrayPaths }
+              : {}),
           }
         );
 
@@ -3288,6 +3334,55 @@ function SchemaMappingSetContent() {
 
                         </div>
 
+                        {nativeJsonDocuments.length > 0 ? (
+                          <div className="w-full space-y-3">
+                            <p className="text-sm font-medium text-slate-300">
+                              Native JSON record boundaries
+                            </p>
+
+                            <p className="text-xs text-slate-500">
+                              Enter the path to the array containing
+                              individual records. Original JSON and
+                              approved field mappings remain unchanged.
+                            </p>
+
+                            {nativeJsonDocuments.map((document) => (
+                              <label
+                                key={document.doc_id}
+                                className="block space-y-1"
+                              >
+                                <span className="block text-xs text-slate-300">
+                                  {document.doc_id}
+                                  {document.original_filename
+                                    ? ` ? ${document.original_filename}`
+                                    : ""}
+                                </span>
+
+                                <input
+                                  type="text"
+                                  value={
+                                    nativeJsonRecordArrayPaths[
+                                      document.doc_id
+                                    ] || ""
+                                  }
+                                  onChange={(event) =>
+                                    setNativeJsonRecordArrayPaths(
+                                      (previous) => ({
+                                        ...previous,
+                                        [document.doc_id]:
+                                          event.target.value,
+                                      })
+                                    )
+                                  }
+                                  placeholder="/collection/people"
+                                  aria-label={`Record Array Path for ${document.doc_id}`}
+                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-white"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+
                         <div className="flex flex-wrap gap-2">
 
                             <button
@@ -3297,6 +3392,7 @@ function SchemaMappingSetContent() {
                                 }
                                 disabled={
                                 generatingMappedCsvs ||
+                                missingNativeJsonBoundaries ||
                                 !mappingData?.approved_mapping_exists
                                 }
                                 className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
