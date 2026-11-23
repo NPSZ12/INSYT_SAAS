@@ -118,15 +118,81 @@ def save_c2_origin_approval(
     inventory = {}
     for doc in docs:
         _require(isinstance(doc, dict), "Invalid approved document")
+
         doc_id = doc.get("doc_id")
-        path = doc.get("source_csv_path")
+        # Explicit AI-origin evidence disqualifies a source
+        # from the non-AI C2 receipt workflow.
+        _require(
+            not any(
+                isinstance(doc.get(key), str)
+                and doc[key].strip().casefold().replace("-", "_")
+                in {
+                    "ai",
+                    "ai_generated",
+                    "ai_extracted",
+                    "ai_assisted",
+                    "ai_output",
+                    "ai_capture",
+                    "ai_extraction",
+                }
+                for key in (
+                    "source_kind",
+                    "source_origin",
+                    "capture_method",
+                    "extraction_method",
+                )
+            ),
+            "Known AI-origin source is ineligible for C2",
+        )
+
         _require(
             isinstance(doc_id, str) and bool(doc_id)
-            and doc_id not in inventory
-            and isinstance(path, str) and bool(path),
+            and doc_id not in inventory,
             "Invalid or duplicate approved source document",
         )
-        inventory[doc_id] = path
+
+        if doc.get("source_kind") == "native_json":
+            native_path = doc.get("source_native_path")
+            json_alias = doc.get("source_json_path")
+            digest = doc.get("source_sha256")
+
+            _require(
+                isinstance(native_path, str)
+                and bool(native_path.strip())
+                and native_path.lower().endswith(
+                    (".json", ".jsonl", ".ndjson")
+                )
+                and isinstance(digest, str)
+                and re.fullmatch(
+                    r"[0-9a-fA-F]{64}", digest
+                ) is not None,
+                "Invalid approved native JSON identity",
+            )
+
+            _require(
+                json_alias is None or json_alias == native_path,
+                "Approved JSON alias differs from native source",
+            )
+
+            # Additive alias: the original approved path is authoritative.
+            inventory[doc_id] = {
+                "source_kind": "native_json",
+                "source_native_path": native_path,
+                "source_json_path": native_path,
+                "source_sha256": digest.lower(),
+            }
+
+        else:
+            # Existing CSV source requirement is unchanged.
+            path = doc.get("source_csv_path")
+            _require(
+                isinstance(path, str) and bool(path),
+                "Invalid or duplicate approved source document",
+            )
+
+            inventory[doc_id] = {
+                "source_csv_path": path,
+            }
 
     _require(
         isinstance(reviewed_doc_ids, list)
@@ -166,7 +232,7 @@ def save_c2_origin_approval(
         "documents": [
             {
                 "doc_id": doc_id,
-                "source_csv_path": inventory[doc_id],
+                **inventory[doc_id],
                 "capture_method": "non_ai_structured_source",
             }
             for doc_id in sorted(inventory)
