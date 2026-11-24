@@ -76,6 +76,9 @@ jobs:
       - name: Validate complete API and database startup
         run: python tools/insyt_api_startup_check.py
 
+      - name: Validate functional login MFA and Entra contracts
+        run: python tools/insyt_auth_runtime_check.py
+
       - name: Remove disposable PostgreSQL
         if: always()
         run: docker rm -f insyt-ci-postgres-tls || true
