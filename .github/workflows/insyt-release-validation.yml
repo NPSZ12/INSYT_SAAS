@@ -47,6 +47,9 @@ jobs:
           python -m pip install cryptography==46.0.3
           python -m unittest discover -s tools -p 'test_insyt_signed_release_approval.py' -v
 
+      - name: Validate deployment artifact integrity
+        run: python -m unittest discover -s tools -p 'test_insyt_artifact_integrity.py' -v
+
       - name: Validate Hardened Workflow Registry
         run: python tools/insyt_hardened_registry_check.py
 
