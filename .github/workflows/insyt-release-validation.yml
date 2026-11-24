@@ -50,6 +50,9 @@ jobs:
       - name: Validate deployment artifact integrity
         run: python -m unittest discover -s tools -p 'test_insyt_artifact_integrity.py' -v
 
+      - name: Validate integrated release evidence
+        run: python -m unittest discover -s tools -p 'test_insyt_release_evidence.py' -v
+
       - name: Validate Hardened Workflow Registry
         run: python tools/insyt_hardened_registry_check.py
 
