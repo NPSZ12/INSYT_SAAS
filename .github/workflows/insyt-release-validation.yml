@@ -28,6 +28,11 @@ jobs:
       - name: Validate deployment gate preservation
         run: python -m unittest discover -s tools -p 'test_insyt_deployment_gate.py' -v
 
+      - name: Validate JSON feature isolation
+        run: |
+          python tools/insyt_feature_scope_check.py --manifest .github/insyt-release/json-feature-scope-candidate.json
+          python -m unittest discover -s tools -p 'test_insyt_feature_scope.py' -v
+
       - name: Validate Hardened Workflow Registry
         run: python tools/insyt_hardened_registry_check.py
 
