@@ -25,6 +25,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Validate deployment gate preservation
+        run: python -m unittest discover -s tools -p 'test_insyt_deployment_gate.py' -v
+
       - name: Validate Hardened Workflow Registry
         run: python tools/insyt_hardened_registry_check.py
 

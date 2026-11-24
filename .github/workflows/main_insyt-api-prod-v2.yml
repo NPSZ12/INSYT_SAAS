@@ -42,9 +42,20 @@ jobs:
       # 2. Refer to sample workflows for alternative deployment strategies: https://github.com/Azure/actions-workflow-samples/tree/master/AppService
       
 
+  authorize:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: INSYT production release authorization
+        run: python3 tools/insyt_deployment_gate.py --component api --sha ${{ github.sha }}
+
   deploy:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, authorize]
     permissions:
       id-token: write #This is required for requesting the JWT
       contents: read #This is required for actions/checkout
