@@ -33,6 +33,7 @@
         }
       },
       "feature": "cyber2-native-json",
+      "release_commit": "bb736295b00f3b8a783845442cb44cd2223b0a7c",
       "source_blobs": {
         "backend/app/api/cyber2/json_duplicate_headers.py": "7229cc8fc3ec72fd2cc3b25db8b51c696b5b0cfd",
         "backend/app/api/cyber2/json_mapped_preview.py": "f083b84d29ae11f056e32628fb3aad42ce6ed171",
