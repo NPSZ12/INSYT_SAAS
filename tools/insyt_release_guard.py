@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """INSYT production source protection.
 
 Fail closed when a proposed release changes the verified
@@ -24,9 +24,8 @@ BASELINE = (
     / "production-baseline.json"
 )
 
-EXPECTED_BASELINE_SHA256 = (
-    "2346a09c847e22e30eb8eb516bfa1a9f3ca375"
-    "464196a51581ebf0a02ba52cd1"
+EXPECTED_BASELINE_CANONICAL_SHA256 = (
+    "8ab81e0c26ce33f444d751451943c86dcb6112b45b9c9416660ecf386b30af49"
 )
 
 REQUIRED_WORKFLOWS = (
@@ -60,14 +59,22 @@ def git(*args):
 
 
 def load_baseline():
-    raw = BASELINE.read_bytes()
+    try:
+        data = json.loads(BASELINE.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        fail("Protected baseline unreadable: " + str(exc))
 
-    actual = hashlib.sha256(raw).hexdigest()
+    canonical = json.dumps(
+        data,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
 
-    if actual != EXPECTED_BASELINE_SHA256:
-        fail("Protected production baseline SHA256 changed.")
+    actual = hashlib.sha256(canonical).hexdigest()
 
-    data = json.loads(raw)
+    if actual != EXPECTED_BASELINE_CANONICAL_SHA256:
+        fail("Protected production baseline canonical SHA256 changed.")
 
     if data.get("schema_version") != 1:
         fail("Unexpected baseline schema.")
