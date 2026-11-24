@@ -39,6 +39,9 @@ jobs:
       - name: Validate cumulative hardened history
         run: python -m unittest discover -s tools -p 'test_insyt_hardened_transition.py' -v
 
+      - name: Validate trusted policy retrieval
+        run: python -m unittest discover -s tools -p 'test_insyt_trusted_policy_loader.py' -v
+
       - name: Validate Hardened Workflow Registry
         run: python tools/insyt_hardened_registry_check.py
 
