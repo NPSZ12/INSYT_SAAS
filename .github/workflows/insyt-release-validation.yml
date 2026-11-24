@@ -1,0 +1,104 @@
+name: INSYT Release Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - release/json-promotion-20261119
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protected-source:
+    name: Protected Source Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision with baseline history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate Hardened Workflow Registry
+        run: python tools/insyt_hardened_registry_check.py
+
+      - name: Enforce existing production guard
+        run: python tools/insyt_release_guard.py
+
+  api-validation:
+    name: API Startup and JSON Regressions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install production backend dependencies
+        run: |
+          python -m pip install -r backend/requirements.txt
+          python -m pip install pytest
+
+      - name: Start disposable TLS PostgreSQL
+        run: bash tools/insyt_ci_postgres_tls.sh
+
+      - name: Validate complete API and database startup
+        run: python tools/insyt_api_startup_check.py
+
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm -f insyt-ci-postgres-tls || true
+
+      - name: Validate native JSON and Cyber2 regressions
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend:${{ github.workspace }}/backend/app/api/cyber2
+        run: |
+          python -m pytest -q --import-mode=importlib \
+            backend/app/api/cyber2/test_json_leaf_protocol_matches.py \
+            backend/app/api/cyber2/test_json_header_review_contract.py \
+            backend/app/api/cyber2/test_json_header_evidence.py \
+            backend/app/api/cyber2/test_json_field_mapping.py \
+            backend/app/api/cyber2/test_json_duplicate_headers.py \
+            backend/app/api/cyber2/test_json_mapped_preview.py \
+            backend/app/api/cyber2/test_json_header_route_guardrails.py \
+            backend/app/api/cyber2/test_json_native_source_reader.py \
+            backend/app/api/cyber2/test_json_generator_integration.py \
+            backend/app/services/cyber2/test_json_mapped_provenance.py \
+            backend/app/services/cyber2/test_json_processing_loader_integration.py \
+            backend/app/services/cyber2/test_json_origin_authorization.py \
+            backend/app/services/cyber2/test_json_origin_receipt.py
+
+  frontend-validation:
+    name: Frontend Build Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Validate TypeScript
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
