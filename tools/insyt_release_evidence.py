@@ -1,4 +1,4 @@
-﻿"""INSYT release evidence integration.
+"""INSYT release evidence integration.
 
 This combines source, signature and package integrity.
 It is NOT an independent deployment authority.
@@ -121,6 +121,12 @@ def verify_release_evidence(
         reject("Exactly one independent scope approval required")
 
     approval = matches[0]
+
+    # The independently approved source record must name
+    # the exact deployable revision, not only the older
+    # immutable JSON development checkpoint.
+    if approval.get('release_commit') != release_commit:
+        reject('Source approval does not authorize this release commit')
 
     try:
         verify_scope(candidate, approval, source_blobs)

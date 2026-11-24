@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,6 +54,7 @@ class IntegratedEvidenceTests(unittest.TestCase):
             "approval_id": "synthetic-test-only",
             "feature": "cyber2-native-json",
             "candidate_commit": self.checkpoint,
+            "release_commit": self.release,
             "components": self.candidate["components"],
             "source_blobs": dict(self.blobs),
         }
@@ -144,6 +145,22 @@ class IntegratedEvidenceTests(unittest.TestCase):
                 "schema_version": 1,
                 "approved_scopes": [],
             })
+
+    def test_missing_approved_release_commit_denied(self):
+        self.approval.pop("release_commit")
+        self.payload["scope_sha256"] = scope_digest(self.approval)
+        self.resign()
+
+        with self.assertRaises(ReleaseEvidenceDenied):
+            self.check()
+
+    def test_different_approved_release_commit_denied(self):
+        self.approval["release_commit"] = "f" * 40
+        self.payload["scope_sha256"] = scope_digest(self.approval)
+        self.resign()
+
+        with self.assertRaises(ReleaseEvidenceDenied):
+            self.check()
 
     def test_changed_source_blob_denied(self):
         with self.assertRaises(ReleaseEvidenceDenied):
