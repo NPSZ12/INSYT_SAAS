@@ -33,6 +33,12 @@ jobs:
           python tools/insyt_feature_scope_check.py --manifest .github/insyt-release/json-feature-scope-candidate.json
           python -m unittest discover -s tools -p 'test_insyt_feature_scope.py' -v
 
+      - name: Validate authoritative scope verification
+        run: python -m unittest discover -s tools -p 'test_insyt_authoritative_scope.py' -v
+
+      - name: Validate cumulative hardened history
+        run: python -m unittest discover -s tools -p 'test_insyt_hardened_transition.py' -v
+
       - name: Validate Hardened Workflow Registry
         run: python tools/insyt_hardened_registry_check.py
 
