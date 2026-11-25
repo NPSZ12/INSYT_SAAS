@@ -1,4 +1,4 @@
-﻿name: INSYT Deployment Gate Diagnostic
+name: INSYT Deployment Gate Diagnostic
 
 on:
   push:
@@ -55,6 +55,17 @@ jobs:
 
           print("Origin matches accepted URLs:", origin in gate.REMOTE_URLS)
           print("Origin ends in .git:", origin.endswith(".git"))
+
+          expected_origin = "https://github.com/NPSZ12/INSYT_SAAS"
+
+          if origin != expected_origin:
+              raise SystemExit("STOP: Unexpected actual repository URL")
+
+          # Test the exact proposed allowlist addition.
+          # Diagnostic only; no production deployment.
+          gate.REMOTE_URLS.add(expected_origin)
+
+          print("PASS: Exact repository URL compatibility correction")
 
           original_request = gate.github_json
 
