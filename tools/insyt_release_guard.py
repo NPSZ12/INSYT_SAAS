@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """INSYT production source protection.
 
 Fail closed when a proposed release changes the verified
@@ -9,6 +9,7 @@ reviewed, and protected by repository rules before releases
 with changes can pass.
 """
 
+import argparse
 import hashlib
 import json
 import subprocess
@@ -24,9 +25,8 @@ BASELINE = (
     / "production-baseline.json"
 )
 
-EXPECTED_BASELINE_SHA256 = (
-    "2346a09c847e22e30eb8eb516bfa1a9f3ca375"
-    "464196a51581ebf0a02ba52cd1"
+EXPECTED_BASELINE_CANONICAL_SHA256 = (
+    "8ab81e0c26ce33f444d751451943c86dcb6112b45b9c9416660ecf386b30af49"
 )
 
 REQUIRED_WORKFLOWS = (
@@ -60,14 +60,22 @@ def git(*args):
 
 
 def load_baseline():
-    raw = BASELINE.read_bytes()
+    try:
+        data = json.loads(BASELINE.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        fail("Protected baseline unreadable: " + str(exc))
 
-    actual = hashlib.sha256(raw).hexdigest()
+    canonical = json.dumps(
+        data,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
 
-    if actual != EXPECTED_BASELINE_SHA256:
-        fail("Protected production baseline SHA256 changed.")
+    actual = hashlib.sha256(canonical).hexdigest()
 
-    data = json.loads(raw)
+    if actual != EXPECTED_BASELINE_CANONICAL_SHA256:
+        fail("Protected production baseline canonical SHA256 changed.")
 
     if data.get("schema_version") != 1:
         fail("Unexpected baseline schema.")
@@ -145,7 +153,98 @@ def changes_since(commit, paths):
     return changes
 
 
+def validate_policy_foundation():
+    """Validate initial policy proposal; never authorize deployment."""
+
+    foundation = "65ec1a3aaa632bb7c04a814a81c494b68cd963e7"
+    reviewed = "1959711970f4cc5c1f9a819443fecc1019a030c7"
+
+    git("merge-base", "--is-ancestor", foundation, "HEAD")
+    git("merge-base", "--is-ancestor", reviewed, "HEAD")
+
+    expected = {
+        ".github/insyt-release/approved-feature-scopes.json": "A",
+        ".github/insyt-release/hardened-history.json": "A",
+        ".github/insyt-release/release-signing-public.pem": "A",
+        "tools/insyt_release_guard.py": "M",
+        ".github/workflows/insyt-release-validation.yml": "M",
+    }
+
+    observed = dict(
+        (path, status)
+        for status, path in changes_since(foundation, [])
+    )
+
+    if observed != expected:
+        fail("Policy proposal exceeds reviewed foundation scope")
+
+    if git(
+        "ls-files", "--others", "--exclude-standard"
+    ).strip():
+        fail("Unexpected untracked policy files")
+
+    for path, status in expected.items():
+        if status != "A":
+            continue
+
+        actual = (REPO / path).read_bytes()
+        original = git("show", reviewed + ":" + path)
+
+        if actual.replace(b"\r\n", b"\n") != original.replace(b"\r\n", b"\n"):
+            fail("Previously reviewed policy content changed: " + path)
+
+    key = (
+        REPO / ".github/insyt-release/release-signing-public.pem"
+    ).read_text(encoding="utf-8").strip() + "\n"
+
+    if hashlib.sha256(key.encode("utf-8")).hexdigest() != (
+        "1a226fb6274f9ee7269c8929ffafbe3a39ff9ffdddcdee30f9292c3cbd677300"
+    ):
+        fail("Policy signing identity changed")
+
+    ledger = json.loads(
+        (
+            REPO / ".github/insyt-release/"
+            "approved-feature-scopes.json"
+        ).read_text(encoding="utf-8-sig")
+    )
+
+    records = ledger.get("approved_scopes", [])
+
+    if ledger.get("schema_version") != 1 or len(records) != 1:
+        fail("Unexpected policy approval inventory")
+
+    approval = records[0]
+
+    if approval.get("approval_id") != "INSYT-JSON-BB736295B00F":
+        fail("Previously reviewed approval identity changed")
+
+    if approval.get("approval_status") != "APPROVED":
+        fail("Reviewed source approval unavailable")
+
+    if approval.get("release_commit") != (
+        "bb736295b00f3b8a783845442cb44cd2223b0a7c"
+    ):
+        fail("Previous release authorization unexpectedly changed")
+
+    if len(approval.get("source_blobs", {})) != 14:
+        fail("Reviewed source inventory changed")
+
+    print("PASS: Exact policy foundation transition")
+    print("PASS: Reviewed approval ledger unchanged")
+    print("PASS: Original hardened history unchanged")
+    print("PASS: Trusted signing identity unchanged")
+    print("POLICY FOUNDATION VALIDATED - NO DEPLOYMENT AUTHORIZATION")
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--validate-policy-foundation",
+        action="store_true",
+    )
+    args = parser.parse_args()
+
     data = load_baseline()
     print("PASS: Production baseline integrity verified.")
 
@@ -154,6 +253,10 @@ def main():
             fail(f"Existing hardened workflow missing: {path}")
 
     print("PASS: Required existing workflows still present.")
+
+    if args.validate_policy_foundation:
+        validate_policy_foundation()
+        return
 
     observed = {}
 

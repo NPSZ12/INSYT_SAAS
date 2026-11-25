@@ -29,7 +29,16 @@ jobs:
         run: python tools/insyt_hardened_registry_check.py
 
       - name: Enforce existing production guard
-        run: python tools/insyt_release_guard.py
+        env:
+          INSYT_EVENT: ${{ github.event_name }}
+          INSYT_BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$INSYT_EVENT" = "pull_request" ] && [ "$INSYT_BASE_REF" = "policy/insyt-hardened" ]; then
+            python tools/insyt_release_guard.py --validate-policy-foundation
+          else
+            python tools/insyt_release_guard.py
+          fi
 
   api-validation:
     name: API Startup and JSON Regressions
