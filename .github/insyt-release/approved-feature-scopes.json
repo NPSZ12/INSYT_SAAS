@@ -1,7 +1,7 @@
 {
   "approved_scopes": [
     {
-      "approval_id": "INSYT-JSON-039D5A740525",
+      "approval_id": "INSYT-JSON-F60598571BAD",
       "approval_status": "APPROVED",
       "candidate_commit": "728c2e17848d53f88ce7336f61ccac94ad68a1bd",
       "components": {
@@ -33,7 +33,7 @@
         }
       },
       "feature": "cyber2-native-json",
-      "release_commit": "039d5a740525e94e846023f74c34ed19e70dcd16",
+      "release_commit": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
       "source_blobs": {
         "backend/app/api/cyber2/json_duplicate_headers.py": "7229cc8fc3ec72fd2cc3b25db8b51c696b5b0cfd",
         "backend/app/api/cyber2/json_mapped_preview.py": "f083b84d29ae11f056e32628fb3aad42ce6ed171",

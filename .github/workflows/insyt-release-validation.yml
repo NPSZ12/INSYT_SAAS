@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$INSYT_EVENT" = "pull_request" ] && [ "$INSYT_BASE_REF" = "policy/insyt-hardened" ]; then
-            python tools/insyt_release_guard.py --validate-policy-foundation
+            python tools/insyt_policy_publication_ci.py
           else
             python tools/insyt_release_guard.py
           fi
