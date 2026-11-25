@@ -30,6 +30,10 @@ def git(*args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--registry", type=Path, default=CANONICAL)
+    parser.add_argument(
+        "--validate-candidate",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     try:
@@ -103,8 +107,20 @@ def main():
             "rev-parse", f"{reference}:{path}"
         ).decode().strip()
 
-        if blob != head_blob or blob != reference_blob:
-            stop("Protected source changed: " + path)
+        if blob != reference_blob:
+            stop("Historical protected source changed: " + path)
+
+        proposed_workflow_transition = (
+            args.validate_candidate
+            and path in {
+                ".github/workflows/main_insyt-api-prod-v2.yml",
+                ".github/workflows/main_insyt-app-prod.yml",
+            }
+        )
+
+        if not proposed_workflow_transition:
+            if blob != head_blob:
+                stop("Protected source changed: " + path)
 
         # Verify working-tree content without confusing
         # Windows CRLF conversion with source changes.
@@ -117,7 +133,7 @@ def main():
             b"\r\n", b"\n"
         )
 
-        if working != committed:
+        if working != committed and not proposed_workflow_transition:
             stop("Protected working-tree file changed: " + path)
 
     features = data.get("features")
@@ -162,7 +178,23 @@ def main():
     if "INSYT-CYBER2-JSON" not in ids:
         stop("JSON candidate record missing.")
 
-    print("PASS: Protected source hashes match Git.")
+    if args.validate_candidate:
+        result = subprocess.run(
+            [
+                sys.executable, "-B", "-m", "unittest",
+                "discover", "-s", "tools",
+                "-p", "test_insyt_deployment_gate.py", "-v",
+            ],
+            cwd=ROOT,
+        )
+
+        if result.returncode:
+            stop("Protected workflow transition regressions failed")
+
+        print("PASS: Proposed workflow transitions validated")
+        print("CANDIDATE VALIDATION ONLY - NOT AUTHORIZATION")
+
+    print("PASS: Historical protected source hashes match Git.")
     print("PASS: Registry policy is fail-closed.")
     print("PASS: All declared test files exist.")
     print("PASS: JSON is a candidate, not falsely hardened.")

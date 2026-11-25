@@ -9,6 +9,7 @@ reviewed, and protected by repository rules before releases
 with changes can pass.
 """
 
+import argparse
 import hashlib
 import json
 import subprocess
@@ -152,7 +153,105 @@ def changes_since(commit, paths):
     return changes
 
 
+def validate_candidate_transition(observed):
+    """Validate proposed source boundaries, not authorization."""
+
+    manifest = json.loads(
+        (
+            REPO / ".github/insyt-release/"
+            "json-feature-scope-candidate.json"
+        ).read_text(encoding="utf-8-sig")
+    )
+
+    validator = REPO / "tools/insyt_feature_scope_check.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(validator),
+            "--manifest",
+            str(
+                REPO / ".github/insyt-release/"
+                "json-feature-scope-candidate.json"
+            ),
+        ],
+        cwd=REPO,
+    )
+
+    if result.returncode:
+        fail("Candidate feature scope rejected")
+
+    expected = {}
+
+    for component in ("api", "frontend"):
+        for path, status in (
+            manifest["components"][component]["changes"].items()
+        ):
+            expected[(component, path)] = status
+
+    workflows = {
+        ".github/workflows/insyt-release-validation.yml": "A",
+        ".github/workflows/insyt-release-packages.yml": "A",
+        ".github/workflows/main_insyt-api-prod-v2.yml": "M",
+        ".github/workflows/main_insyt-app-prod.yml": "M",
+    }
+
+    for component in ("api", "frontend"):
+        for path, status in workflows.items():
+            expected[(component, path)] = status
+
+    # Local pre-commit validation must also account for
+    # the explicitly proposed new package workflow.
+    untracked = git(
+        "ls-files", "--others", "--exclude-standard"
+    ).decode("utf-8").splitlines()
+
+    for path in untracked:
+        if path.startswith((
+            "backend/", "frontend/",
+            ".github/workflows/", ".github/scripts/",
+        )):
+            if path != ".github/workflows/insyt-release-packages.yml":
+                fail("Unexpected untracked candidate source: " + path)
+
+            for component in ("api", "frontend"):
+                observed[(component, path)] = "A"
+
+    if observed != expected:
+        print("Unexpected or missing baseline differences:")
+
+        for key in sorted(set(observed) | set(expected)):
+            if observed.get(key) != expected.get(key):
+                print(
+                    key,
+                    "expected:", expected.get(key),
+                    "observed:", observed.get(key),
+                )
+
+        fail("Candidate baseline transition differs from scope")
+
+    # Application source must remain exactly as committed.
+    if git("diff", "HEAD", "--", "backend", "frontend").strip():
+        fail("Uncommitted application changes detected")
+
+    for path in workflows:
+        if not (REPO / path).is_file():
+            fail("Expected candidate workflow missing: " + path)
+
+    print("PASS: Exact candidate application scope")
+    print("PASS: Exact candidate workflow transition scope")
+    print("PASS: Original production baseline retained")
+    print("CANDIDATE VALIDATION ONLY - NOT DEPLOYMENT AUTHORIZATION")
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--validate-candidate",
+        action="store_true",
+    )
+    args = parser.parse_args()
+
     data = load_baseline()
     print("PASS: Production baseline integrity verified.")
 
@@ -200,6 +299,10 @@ def main():
             "Protected files deleted. "
             "Restoration or independently authorized review required."
         )
+
+    if args.validate_candidate:
+        validate_candidate_transition(observed)
+        return
 
     if observed:
         fail(

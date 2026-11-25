@@ -8,6 +8,10 @@ No bypass mode, candidate-supplied public key, or automatic approval.
 """
 
 import argparse
+import shutil
+import tempfile
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -21,6 +25,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from insyt_release_evidence import verify_release_evidence
+from insyt_artifact_integrity import verify_directory
+from insyt_retained_artifact import (
+    archive_sha256,
+    extract_verified_archive,
+)
 
 REPOSITORY = "NPSZ12/INSYT_SAAS"
 POLICY_REF = "refs/heads/policy/insyt-hardened"
@@ -53,7 +62,28 @@ def git(*args):
 
 
 def read_policy_file(policy_sha, path):
-    return git("show", policy_sha + ":" + path)
+    if not SHA40.fullmatch(policy_sha):
+        stop("Invalid trusted policy revision")
+
+    result = github_json(
+        "contents/" + path + "?ref=" + policy_sha
+    )
+
+    if (
+        not isinstance(result, dict)
+        or result.get("type") != "file"
+        or result.get("path") != path
+        or result.get("encoding") != "base64"
+        or not isinstance(result.get("content"), str)
+    ):
+        stop("Trusted policy file unavailable")
+
+    try:
+        encoded = "".join(result["content"].split())
+        raw = base64.b64decode(encoded, validate=True)
+        return raw.decode("utf-8").strip()
+    except (ValueError, binascii.Error, UnicodeError):
+        stop("Trusted policy file encoding invalid")
 
 
 def github_json(endpoint):
@@ -75,6 +105,177 @@ def github_json(endpoint):
         return json.load(response)
 
 
+def verify_approval_policy_revision(
+    publication_sha,
+    signed_envelope,
+):
+    """Resolve signed policy identity through protected history.
+
+    The current protected branch publishes authorization.
+    The signed ancestor establishes the independently approved
+    policy contents. Candidate input cannot establish trust.
+    """
+
+    if (
+        not isinstance(publication_sha, str)
+        or not SHA40.fullmatch(publication_sha)
+    ):
+        stop("Invalid policy publication revision")
+
+    if not isinstance(signed_envelope, dict):
+        stop("Signed envelope missing")
+
+    payload = signed_envelope.get("payload")
+
+    if not isinstance(payload, dict):
+        stop("Signed policy payload missing")
+
+    approved_sha = payload.get("policy_commit")
+
+    if (
+        not isinstance(approved_sha, str)
+        or not SHA40.fullmatch(approved_sha)
+    ):
+        stop("Invalid signed policy revision")
+
+    if approved_sha != publication_sha:
+        comparison = github_json(
+            "compare/" + approved_sha + "..." + publication_sha
+        )
+
+        if not isinstance(comparison, dict):
+            stop("Policy history verification failed")
+
+        base = comparison.get("base_commit")
+        merge_base = comparison.get("merge_base_commit")
+
+        if (
+            comparison.get("status") != "ahead"
+            or comparison.get("behind_by") != 0
+            or not isinstance(base, dict)
+            or base.get("sha") != approved_sha
+            or not isinstance(merge_base, dict)
+            or merge_base.get("sha") != approved_sha
+        ):
+            stop("Signed policy is not a trusted ancestor")
+
+    protected_files = (
+        ".github/insyt-release/approved-feature-scopes.json",
+        ".github/insyt-release/release-signing-public.pem",
+    )
+
+    for path in protected_files:
+        approved_content = read_policy_file(
+            approved_sha, path
+        )
+
+        published_content = read_policy_file(
+            publication_sha, path
+        )
+
+        if approved_content != published_content:
+            stop("Approved policy contents changed")
+
+    return approved_sha
+
+
+def extract_authorized_artifact(
+    artifact_directory,
+    destination,
+    component,
+    evidence,
+):
+    """Extract only an independently verified retained archive.
+
+    The expected directory fingerprint comes from verified
+    signed release evidence, never an independent CLI digest.
+    """
+
+    if not isinstance(evidence, dict):
+        stop("Verified release evidence missing")
+
+    if evidence.get("evidence_verified") is not True:
+        stop("Verified release evidence required")
+
+    if component not in ("api", "frontend"):
+        stop("Unexpected retained artifact component")
+
+    if evidence.get("component") != component:
+        stop("Retained artifact component differs")
+
+    root = Path(artifact_directory)
+
+    if root.is_symlink() or not root.is_dir():
+        stop("Retained artifact directory unsafe")
+
+    archive_name = component + ".tar"
+    entries = list(root.iterdir())
+
+    if (
+        len(entries) != 1
+        or entries[0].name != archive_name
+        or entries[0].is_symlink()
+        or not entries[0].is_file()
+    ):
+        stop("Unexpected retained artifact inventory")
+
+    # Snapshot the approved archive into a private directory.
+    # Verify that snapshot against the signed package identity.
+    with tempfile.TemporaryDirectory(
+        prefix="insyt-authorized-"
+    ) as temporary:
+
+        snapshot = Path(temporary)
+        retained = snapshot / archive_name
+
+        shutil.copyfile(entries[0], retained)
+
+        verify_directory(
+            snapshot,
+            evidence["artifact_sha256"],
+        )
+
+        # Raw archive checksum is derived only after the
+        # signed directory fingerprint has matched.
+        expected = archive_sha256(retained)
+
+        return extract_verified_archive(
+            retained,
+            destination,
+            expected,
+        )
+
+
+def verify_package_run(run_id, release_sha):
+    if (
+        not isinstance(run_id, str)
+        or not re.fullmatch(r"[1-9][0-9]{0,19}", run_id)
+    ):
+        stop("Invalid package preparation run ID")
+
+    run = github_json("actions/runs/" + run_id)
+
+    if not isinstance(run, dict):
+        stop("Package preparation run unavailable")
+
+    repository = run.get("head_repository")
+
+    if (
+        str(run.get("id")) != run_id
+        or run.get("head_sha") != release_sha
+        or run.get("event") != "workflow_dispatch"
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+        or run.get("path")
+            != ".github/workflows/insyt-release-packages.yml"
+        or not isinstance(repository, dict)
+        or repository.get("full_name") != REPOSITORY
+    ):
+        stop("Package preparation provenance rejected")
+
+    return True
+
+
 def verify_ci(release_sha):
     runs = github_json(
         "actions/workflows/insyt-release-validation.yml/runs"
@@ -93,7 +294,9 @@ def verify_ci(release_sha):
     for run in runs.get("workflow_runs", []):
         if (
             run.get("head_sha") != release_sha
-            or run.get("event") != "pull_request"
+            or run.get("event") != "push"
+            or run.get("head_branch")
+                != RELEASE_REF.removeprefix("refs/heads/")
             or run.get("status") != "completed"
             or run.get("conclusion") != "success"
         ):
@@ -134,6 +337,12 @@ def main():
     )
     parser.add_argument("--sha", required=True)
     parser.add_argument("--artifact-directory")
+    parser.add_argument("--extract-to")
+    parser.add_argument("--package-run-id")
+    parser.add_argument(
+        "--verify-package-run-only",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     sha = args.sha.lower()
@@ -153,8 +362,22 @@ def main():
     if os.getenv("GITHUB_SHA", "").lower() != sha:
         stop("Deployment commit does not match GitHub checkout")
 
+    if args.verify_package_run_only:
+        if args.artifact_directory or args.extract_to:
+            stop("Unexpected artifact extraction arguments")
+
+        verify_package_run(args.package_run_id, sha)
+        print("PASS: Exact package preparation provenance")
+        print("PROVENANCE ONLY - NOT DEPLOYMENT AUTHORIZATION")
+        return
+
     if not args.artifact_directory:
         stop("Approved deployment artifact directory is required")
+
+    if not args.extract_to:
+        stop("Authorized retained archive extraction required")
+
+    verify_package_run(args.package_run_id, sha)
 
     if git("rev-parse", "HEAD") != sha:
         stop("Checked-out release revision mismatch")
@@ -164,22 +387,25 @@ def main():
 
     # The policy revision is obtained from the protected remote
     # reference, never supplied by the candidate's CLI or manifest.
-    remote = git("ls-remote", "--heads", "origin", POLICY_REF)
-    parts = remote.split()
+    policy_ref = github_json(
+        "git/ref/" + POLICY_REF.removeprefix("refs/")
+    )
+
+    if not isinstance(policy_ref, dict):
+        stop("Trusted policy reference unavailable")
+
+    policy_object = policy_ref.get("object")
 
     if (
-        len(parts) != 2
-        or parts[1] != POLICY_REF
-        or not SHA40.fullmatch(parts[0])
+        policy_ref.get("ref") != POLICY_REF
+        or not isinstance(policy_object, dict)
+        or policy_object.get("type") != "commit"
+        or not isinstance(policy_object.get("sha"), str)
+        or not SHA40.fullmatch(policy_object["sha"])
     ):
         stop("Trusted policy reference unavailable")
 
-    policy_sha = parts[0]
-
-    git("fetch", "--no-tags", "origin", POLICY_REF)
-
-    if git("rev-parse", "FETCH_HEAD") != policy_sha:
-        stop("Trusted policy changed during retrieval")
+    policy_sha = policy_object["sha"]
 
     policy = json.loads(read_policy_file(
         policy_sha,
@@ -253,14 +479,20 @@ def main():
         read_policy_file(policy_sha, envelope_path)
     )
 
-    # This must use a separately protected policy revision,
-    # not a candidate-controlled or environment-supplied value.
+    # Authorization is published at the current protected tip.
+    # Its signed policy revision must be verified independently
+    # against that tip before signature verification.
+    approved_policy_sha = verify_approval_policy_revision(
+        policy_sha,
+        envelope,
+    )
+
     result = verify_release_evidence(
         candidate=candidate,
         source_blobs=blobs,
         policy=policy,
-        trusted_policy_commit=policy_sha,
-        actual_policy_commit=policy_sha,
+        trusted_policy_commit=approved_policy_sha,
+        actual_policy_commit=approved_policy_sha,
         trusted_public_key=public_raw,
         signed_envelope=envelope,
         artifact_directory=args.artifact_directory,
@@ -270,8 +502,36 @@ def main():
 
     verify_ci(sha)
 
+    # Refuse deployment if policy publication changed
+    # while authorization was being evaluated.
+    current_policy_ref = github_json(
+        "git/ref/" + POLICY_REF.removeprefix("refs/")
+    )
+
+    if not isinstance(current_policy_ref, dict):
+        stop("Policy publication unavailable")
+
+    if (
+        current_policy_ref.get("ref") != POLICY_REF
+        or current_policy_ref.get("object") != policy_object
+    ):
+        stop("Policy publication changed during verification")
+
     if result.get("evidence_verified") is not True:
         stop("Release evidence incomplete")
+
+    if args.extract_to:
+        extracted = extract_authorized_artifact(
+            args.artifact_directory,
+            args.extract_to,
+            args.component,
+            result,
+        )
+
+        print(
+            "PASS: Signed archive safely extracted; files:",
+            extracted["file_count"],
+        )
 
     print("PASS: Trusted source approval")
     print("PASS: Signed exact deployment artifact")
