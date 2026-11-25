@@ -237,6 +237,90 @@ def validate_policy_foundation():
     print("POLICY FOUNDATION VALIDATED - NO DEPLOYMENT AUTHORIZATION")
 
 
+
+def validate_release_approval():
+    """Validate this reviewed policy transition only."""
+
+    base = "b0f5eda2e658a68a8fa8ad6ca76f22c222c20dc0"
+    release = "039d5a740525e94e846023f74c34ed19e70dcd16"
+
+    ledger_path = ".github/insyt-release/approved-feature-scopes.json"
+
+    history_path = (
+        ".github/insyt-release/approval-history/"
+        "INSYT-JSON-BB736295B00F.json"
+    )
+
+    git("merge-base", "--is-ancestor", base, "HEAD")
+
+    expected = {
+        ledger_path: "M",
+        history_path: "A",
+        "tools/insyt_release_guard.py": "M",
+    }
+
+    observed = {
+        path: status
+        for status, path in changes_since(base, [])
+    }
+
+    if observed != expected:
+        fail("Unexpected release approval transition")
+
+    if git("ls-files", "--others", "--exclude-standard").strip():
+        fail("Unexpected untracked files")
+
+    old = json.loads(git("show", base + ":" + ledger_path))
+
+    current = json.loads(
+        (REPO / ledger_path).read_text(encoding="utf-8-sig")
+    )
+
+    archived = json.loads(
+        (REPO / history_path).read_text(encoding="utf-8-sig")
+    )
+
+    if len(old["approved_scopes"]) != 1:
+        fail("Unexpected previous approval inventory")
+
+    previous = old["approved_scopes"][0]
+
+    if archived != previous:
+        fail("Historical approval changed")
+
+    previous["approval_id"] = "INSYT-JSON-039D5A740525"
+    previous["release_commit"] = release
+
+    if current != old:
+        fail("Unexpected approval ledger changes")
+
+    canonical = json.dumps(
+        current["approved_scopes"][0],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("ascii")
+
+    if hashlib.sha256(canonical).hexdigest() != (
+        "51fd0e3136dbfd61f5d572080b75876657a48ad8d037ec094355ffb3a92c285e"
+    ):
+        fail("Approved scope digest differs")
+
+    for path, expected_blob in previous["source_blobs"].items():
+        actual = git(
+            "rev-parse", release + ":" + path
+        ).decode().strip()
+
+        if actual != expected_blob:
+            fail("Approved source identity differs: " + path)
+
+    print("PASS: Historical approval preserved")
+    print("PASS: Exact reviewed release approval")
+    print("PASS: All approved source hashes verified")
+    print("POLICY VALIDATION ONLY - NOT DEPLOYMENT AUTHORIZATION")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -255,7 +339,21 @@ def main():
     print("PASS: Required existing workflows still present.")
 
     if args.validate_policy_foundation:
-        validate_policy_foundation()
+        approved_foundation = "b0f5eda2e658a68a8fa8ad6ca76f22c222c20dc0"
+
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor",
+             approved_foundation, "HEAD"],
+            cwd=REPO,
+        )
+
+        if result.returncode == 0:
+            validate_release_approval()
+        elif result.returncode == 1:
+            validate_policy_foundation()
+        else:
+            fail("Unable to establish policy ancestry")
+
         return
 
     observed = {}
