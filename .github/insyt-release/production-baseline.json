@@ -1,0 +1,2298 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-11-23T19:50:21.803767+00:00",
+  "policy": "baseline_inventory_only_not_yet_enforced",
+  "api": {
+    "verified_deployment_commit": "32481b715ddd3d951b5de91592df00a3c8bd854e",
+    "tracked_files": {
+      ".github/scripts/deploy_frontend_clean.py": {
+        "git_blob_sha": "6150b1d0b80e07bc2af2c206b1c7c57bc654ca4a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/insyt-detection-worker-v2-release.yml": {
+        "git_blob_sha": "5c72ca8909b155607dc35262801944d023ebcefe",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-apc-worker-detection-prod.yml.disabled": {
+        "git_blob_sha": "322d5432e1d74cc5490175d2bebd24fe8093f8b4",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-apc-worker-prod-v2.yml": {
+        "git_blob_sha": "2284c65839961f0185858bc4f442dac6b8113f36",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-api-prod-v2.yml": {
+        "git_blob_sha": "a131903524e65527ef73884baed48d68812fc4d6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-api-prod.yml.disabled": {
+        "git_blob_sha": "dc3b95fddb30ef8211036e172cab45c6aad52ed8",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-app-prod.yml": {
+        "git_blob_sha": "5ba782721e94f324037257594d30060700150722",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/alembic.ini": {
+        "git_blob_sha": "807ded2d51659e78e03f0078187d54724b7658d8",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/alembic/README": {
+        "git_blob_sha": "98e4f9c44effe479ed38c66ba922e7bcc672916f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/alembic/env.py": {
+        "git_blob_sha": "6de9cfe5bc2c5c4b1e4ec459135221f89329d75c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/alembic/script.py.mako": {
+        "git_blob_sha": "11016301e749297acb67822efc7974ee53c905c6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/alembic/versions/685cb69dacae_add_jobs_table.py": {
+        "git_blob_sha": "bc1448dfa95058514c7cf3ad8c5cbfecffb5ae65",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/alembic/versions/8417b455b372_initial_schema.py": {
+        "git_blob_sha": "2d8b42f43999a80eb52af1dc4d0001ab978c2ae3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/alembic/versions/d6bd72728e16_add_document_lifecycle_index.py": {
+        "git_blob_sha": "7ce0de5d4210223af6d1e16320630d83b60e8c7c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/alembic/versions/reviewer_staffing_metrics.py": {
+        "git_blob_sha": "5446d3b93796274be0e7d8d944b38e34dc39ba36",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/__init__.py": {
+        "git_blob_sha": "5becc17c04a9e3ad1c2a15f53252b7bb5a7517e7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/__main__.py": {
+        "git_blob_sha": "914a572faee77e31a88cb25d8b92717c702ec7b4",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/api.py": {
+        "git_blob_sha": "2016e0b66df87c76dacb8090172fdbb3588d64ec",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/azure_blob_adapter.py": {
+        "git_blob_sha": "0b7fa7e544ae07cbb3086cbca5cd9c9374dd5054",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/azure_job_runner.py": {
+        "git_blob_sha": "11dedd249d4da1633f65748af4145588c73b7bc3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/azure_layout.py": {
+        "git_blob_sha": "f64903cea0d46e1755e5a2e922805bbc964ac1bf",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/config.py": {
+        "git_blob_sha": "4360e10efafcedb70952d4984df19346ccc3d138",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/db.py": {
+        "git_blob_sha": "1a2566f1c29fd73d3e0ddfa949262a7de93817a3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/orchestrator.py": {
+        "git_blob_sha": "ac4ebe29ca5c08c4ac3f2e532796de5f1cb8d80c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/pdf_utils.py": {
+        "git_blob_sha": "5df4f92ea496c9fa7a2dc9dd405a4c269a34a76c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/pricing.py": {
+        "git_blob_sha": "72d55620a0be9cc212978f5c7eef8bb1ba635345",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/reports.py": {
+        "git_blob_sha": "733de95e688a053d56654f16a0617479c5150673",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/sql/postgres_schema.sql": {
+        "git_blob_sha": "3175b5fc4084b8d525df9dbd6d7454a469ebd9ad",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/sql/sqlite_schema.sql": {
+        "git_blob_sha": "ced0fd6b8f51fbfa5066cf337a07ae125225735e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/__init__.py": {
+        "git_blob_sha": "dd79161815966bf68257a4b42dcd6bc769e1e196",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/container_expansion.py": {
+        "git_blob_sha": "d60c72bd59e3f15f082b7f5672970fee6c121c75",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/dedupe.py": {
+        "git_blob_sha": "5c908deb0b08cbfb4fa977afe36a7e04e3998ef9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/denist.py": {
+        "git_blob_sha": "f12d58efd3f0dda513dadeaf1134b93c4f6122ba",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/doc_id.py": {
+        "git_blob_sha": "d18aae2b2652b41b34c6bc24f6ac203cba8e3398",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/families.py": {
+        "git_blob_sha": "fe96422af80934caa6ed32a147cb43e1883d6283",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/hashing.py": {
+        "git_blob_sha": "73adf9ec683fa166b54b09f7fef34e8fe0adf466",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/inventory.py": {
+        "git_blob_sha": "fafaf2d2c0cf7fb4a0ec478e946cc085b29ff498",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/ocr_dry_run.py": {
+        "git_blob_sha": "2b7e35c5a62b732511e78f1cd9f6d5312aefc026",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/ocr_live_placeholder.py": {
+        "git_blob_sha": "92a98c73a42df4c5be92dae98989cc60ae5a1b3a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/ocr_preflight.py": {
+        "git_blob_sha": "2dd36cce8942de5de85d02c0de2eb6be1217c992",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/pii_phi_detection.py": {
+        "git_blob_sha": "2ba8623c72ec56d8e594f5bac15a2e0142f3cdf4",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/prior_processed.py": {
+        "git_blob_sha": "b691436d141dd2ac8c3e1a2e36ece5d22a6073c4",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/review_promotion.py": {
+        "git_blob_sha": "099814308beb5cb832f81acf6dcf9e2704683a7d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/stages/text_extraction.py": {
+        "git_blob_sha": "12f281ab7e927db7936001dbc87c66c0ab52e985",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/telemetry.py": {
+        "git_blob_sha": "a029e43fe0c8035e51267c826554ee97f6711453",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/apc/util.py": {
+        "git_blob_sha": "ad41dcb8b302a94c6b4a9ca5e08729912ab740d7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/__init__.py": {
+        "git_blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/admin_clients.py": {
+        "git_blob_sha": "665569a25e932ea5864fa8750649150f6b3e2e34",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/audit_logs.py": {
+        "git_blob_sha": "14d56478b356fa62d14bc543aa680e2141ddf15b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/auth.py": {
+        "git_blob_sha": "0ca7856f0ebcb624f80e37c1ce75592bf920e5af",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/azure_projects.py": {
+        "git_blob_sha": "9f2a4afb38f3a717f2cef8759df46c5cfec525b6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/batches.py": {
+        "git_blob_sha": "4fbebd5fcd4490b981c08d9517c49671329a8edd",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/capture_batches.py": {
+        "git_blob_sha": "026201fb7e118df866b774a89e6e5fa69a03b0dd",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/capture_clients.py": {
+        "git_blob_sha": "ceb86df5f7ef505deaa268f3dd17796e8b7d2650",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/capture_projects.py": {
+        "git_blob_sha": "898f65bed093dab6d5f65b0267a1644737ceae21",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/capture_review_batches.py": {
+        "git_blob_sha": "f395a3f87fe3d433bfb26f0f71a823b76d1f8d33",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/__init__.py": {
+        "git_blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/field_evidence_api.py": {
+        "git_blob_sha": "f0e382d7f4cc2ec564a4aa2dbabdfd4ae07633f5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/header_identification.py": {
+        "git_blob_sha": "037ec81a660fcf10ed25b8908c38e47007301334",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/header_sets.py": {
+        "git_blob_sha": "868d22ea3f7354f9bac6104c3d68e2c45a1b3393",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/json_duplicate_headers.py": {
+        "git_blob_sha": "e49f55cae50dd3c6ed3bc9417bf254ed3049ea6d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/json_field_mapping.py": {
+        "git_blob_sha": "2e015c29fb24fabf86ac1608d61ebf8bfd69b783",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/json_header_evidence.py": {
+        "git_blob_sha": "12b34736c0d5fed4a23ef7f35ad73dcc87d4ad55",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/json_header_review_contract.py": {
+        "git_blob_sha": "9e85234f0f159d64a5445cf4f886caeee6ed523a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/json_mapped_preview.py": {
+        "git_blob_sha": "aa9735c0f5ea6984f65d75dbc491a188c6ee871a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/json_native_discovery.py": {
+        "git_blob_sha": "5895b2bd69b8881f406581c409b0340ba600a194",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/membership_api.py": {
+        "git_blob_sha": "4260966816367980d3e4ace95a3135c3d2d64b0e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/schema_mapping.py": {
+        "git_blob_sha": "031b230a0f1d5ca1f0261ce44ff9a64c949bfd9a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_ai_safety.py": {
+        "git_blob_sha": "a0d58a6ddef02ff7d8431051da49800288f5e57d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_duplicate_headers.py": {
+        "git_blob_sha": "78d0bb9e47a901b4798cddd81aa1cb631b61d890",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_field_mapping.py": {
+        "git_blob_sha": "a7433c828dc5ef7e3894437f58bab40e749e10cb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_header_evidence.py": {
+        "git_blob_sha": "bba8dae36d8d4227b1bb2e96e3f92c0c015ac9e6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_header_review_contract.py": {
+        "git_blob_sha": "1559af196bbefc16621ecadabb087db22d855e6f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_header_route_guardrails.py": {
+        "git_blob_sha": "7f6b44d497b92098df91b25a4eb2ba3a4ac15f5e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_leaf_protocol_matches.py": {
+        "git_blob_sha": "74ba3aa383964d7f113e1ad11c4808d73217f085",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_mapped_preview.py": {
+        "git_blob_sha": "a01d0d07f13b66831faa8e8a9f8d754c2178e670",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber2/test_json_native_discovery.py": {
+        "git_blob_sha": "3e1f244f1c990c760b84d5b9a7a7f917b1fcfe82",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/cyber_utility.py": {
+        "git_blob_sha": "7329cf582c70cbcaa4322cb35d352d6d2d879ec7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/discovery.py": {
+        "git_blob_sha": "e8ff808f12296f1d2f3818b1f9bc5fd25e5a9ae3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/discovery_batches.py": {
+        "git_blob_sha": "025f7287f444ad38eb39ae0f8ca037858e58ec4b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/discovery_review_batches.py": {
+        "git_blob_sha": "5586cafe85508c5719e25784ac24d908e40b12b2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/document_overlays.py": {
+        "git_blob_sha": "b1a27ca0b9d9f26f088d212eefb1891c4d3b2038",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/entities.py": {
+        "git_blob_sha": "a0cc0d188d5c78315b6d4f7e323151f6f6211736",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/files.py": {
+        "git_blob_sha": "6dfa02462bebf3d410c007f25eb745912ed50a36",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/jobs.py": {
+        "git_blob_sha": "c6d4979b4954d6f27af1ae51ea10096af7ed014a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/json_native_detection_gate.py": {
+        "git_blob_sha": "52153a2478f40fe3cb37a25e3fc581003a69df85",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/json_native_job_completion.py": {
+        "git_blob_sha": "009aab4a77780bbc8bbbbbe718b8ad48ed0da9ed",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/json_native_promotion_contract.py": {
+        "git_blob_sha": "13eeb7b7aca3892cad284a57aafdff0e510e02dd",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/json_native_promotion_execution.py": {
+        "git_blob_sha": "7a8cc5f64d70003896a6560e44b228631b2f11b0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/json_native_promotion_status.py": {
+        "git_blob_sha": "44ad7e62d7a9f55ed1763261f3c8cd69d7c8180c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/messages.py": {
+        "git_blob_sha": "52761abd5004460cbd3fdc3913b98b50565c0af2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/processing_center.py": {
+        "git_blob_sha": "99b25905ae8709f4130f0fb18715ef243ef506da",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/processing_center_azure.py": {
+        "git_blob_sha": "a06ed2d7006dbe7ff94b0880dd3e14375e1ed63c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/projects.py": {
+        "git_blob_sha": "aad1d2ae39a1b0413d031b3f5fabe6a3e9e65dbc",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/protocol_templates.py": {
+        "git_blob_sha": "4160317b3c27f0405a3363400b0ca6c4d4e83202",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/review.py": {
+        "git_blob_sha": "711ddb7a8e2b9c6d07f7d6fe103a11d2f4db9891",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/reviewer_hours.py": {
+        "git_blob_sha": "7ca5a76049e559b6f8080d7109eac824cffbc77d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/search_folders.py": {
+        "git_blob_sha": "ccba4cdbbcb9cc1d4aabb0b4a27728c49303ee7c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/summaries.py": {
+        "git_blob_sha": "4e9bc707c05598a5e850e399e359551f15a3e000",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/summaries_batches.py": {
+        "git_blob_sha": "cbc6fc93f8611f16dccbd212386d9a390d0cd394",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/summaries_processing_center.py": {
+        "git_blob_sha": "c08c1059dde595276c17dc541e16c9d85bf781dd",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/summaries_qc.py": {
+        "git_blob_sha": "a140373b65fe61a829aa3dc6ea779f5722547441",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/summaries_review_batches.py": {
+        "git_blob_sha": "fea94e533a4b1188aab4950f19810fe454aa7464",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/summaries_summary_data.py": {
+        "git_blob_sha": "5b9cb4a99993678071d85e8817b1ddf5d6a276f6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/summaries_summary_sets.py": {
+        "git_blob_sha": "b303222f2a51dfeb14d171af581a68c9f69253eb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/summaries_text.py": {
+        "git_blob_sha": "5f46ed4c43a1cef5d63dad139285eaceec5a8255",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/tarai.py": {
+        "git_blob_sha": "bfbe98b4ce4f0a545f4888fd94af7f1b683a3ed6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_capture_json_promotion_handoff.py": {
+        "git_blob_sha": "ed6720ea7de73109015290cd9e6c09b51a395235",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_detection_population_selection.py": {
+        "git_blob_sha": "51a50684f96e2f367e21696bb3c99a3cac73774a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_native_cyber2_endpoint.py": {
+        "git_blob_sha": "d4d9e7f956f58a05ef3584c2e6be1c419b7304b1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_native_detection_gate.py": {
+        "git_blob_sha": "d9feda9426ded5619b755ececadb701d9aab007a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_native_handoff_order.py": {
+        "git_blob_sha": "6c4cc8d5c538ff2d972514a9b9f2a905c38a56c0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_native_job_completion.py": {
+        "git_blob_sha": "2bfd5c6ad84ec962aab14897f24a2039faaf9c29",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_native_missing_metadata.py": {
+        "git_blob_sha": "f5787396db4a67a1295dbd20f623b889453675df",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_native_promotion_contract.py": {
+        "git_blob_sha": "042f1dd15b0292f4e978b0fff5c731785845ce4f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_native_promotion_execution.py": {
+        "git_blob_sha": "1ba5f72369bdb54eaceaabbc195a13d2ea10bbd1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_json_native_promotion_status.py": {
+        "git_blob_sha": "118358a835344dba434b4b8aef1cb9b93b7e3272",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_native_json_detection_entrance.py": {
+        "git_blob_sha": "a1dac97f8f1380673a0278180864d7718457ff63",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/test_review_native_json_extensions.py": {
+        "git_blob_sha": "5f66abd0714c6ffba9cb8ad1aaf6d80d0311a0a0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/timesheet.py": {
+        "git_blob_sha": "890e11336a4628cd812911033d8f4f11ee8fe467",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/users.py": {
+        "git_blob_sha": "834c4d017736c2bce856b1f02dcb1568fa3a3a94",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/workspace_clients.py": {
+        "git_blob_sha": "fe6a9defa8a492bbce3ac58047deb81fc0c43c05",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/workspace_file_uploads.py": {
+        "git_blob_sha": "757ed34b897d75330bc5f6c49009a3fad68a5cf1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/workspace_files.py": {
+        "git_blob_sha": "184a8ebe5a4dd19076f280332616b074267f641f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/workspace_project_create.py": {
+        "git_blob_sha": "8518892130f1c8ada0833c537b86b2d6fa02ac4d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/workspace_projects.py": {
+        "git_blob_sha": "612c76bac7ac1a8ffd07285fdcd88d76d84085a2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/api/workspace_protocols.py": {
+        "git_blob_sha": "3742080a463efacdfbc8312a439e5697e96d69b9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/database/connection.py": {
+        "git_blob_sha": "9f7edca2c4ebf517481ba8b296151cf33d14747b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/database/init_db.py": {
+        "git_blob_sha": "b848f7b8b256a3c54e66e8853e1878f5334419a4",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/main.py": {
+        "git_blob_sha": "8e649c2e10b6760555f203679dabad1c83575ce6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/models/audit_log.py": {
+        "git_blob_sha": "5fdaf7bb3164cd1314334e4b0ac9db1cdcf74df2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/models/document_lifecycle.py": {
+        "git_blob_sha": "cef7a34b50cb197abaf837f83bbf189c4ee60a26",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/models/job.py": {
+        "git_blob_sha": "ed3b1447bb0173e099b753f7a0082f0e3d886644",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/models/models.py": {
+        "git_blob_sha": "74499fdb06d0f04630e771804d8a0344f55081ce",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/models/project.py": {
+        "git_blob_sha": "6a638c0e1bf4ad6c7555a7fcb24e4ade7c1d9bc9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/models/time_entry.py": {
+        "git_blob_sha": "31d5501c968fcd310ea430affa3aedd50342d4c0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/models/user.py": {
+        "git_blob_sha": "52391300d98ec6db74c4f7450e390f2d0385fd58",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/routes/merge_dedupe.py": {
+        "git_blob_sha": "b232908cdc0ce8984a27359ca2b85d6934b00bce",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/routes/tools_merge_dedupe.py": {
+        "git_blob_sha": "0f44650d7a8a2df34b02fce41621e9bf894700b8",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai/__init__.py": {
+        "git_blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai/header_resolver.py": {
+        "git_blob_sha": "faef9ed3cc4a6b11655b55aa855029a1a02708b7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai/tarai_analyzer.py": {
+        "git_blob_sha": "a48dc4ed40cbd19f3ab82961e7c90906add32a20",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai/tarai_approval.py": {
+        "git_blob_sha": "d79e85aad6c3c989300dfad9f69fc36e2a98d2d1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai/tarai_criteria.py": {
+        "git_blob_sha": "d1e32a41a27600cf5cf2c0b2809efad4909527f3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai/tarai_privilege.py": {
+        "git_blob_sha": "1f82000dc609610356e9253b10719ad0cc7482a3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai/tarai_protocol.py": {
+        "git_blob_sha": "32f2a271d76421638172e82059f7c181da097e59",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai_extraction/__init__.py": {
+        "git_blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai_extraction/csv_writer.py": {
+        "git_blob_sha": "a5b1ed94b21ac2e786140635887fa725f97c93fe",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai_extraction/detection_loader.py": {
+        "git_blob_sha": "acc635079b087a74df993a0bff97c50081d79c74",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai_extraction/extractor.py": {
+        "git_blob_sha": "43b91f80d80b359effc43455c831f06db820ea36",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai_extraction/models.py": {
+        "git_blob_sha": "8ddd15d900e70c6ad539a5bcf7cabe7e97f6b88d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai_extraction/service.py": {
+        "git_blob_sha": "6644d5739d1dd466c1f92c7afb3b63c368e1b959",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai_extraction/set_builder.py": {
+        "git_blob_sha": "ae5ad68f642c6537e9ad08ba4ad145d7d0f0364c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/ai_extraction/source_text_loader.py": {
+        "git_blob_sha": "66bdfcf4618199c7b1b34e0ea2d0480bf7dfa683",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/audit_service.py": {
+        "git_blob_sha": "902a6b60d73fa68c5cf46102253d2f614b2199ae",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/authorization.py": {
+        "git_blob_sha": "1b65522f7a3096b6b3b54df3599535dad4f5f0fc",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/azure_blob_service.py": {
+        "git_blob_sha": "b89332f77237ce7c8e0a1b2bf2f57b74a8d12d25",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/azure_pricing.py": {
+        "git_blob_sha": "610022822108b1f360b2f71dabfb4d70f1e2bf03",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/azure_user_store.py": {
+        "git_blob_sha": "dbdf33f1787c09ca9b4f7154bb7a297d2e6bcd9c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/batch_service.py": {
+        "git_blob_sha": "9dd4ae20548a6a82e9aeb9791ea35834e910f777",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cds_storage_service.py": {
+        "git_blob_sha": "cb99ddd20fd4a87854b83f42e7bc01797fd48232",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/__init__.py": {
+        "git_blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/azure_membership_store.py": {
+        "git_blob_sha": "123ea54bdaa7502775b048feebeb740de38b950d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/c2_merge_lineage.py": {
+        "git_blob_sha": "bb3dfecc52b3436e51b261f797cde055bcfc7e43",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/c2_origin_authorization.py": {
+        "git_blob_sha": "a30bead6430db28724ce352113d6ce157bea034f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/c2_origin_receipt.py": {
+        "git_blob_sha": "b967725d636069db996f0b3c150f6eeb4779b297",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/c2_source_resolution.py": {
+        "git_blob_sha": "a420bcd3f3ae133a88d49219dc2dc85cc3c38d25",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/c2_stored_lineage.py": {
+        "git_blob_sha": "3df9e5d0cf312afb36aada65a1355eeb56d97eb9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/c2_transfer_projection.py": {
+        "git_blob_sha": "558beef704fcbddebf725770fc6921467e93d004",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/c2_transfer_store.py": {
+        "git_blob_sha": "9886ff9535c5f56f7a0f3c11f563758a52cb8e2d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/c2_transfer_validation.py": {
+        "git_blob_sha": "62a942216778b558a5fb122faa383da7deed2323",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/entity_membership.py": {
+        "git_blob_sha": "17a013955e228fa8a0b535dc246c9566ebfac259",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/exact_dedupe.py": {
+        "git_blob_sha": "4fe6e2d2547d3b577df8a5358cb559bc85e20703",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/field_evidence.py": {
+        "git_blob_sha": "b445db89e7f4bf4c2b5b0c5d5a515f6f97e43970",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/header_analysis.py": {
+        "git_blob_sha": "ac82246d450724ae13e5abee44461bf84eea5d5a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/header_set_dedupe.py": {
+        "git_blob_sha": "8cd12f6494f0fa7240e394b61ef4f5c8fe292d3d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/identity_comparison.py": {
+        "git_blob_sha": "dd4f1738821f336f006692d29b5d092ad346b504",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/iterative_conflict_policy.py": {
+        "git_blob_sha": "67458b950ce40d0d1c376581248efd421dbe446d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/iterative_merge_execution.py": {
+        "git_blob_sha": "acbafd5903454f2822d4f3ebad7448042e5471e5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/iterative_merge_input.py": {
+        "git_blob_sha": "32c03fcd51e6aeef585ca3ce3ac7ec400480b88b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/iterative_merge_preview.py": {
+        "git_blob_sha": "32160e53d534ae3c386e8762a1e9c0056f445e74",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/mapped_processing_set.py": {
+        "git_blob_sha": "fb0a72d1fe0a4c0d59f9680ff0ae1924cb59062d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/membership_approval.py": {
+        "git_blob_sha": "df3ffcb254b575768cd9cc7acaa84659c0571913",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/membership_persistence.py": {
+        "git_blob_sha": "39ba21fe024dc49e90e341a2edfab2d696684369",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/merge_execution.py": {
+        "git_blob_sha": "a4e78eed8727643b97af5804fe416e3428b7596d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/merge_set_store.py": {
+        "git_blob_sha": "f71d450b8f8be82e1efa6c30894dfd0e7eef300a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/cyber2/merge_snapshot.py": {
+        "git_blob_sha": "b02c0e72e90139e126dc0cf19bd304d73d2c7e66",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/entra_service.py": {
+        "git_blob_sha": "c569891ef18e7700c03aae3094a7f83f5554b679",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/pdf_text_service.py": {
+        "git_blob_sha": "a781a2e99edf5f74c39902d0ab6affe42cde2010",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/project_store.py": {
+        "git_blob_sha": "82d4b2e4785a402dc8bc4c8ffb56200031adcead",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/protocol_service.py": {
+        "git_blob_sha": "d56e65a5bc85e3177b63913e32a5ce4f2532b163",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/qc_scoring.py": {
+        "git_blob_sha": "2f21a5fdfaa5a6db6d2b45ce59c84fe35ddde39b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/queue_service.py": {
+        "git_blob_sha": "a9e3d35020129034ac255a36a0d333815fdee5d5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/review_batch_service.py": {
+        "git_blob_sha": "42ff6de836ba1f7936f66dfd1d75112596fbd530",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/review_metrics.py": {
+        "git_blob_sha": "0f24f5438c78ece441afdd171246ec2e67583807",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/security.py": {
+        "git_blob_sha": "7dfd5e2d3cefd63c7c1c6d880fcc89fe2218279a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/storage_paths.py": {
+        "git_blob_sha": "8aa5aa810ba625fbce9248f40e8c9e1af2e6eaac",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/__init__.py": {
+        "git_blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/adapters/__init__.py": {
+        "git_blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/adapters/json_plain.py": {
+        "git_blob_sha": "927447e5c8ab1d1be403d214a53e0b7cb5578314",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/adapters/json_slack.py": {
+        "git_blob_sha": "05cbed9b2aedc33b286db81c3420e3bce393dd41",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/json_detector.py": {
+        "git_blob_sha": "f2e4b6a80072e3189f15725e1d229c13eb8c844a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/json_router.py": {
+        "git_blob_sha": "27f9acbf49cb9251d38b0c43eb3164a4a7a3742c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/models.py": {
+        "git_blob_sha": "c70965208e8cb19794f7a121a5444909cd0b4eb0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/native_json_handoff.py": {
+        "git_blob_sha": "d1680749a5c614af109c1ad76c2a7da4b662d688",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/native_json_handoff_execution.py": {
+        "git_blob_sha": "485bcfc8926edeac27954ad3ea503a33cfd959d7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/promotion_profile.py": {
+        "git_blob_sha": "d772f72039d4ac7574c6d338d895166d944a50cb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/test_json_content_only_profiles.py": {
+        "git_blob_sha": "ffcd97601f70360d1fc607891d804f526827f4af",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/test_json_plain_adapter.py": {
+        "git_blob_sha": "1e6ddc9fcec2564dd22244e5f3872a79572f7073",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/test_json_profile_early_exit.py": {
+        "git_blob_sha": "3693ae3f685622a2fe035acf27ac17a60d10dafc",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/test_native_json_handoff.py": {
+        "git_blob_sha": "03a5b3542f42a8744f70a7c385a77fd06f8492a5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/test_native_json_handoff_execution.py": {
+        "git_blob_sha": "a7210603961862661f5cc907f62c2a716f9107ca",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/structured_intake/test_promotion_profile.py": {
+        "git_blob_sha": "b7782abe76002c6f70243dce07b6787355f10c7f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/summaries_large_text_builder.py": {
+        "git_blob_sha": "131c3879dee9b2afdc8a95884024f24784e87a11",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/summary_outline_service.py": {
+        "git_blob_sha": "44c23861169822b626ac52c63aa6320ec6557451",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/summary_text_service.py": {
+        "git_blob_sha": "8c54895f4d5c1914dcdbbbccabffc2355d2b5ffa",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/services/user_store.py": {
+        "git_blob_sha": "26b30cecd3c550898d147c02982dd33efb889848",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/workers/__init__.py": {
+        "git_blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/app/workers/processing_worker.py": {
+        "git_blob_sha": "a269cd29184c8edf6a65b1565601fca90e641258",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/data/projects/Project_Timber/Project_Timber_Protocol.xlsx": {
+        "git_blob_sha": "18c258d1515b99082bad01458647500bfd7769c7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/main.py": {
+        "git_blob_sha": "e741d24be5218c4be8cf2bc3e0db1bcba05e0d1a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/requirements.txt": {
+        "git_blob_sha": "188c5760d15d620929ccbec461042a5b77d4902c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/sql/postgres_schema.sql": {
+        "git_blob_sha": "6fb0720a5860638163cbda5917e4d470f2e080c3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/sql/sqlite_schema.sql": {
+        "git_blob_sha": "4aeaa8180bcefb8a10af377b8eb7666a71e04f30",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "backend/startup.sh": {
+        "git_blob_sha": "8cfd66bc1b6ea835b5457b13a1cb01feb9eecd7f",
+        "mode": "100644",
+        "type": "blob"
+      }
+    }
+  },
+  "frontend": {
+    "verified_deployment_commit": "5a7dd0339baf0579e303b032fdcd31f79f764102",
+    "tracked_files": {
+      ".github/scripts/deploy_frontend_clean.py": {
+        "git_blob_sha": "6150b1d0b80e07bc2af2c206b1c7c57bc654ca4a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/insyt-detection-worker-v2-release.yml": {
+        "git_blob_sha": "5c72ca8909b155607dc35262801944d023ebcefe",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-apc-worker-detection-prod.yml.disabled": {
+        "git_blob_sha": "322d5432e1d74cc5490175d2bebd24fe8093f8b4",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-apc-worker-prod-v2.yml": {
+        "git_blob_sha": "2284c65839961f0185858bc4f442dac6b8113f36",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-api-prod-v2.yml": {
+        "git_blob_sha": "a131903524e65527ef73884baed48d68812fc4d6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-api-prod.yml.disabled": {
+        "git_blob_sha": "dc3b95fddb30ef8211036e172cab45c6aad52ed8",
+        "mode": "100644",
+        "type": "blob"
+      },
+      ".github/workflows/main_insyt-app-prod.yml": {
+        "git_blob_sha": "5ba782721e94f324037257594d30060700150722",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/.gitignore": {
+        "git_blob_sha": "ec8e30d95465e5f8eff580a837f0979082fe318a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/.npmrc": {
+        "git_blob_sha": "e9ee3cb4d04a562d5bf82c635e11ec2569f108aa",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/AGENTS.md": {
+        "git_blob_sha": "8bd0e39085d5260e7f8faffcad2fdc45e10aef33",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/CLAUDE.md": {
+        "git_blob_sha": "43c994c2d3617f947bcb5adf1933e21dabe46bb5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/README.md": {
+        "git_blob_sha": "e215bc4ccf138bbc38ad58ad57e92135484b3c0f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/eslint.config.mjs": {
+        "git_blob_sha": "05e726d1b4201bc8c7716d2b058279676582e8c0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/make_deploy_zip.py": {
+        "git_blob_sha": "c06fecbd0e9a5885602701d2a3c1381d621390d2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/next.config.ts": {
+        "git_blob_sha": "de2d453e874ef945077940c57c42fa52d54ff731",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/package-lock.json": {
+        "git_blob_sha": "933c4846a420650d3f18fdde844a4c8f139424bc",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/package.json": {
+        "git_blob_sha": "6b4f02763a86831edd75eb8e96956e87888a9fb2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/postcss.config.mjs": {
+        "git_blob_sha": "61e36849cf7cfa9f1f71b4a3964a4953e3e243d3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/CDS_Logo_W.svg": {
+        "git_blob_sha": "82f2ab9591a1985acc96c2c18c79f0183282ea16",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/Cyber2_Logo_White.svg": {
+        "git_blob_sha": "cdaec1ab8bda57ca06bbc4f994457734cc8b7a34",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/INSYT360.png": {
+        "git_blob_sha": "89527113b49f2e3150c34d7b52253812388c1003",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/INSYT360_wordmark.svg": {
+        "git_blob_sha": "b41f6323232d4f0e97e5d46234395249b1f2196e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/INSYT360_wordmark2.svg": {
+        "git_blob_sha": "2b4265013f89002f201b02f883d361b9c6535015",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/Screenshot 2026-06-09 210405.png": {
+        "git_blob_sha": "edb8b8a4f18b71538b0d73bb47f65f1de13cf12a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/advantage/insyt-capture-protocol.png": {
+        "git_blob_sha": "f0479164518fee759af6c4a7d71c95bd163ebc44",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/advantage/insyt-summaries.png": {
+        "git_blob_sha": "675f0cdbebf8f4ddba22678b81c5f5c5852dd996",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/file.svg": {
+        "git_blob_sha": "004145cddf3f9db91b57b9cb596683c8eb420862",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/fonts/Nasalization-Regular.otf": {
+        "git_blob_sha": "a9333c7bee626651999b04e2c866ad43b613e09d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/globe.svg": {
+        "git_blob_sha": "567f17b0d7c7fb662c16d4357dd74830caf2dccb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/insyt360_logo.png": {
+        "git_blob_sha": "4220745c55d78ad652e21dcc88c94c7ea028b5c9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/insyt_logo.png": {
+        "git_blob_sha": "b95c2286aac48bbe6a87f4c299de64add39b592c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/logo.png": {
+        "git_blob_sha": "dddc9c73dfd11794211dcfdef9b10a688f31f0fe",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/next.svg": {
+        "git_blob_sha": "5174b28c565c285e3e312ec5178be64fbeca8398",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/pdf.worker.min.js": {
+        "git_blob_sha": "12242260905b0f82831f735be91e231d17a1a57d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/vercel.svg": {
+        "git_blob_sha": "77053960334e2e34dc584dea8019925c3b4ccca9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/public/window.svg": {
+        "git_blob_sha": "b2b2a44f6ebc70c450043c05a002e7a93ba5d651",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/admin/page.tsx": {
+        "git_blob_sha": "0fa6a7e287700762323da8ef8b68c5b112b12295",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/advantage/page.tsx": {
+        "git_blob_sha": "c0b5044a64b4ddcfe169d0746e9390be24573be1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/auth/entra/callback/page.tsx": {
+        "git_blob_sha": "c77100c9724970846b37b31c2c19e2ba6dfeb92b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/admin/page.tsx": {
+        "git_blob_sha": "9a37b8df972543c04ebdac8fd16d9627c985d565",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/batch-management/page.tsx": {
+        "git_blob_sha": "2fe1f255a41315c05edeea06073a4718457083e1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/batches/page.tsx": {
+        "git_blob_sha": "acb452bc70c6f43e751b98bd545fa61e71f0ef35",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/captured-entities/page.tsx": {
+        "git_blob_sha": "f625a2fd67812df3e53def3d5235d1d74e4c3643",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/clients/page.tsx": {
+        "git_blob_sha": "b97d8649960910364a7b5ade5b761453b931a411",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/data-element-detection/page.tsx": {
+        "git_blob_sha": "23c46527a370d267c61a989c9b7fd57dab453c9d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/entities/final-viewer/page.tsx": {
+        "git_blob_sha": "87e682a665db5626b1c5307b5ae613033f7acf7d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/files/page.tsx": {
+        "git_blob_sha": "b8addcefbf3c7ce31465a442f920d02bc7f7c627",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/messaging/page.tsx": {
+        "git_blob_sha": "6354e61bbbc3d237302a9a5917cd0469bbc79e97",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/new-project/page.tsx": {
+        "git_blob_sha": "cca48a544318e4c9503d7dc10219f73c48b20f92",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/page.tsx": {
+        "git_blob_sha": "3fbc0a5c801b9f48e1eef2c21a381804598ca0b0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/processing-center/page.tsx": {
+        "git_blob_sha": "d723da28fafe2dff9f1a2b9e81e67e108c5b7af9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/processing-center/promotion/layout.tsx": {
+        "git_blob_sha": "54f6bbf89acf12807371caf38d4e8854ac3c1894",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/processing-center/promotion/page.tsx": {
+        "git_blob_sha": "2f7fcb7657b2f4e9a0ef2afe02fb53368267c72f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/project-dashboard/page.tsx": {
+        "git_blob_sha": "839ec6318583675958bdb8b8469b2fd6b543f47c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/project-hours/page.tsx": {
+        "git_blob_sha": "f22efd2443a0dec873f84701d613b344aafaab12",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/projects/page.tsx": {
+        "git_blob_sha": "41bc776e7aa37f163f93a02fe8fa63551de7e1e2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/protocol/page.tsx": {
+        "git_blob_sha": "5b99e0dff411e228d0a246152cb7fab1265a28b7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/qc-review/page.tsx": {
+        "git_blob_sha": "4304504d24541851eef4bd611df73f76ac438324",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/review-team/page.tsx": {
+        "git_blob_sha": "cd149145e67e36ea217c531722caf7e91f6eb680",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/review/doc/loading.tsx": {
+        "git_blob_sha": "c6cea8ab3ca1f482f8159e41b24288fbb498277b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/review/doc/page.tsx": {
+        "git_blob_sha": "3d5345d6e235201abb7e09ff26b11936a0006930",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/review/page.tsx": {
+        "git_blob_sha": "684dcca768f1d79ceb3d26c28eecd516fe42f4c0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/search-folders/page.tsx": {
+        "git_blob_sha": "03baa712d1dc9eade74f0616a95f2ef5dc4960be",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/settings/page.tsx": {
+        "git_blob_sha": "895011905cee1bdb0d8f6dcece4a198de3bfe2a3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/spreadsheets/output-editor/page.tsx": {
+        "git_blob_sha": "cc216058dda132d1c99baaef789b6baf920b78ef",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/spreadsheets/processing-center-deduplication/page.tsx": {
+        "git_blob_sha": "bf481ef26df46e53c0bd84011578b620ec849569",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/spreadsheets/processing-center-spreadsheets/page.tsx": {
+        "git_blob_sha": "4e9f144d0937d9d549377fae432f41bde7509dcd",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/capture/user-access/page.tsx": {
+        "git_blob_sha": "de724a4b01ec615f71ac3dfe198981cb3f86b044",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/captured-entities/page.tsx": {
+        "git_blob_sha": "ef7b4a230acd362c272fb805f20652913c86609b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/clients/page.tsx": {
+        "git_blob_sha": "df6f2701719f77c3f249dc8a784b23dbd6b946dd",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/entity-normalization/page.tsx": {
+        "git_blob_sha": "ac396aa4f5988935b97ffe1908d6fd4e4b974f38",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/exports/page.tsx": {
+        "git_blob_sha": "edab2e2068e2d2ff43c22b65a81e630c377f43ac",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/AIExtractionsPane.tsx": {
+        "git_blob_sha": "c8362946a8c882802107d7e29008288fef5b0d5d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/JsonCustomApiPane.tsx": {
+        "git_blob_sha": "62b6e7ce6372d1f136cb8ebe1789ba820eb7f2d5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/JsonGooglePane.tsx": {
+        "git_blob_sha": "4c978c0b23da5293a90c7cddb51291b427ef42d2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/JsonHeaderReviewPanel.tsx": {
+        "git_blob_sha": "a216354c2582866f0b69aa259fc398c754d4cfde",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/JsonPlainPane.tsx": {
+        "git_blob_sha": "b7087c4a1385270402c57b27112c14223db0d45f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/JsonSalesforcePane.tsx": {
+        "git_blob_sha": "1c14e125086498fa9181f96530a4a106ca83847a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/JsonSlackPane.tsx": {
+        "git_blob_sha": "418b99d379cb528728c0b7a194ffafd9f32413d1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/JsonTeamsPane.tsx": {
+        "git_blob_sha": "078cc2f4105382a4f43de84ba23d00295a10c607",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/NativeJsonPreview.tsx": {
+        "git_blob_sha": "27633ad1aada71e4eb571feedc2f53a5708862c9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/SharedIntakeInventory.tsx": {
+        "git_blob_sha": "1068858d0da05b85d27a6d67d57b168f78c22996",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/components/StructuredIntakePaneShell.tsx": {
+        "git_blob_sha": "133a08abc30f991709bbba2446ceb606b2a30b90",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/intake/page.tsx": {
+        "git_blob_sha": "fd8ceed89053a30adafdcc6d9c409403f840528a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/merge-dedupe/page.tsx": {
+        "git_blob_sha": "f65bf8db3bdbb18a086cba4b08e6f3ef137e1449",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/page.tsx": {
+        "git_blob_sha": "872bf36e6e692e064c04baab2235b85fa25bc59d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/population-analysis/page.tsx": {
+        "git_blob_sha": "a7c249c3dd21d1fe4624528a33eb22a8825bb9c1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/schema-mapping/page.tsx": {
+        "git_blob_sha": "fbbda13f790a655e3d1bf8e795519fad8139eb0b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/schema-mapping/set/page.tsx": {
+        "git_blob_sha": "55c3c196eec92291b6af8cdd553f6556a927ab6e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/cyber-utility/xl-processing/page.tsx": {
+        "git_blob_sha": "147f1a254e957181bebd64cb27b15c11481b057a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/dashboard/page.tsx": {
+        "git_blob_sha": "3164b9753574a748220cc0786145066afcb55c7a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/developer/page.tsx": {
+        "git_blob_sha": "ed3269d8326edbee3390ea94eee738e4828d9526",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/development/page.tsx": {
+        "git_blob_sha": "50ed9323ab39021b93ff909951a8168b99a041af",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/development/projects/page.tsx": {
+        "git_blob_sha": "221619591c7c399599d27bb699591b063019573b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/admin/page.tsx": {
+        "git_blob_sha": "9a37b8df972543c04ebdac8fd16d9627c985d565",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/batch-management/page.tsx": {
+        "git_blob_sha": "f8eaa28c6aa7e4c673bfcf4eebc05a676a3e1479",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/batches/page.tsx": {
+        "git_blob_sha": "ba20421dee11e31478fd9232dedde33bab2f17e1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/captured-entities/page.tsx": {
+        "git_blob_sha": "ed3aae8494e0306e8ae1ce2ae9288098d646d557",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/clients/page.tsx": {
+        "git_blob_sha": "b97d8649960910364a7b5ade5b761453b931a411",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/data-element-detection/page.tsx": {
+        "git_blob_sha": "633d7c39c9bfac4d8bc73723d0dad8d97de5fe8a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/entities/final-viewer/page.tsx": {
+        "git_blob_sha": "e2379c139ae75dfb41af3d471ffb8861926324c8",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/files/page.tsx": {
+        "git_blob_sha": "09448d48f560ca3a4eff5ecd4ec6eab9101dc2eb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/messaging/page.tsx": {
+        "git_blob_sha": "739f38a920bed327788c9bf9bb567992e8a662cb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/new-project/page.tsx": {
+        "git_blob_sha": "776cfcf80a7439e7c3e42c9d8b9d2890c1aa5f1f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/page.tsx": {
+        "git_blob_sha": "8745c639b16ff018bf5b607fb093669feb0f594b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/processing-center/page.tsx": {
+        "git_blob_sha": "d7a86bccbb12895d626ab1947c325d7c158aaa85",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/processing-center/promotion/layout.tsx": {
+        "git_blob_sha": "54f6bbf89acf12807371caf38d4e8854ac3c1894",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/processing-center/promotion/page.tsx": {
+        "git_blob_sha": "5d73359ff1ccec3ffa9e6c0e2a9ad04ad85a2b70",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/project-dashboard/page.tsx": {
+        "git_blob_sha": "839ec6318583675958bdb8b8469b2fd6b543f47c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/project-hours/page.tsx": {
+        "git_blob_sha": "f22efd2443a0dec873f84701d613b344aafaab12",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/projects/page.tsx": {
+        "git_blob_sha": "0cdd3ede3dc3e3799542e423127f64c09389c1fa",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/protocol/page.tsx": {
+        "git_blob_sha": "b4d3c8e769f116239c43e8c8dfb8436e110cef66",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/qc-review/page.tsx": {
+        "git_blob_sha": "e22217aa4def6a5525dcad23ea7a4e89514d4580",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/review-team/page.tsx": {
+        "git_blob_sha": "bdcaec80c116f8d58d0d8e6519e3129624dfe9ef",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/review/doc/loading.tsx": {
+        "git_blob_sha": "c6cea8ab3ca1f482f8159e41b24288fbb498277b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/review/doc/page.tsx": {
+        "git_blob_sha": "11b0a522ee8328c8d9dc35eb2b056cbcbecee422",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/review/page.tsx": {
+        "git_blob_sha": "46f8c8149b9d3c580bb36d691535ccf400b22b56",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/search-folders/page.tsx": {
+        "git_blob_sha": "546d3dd238ac422d771df991cab95ee811973fe5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/settings/page.tsx": {
+        "git_blob_sha": "321c85a4a3cde5617dfea8e5c1279748cd7b855b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/spreadsheets/output-editor/page.tsx": {
+        "git_blob_sha": "20b2046a61dd10223e13321616a114ea79134996",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/spreadsheets/processing-center-deduplication/page.tsx": {
+        "git_blob_sha": "191fa611e7fb3dd36c2e1f05787c13c57ae62fbd",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/spreadsheets/processing-center-spreadsheets/page.tsx": {
+        "git_blob_sha": "918331a89da28041bf65eaf734833a944df174b8",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/tarai/page.tsx": {
+        "git_blob_sha": "0c6118749db362c2e660155781fa43793a5d43c9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/discovery/user-access/page.tsx": {
+        "git_blob_sha": "390a85c92b9e9224d3f8ea03b5c1a30f5619db01",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/favicon.ico": {
+        "git_blob_sha": "718d6fea4835ec2d246af9800eddb7ffb276240c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/globals.css": {
+        "git_blob_sha": "3ad5e302479a9ea143f27137205ee50049842e15",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/launcher/page.tsx": {
+        "git_blob_sha": "7db0ea05c855cdea02bc43eef367a574b3ac38aa",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/layout.tsx": {
+        "git_blob_sha": "29a2d45f6ae72563b880730369db13ea9bf441cb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/login/page.tsx": {
+        "git_blob_sha": "507930a655148bd5b9a111e9907e293beb8dea08",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/messaging/page.tsx": {
+        "git_blob_sha": "89da1e43122c28320121ca368c259332c78f839d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/mfa/setup/page.tsx": {
+        "git_blob_sha": "ccf028c57f87dc8d558f648c2777e8a853bb70af",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/new-project/page.tsx": {
+        "git_blob_sha": "c6ed0ab41ae9003895c04fbd43b9abdde217a7b5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/page.tsx": {
+        "git_blob_sha": "a3bb4face3fb4209c2f54aebd2f58f925712b94d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/project-dashboard/page.tsx": {
+        "git_blob_sha": "35ac48c4dea0cb5c4c39bb7f613c6e098b7c76bf",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/project-hours/page.tsx": {
+        "git_blob_sha": "b111cf8f54720b70a94e2e42bafe9a7763be6fe2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/project-management/upload-overlay/page.tsx": {
+        "git_blob_sha": "4a6595af487559ccdc0fa7ec04af2facf510d553",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/project-staffing/page.tsx": {
+        "git_blob_sha": "6475678e75d0e7abd4a24d9347d0d98f1673c1f7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/project-users/page.tsx": {
+        "git_blob_sha": "bf12ecb168ea02c262fefc0fa3d3b6909fc156d9",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/projects/page.tsx": {
+        "git_blob_sha": "9b362423e72fb7a42c963e9efffaf4c203ef16e0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/review-hours/page.tsx": {
+        "git_blob_sha": "86be04d567aa3577776059b72f3e61226b817382",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/review-metrics/page.tsx": {
+        "git_blob_sha": "13fdee473f1ce5e7316c5b5ce4aa8e6532968539",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/settings/page.tsx": {
+        "git_blob_sha": "1251a8cdf98f48fe9e87c65431362814f1ca4ceb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/admin/page.tsx": {
+        "git_blob_sha": "9a37b8df972543c04ebdac8fd16d9627c985d565",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/batch-management/page.tsx": {
+        "git_blob_sha": "eae31d7aaa8a2a97c0def0be98f353e430664d00",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/batches/page.tsx": {
+        "git_blob_sha": "9322c59e36bace4a5a883e61dbff827832e71492",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/captured-entities/page.tsx": {
+        "git_blob_sha": "0b34722cc84ff8b6a9f9abb304e6e6b9e29cc6e5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/clients/page.tsx": {
+        "git_blob_sha": "b97d8649960910364a7b5ade5b761453b931a411",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/files/page.tsx": {
+        "git_blob_sha": "99f088452202098ea8b015c63bca555eca5004ed",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/files/review/page.tsx": {
+        "git_blob_sha": "e78fd6070d6be4dad0c4af40317ad67d2cf1dd38",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/messaging/page.tsx": {
+        "git_blob_sha": "8caafb5152e8f76c4bbd105c16b57511a2219e42",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/new-project/page.tsx": {
+        "git_blob_sha": "ff86a8a453ad72a0b4580e3d9ed90b1df52cfd87",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/page.tsx": {
+        "git_blob_sha": "6d057669958270c4797a0ae64caca52a9094052e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/processing-center/page.tsx": {
+        "git_blob_sha": "6102d1477ab394ba543c01be0507cc3026f556b6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/project-dashboard/page.tsx": {
+        "git_blob_sha": "839ec6318583675958bdb8b8469b2fd6b543f47c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/project-hours/page.tsx": {
+        "git_blob_sha": "f22efd2443a0dec873f84701d613b344aafaab12",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/projects/page.tsx": {
+        "git_blob_sha": "12ea81de1a5ebdcb4f2009a4fadd1fd1ba2944a8",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/protocol/page.tsx": {
+        "git_blob_sha": "daa8bc857469f92c1dea138271d18bdb35e7980b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/qc-review/page.tsx": {
+        "git_blob_sha": "23b181b5a6ab5111a888786b4b17a9c82f9e51eb",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/review-team/page.tsx": {
+        "git_blob_sha": "f2361f124372fc6e3bcdbecb1417b667a9e03058",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/review/doc/loading.tsx": {
+        "git_blob_sha": "c6cea8ab3ca1f482f8159e41b24288fbb498277b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/review/doc/page.tsx": {
+        "git_blob_sha": "ffc534eee6cfba666299e378d8f89cf3a3c5a871",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/review/page.tsx": {
+        "git_blob_sha": "2cb116685c540ffe611900a5277ba4e86e47ced2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/search-folders/page.tsx": {
+        "git_blob_sha": "546d3dd238ac422d771df991cab95ee811973fe5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/settings/page.tsx": {
+        "git_blob_sha": "ad1ff45dd8b468fd39e1e5b5753847a7615b3a54",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/summary-data/page.tsx": {
+        "git_blob_sha": "25c6927676835187e5dd1b6213ab2b3b542fc443",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/summaries/user-access/page.tsx": {
+        "git_blob_sha": "624a50ab8b3f9ff5976980b67f2a352f2ea880e2",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/timesheet/page.tsx": {
+        "git_blob_sha": "2a12e5e33843b26be974060a8b3c4d40952ea4f3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/app/user-access/page.tsx": {
+        "git_blob_sha": "eb9566c9c1ad89844601dcfef22bdb7ecda3cac8",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/AppShell.tsx": {
+        "git_blob_sha": "7cdb4459394bee7f32fa6ea36dadf5b3dc2c1662",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/AuthGuard.tsx": {
+        "git_blob_sha": "70b609d4ba8e166e6f43dea6ebb6a9766e23953b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/AutoLogout.tsx": {
+        "git_blob_sha": "d9ed60124bbb27ad40d0beb98d38adea263a0573",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/Button.tsx": {
+        "git_blob_sha": "113523ac8e6d0ac1c86fbd671a2c73c4578bacc3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/CapturedEntitiesTable.tsx": {
+        "git_blob_sha": "701505b06bbb9ff4d37ded12439b051513dd53ac",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/Checkbox.tsx": {
+        "git_blob_sha": "0f2b23b51ace6f6216180ade46aec706469a9722",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/ContentCard.tsx": {
+        "git_blob_sha": "dcd3f29d2722ba45ee700a8e319a528265d3cdd1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/CyberUtilityWorkflowNav.tsx": {
+        "git_blob_sha": "689da6a96cccbc3158794710467990d6e210929c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/CyberUtilityWorkflowPlaceholder.tsx": {
+        "git_blob_sha": "1f0c96d5be8f2f2cab24a6340453c5446e69eff0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/DataTable.tsx": {
+        "git_blob_sha": "b7947b75b75734bf17af5d163cfba1bfc6c18ee4",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/DiscoveryReviewPanel.tsx": {
+        "git_blob_sha": "4494b8cf0a8e8e2265a9802476a7bfd8799a80e0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/EmptyState.tsx": {
+        "git_blob_sha": "089042b3b0e5b36fa4c38a54c67bd03f5be9898d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/FinalEntitySourceViewer.tsx": {
+        "git_blob_sha": "1c6eb6c83912b27d51418b478e2de855e49940b0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/FormLabel.tsx": {
+        "git_blob_sha": "85be91967b390348a078913b7044901e719e17d0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/Input.tsx": {
+        "git_blob_sha": "f39d1ae29770e8e86c2f5a5252381f55fbc5cf3d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/Insyt360Brand.tsx": {
+        "git_blob_sha": "e86790b356b3817120870eb4b58b731de4d1e0ad",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/LinkedEntitiesStrip.tsx": {
+        "git_blob_sha": "0834fb630d8a45cd3513ffb7240c88a8830e86f0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/MessagingPanel.tsx": {
+        "git_blob_sha": "03358fa89fd684560c9b6415a8de66bf7e67f5b5",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/PageContainer.tsx": {
+        "git_blob_sha": "98f326bb98ab288718c4d9c60875d3e02f210511",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/PageHeader.tsx": {
+        "git_blob_sha": "a2e4d98f63232ea94eaf9f8e1a3d110002643962",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/PdfDocumentViewer.tsx": {
+        "git_blob_sha": "48f7ead641b572e6ecc6b81f937c6357a5c77796",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/ProcessingCenterPage.tsx": {
+        "git_blob_sha": "47751bbed03a6f4b632e5e5e68f839d8a546a205",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/ProjectCard.tsx": {
+        "git_blob_sha": "b9c1a7148e14a013c4b4fb3dda3cd5bda9ce4332",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/ProjectFileUploadCard.tsx": {
+        "git_blob_sha": "6c5c2aa33a712cf76115d503f8a777b7a17f2c58",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/ProjectSidebar.tsx": {
+        "git_blob_sha": "e89cb0965069e5ec3a5f5e24af0d841b3851f506",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/ReviewCapturePanel.tsx": {
+        "git_blob_sha": "e84e1bfb706b3a585b2d5136d82f0ad888cf44af",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/ReviewDocumentPane.tsx": {
+        "git_blob_sha": "7ff757dfff3ba3c4f7ee79f4e3b3f109297ae68a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/ReviewHeader.tsx": {
+        "git_blob_sha": "8604ca67d7ccfcd408767e049204dba9454cd9ed",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/SectionGrid.tsx": {
+        "git_blob_sha": "42872cd03c0ea00138ea6282baba696ffd1774b0",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/Select.tsx": {
+        "git_blob_sha": "26fe20ab2495617f74f30e93a424ab61eb7b111e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/SessionTimeout.tsx": {
+        "git_blob_sha": "0aaf4d80ba570640d92389b7dd8a24ec6eaad478",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/Sidebar.tsx": {
+        "git_blob_sha": "ce60aee5974c7c947010c5327c148e5f41a81ba3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/StatCard.tsx": {
+        "git_blob_sha": "8d40bc10c2e56393257f231f82850431e677ecba",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/StatusBadge.tsx": {
+        "git_blob_sha": "177b161d50b7fbdad2773dffed6386908888bef3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/SummariesProcessingCenterPage.tsx": {
+        "git_blob_sha": "5479251a1b5f3e3ef52a4535956f995d78d5a455",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/TextArea.tsx": {
+        "git_blob_sha": "c95b4e9322bfe67bbc136152300cf72757201c49",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/Topbar.tsx": {
+        "git_blob_sha": "be2ba9681dfb50721fc381176ae7bdf7293dbd2d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/UrgentMessageOverlay.tsx": {
+        "git_blob_sha": "bf23bb002a4cef506444ea1da2ce9d326b742533",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/cyber2/CompletedMergeSetsPanel.tsx": {
+        "git_blob_sha": "c286be336a0ecc7881a9f2d66b03cd4f26d3a8de",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/cyber2/ExactMatchSpreadsheetModal.tsx": {
+        "git_blob_sha": "caaeb91661a3eb3209c91adc0d63a8f25963170f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/cyber2/IterativeWorkingSpreadsheet.tsx": {
+        "git_blob_sha": "97a2379506318dec63dd3c96888246b9e816febc",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/processing-center/AzureProcessingCenterPanel.tsx": {
+        "git_blob_sha": "bc0a6aab5e6f14f85bf39a695618062b5e78bc7d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/processing-center/AzureProcessingCenterPromotionPanel.tsx": {
+        "git_blob_sha": "1a89f65e063ca01651bb0f6d1b61cffd3ad48b5f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/processing-center/SummariesProcessingCenterPanel.tsx": {
+        "git_blob_sha": "60b727de4edab1f9153c28092ab9bda10eed9a5a",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/protocols/AssignProtocolToProjectCard.tsx": {
+        "git_blob_sha": "5eca23ef4d4839ef90b246194b8c6a429d325780",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/summaries/PdfOutlinePane.tsx": {
+        "git_blob_sha": "0ff8ce548c42f4719029acc630393ab913595310",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/summaries/SummariesCenterPane.tsx": {
+        "git_blob_sha": "8057bcbf17960f3ca434e1f87d2bda360b99d11e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/summaries/SummariesLeftPane.tsx": {
+        "git_blob_sha": "8e2fb27a24241aba40c8f946c2fa4a86ce6fcc71",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/summaries/SummariesRightPane.tsx": {
+        "git_blob_sha": "74b05cbf66c7988f35a066a91b2c3499e5522894",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/summaries/SummarySetsPanel.tsx": {
+        "git_blob_sha": "221bd8d06b6c2ec6c8be0d79b94547ea22db4bb6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/components/workspaces/WorkspaceFiles.tsx": {
+        "git_blob_sha": "b02c574b312c37e94b28e0bbaa8b7a137c0b8f0d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/data/mockData.ts": {
+        "git_blob_sha": "08e8d2185f6228e30e268b50df13cd6b33c609e7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/data/summariesMockData.ts": {
+        "git_blob_sha": "f01487d81c899721e5178105bbd33ce5d0d99f87",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/docs/frontend-structure.md": {
+        "git_blob_sha": "86a3741d1f0b22914a88bf31890f35e1b04f1095",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/lib/api.ts": {
+        "git_blob_sha": "b989261ab87a0e60daba853e1aaf0e61c9f4c2df",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/lib/detectionJobPersistence.ts": {
+        "git_blob_sha": "7182bee96ac900a6cd18e53d541fca86c3fdf98c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/lib/session.ts": {
+        "git_blob_sha": "00536e09551cf406abd94d649821ac3225e189b7",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/lib/workbookFamilies.ts": {
+        "git_blob_sha": "5d891cfcb136c0bd7d89049b3acd11d80cfde21d",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/types/index.ts": {
+        "git_blob_sha": "bf50179adf242a5cec2f58bdc26d11ab993bb72f",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/src/types/summaries.ts": {
+        "git_blob_sha": "a1de4145cc1497e65f8fcbe638780a977ba61498",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/tests/json-promotion-concurrency.test.cjs": {
+        "git_blob_sha": "d911f0639041a8b2a993faf433b223af12197e0b",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "frontend/tsconfig.json": {
+        "git_blob_sha": "3a13f90a773b0facb675bf5b1a8239c8f33d36f5",
+        "mode": "100644",
+        "type": "blob"
+      }
+    }
+  },
+  "safeguards": {
+    "no_unapproved_protected_file_changes": true,
+    "no_unapproved_deletions": true,
+    "no_azure_configuration_changes": true,
+    "require_production_equivalent_startup": true,
+    "require_working_login_and_mfa": true,
+    "require_existing_workflow_regressions": true
+  }
+}

@@ -8,12 +8,12 @@ import re
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from json_header_evidence import (
+from app.api.cyber2.json_header_evidence import (
     JsonEvidenceError,
     _decode,
     discover_json_header_evidence,
 )
-from json_duplicate_headers import (
+from app.api.cyber2.json_duplicate_headers import (
     DuplicateHeaderError,
     assign_json_output_headers,
 )

@@ -1,61 +1,57 @@
 name: Deploy INSYT Frontend
-
-on:
+'on':
   workflow_dispatch:
-
+    inputs:
+      package_run_id:
+        description: Successful immutable package preparation run ID
+        required: true
+        type: string
 concurrency:
   group: insyt-app-prod-frontend
   cancel-in-progress: false
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: read
+      actions: read
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout exact release verification source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - name: Set up release-verification Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install release-verification dependency
+      run: python -m pip install cryptography==46.0.3
+    - name: Validate package preparation run
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        INSYT_PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
+      run: python tools/insyt_deployment_gate.py --component frontend --sha "$GITHUB_SHA" --package-run-id "$INSYT_PACKAGE_RUN_ID"
+        --verify-package-run-only
+    - name: Download exact retained artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: insyt-frontend-${{ github.sha }}
+        path: retained_artifact
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        run-id: ${{ inputs.package_run_id }}
+    - name: Verify signed archive and extract authorized package
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        INSYT_PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
+      run: python tools/insyt_deployment_gate.py --component frontend --sha "$GITHUB_SHA" --package-run-id "$INSYT_PACKAGE_RUN_ID"
+        --artifact-directory retained_artifact --extract-to frontend_release_package
+    - name: Deploy cleanly to the existing INSYT Azure App Service
+      env:
+        INSYT_AZURE_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_INSYT_APP }}
+      run: 'set -euo pipefail
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+        python3 .github/scripts/deploy_frontend_clean.py frontend_release_package
 
-      - name: Install dependencies
-        working-directory: frontend
-        run: npm install
-
-      - name: Build Next.js app
-        working-directory: frontend
-        env:
-          NEXT_PUBLIC_API_BASE_URL: https://api.insyt360.com
-        run: npm run build
-
-      - name: Package the existing Next.js standalone frontend
-        run: |
-          set -euo pipefail
-          test -f frontend/.next/standalone/server.js
-          test -f frontend/.next/BUILD_ID
-          test -f frontend/.next/standalone/.next/BUILD_ID
-          test -d frontend/.next/static
-
-          test "$(cat frontend/.next/BUILD_ID)" = "$(cat frontend/.next/standalone/.next/BUILD_ID)"
-          mkdir -p frontend_release_package/.next
-          cp -a frontend/.next/standalone/. frontend_release_package/
-          cp -a frontend/.next/static frontend_release_package/.next/static
-          cp -a frontend/public frontend_release_package/public
-
-          test -f frontend_release_package/server.js
-          test -f frontend_release_package/.next/BUILD_ID
-          test -d frontend_release_package/.next/static
-          test "$(cat frontend/.next/BUILD_ID)" = "$(cat frontend_release_package/.next/BUILD_ID)"
-
-          # Do not ship generated runtime cache or duplicate standalone trees.
-          rm -rf frontend_release_package/.next/server/route-cache
-          test ! -e frontend_release_package/.next/standalone
-          echo "Verified one consistent Next.js standalone deployment package"
-
-      - name: Deploy cleanly to the existing INSYT Azure App Service
-        env:
-          INSYT_AZURE_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_INSYT_APP }}
-        run: |
-          set -euo pipefail
-          python3 .github/scripts/deploy_frontend_clean.py frontend_release_package
+        '
