@@ -1,0 +1,165 @@
+﻿name: INSYT Retained Package Runtime Validation
+
+on:
+  push:
+    branches:
+      - validation/retained-package-runtime-20261125
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  api-runtime:
+    name: Retained API Runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download exact retained API
+        uses: actions/download-artifact@v4
+        with:
+          name: insyt-api-039d5a740525e94e846023f74c34ed19e70dcd16
+          path: retained_api
+          github-token: ${{ github.token }}
+          run-id: 45638774096
+
+      - name: Verify and extract retained API
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "tools")
+          from insyt_artifact_integrity import fingerprint_directory
+          actual = fingerprint_directory("retained_api")
+          assert actual["sha256"] == "b547d59998c13d8d6bd9bb89b5971d377a53ddf800d9de03afe6de16e502d33a"
+          print("PASS: Exact retained API fingerprint")
+          PY
+
+          python tools/insyt_retained_artifact.py \
+            --archive retained_api/api.tar \
+            --destination retained_api_runtime \
+            --expected-sha256 71dddea742b757f078fc14d3df471e235120835a60ecc8740143e74d800e3751
+
+          mv backend backend_source_reference
+          mv retained_api_runtime backend
+
+      - name: Install retained API dependencies
+        run: |
+          python -m pip install -r backend/requirements.txt
+          python -m pip install httpx==0.28.1
+
+      - name: Start disposable TLS PostgreSQL
+        run: bash tools/insyt_ci_postgres_tls.sh
+
+      - name: Validate retained API startup
+        run: python tools/insyt_api_startup_check.py
+
+      - name: Validate retained login MFA and Entra contracts
+        run: python tools/insyt_auth_runtime_check.py
+
+      - name: Remove disposable database
+        if: always()
+        run: docker rm -f insyt-ci-postgres-tls || true
+
+  frontend-runtime:
+    name: Retained Frontend Runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download exact retained frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: insyt-frontend-039d5a740525e94e846023f74c34ed19e70dcd16
+          path: retained_frontend
+          github-token: ${{ github.token }}
+          run-id: 45638774096
+
+      - name: Verify and extract retained frontend
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "tools")
+          from insyt_artifact_integrity import fingerprint_directory
+          actual = fingerprint_directory("retained_frontend")
+          assert actual["sha256"] == "004f9e661f45a9d5a3be14bec15590f6b42c7804db9c9cd51ac1a7fde9acbf52"
+          print("PASS: Exact retained frontend fingerprint")
+          PY
+
+          python tools/insyt_retained_artifact.py \
+            --archive retained_frontend/frontend.tar \
+            --destination retained_frontend_runtime \
+            --expected-sha256 8ef1ba273ce5b5c07f67bf43c5c57072334222bf073add8c2d2f16cf260f677d
+
+      - name: Start and validate exact standalone frontend
+        working-directory: retained_frontend_runtime
+        run: |
+          set -euo pipefail
+
+          HOSTNAME=127.0.0.1 PORT=3100 node server.js > runtime.log 2>&1 &
+          pid=$!
+
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+
+          ready=0
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent \
+              http://127.0.0.1:3100/cyber-utility/intake \
+              -o /tmp/insyt-intake.html; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$ready" != "1" ]; then
+            cat runtime.log
+            exit 2
+          fi
+
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          from urllib.request import urlopen
+
+          html = Path("/tmp/insyt-intake.html").read_text()
+          chunks = set(re.findall(
+              r'/_next/static/[^"<> ]+?\.js', html
+          ))
+
+          if not chunks:
+              raise SystemExit("STOP: No compiled JS chunks found")
+
+          for chunk in sorted(chunks):
+              with urlopen(
+                  "http://127.0.0.1:3100" + chunk,
+                  timeout=20,
+              ) as response:
+                  if response.status != 200 or not response.read():
+                      raise SystemExit("STOP: JS chunk unavailable")
+
+          print("PASS: Retained standalone frontend started")
+          print("PASS: Cyber2 Intake returned HTTP 200")
+          print("PASS: All referenced JS chunks served:", len(chunks))
+          PY
