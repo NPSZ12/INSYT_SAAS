@@ -1,0 +1,111 @@
+﻿name: INSYT Deployment Gate Diagnostic
+
+on:
+  push:
+    branches:
+      - validation/retained-package-runtime-20261125
+    paths:
+      - '.github/workflows/insyt-gate-diagnostic.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 039d5a740525e94e846023f74c34ed19e70dcd16
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install existing verification dependency
+        run: python -m pip install cryptography==46.0.3
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: insyt-api-039d5a740525e94e846023f74c34ed19e70dcd16
+          path: retained_artifact
+          github-token: ${{ github.token }}
+          run-id: 45638774096
+
+      - name: Diagnose exact authorization failure
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import re
+          import traceback
+          from pathlib import Path
+
+          sys.path.insert(0, "tools")
+          import insyt_deployment_gate as gate
+
+          release = "039d5a740525e94e846023f74c34ed19e70dcd16"
+
+          origin = gate.git("remote", "get-url", "origin")
+
+          print("Origin matches accepted URLs:", origin in gate.REMOTE_URLS)
+          print("Origin ends in .git:", origin.endswith(".git"))
+
+          original_request = gate.github_json
+
+          def traced_request(endpoint):
+              print("Checking GitHub endpoint:", endpoint, flush=True)
+              result = original_request(endpoint)
+              print("PASS: GitHub endpoint responded", flush=True)
+              return result
+
+          gate.github_json = traced_request
+
+          # Simulate release identity in this diagnostic process only.
+          # No production deployment or Azure access is available.
+          os.environ["GITHUB_REF"] = gate.RELEASE_REF
+          os.environ["GITHUB_SHA"] = release
+
+          sys.argv = [
+              "insyt_deployment_gate.py",
+              "--component", "api",
+              "--sha", release,
+              "--package-run-id", "45638774096",
+              "--artifact-directory", "retained_artifact",
+              "--extract-to", "diagnostic_extraction",
+          ]
+
+          try:
+              gate.main()
+          except Exception as exc:
+              message = str(exc)
+              token = os.environ.get("GITHUB_TOKEN", "")
+
+              if token:
+                  message = message.replace(token, "[REDACTED]")
+
+              message = re.sub(
+                  r"github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+",
+                  "[REDACTED]", message
+              )
+
+              print("EXACT ERROR TYPE:", type(exc).__name__)
+              print("EXACT ERROR:", message)
+
+              for frame in traceback.extract_tb(exc.__traceback__):
+                  print(
+                      Path(frame.filename).name,
+                      frame.lineno,
+                      frame.name
+                  )
+
+              sys.exit(2)
+
+          print("PASS: Diagnostic authorization verification")
+          print("DIAGNOSTIC ONLY - NO DEPLOYMENT")
+          PY
