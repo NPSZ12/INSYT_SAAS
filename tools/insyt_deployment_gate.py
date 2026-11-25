@@ -36,6 +36,7 @@ POLICY_REF = "refs/heads/policy/insyt-hardened"
 RELEASE_REF = "refs/heads/release/json-promotion-20261119"
 REMOTE_URLS = {
     "https://github.com/NPSZ12/INSYT_SAAS.git",
+    "https://github.com/NPSZ12/INSYT_SAAS",
     "git@github.com:NPSZ12/INSYT_SAAS.git",
 }
 PUBLIC_KEY_SHA256 = (
