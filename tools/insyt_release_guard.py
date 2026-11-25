@@ -321,6 +321,155 @@ def validate_release_approval():
     print("POLICY VALIDATION ONLY - NOT DEPLOYMENT AUTHORIZATION")
 
 
+
+def validate_signature_publication():
+    """Validate the two signed release envelopes."""
+
+    import base64
+    import tempfile
+
+    policy = "d9bbf7a4bace2990a7a0268d508b75ab8285586c"
+    release = "039d5a740525e94e846023f74c34ed19e70dcd16"
+
+    prefix = ".github/insyt-release/signed-releases/" + release
+
+    git("merge-base", "--is-ancestor", policy, "HEAD")
+
+    expected = {
+        prefix + "/api.json": "A",
+        prefix + "/frontend.json": "A",
+        "tools/insyt_release_guard.py": "M",
+    }
+
+    observed = dict(
+        (path, status)
+        for status, path in changes_since(policy, [])
+    )
+
+    if observed != expected:
+        fail("Unexpected signature publication scope")
+
+    if git("ls-files", "--others", "--exclude-standard").strip():
+        fail("Unexpected untracked files")
+
+    ledger_path = ".github/insyt-release/approved-feature-scopes.json"
+    public_path = ".github/insyt-release/release-signing-public.pem"
+
+    ledger = json.loads(
+        (REPO / ledger_path).read_text(encoding="utf-8-sig")
+    )
+
+    if ledger != json.loads(git("show", policy + ":" + ledger_path)):
+        fail("Approved ledger changed")
+
+    records = ledger["approved_scopes"]
+
+    if len(records) != 1:
+        fail("Unexpected approval inventory")
+
+    record = records[0]
+
+    if record.get("release_commit") != release:
+        fail("Unexpected approved release")
+
+    scope = hashlib.sha256(
+        json.dumps(
+            record,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("ascii")
+    ).hexdigest()
+
+    if scope != "51fd0e3136dbfd61f5d572080b75876657a48ad8d037ec094355ffb3a92c285e":
+        fail("Approved scope changed")
+
+    public = (
+        (REPO / public_path).read_text(encoding="utf-8").strip()
+        + "\n"
+    ).encode("utf-8")
+
+    if hashlib.sha256(public).hexdigest() != (
+        "1a226fb6274f9ee7269c8929ffafbe3a39ff9ffdddcdee30f9292c3cbd677300"
+    ):
+        fail("Trusted signing identity changed")
+
+    digests = {
+        "api": "b547d59998c13d8d6bd9bb89b5971d377a53ddf800d9de03afe6de16e502d33a",
+        "frontend": "004f9e661f45a9d5a3be14bec15590f6b42c7804db9c9cd51ac1a7fde9acbf52",
+    }
+
+    for component, digest in digests.items():
+
+        envelope = json.loads(
+            (REPO / prefix / (component + ".json"))
+            .read_text(encoding="utf-8-sig")
+        )
+
+        expected_payload = {
+            "schema_version": 1,
+            "repository": "NPSZ12/INSYT_SAAS",
+            "component": component,
+            "release_commit": release,
+            "policy_commit": policy,
+            "scope_sha256": scope,
+            "artifact_sha256": digest,
+        }
+
+        if set(envelope) != {"payload", "signature"}:
+            fail("Unexpected signature envelope")
+
+        if envelope["payload"] != expected_payload:
+            fail("Signed release identity differs")
+
+        message = b"INSYT-RELEASE-APPROVAL-V1\n" + json.dumps(
+            expected_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("ascii")
+
+        signature = base64.b64decode(
+            envelope["signature"], validate=True
+        )
+
+        if len(signature) != 64:
+            fail("Invalid signature length")
+
+        if sys.platform == "win32":
+            from cryptography.hazmat.primitives import serialization
+
+            key = serialization.load_pem_public_key(public)
+            key.verify(signature, message)
+        else:
+            with tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+
+                (root / "public.pem").write_bytes(public)
+                (root / "message").write_bytes(message)
+                (root / "signature").write_bytes(signature)
+
+                result = subprocess.run([
+                    "openssl", "pkeyutl",
+                    "-verify",
+                    "-pubin",
+                    "-inkey", str(root / "public.pem"),
+                    "-rawin",
+                    "-in", str(root / "message"),
+                    "-sigfile", str(root / "signature"),
+                ])
+
+                if result.returncode:
+                    fail("Cryptographic signature rejected")
+
+        print("PASS: Verified signed release:", component)
+
+    print("PASS: Exact signed publication scope")
+    print("PASS: Existing approval and signing identity preserved")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -339,6 +488,21 @@ def main():
     print("PASS: Required existing workflows still present.")
 
     if args.validate_policy_foundation:
+        signed_policy = "d9bbf7a4bace2990a7a0268d508b75ab8285586c"
+
+        ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor",
+             signed_policy, "HEAD"],
+            cwd=REPO,
+        )
+
+        if ancestry.returncode == 0:
+            validate_signature_publication()
+            return
+
+        if ancestry.returncode != 1:
+            fail("Unable to establish signed policy ancestry")
+
         approved_foundation = "b0f5eda2e658a68a8fa8ad6ca76f22c222c20dc0"
 
         result = subprocess.run(

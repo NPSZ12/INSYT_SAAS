@@ -1,0 +1,12 @@
+{
+  "payload": {
+    "artifact_sha256": "004f9e661f45a9d5a3be14bec15590f6b42c7804db9c9cd51ac1a7fde9acbf52",
+    "component": "frontend",
+    "policy_commit": "d9bbf7a4bace2990a7a0268d508b75ab8285586c",
+    "release_commit": "039d5a740525e94e846023f74c34ed19e70dcd16",
+    "repository": "NPSZ12/INSYT_SAAS",
+    "schema_version": 1,
+    "scope_sha256": "51fd0e3136dbfd61f5d572080b75876657a48ad8d037ec094355ffb3a92c285e"
+  },
+  "signature": "1H72YPTD3VYwVrAta7AC2A3Y+qOAKqOwlaV8rTrzdHrqq7JAjWHDdStrCdLDpKrIfmywM1OO3yhdHZxCVefxCA=="
+}
