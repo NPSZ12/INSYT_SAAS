@@ -1,4 +1,4 @@
-﻿name: INSYT Retained Package Runtime Validation
+name: INSYT Retained Package Runtime Validation
 
 on:
   push:
@@ -25,10 +25,10 @@ jobs:
       - name: Download exact retained API
         uses: actions/download-artifact@v4
         with:
-          name: insyt-api-039d5a740525e94e846023f74c34ed19e70dcd16
+          name: insyt-api-f60598571badd4b1d52cc9c607e75a26bbd45fb4
           path: retained_api
           github-token: ${{ github.token }}
-          run-id: 45638774096
+          run-id: 45653027088
 
       - name: Verify and extract retained API
         run: |
@@ -39,14 +39,14 @@ jobs:
           sys.path.insert(0, "tools")
           from insyt_artifact_integrity import fingerprint_directory
           actual = fingerprint_directory("retained_api")
-          assert actual["sha256"] == "b547d59998c13d8d6bd9bb89b5971d377a53ddf800d9de03afe6de16e502d33a"
+          assert actual["sha256"] == "c1feb224a9df2d623a779635ab29be64b910457eb34be13039420ccd09963c4b"
           print("PASS: Exact retained API fingerprint")
           PY
 
           python tools/insyt_retained_artifact.py \
             --archive retained_api/api.tar \
             --destination retained_api_runtime \
-            --expected-sha256 71dddea742b757f078fc14d3df471e235120835a60ecc8740143e74d800e3751
+            --expected-sha256 1df5e33d79c1965c11be7c619839e0237e7cf717b860480bb3e065e99b8e5acc
 
           mv backend backend_source_reference
           mv retained_api_runtime backend
@@ -88,10 +88,10 @@ jobs:
       - name: Download exact retained frontend
         uses: actions/download-artifact@v4
         with:
-          name: insyt-frontend-039d5a740525e94e846023f74c34ed19e70dcd16
+          name: insyt-frontend-f60598571badd4b1d52cc9c607e75a26bbd45fb4
           path: retained_frontend
           github-token: ${{ github.token }}
-          run-id: 45638774096
+          run-id: 45653027088
 
       - name: Verify and extract retained frontend
         run: |
@@ -102,14 +102,14 @@ jobs:
           sys.path.insert(0, "tools")
           from insyt_artifact_integrity import fingerprint_directory
           actual = fingerprint_directory("retained_frontend")
-          assert actual["sha256"] == "004f9e661f45a9d5a3be14bec15590f6b42c7804db9c9cd51ac1a7fde9acbf52"
+          assert actual["sha256"] == "1371fcbaf6d4a790472bd8865c4ae4a6dcf229b15974c9fec4b6e242d7f588a8"
           print("PASS: Exact retained frontend fingerprint")
           PY
 
           python tools/insyt_retained_artifact.py \
             --archive retained_frontend/frontend.tar \
             --destination retained_frontend_runtime \
-            --expected-sha256 8ef1ba273ce5b5c07f67bf43c5c57072334222bf073add8c2d2f16cf260f677d
+            --expected-sha256 100808bbf5b9046d10ea8b555defc8e2189e6106dd6a4a9739f8080aa66aec03
 
       - name: Start and validate exact standalone frontend
         working-directory: retained_frontend_runtime
