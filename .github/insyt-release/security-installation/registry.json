@@ -54,7 +54,7 @@
       "id": "api-deployment",
       "path": ".github/workflows/main_insyt-api-prod-v2.yml",
       "git_blob_sha": "5215aaa665abe36ef0fc38f7a0f0b9a832092d7a",
-      "reference_commit": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
+      "reference_commit": "6d20a208879aecd3eabd2d3bbcb2c86858a4b1ce",
       "protection": "source_integrity",
       "verification": "source_only_not_full_runtime_attestation"
     },
@@ -62,7 +62,7 @@
       "id": "frontend-deployment",
       "path": ".github/workflows/main_insyt-app-prod.yml",
       "git_blob_sha": "1acb6cade7a7c05c49ed7e43c893b88907b77e02",
-      "reference_commit": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
+      "reference_commit": "6d20a208879aecd3eabd2d3bbcb2c86858a4b1ce",
       "protection": "source_integrity",
       "verification": "source_only_not_full_runtime_attestation"
     },
