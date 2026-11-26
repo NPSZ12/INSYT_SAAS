@@ -33,7 +33,14 @@ jobs:
 
       - name: Validate JSON feature isolation
         run: |
-          python -m unittest discover -s tools -p 'test_insyt_feature_scope.py' -v
+          set -euo pipefail
+          historical="$(mktemp -d)"
+          trap 'git worktree remove "$historical"' EXIT
+          git worktree add --detach "$historical" f60598571badd4b1d52cc9c607e75a26bbd45fb4
+          (
+            cd "$historical"
+            python -B -m unittest discover -s tools -p 'test_insyt_feature_scope.py' -v
+          )
 
       - name: Validate authoritative scope verification
         run: python -m unittest discover -s tools -p 'test_insyt_authoritative_scope.py' -v

@@ -544,8 +544,110 @@ print("SECURITY INSTALLATION ONLY - NO DEPLOYMENT AUTHORIZATION")
         )
 
 
+def validate_installation_correction(base, target, release):
+
+    import json
+
+    require(
+        base == "0e79425377526aa343420a5642def8ff6bc5e5a1",
+        "Unexpected correction policy baseline",
+    )
+
+    require(
+        release == "e490416542478ccb7f8e52212e91182299ba3dcd",
+        "Unexpected correction release baseline",
+    )
+
+    original_base = "6b2355f63923e4957724f480cfbb0b1f3a7346bc"
+    production = "f60598571badd4b1d52cc9c607e75a26bbd45fb4"
+
+    prefix = ".github/insyt-release/security-installation/"
+
+    old = json.loads(
+        git("show", base + ":" + prefix + "authorization.json")
+    )
+
+    new = json.loads(
+        git("show", target + ":" + prefix + "authorization.json")
+    )
+
+    previous = old["payload"]["security_installation_commit"]
+    installation = new["payload"]["security_installation_commit"]
+
+    require(
+        revision(previous + "^{tree}") ==
+        revision(release + "^{tree}"),
+        "Previous installation differs from installed source",
+    )
+
+    require(
+        revision(installation + "^") == release,
+        "Unexpected correction ancestry",
+    )
+
+    paths = set(git(
+        "diff", "--name-only", release, installation
+    ).decode().splitlines())
+
+    require(
+        paths == {
+            ".github/workflows/insyt-release-validation.yml",
+            "tools/insyt_policy_publication_ci.py",
+        },
+        "Unexpected correction source changes",
+    )
+
+    policy_paths = set(git(
+        "diff", "--name-only", base, target
+    ).decode().splitlines())
+
+    require(
+        policy_paths == {
+            prefix + "authorization.json",
+            prefix + "transition.json",
+            prefix + "registry.json",
+            ".github/insyt-release/hardened-registry.json",
+            "tools/insyt_policy_publication_ci.py",
+        },
+        "Unexpected correction policy changes",
+    )
+
+    # Verify the original and corrected signatures using the
+    # existing independently authenticated bootstrap mechanism.
+
+    validate_security_bootstrap(
+        original_base, base, production
+    )
+
+    validate_security_bootstrap(
+        original_base, target, production
+    )
+
+    print("PASS: Original signed installation preserved")
+    print("PASS: Exact signed CI correction verified")
+    print("NO PRODUCTION DEPLOYMENT AUTHORIZED")
+
+
 def main():
     base, target, release = load_trusted_context()
+
+    if base == "0e79425377526aa343420a5642def8ff6bc5e5a1":
+
+        authorization = (
+            ".github/insyt-release/security-installation/"
+            "authorization.json"
+        )
+
+        if (
+            git("show", base + ":" + authorization)
+            != git("show", target + ":" + authorization)
+        ):
+
+            validate_installation_correction(
+                base, target, release
+            )
+            return
+
 
     if is_security_installation_publication(base, target):
 
