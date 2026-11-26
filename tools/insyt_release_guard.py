@@ -244,13 +244,102 @@ def validate_candidate_transition(observed):
     print("CANDIDATE VALIDATION ONLY - NOT DEPLOYMENT AUTHORIZATION")
 
 
+def validate_reusable_candidate():
+    """Validate ordinary application releases against trusted policy.
+
+    Source verification only. Never authorizes deployment.
+    """
+
+    from insyt_new_scope_validation import verify_release_candidate
+
+    policy_ref = "refs/remotes/origin/policy/insyt-hardened"
+
+    policy_commit = git(
+        "rev-parse", "--verify", policy_ref
+    ).decode().strip()
+
+    release_commit = git(
+        "rev-parse", "--verify", "HEAD"
+    ).decode().strip()
+
+    if git("status", "--porcelain").strip():
+        fail("Release candidate worktree must be clean")
+
+    from insyt_new_scope_validation import resolve_release_baselines
+    from insyt_protected_source import verify_protected_source
+
+    baselines = resolve_release_baselines(policy_commit)
+
+    installation = baselines.get("security_installation_commit")
+
+    if baselines.get("security_installation_verified") is True:
+
+        installed_tree = git(
+            "rev-parse", installation + "^{tree}"
+        )
+
+        candidate_tree = git(
+            "rev-parse", release_commit + "^{tree}"
+        )
+
+        if installed_tree == candidate_tree:
+
+            git(
+                "merge-base", "--is-ancestor",
+                installation, release_commit,
+            )
+
+            verify_protected_source(
+                policy_commit,
+                installation,
+                release_commit,
+            )
+
+            print("PASS: Exact signed security installation")
+            print("SOURCE INSTALLATION ONLY - NOT DEPLOYMENT")
+            return
+
+    result = verify_release_candidate(
+        policy_commit,
+        release_commit,
+    )
+
+    if (
+        result.get("scope_verified") is not True
+        or result.get("release_source_verified") is not True
+        or result.get("release_commit") != release_commit
+        or result.get("policy_commit") != policy_commit
+        or result.get("production_deployment_authorized") is not False
+    ):
+        fail("Reusable candidate verification incomplete")
+
+    print("PASS: Trusted policy identity:", policy_commit)
+    print("PASS: Exact release identity:", release_commit)
+    print("PASS: Complete application transition verified")
+    print("PASS: Protected source identities verified")
+    print("CANDIDATE VALIDATION ONLY - NOT DEPLOYMENT AUTHORIZATION")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--validate-candidate",
         action="store_true",
     )
+    parser.add_argument(
+        "--validate-reusable-candidate",
+        action="store_true",
+    )
+
     args = parser.parse_args()
+
+    if args.validate_reusable_candidate:
+
+        if args.validate_candidate:
+            fail("Conflicting candidate validation modes")
+
+        validate_reusable_candidate()
+        return
 
     data = load_baseline()
     print("PASS: Production baseline integrity verified.")

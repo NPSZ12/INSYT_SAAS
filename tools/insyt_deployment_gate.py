@@ -330,6 +330,298 @@ def verify_ci(release_sha):
     stop("Required exact-commit CI has not passed")
 
 
+def verify_approved_source_scope(candidate, policy, sha):
+    """Verify exact independently approved source identities."""
+
+    # Derive source scope from independently approved policy.
+    # Candidate file counts do not establish authorization.
+
+    components = candidate.get("components")
+
+    if not isinstance(components, dict):
+        stop("Candidate component scope missing")
+
+    if set(components) != {"api", "frontend"}:
+        stop("Unexpected deployment component scope")
+
+    approvals = policy.get("approved_scopes")
+
+    if not isinstance(approvals, list) or len(approvals) != 1:
+        stop("Exactly one effective source approval required")
+
+    approval = approvals[0]
+
+    if not isinstance(approval, dict):
+        stop("Invalid trusted source approval")
+
+    if (
+        approval.get("approval_status") != "APPROVED"
+        or approval.get("release_commit") != sha
+        or approval.get("feature") != candidate.get("feature")
+        or approval.get("candidate_commit")
+            != candidate.get("candidate_commit")
+        or approval.get("components") != components
+    ):
+        stop("Candidate differs from independently approved scope")
+
+    roots = {
+        "api": "backend/",
+        "frontend": "frontend/",
+    }
+
+    paths = []
+
+    for component, root in roots.items():
+
+        scope = components[component]
+
+        if not isinstance(scope, dict):
+            stop("Invalid component scope")
+
+        if scope.get("root") != root:
+            stop("Unexpected component source root")
+
+        baseline = scope.get("baseline")
+
+        if (
+            not isinstance(baseline, str)
+            or not SHA40.fullmatch(baseline)
+        ):
+            stop("Invalid approved component baseline")
+
+        changes = scope.get("changes")
+
+        if not isinstance(changes, dict):
+            stop("Missing approved source inventory")
+
+        for path, status in changes.items():
+
+            if (
+                not isinstance(path, str)
+                or not path.startswith(root)
+                or "\\" in path
+                or any(
+                    part in {"", ".", ".."}
+                    for part in path.split("/")
+                )
+                or any(ord(ch) < 32 for ch in path)
+                or status not in {"A", "M"}
+            ):
+                stop("Invalid approved source path or change type")
+
+            paths.append(path)
+
+    if not paths or len(paths) != len(set(paths)):
+        stop("Empty or duplicate approved source inventory")
+
+    approved_blobs = approval.get("source_blobs")
+
+    if (
+        not isinstance(approved_blobs, dict)
+        or set(approved_blobs) != set(paths)
+    ):
+        stop("Approved source identities incomplete")
+
+    blobs = {}
+
+    for path in paths:
+
+        expected_blob = approved_blobs[path]
+
+        if (
+            not isinstance(expected_blob, str)
+            or not SHA40.fullmatch(expected_blob)
+        ):
+            stop("Invalid approved source identity")
+
+        actual_blob = git("rev-parse", sha + ":" + path)
+
+        if actual_blob != expected_blob:
+            stop("Approved source identity differs")
+
+        blobs[path] = actual_blob
+
+    return blobs
+
+
+def resolve_previous_signed_policy(signed_policy_commit):
+    """Resolve the parent of the authenticated approval checkpoint."""
+
+    if not SHA40.fullmatch(signed_policy_commit):
+        stop("Invalid signed policy checkpoint")
+
+    from insyt_release_transition import (
+        revision,
+        changed_paths,
+    )
+
+    revision(signed_policy_commit)
+
+    parents = git(
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        signed_policy_commit,
+    ).split()
+
+    if (
+        len(parents) != 2
+        or parents[0] != signed_policy_commit
+        or not SHA40.fullmatch(parents[1])
+    ):
+        stop("Signed policy checkpoint ancestry invalid")
+
+    previous = parents[1]
+
+    revision(previous)
+
+    if changed_paths(
+        previous,
+        signed_policy_commit,
+    ) != {
+        ".github/insyt-release/approved-feature-scopes.json": "M",
+    }:
+        stop("Unexpected signed approval checkpoint scope")
+
+    return previous
+
+
+def verify_trusted_deployment_baseline(
+    candidate,
+    previous_policy_commit,
+):
+    """Verify release baseline against independently trusted policy."""
+
+    from insyt_new_scope_validation import (
+        resolve_release_baselines,
+    )
+
+    baselines = resolve_release_baselines(
+        previous_policy_commit,
+    )
+
+    approved = baselines["approved_release_baseline"]
+    source = baselines["source_baseline"]
+
+    if not SHA40.fullmatch(approved):
+        stop("Invalid previous approved release")
+
+    if not SHA40.fullmatch(source):
+        stop("Invalid trusted source baseline")
+
+    if source != approved:
+
+        if (
+            baselines.get(
+                "security_installation_verified"
+            ) is not True
+            or baselines.get(
+                "security_installation_commit"
+            ) != source
+        ):
+            stop("Separate deployment source baseline unauthorized")
+
+    components = candidate.get("components")
+
+    if (
+        not isinstance(components, dict)
+        or set(components) != {"api", "frontend"}
+    ):
+        stop("Invalid deployment component inventory")
+
+    for component in components.values():
+
+        if component.get("baseline") != source:
+            stop("Deployment baseline differs from trusted policy")
+
+    return {
+        "approved_release_baseline": approved,
+        "source_baseline": source,
+        "deployment_baseline_verified": True,
+    }
+
+
+def verify_complete_release_scope(
+    candidate,
+    release_commit,
+    approved_blobs,
+):
+    """Verify the complete ordinary application release transition.
+
+    This supplements, but never replaces, signed policy,
+    artifact integrity and trusted CI verification.
+    """
+
+    from insyt_release_transition import (
+        inspect_transition,
+        changed_paths,
+        revision,
+        source_blob,
+    )
+
+    components = candidate["components"]
+
+    baselines = {
+        component["baseline"]
+        for component in components.values()
+    }
+
+    if len(baselines) != 1:
+        stop("Ordinary release requires one verified baseline")
+
+    baseline = next(iter(baselines))
+    checkpoint = candidate["candidate_commit"]
+
+    revision(baseline)
+    revision(checkpoint)
+    revision(release_commit)
+
+    git(
+        "merge-base",
+        "--is-ancestor",
+        checkpoint,
+        release_commit,
+    )
+
+    observed = inspect_transition(
+        baseline,
+        checkpoint,
+    )
+
+    if observed["components"] != components:
+        stop("Complete application scope differs")
+
+    if observed["source_blobs"] != approved_blobs:
+        stop("Complete application source identities differ")
+
+    manifest = (
+        ".github/insyt-release/"
+        "json-feature-scope-candidate.json"
+    )
+
+    if changed_paths(checkpoint, release_commit) != {
+        manifest: "M",
+    }:
+        stop("Unexpected post-candidate release changes")
+
+    expected = {}
+
+    for component in components.values():
+        expected.update(component["changes"])
+
+    expected[manifest] = "M"
+
+    if changed_paths(baseline, release_commit) != expected:
+        stop("Unexpected complete release change inventory")
+
+    for name, blob in approved_blobs.items():
+        if source_blob(release_commit, name) != blob:
+            stop("Final release source identity differs")
+
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -440,36 +732,7 @@ def main():
         ).read_text(encoding="utf-8-sig")
     )
 
-    # Only the exact 14 previously reviewed source files are in scope.
-    components = candidate.get("components", {})
-
-    if (
-        set(components) != {"api", "frontend"}
-        or len(components["api"].get("changes", {})) != 13
-        or len(components["frontend"].get("changes", {})) != 1
-    ):
-        stop("JSON source scope changed")
-
-    paths = (
-        list(components["api"]["changes"])
-        + list(components["frontend"]["changes"])
-    )
-
-    if len(paths) != len(set(paths)):
-        stop("Duplicate source paths")
-
-    blobs = {}
-
-    for path in paths:
-        if (
-            not isinstance(path, str)
-            or path.startswith("/")
-            or "\\" in path
-            or ".." in path.split("/")
-        ):
-            stop("Unsafe approved source path")
-
-        blobs[path] = git("rev-parse", sha + ":" + path)
+    blobs = verify_approved_source_scope(candidate, policy, sha)
 
     envelope_path = (
         ".github/insyt-release/signed-releases/"
@@ -500,6 +763,54 @@ def main():
         release_commit=sha,
         component=args.component,
     )
+
+    if result.get("evidence_verified") is not True:
+        stop("Release evidence incomplete")
+
+    previous_policy = resolve_previous_signed_policy(
+        approved_policy_sha,
+    )
+
+    baseline_evidence = verify_trusted_deployment_baseline(
+        candidate,
+        previous_policy,
+    )
+
+    if baseline_evidence.get(
+        "deployment_baseline_verified"
+    ) is not True:
+        stop("Trusted deployment baseline verification failed")
+
+    from insyt_new_scope_validation import verify_release_candidate
+
+    verified_scope = verify_release_candidate(
+        previous_policy,
+        sha,
+    )
+
+    if (
+        verified_scope.get("release_source_verified") is not True
+        or verified_scope.get("scope_verified") is not True
+        or verified_scope.get("release_commit") != sha
+        or verified_scope.get("source_blobs") != blobs
+        or verified_scope.get("baseline")
+            != baseline_evidence["source_baseline"]
+        or verified_scope.get("approved_release_baseline")
+            != baseline_evidence["approved_release_baseline"]
+        or verified_scope.get(
+            "production_deployment_authorized"
+        ) is not False
+    ):
+        stop("Trusted final release scope verification failed")
+
+    # Independently verify the complete application transition
+    # after cryptographic source and artifact authorization.
+    if verify_complete_release_scope(
+        candidate,
+        sha,
+        blobs,
+    ) is not True:
+        stop("Complete release scope verification failed")
 
     verify_ci(sha)
 

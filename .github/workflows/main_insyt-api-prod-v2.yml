@@ -19,6 +19,7 @@ jobs:
       with:
         ref: ${{ github.sha }}
         persist-credentials: false
+        fetch-depth: 0
     - name: Set up release-verification Python
       uses: actions/setup-python@v5
       with:

@@ -85,6 +85,7 @@ class DeploymentGateRegression(unittest.TestCase):
                 "with": {
                     "ref": "${{ github.sha }}",
                     "persist-credentials": "false",
+                    "fetch-depth": "0",
                 },
             },
         )
