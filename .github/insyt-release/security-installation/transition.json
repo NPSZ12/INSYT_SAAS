@@ -5,7 +5,7 @@
   "repository": "NPSZ12/INSYT_SAAS",
   "previous_production_commit": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
   "previous_policy_commit": "6b2355f63923e4957724f480cfbb0b1f3a7346bc",
-  "security_installation_commit": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
+  "security_installation_commit": "6d20a208879aecd3eabd2d3bbcb2c86858a4b1ce",
   "production_evidence_sha256": "252e1111458d34e68f1cea188cbbd0ad30d48499fff5edfdff7b87a741f3cb53",
   "application_source_changed": false,
   "production_deployment_authorized": false,
@@ -14,8 +14,8 @@
       "path": ".github/workflows/insyt-release-validation.yml",
       "change": "M",
       "previous_blob": "bd73a5df984182c9147a5c3066c5414960f39ee7",
-      "proposed_blob": "836adf7235e8a623ab305a6ec81d01b2ddd9ec84",
-      "sha256": "f4e2a04679c4e635f7816a53f0af9339b5a617d85c435ab551a6874df688f64c"
+      "proposed_blob": "dc8b6a8eb45c8324019c5bd058629e7091061351",
+      "sha256": "a586a8fa4a829b0b2d173b9000a1862239af81da69f850f4ce65cc1413d9d879"
     },
     {
       "path": ".github/workflows/main_insyt-api-prod-v2.yml",
@@ -49,8 +49,8 @@
       "path": "tools/insyt_policy_publication_ci.py",
       "change": "A",
       "previous_blob": null,
-      "proposed_blob": "7d3b42f7b6958997c3bd342cd895da1faddf4ba5",
-      "sha256": "ae5d66fc97565ea610bac252ba7369353706c19d855c5aa7485fee6e1442d142"
+      "proposed_blob": "adf029145df39e7d25dce7830e26f1cac864ec15",
+      "sha256": "0ef30faa2b9e459466910ed04052819922259251fcd32eba92d01cc8ecae9c07"
     },
     {
       "path": "tools/insyt_policy_renewal.py",
