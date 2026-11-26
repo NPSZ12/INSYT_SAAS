@@ -1,0 +1,16 @@
+{
+  "payload": {
+    "schema_version": 1,
+    "repository": "NPSZ12/INSYT_SAAS",
+    "transition_type": "SECURITY_INSTALLATION",
+    "previous_policy_commit": "6b2355f63923e4957724f480cfbb0b1f3a7346bc",
+    "previous_production_commit": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
+    "security_installation_commit": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
+    "transition_sha256": "b66a6215d5751f542397c9cf6cb7e1ed8598872db50acb84317fdb45114c4324",
+    "registry_sha256": "8d227d07118136540cbba260af96d7e6deabe1c8a8c38f2f831351ca9d964eeb",
+    "history_sha256": "cf87430bd81b0c69a325f7a311cfb9f51b3529859cca09406ba0907a0a9d7150",
+    "production_evidence_sha256": "252e1111458d34e68f1cea188cbbd0ad30d48499fff5edfdff7b87a741f3cb53",
+    "production_deployment_authorized": false
+  },
+  "signature": "xgjIQkNxMwL01CO9kW4bprI3tVfpahNSNmoE1jvyrxXGmbXSIkSi2KoxqDWBs2t/jyG5cvKl+2zwEUYdAhhADg=="
+}

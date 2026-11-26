@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "registry_state": "provisional_not_yet_enforced_in_production",
+  "policy": {
+    "automatic_hardening": false,
+    "automatic_baseline_replacement": false,
+    "automatic_test_removal": false,
+    "protected_deletion_requires_explicit_approval": true,
+    "registry_changes_require_independent_review": true,
+    "production_verification_required_for_promotion": true
+  },
+  "protected_source": [
+    {
+      "id": "api-auth",
+      "path": "backend/app/api/auth.py",
+      "git_blob_sha": "0ca7856f0ebcb624f80e37c1ce75592bf920e5af",
+      "reference_commit": "32481b715ddd3d951b5de91592df00a3c8bd854e",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    },
+    {
+      "id": "security",
+      "path": "backend/app/services/security.py",
+      "git_blob_sha": "7dfd5e2d3cefd63c7c1c6d880fcc89fe2218279a",
+      "reference_commit": "32481b715ddd3d951b5de91592df00a3c8bd854e",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    },
+    {
+      "id": "api-startup",
+      "path": "backend/app/main.py",
+      "git_blob_sha": "8e649c2e10b6760555f203679dabad1c83575ce6",
+      "reference_commit": "32481b715ddd3d951b5de91592df00a3c8bd854e",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    },
+    {
+      "id": "database-connection",
+      "path": "backend/app/database/connection.py",
+      "git_blob_sha": "9f7edca2c4ebf517481ba8b296151cf33d14747b",
+      "reference_commit": "32481b715ddd3d951b5de91592df00a3c8bd854e",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    },
+    {
+      "id": "database-initialization",
+      "path": "backend/app/database/init_db.py",
+      "git_blob_sha": "b848f7b8b256a3c54e66e8853e1878f5334419a4",
+      "reference_commit": "32481b715ddd3d951b5de91592df00a3c8bd854e",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    },
+    {
+      "id": "api-deployment",
+      "path": ".github/workflows/main_insyt-api-prod-v2.yml",
+      "git_blob_sha": "5215aaa665abe36ef0fc38f7a0f0b9a832092d7a",
+      "reference_commit": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    },
+    {
+      "id": "frontend-deployment",
+      "path": ".github/workflows/main_insyt-app-prod.yml",
+      "git_blob_sha": "1acb6cade7a7c05c49ed7e43c893b88907b77e02",
+      "reference_commit": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    },
+    {
+      "id": "apc-worker-deployment",
+      "path": ".github/workflows/main_insyt-apc-worker-prod-v2.yml",
+      "git_blob_sha": "2284c65839961f0185858bc4f442dac6b8113f36",
+      "reference_commit": "728c2e17848d53f88ce7336f61ccac94ad68a1bd",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    },
+    {
+      "id": "detection-deployment",
+      "path": ".github/workflows/insyt-detection-worker-v2-release.yml",
+      "git_blob_sha": "5c72ca8909b155607dc35262801944d023ebcefe",
+      "reference_commit": "728c2e17848d53f88ce7336f61ccac94ad68a1bd",
+      "protection": "source_integrity",
+      "verification": "source_only_not_full_runtime_attestation"
+    }
+  ],
+  "features": [
+    {
+      "id": "INSYT-CYBER2-JSON",
+      "name": "Native JSON and Cyber2",
+      "status": "candidate",
+      "production_verified": false,
+      "protected_behaviors": [
+        "Preserve original native JSON bytes",
+        "Require explicit manual promotion",
+        "Require reviewer-approved JSON Header Mapping",
+        "Generate mapped CSV only after approval",
+        "Preserve original document and record provenance",
+        "Route derived CSV to shared CSV processing",
+        "Preserve existing non-JSON CSV functionality",
+        "Preserve Capture and Discovery workspace isolation"
+      ],
+      "required_test_files": [
+        "backend/app/api/cyber2/test_json_native_source_reader.py",
+        "backend/app/api/cyber2/test_json_mapped_preview.py",
+        "backend/app/api/cyber2/test_json_generator_integration.py",
+        "backend/app/services/cyber2/test_json_mapped_provenance.py",
+        "backend/app/services/cyber2/test_json_origin_authorization.py",
+        "backend/app/services/cyber2/test_json_origin_receipt.py",
+        "backend/app/services/cyber2/test_json_processing_loader_integration.py"
+      ],
+      "promotion_requirements": [
+        "Linux Python 3.12 startup and regression pass",
+        "Frontend production build pass",
+        "Protected-source approval",
+        "Exact commit and release artifact recorded",
+        "Production functionality accepted",
+        "Rollback artifact verified",
+        "Independent registry update approval"
+      ],
+      "promoted_release": null
+    }
+  ]
+}

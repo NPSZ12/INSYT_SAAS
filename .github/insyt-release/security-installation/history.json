@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "features": {
+    "protected-source-01": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            "backend/app/api/auth.py": "0ca7856f0ebcb624f80e37c1ce75592bf920e5af"
+          }
+        }
+      ]
+    },
+    "protected-source-02": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            "backend/app/services/security.py": "7dfd5e2d3cefd63c7c1c6d880fcc89fe2218279a"
+          }
+        }
+      ]
+    },
+    "protected-source-03": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            "backend/app/main.py": "8e649c2e10b6760555f203679dabad1c83575ce6"
+          }
+        }
+      ]
+    },
+    "protected-source-04": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            "backend/app/database/connection.py": "9f7edca2c4ebf517481ba8b296151cf33d14747b"
+          }
+        }
+      ]
+    },
+    "protected-source-05": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            "backend/app/database/init_db.py": "b848f7b8b256a3c54e66e8853e1878f5334419a4"
+          }
+        }
+      ]
+    },
+    "protected-source-06": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            ".github/workflows/main_insyt-api-prod-v2.yml": "a131903524e65527ef73884baed48d68812fc4d6"
+          }
+        },
+        {
+          "version": 2,
+          "source": {
+            ".github/workflows/main_insyt-api-prod-v2.yml": "1737e6206b77d65afe8c629e0f14a3d1626ae56f"
+          }
+        },
+        {
+          "version": 3,
+          "source": {
+            ".github/workflows/main_insyt-api-prod-v2.yml": "5215aaa665abe36ef0fc38f7a0f0b9a832092d7a"
+          }
+        }
+      ]
+    },
+    "protected-source-07": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            ".github/workflows/main_insyt-app-prod.yml": "5ba782721e94f324037257594d30060700150722"
+          }
+        },
+        {
+          "version": 2,
+          "source": {
+            ".github/workflows/main_insyt-app-prod.yml": "ce89cb55fdb330e9bb12420790cb75e07c109053"
+          }
+        },
+        {
+          "version": 3,
+          "source": {
+            ".github/workflows/main_insyt-app-prod.yml": "1acb6cade7a7c05c49ed7e43c893b88907b77e02"
+          }
+        }
+      ]
+    },
+    "protected-source-08": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            ".github/workflows/main_insyt-apc-worker-prod-v2.yml": "2284c65839961f0185858bc4f442dac6b8113f36"
+          }
+        }
+      ]
+    },
+    "protected-source-09": {
+      "versions": [
+        {
+          "version": 1,
+          "source": {
+            ".github/workflows/insyt-detection-worker-v2-release.yml": "5c72ca8909b155607dc35262801944d023ebcefe"
+          }
+        }
+      ]
+    }
+  }
+}

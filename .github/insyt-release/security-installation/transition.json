@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "transition_type": "SECURITY_INSTALLATION",
+  "status": "PENDING_AUTHORIZATION",
+  "repository": "NPSZ12/INSYT_SAAS",
+  "previous_production_commit": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
+  "previous_policy_commit": "6b2355f63923e4957724f480cfbb0b1f3a7346bc",
+  "security_installation_commit": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
+  "production_evidence_sha256": "252e1111458d34e68f1cea188cbbd0ad30d48499fff5edfdff7b87a741f3cb53",
+  "application_source_changed": false,
+  "production_deployment_authorized": false,
+  "files": [
+    {
+      "path": ".github/workflows/insyt-release-validation.yml",
+      "change": "M",
+      "previous_blob": "bd73a5df984182c9147a5c3066c5414960f39ee7",
+      "proposed_blob": "836adf7235e8a623ab305a6ec81d01b2ddd9ec84",
+      "sha256": "f4e2a04679c4e635f7816a53f0af9339b5a617d85c435ab551a6874df688f64c"
+    },
+    {
+      "path": ".github/workflows/main_insyt-api-prod-v2.yml",
+      "change": "M",
+      "previous_blob": "1737e6206b77d65afe8c629e0f14a3d1626ae56f",
+      "proposed_blob": "5215aaa665abe36ef0fc38f7a0f0b9a832092d7a",
+      "sha256": "2fa30829f6afffffbff62400b4e0becd694d4fd5b22b9ca35478a24fd4d3c589"
+    },
+    {
+      "path": ".github/workflows/main_insyt-app-prod.yml",
+      "change": "M",
+      "previous_blob": "ce89cb55fdb330e9bb12420790cb75e07c109053",
+      "proposed_blob": "1acb6cade7a7c05c49ed7e43c893b88907b77e02",
+      "sha256": "ca47bf6262c86e3130367186e9d95c4e1282e8057ab9e63fab44ca3af8a63958"
+    },
+    {
+      "path": "tools/insyt_deployment_gate.py",
+      "change": "M",
+      "previous_blob": "4b77282214030286e838e0114fd91b4d64edb0a4",
+      "proposed_blob": "0a584dd061771007ad0d09a5b0ad1d864c5a14ca",
+      "sha256": "4add7557097334e7b764a1cf6b084a988c733fc945c6cdbe8fd2499b959a2d42"
+    },
+    {
+      "path": "tools/insyt_new_scope_validation.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "868348aaf3a2ac44d71f4a38820167e12e420ec9",
+      "sha256": "518398ee8c36a6ea7b75ace0dee4b17b6c1a9b28e9e36f2ceb96b2618b0a46c0"
+    },
+    {
+      "path": "tools/insyt_policy_publication_ci.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "7d3b42f7b6958997c3bd342cd895da1faddf4ba5",
+      "sha256": "ae5d66fc97565ea610bac252ba7369353706c19d855c5aa7485fee6e1442d142"
+    },
+    {
+      "path": "tools/insyt_policy_renewal.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "84e62f5d81fb1cf1fcaac2fd7c64bde68d5c6669",
+      "sha256": "88101dd3517bb0a072dbe8e9d5de4d90f7f1dba5bc4d6ae324a84160a8e323dd"
+    },
+    {
+      "path": "tools/insyt_protected_source.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "ab72ff8aa71f489680531f19ff6d19579c33960d",
+      "sha256": "4cc1f811447ded6926fa1a846383921086f372beb279165ce11842ed926b6db4"
+    },
+    {
+      "path": "tools/insyt_release_guard.py",
+      "change": "M",
+      "previous_blob": "bc8e7299b3e57afacaccdb1c6b4119dbe087252b",
+      "proposed_blob": "fd2adf71c74c32611aff7cbf7298dde112e4b7dc",
+      "sha256": "482f64bc26866dd8a6a7fde5c1d06256b2a248c779367bffb348db95dc223310"
+    },
+    {
+      "path": "tools/insyt_release_transition.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "96e884ec84d9f9c662a891b6b9bc8049d96a1a64",
+      "sha256": "a5b2a84b3bbaa6c3c2b97b703550e6e874c5d0f3dfec9a0486d019b370edaa47"
+    },
+    {
+      "path": "tools/test_insyt_complete_deployment_scope.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "41bba4bcf8fe8c929e65ce528606a08f0035e971",
+      "sha256": "c9681f28d427980e7aa7656f0734c28a212ba7551ed877ba4ea54cfa9232abeb"
+    },
+    {
+      "path": "tools/test_insyt_deployment_gate.py",
+      "change": "M",
+      "previous_blob": "5b325d0067fe6203cf4613aaeea90159dd4fa025",
+      "proposed_blob": "b3b14f52b1c9c193bd2ada83ac7e61a7ea182dd7",
+      "sha256": "589755b7cbe74a98222164ce6afb36a5ff0136d790f2c74409ab42b3c87bc82b"
+    },
+    {
+      "path": "tools/test_insyt_dynamic_deployment_scope.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "95a404b93d77458e5e747f333232c364f312be06",
+      "sha256": "209e56a17e48368b018d3fd139b27bd779c529afc34245b6d4d5db6a19207f77"
+    },
+    {
+      "path": "tools/test_insyt_new_scope_validation.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "6a12cc2666dcb6f8dbf5b4374a2058a9cb7df2eb",
+      "sha256": "806cd6ec1e2417377b527a671ca4d057c1f72de87a096c448b51dc67c95bf21c"
+    },
+    {
+      "path": "tools/test_insyt_policy_renewal.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "cf135bffdf476b22bf4d26c82e1010fe1ae9ecac",
+      "sha256": "ef7a7cdf356a4ca32eea8e2ec0bfe512a24aa0062de137859b19c401e90243a6"
+    },
+    {
+      "path": "tools/test_insyt_protected_source.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "08c8eddc581ff7d4e2afa7c7c06674fb83e95481",
+      "sha256": "a610618e9bb49af68f38d148d03c792f0a6b353a6951398f58f081cb6d38d9cb"
+    },
+    {
+      "path": "tools/test_insyt_release_candidate.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "8c683fed620cc545d9ab9627acfb9a5a02259965",
+      "sha256": "0d8ff0d2d80ad211781415d9e90e64b168bd368d859bbf5c504ec1c8fec47baa"
+    },
+    {
+      "path": "tools/test_insyt_release_transition.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "97e347ee33e68e5bd2f71a7108792e1e01e8fb35",
+      "sha256": "2c9270e245d184d76e850bdbba29a56947629393a1220cf3f393f2eea5321aca"
+    },
+    {
+      "path": "tools/test_insyt_signed_new_scope.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "0f61649a59af03f20ca51171490d0efb9f3e039f",
+      "sha256": "8ef7dc29105d02ec7cd8469e55de1446b9b6955828c85d20db1cebb05ae8253c"
+    },
+    {
+      "path": "tools/test_insyt_trusted_policy_execution.py",
+      "change": "A",
+      "previous_blob": null,
+      "proposed_blob": "8108b0af1f69791e37cd845fb898b94e07c6e22d",
+      "sha256": "5b79da7b716454aabdc0b953c1e6ce20f175de1d5f251d77a9b9fe0407830d82"
+    }
+  ]
+}
