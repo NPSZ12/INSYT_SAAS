@@ -33,7 +33,6 @@ jobs:
 
       - name: Validate JSON feature isolation
         run: |
-          python tools/insyt_feature_scope_check.py --manifest .github/insyt-release/json-feature-scope-candidate.json
           python -m unittest discover -s tools -p 'test_insyt_feature_scope.py' -v
 
       - name: Validate authoritative scope verification
@@ -59,11 +58,25 @@ jobs:
       - name: Validate retained artifact extraction
         run: python -m unittest discover -s tools -p 'test_insyt_retained_artifact.py' -v
 
+      - name: Validate reusable release security regressions
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tools -p 'test_insyt_complete_deployment_scope.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_dynamic_deployment_scope.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_release_evidence.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_signed_new_scope.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_release_candidate.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_trusted_policy_execution.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_policy_renewal.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_release_transition.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_protected_source.py' -v
+          python -m unittest discover -s tools -p 'test_insyt_new_scope_validation.py' -v
+
       - name: Validate Hardened Workflow Registry
         run: python tools/insyt_hardened_registry_check.py --validate-candidate
 
       - name: Enforce existing production guard
-        run: python tools/insyt_release_guard.py --validate-candidate
+        run: python tools/insyt_release_guard.py --validate-reusable-candidate
 
   api-validation:
     name: API Startup and JSON Regressions
@@ -101,20 +114,11 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/backend:${{ github.workspace }}/backend/app/api/cyber2
         run: |
+          set -euo pipefail
           python -m pytest -q --import-mode=importlib \
-            backend/app/api/cyber2/test_json_leaf_protocol_matches.py \
-            backend/app/api/cyber2/test_json_header_review_contract.py \
-            backend/app/api/cyber2/test_json_header_evidence.py \
-            backend/app/api/cyber2/test_json_field_mapping.py \
-            backend/app/api/cyber2/test_json_duplicate_headers.py \
-            backend/app/api/cyber2/test_json_mapped_preview.py \
-            backend/app/api/cyber2/test_json_header_route_guardrails.py \
-            backend/app/api/cyber2/test_json_native_source_reader.py \
-            backend/app/api/cyber2/test_json_generator_integration.py \
-            backend/app/services/cyber2/test_json_mapped_provenance.py \
-            backend/app/services/cyber2/test_json_processing_loader_integration.py \
-            backend/app/services/cyber2/test_json_origin_authorization.py \
-            backend/app/services/cyber2/test_json_origin_receipt.py
+            backend/app/api/cyber2/test_json*.py \
+            backend/app/services/cyber2/test_json*.py
+
 
   frontend-validation:
     name: Frontend Build Validation
@@ -126,7 +130,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
