@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "status": "PENDING_INDEPENDENT_REVIEW",
+  "repository": "NPSZ12/INSYT_SAAS",
+  "release_commit": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
+  "previous_policy_commit": "6b2355f63923e4957724f480cfbb0b1f3a7346bc",
+  "deployment_runs": {
+    "api": {
+      "attempt": 1,
+      "conclusion": "success",
+      "databaseId": 45660910705,
+      "headBranch": "release/json-promotion-20261119",
+      "headSha": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
+      "status": "completed",
+      "url": "https://github.com/NPSZ12/INSYT_SAAS/actions/runs/45660910705",
+      "workflowName": "Build and deploy Python app to Azure Web App - insyt-api-prod-v2"
+    },
+    "frontend": {
+      "attempt": 2,
+      "conclusion": "success",
+      "databaseId": 45661978965,
+      "headBranch": "release/json-promotion-20261119",
+      "headSha": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
+      "status": "completed",
+      "url": "https://github.com/NPSZ12/INSYT_SAAS/actions/runs/45661978965",
+      "workflowName": "Deploy INSYT Frontend"
+    }
+  },
+  "package_preparation": {
+    "attempt": 1,
+    "conclusion": "success",
+    "databaseId": 45653027088,
+    "headBranch": "release/json-promotion-20261119",
+    "headSha": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
+    "status": "completed",
+    "url": "https://github.com/NPSZ12/INSYT_SAAS/actions/runs/45653027088",
+    "workflowName": "INSYT Release Package Preparation"
+  },
+  "retained_runtime_validation": {
+    "attempt": 1,
+    "conclusion": "success",
+    "databaseId": 45653917480,
+    "headBranch": "validation/retained-package-runtime-20261125",
+    "headSha": "a317c766f1a5df7c8b05d4f76acaf547ba8b1e33",
+    "status": "completed",
+    "url": "https://github.com/NPSZ12/INSYT_SAAS/actions/runs/45653917480",
+    "workflowName": "INSYT Retained Package Runtime Validation"
+  },
+  "production_acceptance": {
+    "user_reported_smoke_tests_passed": true,
+    "independent_runtime_attestation": false
+  },
+  "production_deployment_authorized": false
+}
