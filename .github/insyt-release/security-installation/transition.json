@@ -5,7 +5,7 @@
   "repository": "NPSZ12/INSYT_SAAS",
   "previous_production_commit": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
   "previous_policy_commit": "6b2355f63923e4957724f480cfbb0b1f3a7346bc",
-  "security_installation_commit": "fe37d76cd4da5fc18ad6f13d1fc5c8a325e7f8ae",
+  "security_installation_commit": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
   "production_evidence_sha256": "252e1111458d34e68f1cea188cbbd0ad30d48499fff5edfdff7b87a741f3cb53",
   "application_source_changed": false,
   "production_deployment_authorized": false,
@@ -56,8 +56,8 @@
       "path": "tools/insyt_policy_renewal.py",
       "change": "A",
       "previous_blob": null,
-      "proposed_blob": "fa943e9f52507be44d100fa257e0548f3a67a3de",
-      "sha256": "7547bd9d4e7f75ca4605909a410afda74abb73dd20f4b66143c1b3ea14fc9abd"
+      "proposed_blob": "84e62f5d81fb1cf1fcaac2fd7c64bde68d5c6669",
+      "sha256": "88101dd3517bb0a072dbe8e9d5de4d90f7f1dba5bc4d6ae324a84160a8e323dd"
     },
     {
       "path": "tools/insyt_protected_source.py",
