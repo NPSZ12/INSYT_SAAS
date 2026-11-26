@@ -247,7 +247,24 @@ type MappedCsvResponse = {
   mapped_csv_manifest?: MappedCsvManifest | null;
 };
 
+type NativeJsonBoundaryOption = {
+  selection_id: string;
+  label: string;
+  record_array_path: string | null;
+};
+
+type NativeJsonBoundaryResult = {
+  status: "available" | "needs_review";
+  options: NativeJsonBoundaryOption[];
+  error?: string;
+};
+
 type MappingResponse = {
+  native_json_record_boundaries?: Record<
+    string,
+    NativeJsonBoundaryResult
+  >;
+
   workspace?: string;
 
   client?: string;
@@ -895,21 +912,24 @@ function SchemaMappingSetContent() {
         document.source_kind === "native_json"
     );
 
+  const nativeJsonBoundaryOptions =
+    mappingData?.native_json_record_boundaries || {};
+
   const missingNativeJsonBoundaries =
     nativeJsonDocuments.some((document) => {
-      const value =
-        nativeJsonRecordArrayPaths[
-          document.doc_id
-        ]?.trim() || "";
+      const evidence =
+        nativeJsonBoundaryOptions[document.doc_id];
+
+      const selected =
+        nativeJsonRecordArrayPaths[document.doc_id] || "";
 
       return (
-        !value.startsWith("/") ||
-        value === "/" ||
-        value.endsWith("/") ||
-        value.includes("//")
+        evidence?.status !== "available" ||
+        !evidence.options.some(
+          (option) => option.selection_id === selected
+        )
       );
     });
-
 
   const isAiExtractionHeaderSet =
     (
@@ -2032,7 +2052,7 @@ function SchemaMappingSetContent() {
   async function generateMappedCsvs() {
     if (missingNativeJsonBoundaries) {
       setError(
-        "Enter a valid Record Array Path for every native JSON document."
+        "Select an available approved record boundary for every native JSON document."
       );
       return;
     }
@@ -3341,9 +3361,7 @@ function SchemaMappingSetContent() {
                             </p>
 
                             <p className="text-xs text-slate-500">
-                              Enter the path to the array containing
-                              individual records. Original JSON and
-                              approved field mappings remain unchanged.
+                              Select an available approved JSON record boundary. Original JSON and approved field mappings remain unchanged.
                             </p>
 
                             {nativeJsonDocuments.map((document) => (
@@ -3358,26 +3376,47 @@ function SchemaMappingSetContent() {
                                     : ""}
                                 </span>
 
-                                <input
-                                  type="text"
-                                  value={
-                                    nativeJsonRecordArrayPaths[
-                                      document.doc_id
-                                    ] || ""
-                                  }
-                                  onChange={(event) =>
-                                    setNativeJsonRecordArrayPaths(
-                                      (previous) => ({
-                                        ...previous,
-                                        [document.doc_id]:
-                                          event.target.value,
-                                      })
-                                    )
-                                  }
-                                  placeholder="/collection/people"
-                                  aria-label={`Record Array Path for ${document.doc_id}`}
-                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-white"
-                                />
+                                <select
+    value={
+      nativeJsonRecordArrayPaths[document.doc_id] || ""
+    }
+    onChange={(event) =>
+      setNativeJsonRecordArrayPaths(
+        (previous) => ({
+          ...previous,
+          [document.doc_id]: event.target.value,
+        })
+      )
+    }
+    disabled={
+      !mappingData?.approved_mapping_exists ||
+      nativeJsonBoundaryOptions[document.doc_id]?.status !== "available"
+    }
+    aria-label={`Approved JSON record boundary for ${document.doc_id}`}
+    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white disabled:opacity-50"
+  >
+    <option value="">
+      Select approved JSON record boundary
+    </option>
+
+    {(nativeJsonBoundaryOptions[document.doc_id]?.options || []).map(
+      (option) => (
+        <option
+          key={option.selection_id}
+          value={option.selection_id}
+        >
+          {option.label}
+        </option>
+      )
+    )}
+  </select>
+
+  {nativeJsonBoundaryOptions[document.doc_id]?.status ===
+    "needs_review" && (
+      <p className="mt-1 text-xs text-amber-400">
+        Approved JSON structural evidence requires review.
+      </p>
+    )}
                               </label>
                             ))}
                           </div>

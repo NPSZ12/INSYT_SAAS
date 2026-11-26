@@ -1,4 +1,4 @@
-﻿"""Read approved Cyber2 Mapped CSVs directly for Merge & Dedupe.
+"""Read approved Cyber2 Mapped CSVs directly for Merge & Dedupe.
 
 Does not generate or modify RAW Capture.
 """
@@ -72,14 +72,22 @@ def _validated_native_json_pointers(
         "Invalid native JSON source hash",
     )
 
-    boundary = document.get("record_array_path")
+    _require(
+        "record_array_path" in document,
+        "Native JSON record boundary is missing",
+    )
+
+    boundary = document["record_array_path"]
     pointers = document.get("row_source_pointers")
 
     _require(
-        isinstance(boundary, str)
-        and boundary.startswith("/")
-        and boundary != "/"
-        and not boundary.endswith("/"),
+        boundary is None
+        or (
+            isinstance(boundary, str)
+            and boundary.startswith("/")
+            and boundary != "/"
+            and not boundary.endswith("/")
+        ),
         "Native JSON record boundary is invalid",
     )
 
@@ -89,10 +97,109 @@ def _validated_native_json_pointers(
         "Native JSON row pointer count mismatch",
     )
 
+    # Root record structures retain the existing converter's
+    # sequential source pointers. Do not accept mixed prefixes.
+
+    if boundary is None:
+        source_format = approved_document.get("source_format")
+
+        _require(
+            source_format in {"json", "jsonl", "ndjson"}
+            and document.get("source_format") == source_format,
+            "Native JSON source format mismatch",
+        )
+
+        prefix = ""
+
+        if (
+            source_format == "json"
+            and pointers
+            and pointers[0] == "/records/0"
+        ):
+            prefix = "/records"
+
+    else:
+        prefix = boundary
+
+        # Preserve existing single-parent record pointers.
+        if all(
+            isinstance(pointer, str)
+            and pointer == f"{boundary}/{index}"
+            for index, pointer in enumerate(pointers)
+        ):
+            return pointers
+
+        # Multi-parent record pointers produced by the
+        # existing native JSON converter.
+        source_format = approved_document.get("source_format")
+
+        _require(
+            source_format in {"json", "jsonl", "ndjson"}
+            and document.get("source_format") == source_format,
+            "Native JSON source format mismatch",
+        )
+
+        pattern = re.compile(
+            r"(/records)?/(0|[1-9][0-9]*)"
+            + re.escape(boundary)
+            + r"/(0|[1-9][0-9]*)"
+        )
+
+        previous_parent = -1
+        previous_child = -1
+        container_prefix = None
+
+        for pointer in pointers:
+            _require(
+                isinstance(pointer, str),
+                "Invalid native JSON row pointer",
+            )
+
+            match = pattern.fullmatch(pointer)
+
+            _require(
+                match is not None,
+                "Native JSON row pointer mismatch",
+            )
+
+            current_prefix = match.group(1) or ""
+
+            _require(
+                not current_prefix or source_format == "json",
+                "Native JSON container prefix mismatch",
+            )
+
+            if container_prefix is None:
+                container_prefix = current_prefix
+
+            _require(
+                container_prefix == current_prefix,
+                "Mixed native JSON container prefixes",
+            )
+
+            parent = int(match.group(2))
+            child = int(match.group(3))
+
+            if parent == previous_parent:
+                _require(
+                    child == previous_child + 1,
+                    "Native JSON child record order mismatch",
+                )
+            else:
+                _require(
+                    parent > previous_parent and child == 0,
+                    "Native JSON parent record order mismatch",
+                )
+
+            previous_parent = parent
+            previous_child = child
+
+        return pointers
+
     for index, pointer in enumerate(pointers):
         _require(
             isinstance(pointer, str)
-            and pointer == f"{boundary}/{index}",
+            and pointer == f"{prefix}/{index}",
             "Native JSON row pointer mismatch",
         )
 

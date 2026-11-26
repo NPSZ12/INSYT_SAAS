@@ -1,4 +1,4 @@
-﻿import ast
+import ast
 import unittest
 from pathlib import Path
 
@@ -115,6 +115,126 @@ class NativeJsonMappedProvenanceTests(unittest.TestCase):
                 {"source_kind": "csv"},
                 2,
             )
+
+
+
+class RootJsonProvenanceTests(unittest.TestCase):
+
+    def setUp(self):
+        self.validate, self.error = load_validator()
+
+        self.approved = {
+            "source_kind": "native_json",
+            "source_native_path": "synthetic/native/DOC001.json",
+            "source_sha256": "a" * 64,
+            "source_format": "json",
+        }
+
+        self.document = {
+            **self.approved,
+            "record_array_path": None,
+            "row_source_pointers": ["/0", "/1"],
+        }
+
+    def test_root_object(self):
+        self.document["row_source_pointers"] = ["/0"]
+
+        self.assertEqual(
+            self.validate(self.document, self.approved, 1),
+            ["/0"],
+        )
+
+    def test_root_array(self):
+        self.assertEqual(
+            self.validate(self.document, self.approved, 2),
+            ["/0", "/1"],
+        )
+
+    def test_standard_records_container(self):
+        self.document["row_source_pointers"] = [
+            "/records/0",
+            "/records/1",
+        ]
+
+        self.assertEqual(
+            self.validate(self.document, self.approved, 2),
+            ["/records/0", "/records/1"],
+        )
+
+    def test_jsonl_records(self):
+        self.approved["source_format"] = "jsonl"
+        self.document["source_format"] = "jsonl"
+
+        self.assertEqual(
+            self.validate(self.document, self.approved, 2),
+            ["/0", "/1"],
+        )
+
+    def test_ndjson_records(self):
+        self.approved["source_format"] = "ndjson"
+        self.document["source_format"] = "ndjson"
+
+        self.assertEqual(
+            self.validate(self.document, self.approved, 2),
+            ["/0", "/1"],
+        )
+
+    def test_missing_boundary_metadata_rejected(self):
+        del self.document["record_array_path"]
+
+        with self.assertRaises(self.error):
+            self.validate(self.document, self.approved, 2)
+
+    def test_mixed_root_prefixes_rejected(self):
+        self.document["row_source_pointers"] = [
+            "/0",
+            "/records/1",
+        ]
+
+        with self.assertRaises(self.error):
+            self.validate(self.document, self.approved, 2)
+
+    def test_duplicate_root_pointer_rejected(self):
+        self.document["row_source_pointers"] = [
+            "/0",
+            "/0",
+        ]
+
+        with self.assertRaises(self.error):
+            self.validate(self.document, self.approved, 2)
+
+    def test_misordered_root_pointers_rejected(self):
+        self.document["row_source_pointers"] = [
+            "/1",
+            "/0",
+        ]
+
+        with self.assertRaises(self.error):
+            self.validate(self.document, self.approved, 2)
+
+    def test_source_format_mismatch_rejected(self):
+        self.document["source_format"] = "jsonl"
+
+        with self.assertRaises(self.error):
+            self.validate(self.document, self.approved, 2)
+
+    def test_jsonl_records_container_rejected(self):
+        self.approved["source_format"] = "jsonl"
+        self.document["source_format"] = "jsonl"
+
+        self.document["row_source_pointers"] = [
+            "/records/0",
+            "/records/1",
+        ]
+
+        with self.assertRaises(self.error):
+            self.validate(self.document, self.approved, 2)
+
+    def test_root_source_hash_mismatch_rejected(self):
+        self.document["source_sha256"] = "b" * 64
+
+        with self.assertRaises(self.error):
+            self.validate(self.document, self.approved, 2)
 
 
 if __name__ == "__main__":

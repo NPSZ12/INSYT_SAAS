@@ -1,4 +1,4 @@
-﻿import importlib.util
+import importlib.util
 import sys
 import unittest
 from pathlib import Path
@@ -260,6 +260,186 @@ class NativeJsonProcessingLoaderTests(unittest.TestCase):
                 "native_record_pointer",
                 record["provenance"],
             )
+
+
+
+class RootJsonProcessingLoaderTests(unittest.TestCase):
+
+    def verify_loader(self, data, extension, names, pointers):
+
+        import hashlib
+        from copy import deepcopy
+
+        from app.api.cyber2.json_header_evidence import (
+            discover_json_header_evidence,
+        )
+
+        from app.api.cyber2.json_mapped_preview import (
+            construct_approved_json_csv_rows,
+        )
+
+        fixture = NativeJsonProcessingLoaderTests(
+            "test_real_loader_preserves_native_row_provenance"
+        )
+
+        fixture.setUp()
+
+        source_hash = hashlib.sha256(data).hexdigest()
+
+        evidence = discover_json_header_evidence(
+            data,
+            extension,
+        )
+
+        columns = [
+            {
+                "column_index": index,
+                "json_pointer": field["json_pointer"],
+                "json_kind": "scalar",
+                "source_header": "first_name",
+                "final_header": "First Name (or Initial)",
+                "disposition": "map",
+                "delete_column": False,
+                "mapped_to_protocol": True,
+            }
+            for index, field in enumerate(evidence["fields"])
+            if field["kind"] == "scalar"
+        ]
+
+        fixture.approved_document.update({
+            "source_native_path": (
+                f"synthetic/source/native/{fixture.doc_id}.{extension}"
+            ),
+            "source_sha256": source_hash,
+            "source_format": extension,
+            "source_bytes": len(data),
+            "columns": columns,
+        })
+
+        original_approval = deepcopy(fixture.approved_mapping)
+
+        converted = construct_approved_json_csv_rows(
+            data,
+            extension,
+            fixture.approved_document,
+            ["First Name (or Initial)"],
+            source_hash,
+            record_array_path=None,
+        )
+
+        fixture.document.update({
+            key: value
+            for key, value in converted.items()
+            if key != "rows"
+        })
+
+        fixture.document["status"] = "generated"
+
+        fixture.manifest["total_mapped_rows"] = len(names)
+        fixture.manifest["total_source_rows"] = len(names)
+
+        fixture.read_csv.return_value = (
+            converted["rows"],
+            ",",
+        )
+
+        result = fixture.run_loader()
+
+        self.assertEqual(
+            result["record_count"],
+            len(names),
+        )
+
+        self.assertEqual(
+            len(result["records"]),
+            len(names),
+        )
+
+        for index, record in enumerate(result["records"]):
+
+            provenance = record["provenance"]
+
+            self.assertEqual(
+                record["metadata"]["First Name (or Initial)"],
+                names[index],
+            )
+
+            self.assertEqual(
+                provenance["native_record_pointer"],
+                pointers[index],
+            )
+
+            self.assertEqual(
+                provenance["source_sha256"],
+                source_hash,
+            )
+
+            self.assertEqual(
+                provenance["source_native_path"],
+                fixture.approved_document["source_native_path"],
+            )
+
+            self.assertEqual(
+                provenance["column_lineage"],
+                converted["column_lineage"],
+            )
+
+            self.assertEqual(
+                provenance["capture_source"],
+                "cyber2_mapped_csv",
+            )
+
+        self.assertEqual(
+            len({record["ucid"] for record in result["records"]}),
+            len(names),
+        )
+
+        self.assertEqual(
+            fixture.approved_mapping,
+            original_approval,
+        )
+
+        fixture.read_csv.assert_called_once()
+
+    def test_root_object_loader(self):
+        self.verify_loader(
+            b'{"first_name":"Avery"}',
+            "json",
+            ["Avery"],
+            ["/0"],
+        )
+
+    def test_root_array_loader(self):
+        self.verify_loader(
+            b'[{"first_name":"Avery"},{"first_name":"Jordan"}]',
+            "json",
+            ["Avery", "Jordan"],
+            ["/0", "/1"],
+        )
+
+    def test_records_container_loader(self):
+        self.verify_loader(
+            b'{"records":[{"first_name":"Avery"},{"first_name":"Jordan"}]}',
+            "json",
+            ["Avery", "Jordan"],
+            ["/records/0", "/records/1"],
+        )
+
+    def test_jsonl_loader(self):
+        self.verify_loader(
+            b'{"first_name":"Avery"}\n{"first_name":"Jordan"}\n',
+            "jsonl",
+            ["Avery", "Jordan"],
+            ["/0", "/1"],
+        )
+
+    def test_ndjson_loader(self):
+        self.verify_loader(
+            b'{"first_name":"Avery"}\n{"first_name":"Jordan"}\n',
+            "ndjson",
+            ["Avery", "Jordan"],
+            ["/0", "/1"],
+        )
 
 
 if __name__ == "__main__":

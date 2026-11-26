@@ -1,4 +1,4 @@
-﻿import ast
+import ast
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,17 +88,46 @@ class JsonGeneratorIntegrationTests(unittest.TestCase):
                 {
                     "column_index": 0,
                     "source_header": "first_name",
+                    "json_pointer": "/collection/people/[]/first_name",
+                    "json_kind": "scalar",
                     "final_header": "First Name (or Initial)",
                     "delete_column": False,
                 },
                 {
                     "column_index": 1,
                     "source_header": "batch_key",
+                    "json_pointer": "/collection/people/[]/batch_key",
+                    "json_kind": "scalar",
                     "final_header": "",
                     "delete_column": True,
                 },
             ],
         }
+
+        self.identification["documents"][0].update({
+            "source_sha256": self.approved_document["source_sha256"],
+            "source_native_path": self.approved_document["source_native_path"],
+            "source_format": self.approved_document["source_format"],
+            "identification_status": "COMPLETED",
+            "columns": [
+                dict(column)
+                for column in self.approved_document["columns"]
+            ],
+            "structural_fields": [
+                {
+                    "json_pointer": "/collection",
+                    "json_kind": "object",
+                },
+                {
+                    "json_pointer": "/collection/people",
+                    "json_kind": "array",
+                },
+                {
+                    "json_pointer": "/collection/people/[]",
+                    "json_kind": "object",
+                },
+            ],
+        })
 
         self.approved = {
             "status": "approved",
@@ -528,6 +557,7 @@ class JsonGeneratorIntegrationTests(unittest.TestCase):
             columns.append({
                 "column_index": index,
                 "json_pointer": pointer,
+                "json_kind": "scalar",
                 "source_header": dotted,
                 "disposition": disposition,
                 "final_header": header,
@@ -541,6 +571,27 @@ class JsonGeneratorIntegrationTests(unittest.TestCase):
             "source_sha256": original_hash,
             "source_bytes": len(data),
             "columns": columns,
+        })
+
+        self.identification["documents"][0].update({
+            "source_sha256": original_hash,
+            "source_native_path": self.approved_document["source_native_path"],
+            "source_format": self.approved_document["source_format"],
+            "identification_status": "COMPLETED",
+            "columns": [
+                dict(column)
+                for column in columns
+            ],
+            "structural_fields": [
+                {
+                    "json_pointer": field["json_pointer"],
+                    "json_kind": field["kind"],
+                }
+                for field in discover_json_header_evidence(
+                    data, "json"
+                )["fields"]
+                if field["kind"] != "scalar"
+            ],
         })
 
         self.approved["canonical_column_order"] = [
