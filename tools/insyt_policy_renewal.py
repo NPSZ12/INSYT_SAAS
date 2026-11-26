@@ -696,6 +696,29 @@ def validate_security_installation_publication(
 
             required[name] = "M"
 
+    workflow = '.github/workflows/insyt-release-validation.yml'
+
+    original_workflow = git("show", base + ":" + workflow)
+
+    old_command = b'run: python tools/insyt_hardened_registry_check.py'
+    new_command = b'run: if [ "$GITHUB_BASE_REF" = "policy/insyt-hardened" ]; then python tools/insyt_policy_publication_ci.py; else python tools/insyt_hardened_registry_check.py; fi'
+
+    require(
+        original_workflow.count(old_command) == 1,
+        "Unexpected policy registry command structure",
+    )
+
+    expected_workflow = original_workflow.replace(
+        old_command, new_command, 1
+    )
+
+    require(
+        git("show", target + ":" + workflow) == expected_workflow,
+        "Unauthorized policy CI modification",
+    )
+
+    required[workflow] = "M"
+
     require(
         changed(base, target) == required,
         "Unexpected security policy publication changes",
