@@ -67,7 +67,14 @@ class SignedNewScopeTests(unittest.TestCase):
             ),
         })
 
+        self.baselines = {
+            "approved_release_baseline": f.previous_release,
+            "source_baseline": f.previous_release,
+            "security_installation_verified": False,
+        }
+
         self.evidence = {
+            "approved_release_baseline": f.previous_release,
             "baseline": f.previous_release,
             "candidate_commit": self.application_checkpoint,
             "feature": f.current["feature"],
@@ -136,6 +143,11 @@ class SignedNewScopeTests(unittest.TestCase):
         with (
             patch.object(
                 new_scope,
+                "resolve_release_baselines",
+                return_value=self.baselines,
+            ),
+            patch.object(
+                new_scope,
                 "revision",
                 side_effect=lambda value: value,
             ),
@@ -185,6 +197,76 @@ class SignedNewScopeTests(unittest.TestCase):
     def test_valid_signed_new_scope(self):
 
         self.validate()
+
+    def test_wrong_previous_approved_release_rejected(self):
+
+        self.evidence["approved_release_baseline"] = "7" * 40
+
+        self.denied()
+
+    def test_wrong_resolved_approved_release_rejected(self):
+
+        self.baselines["approved_release_baseline"] = "7" * 40
+
+        self.denied()
+
+    def use_separate_security_baseline(self):
+
+        f = self.fixture
+        installation = "7" * 40
+
+        self.baselines.update({
+            "source_baseline": installation,
+            "security_installation_commit": installation,
+            "security_installation_verified": True,
+        })
+
+        self.evidence["baseline"] = installation
+
+        for component in self.evidence["components"].values():
+            component["baseline"] = installation
+
+        f.current["components"] = copy.deepcopy(
+            self.evidence["components"]
+        )
+
+        f.candidate["components"] = copy.deepcopy(
+            self.evidence["components"]
+        )
+
+        f.deltas[(installation, f.release)] = copy.deepcopy(
+            f.deltas[(f.previous_release, f.release)]
+        )
+
+        f.ancestry.add((installation, f.release))
+        f.ancestry.add((
+            installation,
+            self.application_checkpoint,
+        ))
+
+        self.resign()
+
+    def test_verified_separate_security_baseline_accepted(self):
+
+        self.use_separate_security_baseline()
+
+        self.validate()
+
+    def test_unverified_separate_security_baseline_rejected(self):
+
+        self.use_separate_security_baseline()
+
+        self.baselines["security_installation_verified"] = False
+
+        self.denied()
+
+    def test_wrong_security_installation_identity_rejected(self):
+
+        self.use_separate_security_baseline()
+
+        self.baselines["security_installation_commit"] = "8" * 40
+
+        self.denied()
 
     def test_wrong_verified_baseline_rejected(self):
 

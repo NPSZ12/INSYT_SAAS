@@ -186,6 +186,416 @@ def verify_signature(public, message, signature):
         )
 
 
+def verify_security_installation_signature(base, envelope):
+    """Verify independently signed security installation evidence.
+
+    Security installation approval never authorizes application
+    deployment or establishes successful production deployment.
+    """
+
+    require(
+        SHA40.fullmatch(base),
+        "Invalid security policy baseline",
+    )
+
+    require(
+        isinstance(envelope, dict)
+        and set(envelope) == {"payload", "signature"},
+        "Invalid security installation envelope",
+    )
+
+    payload = envelope["payload"]
+
+    require(
+        isinstance(payload, dict)
+        and set(payload) == {
+            "schema_version",
+            "repository",
+            "transition_type",
+            "previous_policy_commit",
+            "previous_production_commit",
+            "security_installation_commit",
+            "transition_sha256",
+            "registry_sha256",
+            "history_sha256",
+            "production_evidence_sha256",
+            "production_deployment_authorized",
+        },
+        "Unexpected security authorization fields",
+    )
+
+    require(
+        type(payload["schema_version"]) is int
+        and payload["schema_version"] == 1
+        and payload["repository"] == "NPSZ12/INSYT_SAAS"
+        and payload["transition_type"] == "SECURITY_INSTALLATION"
+        and payload["previous_policy_commit"] == base
+        and payload["production_deployment_authorized"] is False,
+        "Invalid security authorization identity",
+    )
+
+    for field in (
+        "previous_production_commit",
+        "security_installation_commit",
+    ):
+        require(
+            isinstance(payload[field], str)
+            and SHA40.fullmatch(payload[field]),
+            "Invalid security transition commit",
+        )
+
+    for field in (
+        "transition_sha256",
+        "registry_sha256",
+        "history_sha256",
+        "production_evidence_sha256",
+    ):
+        require(
+            isinstance(payload[field], str)
+            and SHA256.fullmatch(payload[field]),
+            "Invalid security transition digest",
+        )
+
+    public = git("show", base + ":" + PUBLIC).strip() + b"\n"
+
+    require(
+        hashlib.sha256(public).hexdigest() == TRUSTED_KEY,
+        "Trusted security signing identity changed",
+    )
+
+    signature = base64.b64decode(
+        envelope["signature"],
+        validate=True,
+    )
+
+    verify_signature(
+        public,
+        b"INSYT-SECURITY-INSTALLATION-V1\n" + canonical(payload),
+        signature,
+    )
+
+    return payload
+
+
+def verify_security_installation_transition(
+    base,
+    envelope,
+    transition_bytes,
+    registry_bytes,
+    history_bytes,
+    production_evidence_bytes,
+):
+    """Verify signed security evidence against actual Git content."""
+
+    from insyt_release_transition import source_blob
+    from insyt_protected_source import validate_registry
+
+    payload = verify_security_installation_signature(
+        base,
+        envelope,
+    )
+
+    evidence_files = {
+        "transition_sha256": transition_bytes,
+        "registry_sha256": registry_bytes,
+        "history_sha256": history_bytes,
+        "production_evidence_sha256": production_evidence_bytes,
+    }
+
+    for field, content in evidence_files.items():
+        require(
+            isinstance(content, bytes)
+            and hashlib.sha256(content).hexdigest() == payload[field],
+            "Signed security evidence differs: " + field,
+        )
+
+    transition = json.loads(transition_bytes)
+    registry = json.loads(registry_bytes)
+    history = json.loads(history_bytes)
+    production_evidence = json.loads(production_evidence_bytes)
+
+    production = payload["previous_production_commit"]
+    installation = payload["security_installation_commit"]
+
+    ledger = read_json(base, LEDGER)
+    previous = single_record(ledger)
+
+    require(
+        previous["release_commit"] == production,
+        "Security installation differs from previous approved release",
+    )
+
+    require(
+        transition.get("schema_version") == 1
+        and transition.get("repository") == "NPSZ12/INSYT_SAAS"
+        and transition.get("transition_type") == "SECURITY_INSTALLATION"
+        and transition.get("previous_policy_commit") == base
+        and transition.get("previous_production_commit") == production
+        and transition.get("security_installation_commit") == installation
+        and transition.get("application_source_changed") is False
+        and transition.get("production_deployment_authorized") is False,
+        "Security transition identity differs",
+    )
+
+    require(
+        transition.get("production_evidence_sha256")
+        == payload["production_evidence_sha256"],
+        "Production evidence binding differs",
+    )
+
+    require(
+        production_evidence.get("release_commit") == production
+        and production_evidence.get("previous_policy_commit") == base
+        and production_evidence.get(
+            "production_deployment_authorized"
+        ) is False,
+        "Previous production evidence identity differs",
+    )
+
+    ancestor(production, installation)
+
+    actual = changed(production, installation)
+    observed = {}
+
+    allowed_workflows = {
+        ".github/workflows/insyt-release-validation.yml",
+        ".github/workflows/main_insyt-api-prod-v2.yml",
+        ".github/workflows/main_insyt-app-prod.yml",
+    }
+
+    for entry in transition["files"]:
+
+        name = entry["path"]
+        status = entry["change"]
+
+        require(
+            name not in observed
+            and status in {"A", "M"}
+            and (
+                name in allowed_workflows
+                or (
+                    name.startswith((
+                        "tools/insyt_",
+                        "tools/test_insyt_",
+                    ))
+                    and name.count("/") == 1
+                    and name.endswith(".py")
+                )
+            ),
+            "Unauthorized security installation path",
+        )
+
+        require(
+            source_blob(installation, name)
+            == entry["proposed_blob"],
+            "Proposed security source differs: " + name,
+        )
+
+        if status == "M":
+            require(
+                source_blob(production, name)
+                == entry["previous_blob"],
+                "Previous security source differs: " + name,
+            )
+        else:
+            require(
+                entry["previous_blob"] is None,
+                "Unexpected previous source identity",
+            )
+
+        content = git("show", installation + ":" + name)
+
+        require(
+            hashlib.sha256(content).hexdigest()
+            == entry["sha256"],
+            "Security source digest differs: " + name,
+        )
+
+        observed[name] = status
+
+    require(
+        observed and observed == actual,
+        "Complete security installation inventory differs",
+    )
+
+    # Compare against the independently established previous
+    # protected policy, not candidate-provided history.
+
+    old_registry = read_json(
+        base,
+        PREFIX + "hardened-registry.json",
+    )
+
+    old_history = read_json(
+        base,
+        PREFIX + "hardened-history.json",
+    )
+
+    require(
+        set(registry) == set(old_registry),
+        "Protected registry structure changed",
+    )
+
+    for field in old_registry:
+
+        if field == "protected_source":
+            continue
+
+        require(
+            registry[field] == old_registry[field],
+            "Protected registry requirement changed: " + field,
+        )
+
+    require(
+        set(history) == set(old_history)
+        and history["schema_version"] == old_history["schema_version"],
+        "Protected history structure changed",
+    )
+
+    old_records = {
+        record["path"]: record
+        for record in old_registry["protected_source"]
+    }
+
+    new_records = {
+        record["path"]: record
+        for record in registry["protected_source"]
+    }
+
+    require(
+        len(old_records) == len(old_registry["protected_source"])
+        and len(new_records) == len(registry["protected_source"])
+        and set(old_records) == set(new_records),
+        "Protected source population changed",
+    )
+
+    permitted_updates = {
+        ".github/workflows/main_insyt-api-prod-v2.yml",
+        ".github/workflows/main_insyt-app-prod.yml",
+    }
+
+    for name, old_record in old_records.items():
+
+        new_record = new_records[name]
+
+        if name not in permitted_updates:
+
+            require(
+                new_record == old_record,
+                "Unapproved protected registry change: " + name,
+            )
+
+            continue
+
+        require(
+            set(new_record) == set(old_record),
+            "Protected registry record structure changed",
+        )
+
+        for field in old_record:
+
+            if field not in {"git_blob_sha", "reference_commit"}:
+
+                require(
+                    new_record[field] == old_record[field],
+                    "Protected registry metadata changed",
+                )
+
+        require(
+            new_record["git_blob_sha"]
+            == source_blob(installation, name)
+            and new_record["reference_commit"] == installation,
+            "Protected installation identity differs",
+        )
+
+    old_features = old_history["features"]
+    new_features = history["features"]
+
+    require(
+        set(old_features) == set(new_features),
+        "Protected history population changed",
+    )
+
+    for feature, old_record in old_features.items():
+
+        new_record = new_features[feature]
+
+        require(
+            set(old_record) == set(new_record),
+            "Protected history record structure changed",
+        )
+
+        for field in old_record:
+
+            if field != "versions":
+
+                require(
+                    new_record[field] == old_record[field],
+                    "Protected history metadata changed",
+                )
+
+        old_versions = old_record["versions"]
+        new_versions = new_record["versions"]
+
+        require(
+            new_versions[:len(old_versions)] == old_versions,
+            "Historical protected versions modified or removed",
+        )
+
+        paths = set(old_versions[-1]["source"])
+
+        if not paths.intersection(permitted_updates):
+
+            require(
+                new_versions == old_versions,
+                "Unapproved protected history extension",
+            )
+
+            continue
+
+        expected_versions = list(old_versions)
+        previous_source = old_versions[-1]["source"]
+
+        for checkpoint in (production, installation):
+
+            current_source = {
+                name: source_blob(checkpoint, name)
+                for name in sorted(paths)
+            }
+
+            if current_source != previous_source:
+
+                expected_versions.append({
+                    "version": len(expected_versions) + 1,
+                    "source": current_source,
+                })
+
+                previous_source = current_source
+
+        require(
+            new_versions == expected_versions,
+            "Unexpected protected workflow history",
+        )
+
+    require(
+        validate_registry(
+            registry,
+            history,
+            installation,
+            installation,
+        ) >= 9,
+        "Protected source inventory incomplete",
+    )
+
+    return {
+        "previous_production_commit": production,
+        "security_installation_commit": installation,
+        "previous_policy_commit": base,
+        "security_transition_verified": True,
+        "production_deployment_authorized": False,
+    }
+
+
 def validate_renewal(base, target, release):
     for value in (base, target, release):
         require(SHA40.fullmatch(value), "Invalid commit identity")
@@ -272,10 +682,35 @@ def validate_renewal(base, target, release):
             "Final release scope verification incomplete",
         )
 
+        from insyt_new_scope_validation import (
+            resolve_release_baselines,
+        )
+
+        baselines = resolve_release_baselines(base)
+
         require(
-            evidence["baseline"] == old_release,
+            baselines["approved_release_baseline"] == old_release
+            and evidence.get("approved_release_baseline")
+            == old_release,
+            "Previous approved release identity differs",
+        )
+
+        require(
+            evidence["baseline"] == baselines["source_baseline"],
             "New scope baseline differs from trusted approval",
         )
+
+        if baselines["source_baseline"] != old_release:
+
+            require(
+                baselines.get(
+                    "security_installation_verified"
+                ) is True
+                and baselines.get(
+                    "security_installation_commit"
+                ) == baselines["source_baseline"],
+                "Separate security baseline is not authorized",
+            )
 
         checkpoint = candidate["candidate_commit"]
 

@@ -1,4 +1,4 @@
-﻿"""Permanent new application scope security regressions."""
+"""Permanent new application scope security regressions."""
 
 import copy
 import unittest
@@ -55,6 +55,15 @@ class NewScopeValidationTests(unittest.TestCase):
         }
 
         patches = {
+            "legacy_policy": patch.object(
+                scope,
+                "LEGACY_PREINSTALLATION_POLICY",
+                self.policy,
+            ),
+            "installation_git": patch(
+                "insyt_release_transition.git",
+                return_value=b"",
+            ),
             "revision": patch.object(
                 scope,
                 "revision",
@@ -274,6 +283,273 @@ class NewScopeValidationTests(unittest.TestCase):
 
         with self.assertRaises(TransitionDenied):
             scope.approved_baseline(self.policy)
+
+
+
+class SecurityBaselineResolutionTests(unittest.TestCase):
+
+    def setUp(self):
+
+        import json
+
+        self.policy = "a" * 40
+        self.production = "b" * 40
+        self.installation = "c" * 40
+        self.previous_policy = "d" * 40
+
+        self.prefix = (
+            ".github/insyt-release/security-installation/"
+        )
+
+        self.registry = {"synthetic_registry": True}
+        self.history = {"synthetic_history": True}
+
+        self.documents = {
+            "authorization.json": {
+                "payload": {
+                    "previous_policy_commit":
+                        self.previous_policy,
+                },
+            },
+            "transition.json": {},
+            "registry.json": self.registry,
+            "history.json": self.history,
+            "production-evidence.json": {},
+        }
+
+        self.entries = [
+            self.prefix + name
+            for name in self.documents
+        ]
+
+        self.result = {
+            "previous_production_commit": self.production,
+            "security_installation_commit": self.installation,
+            "previous_policy_commit": self.previous_policy,
+            "security_transition_verified": True,
+            "production_deployment_authorized": False,
+        }
+
+        self.ancestry = []
+
+        def git(*args):
+
+            if args[0] == "ls-tree":
+                return "\n".join(self.entries).encode()
+
+            if args[0] == "show":
+                name = args[1].split(":", 1)[1]
+                name = name.removeprefix(self.prefix)
+                return json.dumps(
+                    self.documents[name]
+                ).encode()
+
+            if args[:2] == (
+                "merge-base", "--is-ancestor"
+            ):
+                self.ancestry.append(args[2:])
+                return b""
+
+            raise AssertionError(
+                "Unexpected Git operation: " + repr(args)
+            )
+
+        def read_policy(commit, path):
+
+            self.assertEqual(commit, self.policy)
+
+            if path.endswith("hardened-registry.json"):
+                return self.registry
+
+            if path.endswith("hardened-history.json"):
+                return self.history
+
+            raise AssertionError("Unexpected policy lookup")
+
+        patches = {
+            "approved": patch.object(
+                scope,
+                "approved_baseline",
+                return_value=self.production,
+            ),
+            "revision": patch.object(
+                scope,
+                "revision",
+                side_effect=lambda value: value,
+            ),
+            "git": patch(
+                "insyt_release_transition.git",
+                side_effect=git,
+            ),
+            "signature": patch(
+                "insyt_policy_renewal."
+                "verify_security_installation_transition",
+                return_value=self.result,
+            ),
+            "policy": patch.object(
+                scope,
+                "read_policy_json",
+                side_effect=read_policy,
+            ),
+        }
+
+        self.mocks = {}
+
+        for name, replacement in patches.items():
+            self.mocks[name] = replacement.start()
+            self.addCleanup(replacement.stop)
+
+    def resolve(self):
+        return scope.resolve_release_baselines(self.policy)
+
+    def test_legacy_policy_without_installation(self):
+
+        self.entries.clear()
+
+        with patch.object(
+            scope,
+            "LEGACY_PREINSTALLATION_POLICY",
+            self.policy,
+        ):
+            result = self.resolve()
+
+        self.assertEqual(
+            result["source_baseline"],
+            self.production,
+        )
+
+        self.assertFalse(
+            result["security_installation_verified"]
+        )
+
+        self.mocks["signature"].assert_not_called()
+
+    def test_verified_installation_is_source_baseline(self):
+
+        result = self.resolve()
+
+        self.assertEqual(
+            result["approved_release_baseline"],
+            self.production,
+        )
+
+        self.assertEqual(
+            result["source_baseline"],
+            self.installation,
+        )
+
+        self.assertTrue(
+            result["security_installation_verified"]
+        )
+
+        self.mocks["signature"].assert_called_once()
+
+    def test_complete_installation_removal_rejected(self):
+
+        self.entries.clear()
+
+        with self.assertRaisesRegex(
+            TransitionDenied,
+            "Required security installation evidence missing",
+        ):
+            self.resolve()
+
+        self.mocks["signature"].assert_not_called()
+
+    def test_partial_installation_evidence_rejected(self):
+
+        self.entries.pop()
+
+        with self.assertRaises(TransitionDenied):
+            self.resolve()
+
+        self.mocks["signature"].assert_not_called()
+
+    def test_unexpected_installation_file_rejected(self):
+
+        self.entries.append(
+            self.prefix + "unexpected.json"
+        )
+
+        with self.assertRaises(TransitionDenied):
+            self.resolve()
+
+    def test_invalid_signature_propagates(self):
+
+        from insyt_policy_renewal import RenewalDenied
+
+        self.mocks["signature"].side_effect = (
+            RenewalDenied("Invalid signature")
+        )
+
+        with self.assertRaises(RenewalDenied):
+            self.resolve()
+
+    def test_unverified_installation_rejected(self):
+
+        self.result["security_transition_verified"] = False
+
+        with self.assertRaises(TransitionDenied):
+            self.resolve()
+
+    def test_deployment_authority_claim_rejected(self):
+
+        self.result[
+            "production_deployment_authorized"
+        ] = True
+
+        with self.assertRaises(TransitionDenied):
+            self.resolve()
+
+    def test_modified_published_registry_rejected(self):
+
+        self.documents["registry.json"] = {
+            "modified": True
+        }
+
+        with self.assertRaises(TransitionDenied):
+            self.resolve()
+
+    def test_modified_published_history_rejected(self):
+
+        self.documents["history.json"] = {
+            "modified": True
+        }
+
+        with self.assertRaises(TransitionDenied):
+            self.resolve()
+
+    def test_later_approved_release_uses_its_own_baseline(self):
+
+        later = "e" * 40
+
+        self.mocks["approved"].return_value = later
+
+        result = self.resolve()
+
+        self.assertEqual(
+            result["source_baseline"],
+            later,
+        )
+
+        self.assertEqual(
+            result["approved_release_baseline"],
+            later,
+        )
+
+        self.assertIn(
+            (self.installation, later),
+            self.ancestry,
+        )
+
+    def test_git_lookup_failure_is_not_missing_evidence(self):
+
+        self.mocks["git"].side_effect = (
+            TransitionDenied("Git lookup failed")
+        )
+
+        with self.assertRaises(TransitionDenied):
+            self.resolve()
 
 
 if __name__ == "__main__":

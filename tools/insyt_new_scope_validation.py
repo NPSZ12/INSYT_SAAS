@@ -65,6 +65,145 @@ def approved_baseline(policy_commit):
     return revision(baseline)
 
 
+# Historical policy compatibility only.
+# Subsequent policy revisions require signed installation evidence.
+
+LEGACY_PREINSTALLATION_POLICY = (
+    "6b2355f63923e4957724f480cfbb0b1f3a7346bc"
+)
+
+
+def resolve_release_baselines(policy_commit):
+    """Resolve approved release and separately signed source installation.
+
+    A security installation never establishes production deployment.
+    """
+
+    import json
+
+    from insyt_release_transition import git
+
+    from insyt_policy_renewal import (
+        verify_security_installation_transition,
+    )
+
+    approved = approved_baseline(policy_commit)
+
+    prefix = ".github/insyt-release/security-installation/"
+
+    entries = git(
+        "ls-tree", "-r", "--name-only",
+        policy_commit,
+        "--", prefix,
+    ).decode("utf-8").splitlines()
+
+    if not entries:
+
+        require(
+            policy_commit == LEGACY_PREINSTALLATION_POLICY,
+            "Required security installation evidence missing",
+        )
+
+        return {
+            "approved_release_baseline": approved,
+            "source_baseline": approved,
+            "security_installation_verified": False,
+        }
+
+    required = {
+        prefix + "authorization.json",
+        prefix + "transition.json",
+        prefix + "registry.json",
+        prefix + "history.json",
+        prefix + "production-evidence.json",
+    }
+
+    require(
+        set(entries) == required,
+        "Incomplete or unexpected security installation evidence",
+    )
+
+    def read_bytes(name):
+
+        return git(
+            "show",
+            policy_commit + ":" + prefix + name,
+        )
+
+    envelope = json.loads(
+        read_bytes("authorization.json")
+    )
+
+    base = envelope["payload"]["previous_policy_commit"]
+
+    revision(base)
+
+    git(
+        "merge-base",
+        "--is-ancestor",
+        base,
+        policy_commit,
+    )
+
+    result = verify_security_installation_transition(
+        base,
+        envelope,
+        read_bytes("transition.json"),
+        read_bytes("registry.json"),
+        read_bytes("history.json"),
+        read_bytes("production-evidence.json"),
+    )
+
+    require(
+        result.get("security_transition_verified") is True
+        and result.get(
+            "production_deployment_authorized"
+        ) is False,
+        "Security installation authorization incomplete",
+    )
+
+    installation = result["security_installation_commit"]
+    previous = result["previous_production_commit"]
+
+    require(
+        read_policy_json(
+            policy_commit,
+            ".github/insyt-release/hardened-registry.json",
+        ) == json.loads(read_bytes("registry.json")),
+        "Published registry differs from signed registry",
+    )
+
+    require(
+        read_policy_json(
+            policy_commit,
+            ".github/insyt-release/hardened-history.json",
+        ) == json.loads(read_bytes("history.json")),
+        "Published history differs from signed history",
+    )
+
+    if approved == previous:
+
+        source_baseline = installation
+
+    else:
+
+        git(
+            "merge-base",
+            "--is-ancestor",
+            installation,
+            approved,
+        )
+
+        source_baseline = approved
+
+    return {
+        "approved_release_baseline": approved,
+        "source_baseline": source_baseline,
+        "security_installation_verified": True,
+        "security_installation_commit": installation,
+    }
+
+
 def prepare_scope(policy_commit, candidate, feature):
 
     require(
@@ -73,7 +212,8 @@ def prepare_scope(policy_commit, candidate, feature):
         "Invalid application feature identity",
     )
 
-    baseline = approved_baseline(policy_commit)
+    baselines = resolve_release_baselines(policy_commit)
+    baseline = baselines["source_baseline"]
 
     transition = inspect_transition(
         baseline,
@@ -138,7 +278,8 @@ def verify_new_scope(policy_commit, proposed):
         "Proposed scope differs from exact Git transition",
     )
 
-    baseline = approved_baseline(policy_commit)
+    baselines = resolve_release_baselines(policy_commit)
+    baseline = baselines["source_baseline"]
 
     count = verify_protected_source(
         policy_commit,
@@ -154,6 +295,9 @@ def verify_new_scope(policy_commit, proposed):
     return {
         "policy_commit": policy_commit,
         "baseline": baseline,
+        "approved_release_baseline": baselines[
+            "approved_release_baseline"
+        ],
         "candidate_commit": candidate,
         "feature": feature,
         "components": transition["components"],

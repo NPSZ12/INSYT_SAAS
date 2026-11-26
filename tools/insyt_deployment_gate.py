@@ -444,6 +444,104 @@ def verify_approved_source_scope(candidate, policy, sha):
     return blobs
 
 
+def resolve_previous_signed_policy(signed_policy_commit):
+    """Resolve the parent of the authenticated approval checkpoint."""
+
+    if not SHA40.fullmatch(signed_policy_commit):
+        stop("Invalid signed policy checkpoint")
+
+    from insyt_release_transition import (
+        revision,
+        changed_paths,
+    )
+
+    revision(signed_policy_commit)
+
+    parents = git(
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        signed_policy_commit,
+    ).split()
+
+    if (
+        len(parents) != 2
+        or parents[0] != signed_policy_commit
+        or not SHA40.fullmatch(parents[1])
+    ):
+        stop("Signed policy checkpoint ancestry invalid")
+
+    previous = parents[1]
+
+    revision(previous)
+
+    if changed_paths(
+        previous,
+        signed_policy_commit,
+    ) != {
+        ".github/insyt-release/approved-feature-scopes.json": "M",
+    }:
+        stop("Unexpected signed approval checkpoint scope")
+
+    return previous
+
+
+def verify_trusted_deployment_baseline(
+    candidate,
+    previous_policy_commit,
+):
+    """Verify release baseline against independently trusted policy."""
+
+    from insyt_new_scope_validation import (
+        resolve_release_baselines,
+    )
+
+    baselines = resolve_release_baselines(
+        previous_policy_commit,
+    )
+
+    approved = baselines["approved_release_baseline"]
+    source = baselines["source_baseline"]
+
+    if not SHA40.fullmatch(approved):
+        stop("Invalid previous approved release")
+
+    if not SHA40.fullmatch(source):
+        stop("Invalid trusted source baseline")
+
+    if source != approved:
+
+        if (
+            baselines.get(
+                "security_installation_verified"
+            ) is not True
+            or baselines.get(
+                "security_installation_commit"
+            ) != source
+        ):
+            stop("Separate deployment source baseline unauthorized")
+
+    components = candidate.get("components")
+
+    if (
+        not isinstance(components, dict)
+        or set(components) != {"api", "frontend"}
+    ):
+        stop("Invalid deployment component inventory")
+
+    for component in components.values():
+
+        if component.get("baseline") != source:
+            stop("Deployment baseline differs from trusted policy")
+
+    return {
+        "approved_release_baseline": approved,
+        "source_baseline": source,
+        "deployment_baseline_verified": True,
+    }
+
+
 def verify_complete_release_scope(
     candidate,
     release_commit,
@@ -665,6 +763,45 @@ def main():
         release_commit=sha,
         component=args.component,
     )
+
+    if result.get("evidence_verified") is not True:
+        stop("Release evidence incomplete")
+
+    previous_policy = resolve_previous_signed_policy(
+        approved_policy_sha,
+    )
+
+    baseline_evidence = verify_trusted_deployment_baseline(
+        candidate,
+        previous_policy,
+    )
+
+    if baseline_evidence.get(
+        "deployment_baseline_verified"
+    ) is not True:
+        stop("Trusted deployment baseline verification failed")
+
+    from insyt_new_scope_validation import verify_release_candidate
+
+    verified_scope = verify_release_candidate(
+        previous_policy,
+        sha,
+    )
+
+    if (
+        verified_scope.get("release_source_verified") is not True
+        or verified_scope.get("scope_verified") is not True
+        or verified_scope.get("release_commit") != sha
+        or verified_scope.get("source_blobs") != blobs
+        or verified_scope.get("baseline")
+            != baseline_evidence["source_baseline"]
+        or verified_scope.get("approved_release_baseline")
+            != baseline_evidence["approved_release_baseline"]
+        or verified_scope.get(
+            "production_deployment_authorized"
+        ) is not False
+    ):
+        stop("Trusted final release scope verification failed")
 
     # Independently verify the complete application transition
     # after cryptographic source and artifact authorization.
