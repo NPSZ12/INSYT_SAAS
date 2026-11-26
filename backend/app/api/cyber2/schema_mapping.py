@@ -1023,6 +1023,20 @@ def _generate_mapped_document_rows(
         ),
     }
 
+def _approved_json_boundary_options(approved_mapping, identification):
+    from app.api.cyber2.json_record_boundaries import (
+        approved_record_boundary_options,
+    )
+
+    try:
+        return approved_record_boundary_options(approved_mapping, identification)
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail="Approved JSON mapping evidence is invalid.",
+        )
+
+
 @router.get(
     "/{workspace}/cyber2/"
     "header-sets/{header_set_id}/mapping"
@@ -1122,6 +1136,10 @@ def get_cyber2_header_mapping(
 
         "approved_mapping": (
             approved_mapping
+        ),
+
+        "native_json_record_boundaries": (
+            _approved_json_boundary_options(approved_mapping, identification)
         ),
 
         "approved_mapping_exists": (
@@ -2592,16 +2610,39 @@ def generate_cyber2_mapped_csvs(
                         "Approved native Doc ID is absent from identification."
                     )
 
-                record_array_path = request.record_array_paths.get(doc_id)
-
-                if (
-                    not isinstance(record_array_path, str)
-                    or not record_array_path.startswith("/")
-                    or record_array_path == "/"
-                ):
+                if doc_id not in request.record_array_paths:
                     raise ValueError(
-                        "Explicit native JSON record-array path is required."
+                        "Explicit native JSON record boundary selection is required."
                     )
+
+                selected_boundary = request.record_array_paths[doc_id]
+
+                from app.api.cyber2.json_record_boundaries import (
+                    approved_record_boundary_options,
+                )
+
+                boundary_result = approved_record_boundary_options(
+                    {"documents": [approved_document]},
+                    source_identification,
+                ).get(doc_id, {})
+
+                if boundary_result.get("status") != "available":
+                    raise ValueError(
+                        boundary_result.get("error")
+                        or "Approved JSON structural evidence unavailable."
+                    )
+
+                approved_boundaries = {
+                    option["selection_id"]: option["record_array_path"]
+                    for option in boundary_result["options"]
+                }
+
+                if selected_boundary not in approved_boundaries:
+                    raise ValueError(
+                        "Selected native JSON record boundary is not available."
+                    )
+
+                record_array_path = approved_boundaries[selected_boundary]
 
                 native_bytes = _read_verified_native_json_for_mapping(
                     workspace=workspace,
