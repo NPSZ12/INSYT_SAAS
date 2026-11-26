@@ -1,35 +1,31 @@
 {
   "schema_version": 1,
-  "feature": "cyber2-native-json",
+  "feature": "json-mapping-selection-upgrade",
   "status": "PENDING_REVIEW_NOT_APPROVED",
-  "candidate_commit": "728c2e17848d53f88ce7336f61ccac94ad68a1bd",
+  "production_deployment_authorized": false,
+  "candidate_commit": "1c419e194ec847093d591ebcfe189743a1bb61c7",
   "components": {
     "api": {
-      "baseline": "32481b715ddd3d951b5de91592df00a3c8bd854e",
+      "baseline": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
       "root": "backend/",
       "changes": {
-        "backend/app/api/cyber2/json_duplicate_headers.py": "M",
-        "backend/app/api/cyber2/json_mapped_preview.py": "M",
+        "backend/app/api/cyber2/json_record_boundaries.py": "A",
         "backend/app/api/cyber2/schema_mapping.py": "M",
-        "backend/app/api/cyber2/test_json_generator_integration.py": "A",
-        "backend/app/api/cyber2/test_json_mapped_preview.py": "M",
-        "backend/app/api/cyber2/test_json_native_source_reader.py": "A",
-        "backend/app/services/cyber2/c2_origin_authorization.py": "M",
-        "backend/app/services/cyber2/c2_origin_receipt.py": "M",
+        "backend/app/api/cyber2/test_json_generator_integration.py": "M",
+        "backend/app/api/cyber2/test_json_multiparent_handoff.py": "A",
+        "backend/app/api/cyber2/test_json_record_boundaries.py": "A",
+        "backend/app/api/cyber2/test_json_root_handoff.py": "A",
         "backend/app/services/cyber2/mapped_processing_set.py": "M",
-        "backend/app/services/cyber2/test_json_mapped_provenance.py": "A",
-        "backend/app/services/cyber2/test_json_origin_authorization.py": "A",
-        "backend/app/services/cyber2/test_json_origin_receipt.py": "A",
-        "backend/app/services/cyber2/test_json_processing_loader_integration.py": "A"
+        "backend/app/services/cyber2/test_json_mapped_provenance.py": "M",
+        "backend/app/services/cyber2/test_json_processing_loader_integration.py": "M"
       }
     },
     "frontend": {
-      "baseline": "5a7dd0339baf0579e303b032fdcd31f79f764102",
+      "baseline": "bc6ab1ee82c303be33d9674d199bffcc91224d86",
       "root": "frontend/",
       "changes": {
         "frontend/src/app/cyber-utility/schema-mapping/set/page.tsx": "M"
       }
     }
-  },
-  "production_deployment_authorized": false
+  }
 }
