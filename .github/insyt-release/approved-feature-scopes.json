@@ -1,54 +1,46 @@
 {
   "approved_scopes": [
     {
-      "approval_id": "INSYT-JSON-F60598571BAD",
+      "approval_id": "INSYT-JSON-6747BDA2398A",
       "approval_status": "APPROVED",
-      "candidate_commit": "728c2e17848d53f88ce7336f61ccac94ad68a1bd",
+      "feature": "json-mapping-selection-upgrade",
+      "candidate_commit": "7035b9ba10ffcbfe12fa7dd01ea69f8e7ad702f3",
+      "release_commit": "6747bda2398a176c5536f595afcc55380732fa36",
       "components": {
         "api": {
-          "baseline": "32481b715ddd3d951b5de91592df00a3c8bd854e",
+          "baseline": "6d20a208879aecd3eabd2d3bbcb2c86858a4b1ce",
+          "root": "backend/",
           "changes": {
-            "backend/app/api/cyber2/json_duplicate_headers.py": "M",
-            "backend/app/api/cyber2/json_mapped_preview.py": "M",
+            "backend/app/api/cyber2/json_record_boundaries.py": "A",
             "backend/app/api/cyber2/schema_mapping.py": "M",
-            "backend/app/api/cyber2/test_json_generator_integration.py": "A",
-            "backend/app/api/cyber2/test_json_mapped_preview.py": "M",
-            "backend/app/api/cyber2/test_json_native_source_reader.py": "A",
-            "backend/app/services/cyber2/c2_origin_authorization.py": "M",
-            "backend/app/services/cyber2/c2_origin_receipt.py": "M",
+            "backend/app/api/cyber2/test_json_generator_integration.py": "M",
+            "backend/app/api/cyber2/test_json_multiparent_handoff.py": "A",
+            "backend/app/api/cyber2/test_json_record_boundaries.py": "A",
+            "backend/app/api/cyber2/test_json_root_handoff.py": "A",
             "backend/app/services/cyber2/mapped_processing_set.py": "M",
-            "backend/app/services/cyber2/test_json_mapped_provenance.py": "A",
-            "backend/app/services/cyber2/test_json_origin_authorization.py": "A",
-            "backend/app/services/cyber2/test_json_origin_receipt.py": "A",
-            "backend/app/services/cyber2/test_json_processing_loader_integration.py": "A"
-          },
-          "root": "backend/"
+            "backend/app/services/cyber2/test_json_mapped_provenance.py": "M",
+            "backend/app/services/cyber2/test_json_processing_loader_integration.py": "M"
+          }
         },
         "frontend": {
-          "baseline": "5a7dd0339baf0579e303b032fdcd31f79f764102",
+          "baseline": "6d20a208879aecd3eabd2d3bbcb2c86858a4b1ce",
+          "root": "frontend/",
           "changes": {
             "frontend/src/app/cyber-utility/schema-mapping/set/page.tsx": "M"
-          },
-          "root": "frontend/"
+          }
         }
       },
-      "feature": "cyber2-native-json",
-      "release_commit": "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
       "source_blobs": {
-        "backend/app/api/cyber2/json_duplicate_headers.py": "7229cc8fc3ec72fd2cc3b25db8b51c696b5b0cfd",
-        "backend/app/api/cyber2/json_mapped_preview.py": "f083b84d29ae11f056e32628fb3aad42ce6ed171",
-        "backend/app/api/cyber2/schema_mapping.py": "15eb995972e78d1409dc240c9034e56e4bbc6fce",
-        "backend/app/api/cyber2/test_json_generator_integration.py": "189554150fa27f29edad7111008603dc700597d4",
-        "backend/app/api/cyber2/test_json_mapped_preview.py": "ac9e3bdc6b38991b0e9731af06f80f9763527b44",
-        "backend/app/api/cyber2/test_json_native_source_reader.py": "08970aba5861e23b367ab5a50cf15c7817a54d97",
-        "backend/app/services/cyber2/c2_origin_authorization.py": "2b93da9e0bd654a43ed7bd3edc277739028b2112",
-        "backend/app/services/cyber2/c2_origin_receipt.py": "72f03f55fe57fd2568e4aee0bb5bff974d093ce2",
-        "backend/app/services/cyber2/mapped_processing_set.py": "33e9643b5dba11954eb9866eb77d077d006cb8e1",
-        "backend/app/services/cyber2/test_json_mapped_provenance.py": "2052ec419b95184fa3f4745c8510a2f0364e1a12",
-        "backend/app/services/cyber2/test_json_origin_authorization.py": "484dc0aca343b6c9599549deb321e31b7cf71cc8",
-        "backend/app/services/cyber2/test_json_origin_receipt.py": "ce866490584e09a29901c483dfa349b2c17283cf",
-        "backend/app/services/cyber2/test_json_processing_loader_integration.py": "014d6838dfc490b80467a144a46b2c8a300c4196",
-        "frontend/src/app/cyber-utility/schema-mapping/set/page.tsx": "68ae0a2477140971bb9dd8a715ec5c5aa15ca020"
+        "backend/app/api/cyber2/json_record_boundaries.py": "8411c32fa93687ece24eb96b4d03b5d9f213868f",
+        "backend/app/api/cyber2/schema_mapping.py": "e72efe0237980e704925b68763ffa0e0380c8856",
+        "backend/app/api/cyber2/test_json_generator_integration.py": "7854c8712876886fd964755028f574704d2a77fc",
+        "backend/app/api/cyber2/test_json_multiparent_handoff.py": "72ea155856ecad29c78e4b878432a97eb90ed529",
+        "backend/app/api/cyber2/test_json_record_boundaries.py": "a94e680cd203f10b92f1875119b02fa2207e1535",
+        "backend/app/api/cyber2/test_json_root_handoff.py": "50ca253e1c60180e0b5c6bcbf97da25cf5fc85e0",
+        "backend/app/services/cyber2/mapped_processing_set.py": "e2f33eb1eb389a57fc98262cebbd08b8685949d6",
+        "backend/app/services/cyber2/test_json_mapped_provenance.py": "657ee8643bafc9b34a1f3416b8947d357d01996c",
+        "backend/app/services/cyber2/test_json_processing_loader_integration.py": "a005c479ce7401f820d8d2a3ba1966fe4dac1440",
+        "frontend/src/app/cyber-utility/schema-mapping/set/page.tsx": "d524daec43483f805610516e5c8f2b6048b218a2"
       }
     }
   ],
