@@ -596,6 +596,142 @@ def verify_security_installation_transition(
     }
 
 
+def validate_security_installation_publication(
+    base,
+    target,
+    installation,
+):
+    """Validate security publication without authorizing deployment."""
+
+    for commit in (base, target, installation):
+        require(
+            SHA40.fullmatch(commit),
+            "Invalid security publication commit",
+        )
+
+    ancestor(base, target)
+
+    root = PREFIX + "security-installation/"
+
+    files = {
+        "authorization.json",
+        "transition.json",
+        "registry.json",
+        "history.json",
+        "production-evidence.json",
+    }
+
+    required = {
+        root + name: "A"
+        for name in files
+    }
+
+    required.update({
+        PREFIX + "hardened-registry.json": "M",
+        PREFIX + "hardened-history.json": "M",
+    })
+
+    def content(name):
+        return git("show", target + ":" + root + name)
+
+    envelope = json.loads(
+        content("authorization.json")
+    )
+
+    result = verify_security_installation_transition(
+        base,
+        envelope,
+        content("transition.json"),
+        content("registry.json"),
+        content("history.json"),
+        content("production-evidence.json"),
+    )
+
+    require(
+        result.get("security_transition_verified") is True
+        and result.get("security_installation_commit")
+        == installation
+        and result.get("production_deployment_authorized")
+        is False,
+        "Security publication authorization incomplete",
+    )
+
+    # Install only the explicitly reviewed validator chain.
+    # Its bytes must match the signed installation commit.
+
+    validators = {
+        "tools/insyt_policy_renewal.py",
+        "tools/insyt_policy_publication_ci.py",
+        "tools/insyt_release_transition.py",
+        "tools/insyt_new_scope_validation.py",
+        "tools/insyt_protected_source.py",
+    }
+
+    for name in sorted(validators):
+
+        proposed = git("show", target + ":" + name)
+
+        reviewed = git(
+            "show",
+            installation + ":" + name,
+        )
+
+        require(
+            proposed == reviewed,
+            "Published validator differs from signed installation",
+        )
+
+        existing = git(
+            "ls-tree",
+            base,
+            "--",
+            name,
+        )
+
+        if not existing:
+
+            required[name] = "A"
+
+        elif git("show", base + ":" + name) != proposed:
+
+            required[name] = "M"
+
+    require(
+        changed(base, target) == required,
+        "Unexpected security policy publication changes",
+    )
+
+    for name in (LEDGER, PUBLIC):
+
+        require(
+            git("show", base + ":" + name)
+            == git("show", target + ":" + name),
+            "Existing approval or signing identity changed",
+        )
+
+    require(
+        git(
+            "show",
+            target + ":" + PREFIX + "hardened-registry.json",
+        ) == content("registry.json"),
+        "Published protected registry differs",
+    )
+
+    require(
+        git(
+            "show",
+            target + ":" + PREFIX + "hardened-history.json",
+        ) == content("history.json"),
+        "Published protected history differs",
+    )
+
+    return {
+        **result,
+        "security_publication_verified": True,
+        "production_deployment_authorized": False,
+    }
+
+
 def validate_renewal(base, target, release):
     for value in (base, target, release):
         require(SHA40.fullmatch(value), "Invalid commit identity")

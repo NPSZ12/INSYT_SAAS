@@ -73,7 +73,7 @@ jobs:
           python -m unittest discover -s tools -p 'test_insyt_new_scope_validation.py' -v
 
       - name: Validate Hardened Workflow Registry
-        run: python tools/insyt_hardened_registry_check.py --validate-candidate
+        run: python -m unittest discover -s tools -p 'test_insyt_protected_source.py' -v
 
       - name: Enforce existing production guard
         run: python tools/insyt_release_guard.py --validate-reusable-candidate

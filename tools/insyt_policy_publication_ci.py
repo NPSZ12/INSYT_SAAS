@@ -319,8 +319,238 @@ def validate_bootstrap(base, target, release):
     print("BOOTSTRAP VALIDATION ONLY - INDEPENDENT REVIEW REQUIRED")
 
 
+SECURITY_INSTALLATION_BASE = (
+    "6b2355f63923e4957724f480cfbb0b1f3a7346bc"
+)
+
+SECURITY_INSTALLATION_ROOT = (
+    ".github/insyt-release/security-installation/"
+)
+
+
+def is_security_installation_publication(base, target):
+
+    previous = git(
+        "ls-tree", "-r", "--name-only",
+        base,
+        "--",
+        SECURITY_INSTALLATION_ROOT,
+    )
+
+    proposed = git(
+        "ls-tree", "-r", "--name-only",
+        target,
+        "--",
+        SECURITY_INSTALLATION_ROOT,
+    )
+
+    if previous:
+
+        require(
+            proposed == previous,
+            "Security installation evidence inventory changed",
+        )
+
+        return False
+
+    if not proposed:
+        return False
+
+    require(
+        base == SECURITY_INSTALLATION_BASE,
+        "Unexpected initial security installation baseline",
+    )
+
+    required = {
+        SECURITY_INSTALLATION_ROOT + name
+        for name in (
+            "authorization.json",
+            "transition.json",
+            "registry.json",
+            "history.json",
+            "production-evidence.json",
+        )
+    }
+
+    require(
+        set(proposed.decode("utf-8").splitlines()) == required,
+        "Incomplete security installation publication",
+    )
+
+    return True
+
+
+def validate_security_bootstrap(base, target, release):
+    """Authenticate installation before executing its validator."""
+
+    require(
+        base == SECURITY_INSTALLATION_BASE,
+        "Unexpected security installation baseline",
+    )
+
+    require(
+        release == "f60598571badd4b1d52cc9c607e75a26bbd45fb4",
+        "Unexpected previous production release",
+    )
+
+    import sys
+
+    with tempfile.TemporaryDirectory(
+        prefix="insyt-security-bootstrap-"
+    ) as folder:
+
+        trusted = Path(folder)
+
+        previous = git(
+            "show",
+            base + ":tools/insyt_policy_renewal.py",
+        )
+
+        (trusted / "previous_renewal.py").write_bytes(previous)
+
+        runner = trusted / "bootstrap_runner.py"
+
+        runner.write_text(
+            """
+import base64
+import hashlib
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+trusted = Path(__file__).resolve().parent
+sys.path.insert(0, str(trusted))
+
+import previous_renewal as previous
+
+root = Path(sys.argv[1]).resolve()
+base, target, release = sys.argv[2:5]
+
+previous.ROOT = root
+
+def git(*args):
+    return subprocess.check_output(
+        ["git", *args], cwd=root
+    )
+
+prefix = ".github/insyt-release/security-installation/"
+
+envelope = json.loads(
+    git("show", target + ":" + prefix + "authorization.json")
+)
+
+previous.require(
+    set(envelope) == {"payload", "signature"},
+    "Invalid authorization envelope",
+)
+
+payload = envelope["payload"]
+
+installation = payload["security_installation_commit"]
+
+previous.require(
+    re.fullmatch(r"[0-9a-f]{40}", installation)
+    and payload["previous_policy_commit"] == base
+    and payload["previous_production_commit"] == release
+    and payload["repository"] == "NPSZ12/INSYT_SAAS"
+    and payload["transition_type"] == "SECURITY_INSTALLATION"
+    and payload["production_deployment_authorized"] is False,
+    "Invalid bootstrap identity",
+)
+
+public = git(
+    "show", base + ":" + previous.PUBLIC
+).strip() + bytes([10])
+
+previous.require(
+    hashlib.sha256(public).hexdigest() == previous.TRUSTED_KEY,
+    "Trusted signing identity changed",
+)
+
+previous.verify_signature(
+    public,
+    b"INSYT-SECURITY-INSTALLATION-V1"
+    + bytes([10])
+    + previous.canonical(payload),
+    base64.b64decode(envelope["signature"], validate=True),
+)
+
+print("PASS: Independent installation signature verified")
+
+modules = (
+    "insyt_release_transition.py",
+    "insyt_protected_source.py",
+    "insyt_new_scope_validation.py",
+    "insyt_policy_renewal.py",
+)
+
+for name in modules + ("insyt_policy_publication_ci.py",):
+
+    path = "tools/" + name
+
+    reviewed = git("show", installation + ":" + path)
+    proposed = git("show", target + ":" + path)
+
+    previous.require(
+        reviewed == proposed,
+        "Published validator differs from signed installation",
+    )
+
+    (trusted / name).write_bytes(reviewed)
+
+import insyt_release_transition as transition
+import insyt_protected_source as protected
+import insyt_new_scope_validation as scope
+import insyt_policy_renewal as renewal
+
+transition.ROOT = root
+renewal.ROOT = root
+
+result = renewal.validate_security_installation_publication(
+    base, target, installation
+)
+
+previous.require(
+    result["security_publication_verified"] is True
+    and result["production_deployment_authorized"] is False,
+    "Security publication verification failed",
+)
+
+print("PASS: Exact signed security publication verified")
+print("SECURITY INSTALLATION ONLY - NO DEPLOYMENT AUTHORIZATION")
+""",
+            encoding="utf-8",
+        )
+
+        environment = os.environ.copy()
+        environment.pop("PYTHONPATH", None)
+        environment.pop("PYTHONHOME", None)
+
+        result = subprocess.run(
+            [
+                sys.executable, "-I", "-B",
+                str(runner), str(ROOT),
+                base, target, release,
+            ],
+            cwd=trusted,
+            env=environment,
+        )
+
+        require(
+            result.returncode == 0,
+            "Authenticated security bootstrap failed",
+        )
+
+
 def main():
     base, target, release = load_trusted_context()
+
+    if is_security_installation_publication(base, target):
+
+        validate_security_bootstrap(base, target, release)
+        return
 
     result = subprocess.run(
         ["git", "cat-file", "-e", base + ":" + VALIDATOR],

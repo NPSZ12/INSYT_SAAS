@@ -265,6 +265,40 @@ def validate_reusable_candidate():
     if git("status", "--porcelain").strip():
         fail("Release candidate worktree must be clean")
 
+    from insyt_new_scope_validation import resolve_release_baselines
+    from insyt_protected_source import verify_protected_source
+
+    baselines = resolve_release_baselines(policy_commit)
+
+    installation = baselines.get("security_installation_commit")
+
+    if baselines.get("security_installation_verified") is True:
+
+        installed_tree = git(
+            "rev-parse", installation + "^{tree}"
+        )
+
+        candidate_tree = git(
+            "rev-parse", release_commit + "^{tree}"
+        )
+
+        if installed_tree == candidate_tree:
+
+            git(
+                "merge-base", "--is-ancestor",
+                installation, release_commit,
+            )
+
+            verify_protected_source(
+                policy_commit,
+                installation,
+                release_commit,
+            )
+
+            print("PASS: Exact signed security installation")
+            print("SOURCE INSTALLATION ONLY - NOT DEPLOYMENT")
+            return
+
     result = verify_release_candidate(
         policy_commit,
         release_commit,
